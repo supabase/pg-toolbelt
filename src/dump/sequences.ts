@@ -10,7 +10,6 @@ export type SequenceDefinition = {
   increment: number;
   cycle: boolean;
   cache_size: number;
-  // Remove ownership fields
 };
 
 export async function extractSequences(
@@ -71,7 +70,6 @@ export function serializeSequences(sequences: SequenceDefinition[]): string {
       parts.push("no cycle");
     }
 
-    // Remove ownership handling
     return parts.join("\n  ");
   });
 
