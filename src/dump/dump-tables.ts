@@ -16,7 +16,9 @@ export type TableDefinition = {
   columns: ColumnDefinition[];
 };
 
-export async function dumpTables(db: PGClient): Promise<TableDefinition[]> {
+export async function extractTableDefinitions(
+  db: PGClient,
+): Promise<TableDefinition[]> {
   const tables = await db.sql<TableDefinition>`
     select 
       n.nspname as schema_name,
@@ -52,7 +54,7 @@ export async function dumpTables(db: PGClient): Promise<TableDefinition[]> {
   return tables.rows;
 }
 
-export function serializeTables(tables: TableDefinition[]): string {
+export function serializeTableDefinitions(tables: TableDefinition[]): string {
   return tables
     .map((table) => {
       const columns = table.columns

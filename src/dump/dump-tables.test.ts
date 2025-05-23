@@ -1,8 +1,11 @@
 import { describe, expect } from "vitest";
 import { test } from "#test";
-import { dumpTables, serializeTables } from "./dump-tables.ts";
+import {
+  extractTableDefinitions,
+  serializeTableDefinitions,
+} from "./dump-tables.ts";
 
-describe("dump+serialize pipeline", () => {
+describe("dump tables", () => {
   test("should roundtrip simple table", async ({ db }) => {
     await db.source.sql`
       create table public.users (
@@ -12,9 +15,9 @@ describe("dump+serialize pipeline", () => {
         created_at timestamptz default now()
       );
     `;
-    const sourceTables = await dumpTables(db.source);
-    await db.target.query(serializeTables(sourceTables));
-    const targetTables = await dumpTables(db.target);
+    const sourceTables = await extractTableDefinitions(db.source);
+    await db.target.query(serializeTableDefinitions(sourceTables));
+    const targetTables = await extractTableDefinitions(db.target);
     expect(sourceTables).toStrictEqual(targetTables);
   });
 });
