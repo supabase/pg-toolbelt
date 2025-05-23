@@ -3,7 +3,7 @@ import { test } from "#test";
 import {
   extractTableDefinitions,
   serializeTableDefinitions,
-} from "./dump-tables.ts";
+} from "./tables.ts";
 
 describe("dump tables", () => {
   test("should roundtrip simple table", async ({ db }) => {
