@@ -14,6 +14,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.3.2
         version: 0.3.2
+      '@electric-sql/pglite-tools':
+        specifier: ^0.2.7
+        version: 0.2.7(@electric-sql/pglite@0.3.2)
       '@tsconfig/node-ts':
         specifier: ^23.6.1
         version: 23.6.1
@@ -90,6 +93,11 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@electric-sql/pglite-tools@0.2.7':
+    resolution: {integrity: sha512-9dAccClqxx4cZB+Ar9B+FZ5WgxDc/Xvl9DPrTWv+dYTf0YNubLzi4wHHRGRGhrJv15XwnyKcGOZAP1VXSneSUg==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.3.2
 
   '@electric-sql/pglite@0.3.2':
     resolution: {integrity: sha512-zfWWa+V2ViDCY/cmUfRqeWY1yLto+EpxjXnZzenB1TyxsTiXaTWeZFIZw6mac52BsuQm0RjCnisjBtdBaXOI6w==}
@@ -872,6 +880,10 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.0.0-beta.5':
     optional: true
+
+  '@electric-sql/pglite-tools@0.2.7(@electric-sql/pglite@0.3.2)':
+    dependencies:
+      '@electric-sql/pglite': 0.3.2
 
   '@electric-sql/pglite@0.3.2': {}
 

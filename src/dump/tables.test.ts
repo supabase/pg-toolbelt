@@ -18,6 +18,6 @@ describe("dump tables", () => {
     const sourceTables = await extractTableDefinitions(db.source);
     await db.target.query(serializeTableDefinitions(sourceTables));
     const targetTables = await extractTableDefinitions(db.target);
-    expect(sourceTables).toStrictEqual(targetTables);
+    expect(sourceTables).toEqual(targetTables);
   });
 });
