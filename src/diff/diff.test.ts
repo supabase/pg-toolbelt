@@ -1,6 +1,8 @@
 import { describe, expect } from "vitest";
 import { test } from "#test";
-import { extractDefinitions, serializeDefinitions } from "./dump.ts";
+import { computeSchemaDiff } from "./diff.ts";
+import { extractDefinitions } from "./extract.ts";
+import { serializeSchemaDiff } from "./serialize.ts";
 
 describe("dump", () => {
   test("should roundtrip simple database", async ({ db }) => {
@@ -14,7 +16,11 @@ describe("dump", () => {
     `;
     const sourceDefinitions = await extractDefinitions(db.source);
 
-    await db.target.exec(serializeDefinitions(sourceDefinitions));
+    const diff = computeSchemaDiff({
+      target: sourceDefinitions,
+    });
+
+    await db.target.exec(serializeSchemaDiff(diff));
     const targetDefinitions = await extractDefinitions(db.target);
 
     expect(sourceDefinitions).toEqual(targetDefinitions);

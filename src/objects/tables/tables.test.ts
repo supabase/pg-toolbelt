@@ -1,9 +1,8 @@
 import { describe, expect } from "vitest";
 import { test } from "#test";
-import {
-  extractTableDefinitions,
-  serializeTableDefinitions,
-} from "./tables.ts";
+import { computeDiff } from "../../diff/diff.ts";
+import { extractTableDefinitions } from "./extract.ts";
+import { serializeTableOperation } from "./serialize/index.ts";
 
 describe("dump tables", () => {
   test("should roundtrip simple table", async ({ db }) => {
@@ -17,7 +16,11 @@ describe("dump tables", () => {
     `;
     const sourceTables = await extractTableDefinitions(db.source);
 
-    await db.target.query(serializeTableDefinitions(sourceTables));
+    const diff = computeDiff(undefined, sourceTables);
+
+    await db.target.query(
+      diff.map((d) => serializeTableOperation(d)).join("\n"),
+    );
     const targetTables = await extractTableDefinitions(db.target);
 
     expect(sourceTables).toEqual(targetTables);
