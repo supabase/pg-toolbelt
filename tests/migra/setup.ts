@@ -8,8 +8,8 @@ export const test = baseTest.extend<{
   // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
   db: async ({}, use) => {
     const [containerA, containerB] = await Promise.all([
-      new PostgreSqlContainer("17-alpine").start(),
-      new PostgreSqlContainer("17-alpine").start(),
+      new PostgreSqlContainer("postgres:17-alpine").start(),
+      new PostgreSqlContainer("postgres:17-alpine").start(),
     ]);
     const a = postgres(containerA.getConnectionUri());
     const b = postgres(containerB.getConnectionUri());

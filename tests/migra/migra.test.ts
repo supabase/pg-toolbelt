@@ -44,27 +44,28 @@ async function getFixtures() {
 
 const fixtures = await getFixtures();
 
-describe.concurrent("migra", () => {
-  for (const fixture of fixtures) {
-    test(`should diff ${fixture.folder}`, async (ctx) => {
-      // arrange
-      await Promise.all([
-        ctx.db.a.unsafe(fixture.a),
-        ctx.db.b.unsafe(fixture.b),
-      ]);
-      // act
-      const result = "";
-      // assert
-      expect(result).toBe(fixture.expected);
-
-      if (fixture.additions) {
+describe.concurrent(
+  "migra",
+  () => {
+    for (const fixture of fixtures) {
+      test(`should diff ${fixture.folder}`, async ({ db }) => {
         // arrange
-        await ctx.db.b.unsafe(fixture.additions);
+        await Promise.all([db.a.unsafe(fixture.a), db.b.unsafe(fixture.b)]);
         // act
-        const result2 = "";
+        const result = "";
         // assert
-        expect(result2).toBe(fixture.expected2);
-      }
-    });
-  }
-});
+        expect(result).toBe(fixture.expected);
+
+        if (fixture.additions) {
+          // arrange
+          await db.b.unsafe(fixture.additions);
+          // act
+          const result2 = "";
+          // assert
+          expect(result2).toBe(fixture.expected2);
+        }
+      });
+    }
+  },
+  60_000,
+);
