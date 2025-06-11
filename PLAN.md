@@ -1,3 +1,7 @@
+## PostgreSQL support
+
+All officially supported versions at Supabase, from 15 to 17.
+
 ## Dump and serialization
 
 pg_dump order (schema only):
