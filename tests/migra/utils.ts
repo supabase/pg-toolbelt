@@ -4,10 +4,10 @@ import postgres from "postgres";
 import { test as baseTest } from "vitest";
 
 export async function getFixtures() {
-  // comment out to run a specific test
-  const folders = await readdir(new URL("./fixtures", import.meta.url));
-  // uncomment to run a specific test
-  // const folders = ["constraints"];
+  // use TEST_MIGRA_FIXTURES to run specific tests, e.g. `TEST_MIGRA_FIXTURES=constraints,dependencies pnpm test`
+  const folders = process.env.TEST_MIGRA_FIXTURES
+    ? process.env.TEST_MIGRA_FIXTURES.split(",")
+    : await readdir(new URL("./fixtures", import.meta.url));
   const files = [
     "a.sql",
     "b.sql",
