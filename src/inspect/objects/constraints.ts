@@ -9,6 +9,7 @@ export type InspectedConstraint = {
   is_deferrable: string; // 'YES' or 'NO' cast to yes_or_no
   initially_deferred: string; // 'YES' or 'NO' cast to yes_or_no
   enforced: string; // Always 'YES' cast to yes_or_no
+  owner: string;
 };
 
 export async function inspectConstraints(sql: Sql) {
@@ -186,7 +187,8 @@ export async function inspectConstraints(sql: Sql) {
       end as fk_columns_foreign,
       contype = 'f' as is_fk,
       condeferrable as is_deferrable,
-      condeferred as initially_deferred
+      condeferred as initially_deferred,
+      pg_get_userbyid(pg_class.relowner) as owner
     from
       pg_constraint
       inner join pg_class on conrelid = pg_class.oid

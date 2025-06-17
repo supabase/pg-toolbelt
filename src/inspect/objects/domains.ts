@@ -9,6 +9,7 @@ export interface InspectedDomain {
   not_null: boolean;
   default: string | null;
   check: string | null;
+  owner: string;
 }
 
 export async function inspectDomains(sql: Sql): Promise<InspectedDomain[]> {
@@ -44,7 +45,8 @@ export async function inspectDomains(sql: Sql): Promise<InspectedDomain[]> {
             pg_catalog.pg_get_constraintdef(r.oid, true)
           from pg_catalog.pg_constraint r
           where
-            t.oid = r.contypid), ' ') as "check"
+            t.oid = r.contypid), ' ') as "check",
+      pg_get_userbyid(t.typowner) as "owner"
     from
       pg_catalog.pg_type t
       left join pg_catalog.pg_namespace n on n.oid = t.typnamespace

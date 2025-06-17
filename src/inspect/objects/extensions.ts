@@ -5,6 +5,7 @@ export type InspectedExtension = {
   name: string;
   version: string;
   oid: number;
+  owner: string;
 };
 
 export async function inspectExtensions(
@@ -15,7 +16,8 @@ export async function inspectExtensions(
       nspname as schema,
       extname as name,
       extversion as version,
-      e.oid as oid
+      e.oid as oid,
+      pg_get_userbyid(e.extowner) as owner
     from
       pg_extension e
       inner join pg_namespace on pg_namespace.oid = e.extnamespace

@@ -22,6 +22,7 @@ export interface InspectedFunction {
   result_string: string;
   identity_arguments: string;
   comment: string | null;
+  owner: string;
 }
 
 export async function inspectFunctions(sql: Sql): Promise<InspectedFunction[]> {
@@ -259,7 +260,8 @@ export async function inspectFunctions(sql: Sql): Promise<InspectedFunction[]> {
       p.extension_oid as extension_oid,
       pg_get_function_result(p.oid) as result_string,
       pg_get_function_identity_arguments(p.oid) as identity_arguments,
-    pg_catalog.obj_description(p.oid) as comment
+    pg_catalog.obj_description(p.oid) as comment,
+    pg_get_userbyid(p.proowner) as owner
     from
       unnested p
     )

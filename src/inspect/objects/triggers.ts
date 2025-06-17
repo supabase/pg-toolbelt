@@ -9,6 +9,7 @@ export interface InspectedTrigger {
   proc_schema: string;
   enabled: boolean;
   extension_owned: boolean;
+  owner: string;
 }
 
 export async function inspectTriggers(sql: Sql): Promise<InspectedTrigger[]> {
@@ -34,7 +35,8 @@ select
     select
       *
     from
-      extension_oids) as extension_owned
+      extension_oids) as extension_owned,
+  pg_get_userbyid(cls.relowner) as owner
 from
   pg_trigger tg
   join pg_class cls on cls.oid = tg.tgrelid

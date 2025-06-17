@@ -12,6 +12,7 @@ export interface InspectedType {
   size: string;
   description: string | null;
   columns: TypeColumn[] | null;
+  owner: string;
 }
 
 export async function inspectTypes(sql: Sql): Promise<InspectedType[]> {
@@ -43,7 +44,8 @@ export async function inspectTypes(sql: Sql): Promise<InspectedType[]> {
             from pg_class
             join pg_attribute on (attrelid = pg_class.oid)
             join pg_type a on (atttypid = a.oid)
-            where (pg_class.reltype = t.oid)))) as columns
+            where (pg_class.reltype = t.oid)))) as columns,
+      pg_get_userbyid(t.typowner) as owner
     from
       pg_catalog.pg_type t
       left join pg_catalog.pg_namespace n on n.oid = t.typnamespace

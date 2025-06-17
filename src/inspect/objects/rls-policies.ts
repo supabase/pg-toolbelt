@@ -10,6 +10,7 @@ export interface InspectedRLSPolicy {
   qualtree: string | null;
   qual: string | null;
   withcheck: string | null;
+  owner: string;
 }
 
 export async function inspectRLSPolicies(
@@ -34,7 +35,8 @@ export async function inspectRLSPolicies(
           unnest(p.polroles) as unn (o)) as roles,
       p.polqual as qualtree,
       pg_get_expr(p.polqual, p.polrelid) as qual,
-      pg_get_expr(p.polwithcheck, p.polrelid) as withcheck
+      pg_get_expr(p.polwithcheck, p.polrelid) as withcheck,
+      pg_get_userbyid(c.relowner) as owner
     from
       pg_policy p
       join pg_class c on c.oid = p.polrelid

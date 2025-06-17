@@ -24,6 +24,7 @@ export interface InspectedIndex {
   algorithm: string;
   key_columns: string[];
   included_columns: string[] | null;
+  owner: string;
 }
 
 export async function inspectIndexes(sql: Sql): Promise<InspectedIndex[]> {
@@ -76,7 +77,8 @@ pre as (
         indcollation key_collations,
         pg_get_expr(indexprs, indrelid) key_expressions,
       pg_get_expr(indpred, indrelid) partial_predicate,
-      amname algorithm
+      amname algorithm,
+      pg_get_userbyid(c.relowner) as owner
     from
       pg_index x
     join pg_class c on c.oid = x.indrelid

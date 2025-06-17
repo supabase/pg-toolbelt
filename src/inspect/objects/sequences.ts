@@ -6,6 +6,7 @@ export interface InspectedSequence {
   table_name: string | null;
   column_name: string | null;
   is_identity: boolean;
+  owner: string;
 }
 
 export async function inspectSequences(sql: Sql): Promise<InspectedSequence[]> {
@@ -27,7 +28,8 @@ select
     a.attname as column_name,
     --a.attname is not null as has_table_owner,
     --a.attidentity is distinct from '' as is_identity,
-    d.deptype is not distinct from 'i' as is_identity
+    d.deptype is not distinct from 'i' as is_identity,
+    pg_get_userbyid(c.relowner) as owner
     --a.attidentity = 'a' as is_identity_always
 from
     --pg_sequence s

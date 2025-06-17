@@ -4,6 +4,7 @@ export interface InspectedEnum {
   schema: string;
   name: string;
   elements: string[];
+  owner: string;
 }
 
 export async function inspectEnums(sql: Sql): Promise<InspectedEnum[]> {
@@ -28,7 +29,8 @@ export async function inspectEnums(sql: Sql): Promise<InspectedEnum[]> {
         where
           e.enumtypid = t.oid
         order by
-          e.enumsortorder) as elements
+          e.enumsortorder) as elements,
+      pg_get_userbyid(t.typowner) as owner
       from
         pg_catalog.pg_type t
       left join pg_catalog.pg_namespace n on n.oid = t.typnamespace

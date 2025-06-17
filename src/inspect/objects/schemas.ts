@@ -2,6 +2,7 @@ import type { Sql } from "postgres";
 
 export interface InspectedSchema {
   schema: string;
+  owner: string;
 }
 
 export async function inspectSchemas(sql: Sql) {
@@ -16,7 +17,8 @@ with extension_oids as (
     and d.classid = 'pg_namespace'::regclass
 )
 select
-  nspname as schema
+  nspname as schema,
+  pg_get_userbyid(oid) as owner
 from
   pg_catalog.pg_namespace
   left outer join extension_oids e on e.objid = oid

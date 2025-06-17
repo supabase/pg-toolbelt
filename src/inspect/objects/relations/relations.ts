@@ -49,6 +49,7 @@ export type RawRelationQueryResult = {
   persistence: RelationPersistence;
   page_size_estimate: number;
   row_count_estimate: number;
+  owner: string;
 }[];
 
 /** A single column in a relation */
@@ -83,6 +84,7 @@ export type GroupedRelation = {
   pageSizeEstimate: number;
   rowCountEstimate: number;
   columns: RelationColumn[];
+  owner: string;
 };
 
 /** Relations grouped by type with their columns nested */
@@ -129,6 +131,7 @@ function groupAndCategorizeRelations(
         pageSizeEstimate: relation.page_size_estimate,
         rowCountEstimate: relation.row_count_estimate,
         columns: [],
+        owner: relation.owner,
       };
 
       grouped.set(key, groupedRelation);
@@ -235,7 +238,8 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
           c.relforcerowsecurity::boolean as forcerowsecurity,
           c.relpersistence as persistence,
           c.relpages as page_size_estimate,
-          c.reltuples as row_count_estimate
+          c.reltuples as row_count_estimate,
+          pg_get_userbyid(c.relowner) as owner
         from
           pg_catalog.pg_class c
           inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
@@ -285,7 +289,8 @@ export async function inspectRelations(sql: Sql): Promise<InspectedRelations> {
       r.forcerowsecurity,
       r.persistence,
       r.page_size_estimate,
-      r.row_count_estimate
+      r.row_count_estimate,
+      r.owner
     from
       r
       left join pg_catalog.pg_attribute a on r.oid = a.attrelid
