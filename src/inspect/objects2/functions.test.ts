@@ -27,58 +27,49 @@ describe.concurrent(
           const resultA = await inspectFunctions(db.a);
           const resultB = await inspectFunctions(db.b);
           // assert
-          expect(resultA).toMatchInlineSnapshot(`
-            Map {
-              "public.test_function(a integer, b integer)" => {
-                "all_argument_types": [
-                  "integer",
-                  "integer",
-                  "integer",
-                  "integer",
-                ],
-                "argument_count": 2,
-                "argument_default_count": 0,
-                "argument_defaults": null,
-                "argument_modes": [
-                  "i",
-                  "i",
-                  "t",
-                  "t",
-                ],
-                "argument_names": [
-                  "a",
-                  "b",
-                  "sum",
-                  "product",
-                ],
-                "argument_types": [
-                  "integer",
-                  "integer",
-                ],
-                "binary_path": null,
-                "config": null,
-                "is_strict": false,
-                "kind": "f",
-                "language": "plpgsql",
-                "leakproof": false,
-                "name": "test_function",
-                "owner": "test",
-                "parallel_safety": "u",
-                "return_type": "record",
-                "return_type_schema": "pg_catalog",
-                "returns_set": true,
-                "schema": "public",
-                "security_definer": false,
-                "source_code": "
-                        begin
-                          return query select a + b, a * b;
-                        end;
-                        ",
-                "sql_body": null,
-                "volatility": "v",
-              },
-            }
-          `);
+          expect(resultA).toEqual(
+            new Map([
+              [
+                "public.test_function(a integer, b integer)",
+                {
+                  all_argument_types: [
+                    "integer",
+                    "integer",
+                    "integer",
+                    "integer",
+                  ],
+                  argument_count: 2,
+                  argument_default_count: 0,
+                  argument_defaults: null,
+                  argument_modes: ["i", "i", "t", "t"],
+                  argument_names: ["a", "b", "sum", "product"],
+                  argument_types: ["integer", "integer"],
+                  binary_path: null,
+                  config: null,
+                  is_strict: false,
+                  kind: "f",
+                  language: "plpgsql",
+                  leakproof: false,
+                  name: "test_function",
+                  owner: "test",
+                  parallel_safety: "u",
+                  return_type: "record",
+                  return_type_schema: "pg_catalog",
+                  returns_set: true,
+                  schema: "public",
+                  security_definer: false,
+                  source_code:
+                    "\n" +
+                    "            begin\n" +
+                    "              return query select a + b, a * b;\n" +
+                    "            end;\n" +
+                    "            ",
+                  sql_body: null,
+                  volatility: "v",
+                },
+              ],
+            ]),
+          );
           expect(resultB).toEqual(resultA);
         });
       });
