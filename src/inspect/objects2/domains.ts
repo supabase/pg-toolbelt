@@ -14,7 +14,13 @@ export interface InspectedDomain {
   owner: string;
 }
 
-export async function inspectDomains(sql: Sql): Promise<InspectedDomain[]> {
+export function identifyDomain(domain: InspectedDomain): string {
+  return `${domain.schema}.${domain.name}`;
+}
+
+export async function inspectDomains(
+  sql: Sql,
+): Promise<Map<string, InspectedDomain>> {
   const domains = await sql<InspectedDomain[]>`
 with extension_oids as (
   select
@@ -54,5 +60,5 @@ order by
   1, 2;
   `;
 
-  return domains;
+  return new Map(domains.map((d) => [identifyDomain(d), d]));
 }

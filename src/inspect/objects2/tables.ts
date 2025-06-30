@@ -26,8 +26,6 @@ export interface InspectedTable {
   persistence: RelationPersistence;
   row_security: boolean;
   force_row_security: boolean;
-  page_size_estimate: number;
-  row_count_estimate: number;
   has_indexes: boolean;
   has_rules: boolean;
   has_triggers: boolean;
@@ -40,7 +38,13 @@ export interface InspectedTable {
   owner: string;
 }
 
-export async function inspectTables(sql: Sql): Promise<InspectedTable[]> {
+export function identifyTable(table: InspectedTable): string {
+  return `${table.schema}.${table.name}`;
+}
+
+export async function inspectTables(
+  sql: Sql,
+): Promise<Map<string, InspectedTable>> {
   const tables = await sql<InspectedTable[]>`
 with extension_oids as (
   select
@@ -57,8 +61,6 @@ select
   c.relpersistence as persistence,
   c.relrowsecurity as row_security,
   c.relforcerowsecurity as force_row_security,
-  c.relpages as page_size_estimate,
-  c.reltuples as row_count_estimate,
   c.relhasindex as has_indexes,
   c.relhasrules as has_rules,
   c.relhastriggers as has_triggers,
@@ -83,5 +85,5 @@ order by
   1, 2;
   `;
 
-  return tables;
+  return new Map(tables.map((t) => [identifyTable(t), t]));
 }

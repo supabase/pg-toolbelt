@@ -8,9 +8,13 @@ export interface InspectedExtension {
   owner: string;
 }
 
+export function identifyExtension(extension: InspectedExtension): string {
+  return `${extension.schema}.${extension.name}`;
+}
+
 export async function inspectExtensions(
   sql: Sql,
-): Promise<InspectedExtension[]> {
+): Promise<Map<string, InspectedExtension>> {
   const extensions = await sql<InspectedExtension[]>`
 select
   extname as name,
@@ -29,5 +33,5 @@ order by
   1;
   `;
 
-  return extensions;
+  return new Map(extensions.map((e) => [identifyExtension(e), e]));
 }

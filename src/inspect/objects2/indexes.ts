@@ -19,7 +19,13 @@ export interface InspectedIndex {
   owner: string;
 }
 
-export async function inspectIndexes(sql: Sql): Promise<InspectedIndex[]> {
+export function identifyIndex(index: InspectedIndex): string {
+  return `${index.schema}.${index.table_name}.${index.name}`;
+}
+
+export async function inspectIndexes(
+  sql: Sql,
+): Promise<Map<string, InspectedIndex>> {
   const indexes = await sql<InspectedIndex[]>`
 with extension_oids as (
   select
@@ -69,5 +75,5 @@ order by
   1, 2;
   `;
 
-  return indexes;
+  return new Map(indexes.map((i) => [identifyIndex(i), i]));
 }

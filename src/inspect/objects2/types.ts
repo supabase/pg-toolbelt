@@ -88,7 +88,13 @@ export interface InspectedType {
   owner: string;
 }
 
-export async function inspectTypes(sql: Sql): Promise<InspectedType[]> {
+export function identifyType(type: InspectedType): string {
+  return `${type.schema}.${type.name}`;
+}
+
+export async function inspectTypes(
+  sql: Sql,
+): Promise<Map<string, InspectedType>> {
   const types = await sql<InspectedType[]>`
 with extension_oids as (
   select
@@ -130,5 +136,5 @@ order by
   1, 2;
   `;
 
-  return types;
+  return new Map(types.map((t) => [identifyType(t), t]));
 }

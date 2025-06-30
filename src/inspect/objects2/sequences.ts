@@ -14,7 +14,13 @@ export interface InspectedSequence {
   owner: string;
 }
 
-export async function inspectSequences(sql: Sql): Promise<InspectedSequence[]> {
+export function identifySequence(seq: InspectedSequence): string {
+  return `${seq.schema}.${seq.name}`;
+}
+
+export async function inspectSequences(
+  sql: Sql,
+): Promise<Map<string, InspectedSequence>> {
   const sequences = await sql<InspectedSequence[]>`
 with extension_oids as (
   select
@@ -52,5 +58,5 @@ order by
   1, 2;
   `;
 
-  return sequences;
+  return new Map(sequences.map((s) => [identifySequence(s), s]));
 }

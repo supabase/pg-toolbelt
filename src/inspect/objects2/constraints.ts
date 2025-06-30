@@ -60,9 +60,13 @@ export interface InspectedConstraint {
   owner: string;
 }
 
+export function identifyConstraint(constraint: InspectedConstraint): string {
+  return `${constraint.schema}.${constraint.table_name}.${constraint.name}`;
+}
+
 export async function inspectConstraints(
   sql: Sql,
-): Promise<InspectedConstraint[]> {
+): Promise<Map<string, InspectedConstraint>> {
   const constraints = await sql<InspectedConstraint[]>`
 with extension_oids as (
   select
@@ -110,5 +114,5 @@ order by
   1, 2;
   `;
 
-  return constraints;
+  return new Map(constraints.map((c) => [identifyConstraint(c), c]));
 }

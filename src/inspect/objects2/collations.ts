@@ -23,9 +23,13 @@ export interface InspectedCollation {
   owner: string;
 }
 
+export function identifyCollation(collation: InspectedCollation): string {
+  return `${collation.schema}.${collation.name}`;
+}
+
 export async function inspectCollations(
   sql: Sql,
-): Promise<InspectedCollation[]> {
+): Promise<Map<string, InspectedCollation>> {
   const collations = await sql<InspectedCollation[]>`
 with extension_oids as (
   select
@@ -61,5 +65,5 @@ order by
   1, 2;
   `;
 
-  return collations;
+  return new Map(collations.map((c) => [identifyCollation(c), c]));
 }

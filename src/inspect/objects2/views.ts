@@ -1,9 +1,10 @@
 import type { Sql } from "postgres";
 import type { ReplicaIdentity } from "./tables.ts";
 
-export interface InspectedCompositeType {
+export interface InspectedView {
   schema: string;
   name: string;
+  definition: string | null;
   row_security: boolean;
   force_row_security: boolean;
   has_indexes: boolean;
@@ -18,10 +19,14 @@ export interface InspectedCompositeType {
   owner: string;
 }
 
-export async function inspectCompositeTypes(
+export function identifyView(view: InspectedView): string {
+  return `${view.schema}.${view.name}`;
+}
+
+export async function inspectViews(
   sql: Sql,
-): Promise<InspectedCompositeType[]> {
-  const compositeTypes = await sql<InspectedCompositeType[]>`
+): Promise<Map<string, InspectedView>> {
+  const views = await sql<InspectedView[]>`
 with extension_oids as (
   select
     objid
@@ -34,6 +39,7 @@ with extension_oids as (
 select
   n.nspname as schema,
   c.relname as name,
+  pg_get_viewdef(c.oid) as definition,
   c.relrowsecurity as row_security,
   c.relforcerowsecurity as force_row_security,
   c.relhasindex as has_indexes,
@@ -54,11 +60,11 @@ from
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
   and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
   and e.objid is null
-  and c.relkind = 'c'
+  and c.relkind = 'v'
   -- </EXCLUDE_INTERNAL>
 order by
   1, 2;
   `;
 
-  return compositeTypes;
+  return new Map(views.map((view) => [identifyView(view), view]));
 }

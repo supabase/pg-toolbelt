@@ -13,9 +13,13 @@ export interface InspectedPrivilege {
   config: string[] | null;
 }
 
+export function identifyPrivilege(priv: InspectedPrivilege): string {
+  return priv.role_name;
+}
+
 export async function inspectPrivileges(
   sql: Sql,
-): Promise<InspectedPrivilege[]> {
+): Promise<Map<string, InspectedPrivilege>> {
   const privileges = await sql<InspectedPrivilege[]>`
 select
   rolname as role_name,
@@ -37,5 +41,5 @@ order by
   1;
   `;
 
-  return privileges;
+  return new Map(privileges.map((p) => [identifyPrivilege(p), p]));
 }

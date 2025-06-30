@@ -26,9 +26,13 @@ export interface InspectedRlsPolicy {
   owner: string;
 }
 
+export function identifyRlsPolicy(policy: InspectedRlsPolicy): string {
+  return `${policy.schema}.${policy.table_name}.${policy.name}`;
+}
+
 export async function inspectRlsPolicies(
   sql: Sql,
-): Promise<InspectedRlsPolicy[]> {
+): Promise<Map<string, InspectedRlsPolicy>> {
   const policies = await sql<InspectedRlsPolicy[]>`
 with extension_oids as (
   select
@@ -69,5 +73,5 @@ order by
   1, 2;
   `;
 
-  return policies;
+  return new Map(policies.map((p) => [identifyRlsPolicy(p), p]));
 }

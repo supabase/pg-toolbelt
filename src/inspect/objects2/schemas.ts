@@ -5,7 +5,13 @@ export interface InspectedSchema {
   owner: string;
 }
 
-export async function inspectSchemas(sql: Sql) {
+export function identifySchema(schema: InspectedSchema): string {
+  return schema.schema;
+}
+
+export async function inspectSchemas(
+  sql: Sql,
+): Promise<Map<string, InspectedSchema>> {
   const schemas = await sql<InspectedSchema[]>`
 with extension_oids as (
   select
@@ -31,5 +37,5 @@ order by
   1;
   `;
 
-  return schemas;
+  return new Map(schemas.map((s) => [identifySchema(s), s]));
 }

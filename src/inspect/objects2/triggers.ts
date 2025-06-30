@@ -32,7 +32,13 @@ export interface InspectedTrigger {
   owner: string;
 }
 
-export async function inspectTriggers(sql: Sql): Promise<InspectedTrigger[]> {
+export function identifyTrigger(trigger: InspectedTrigger): string {
+  return `${trigger.schema}.${trigger.table_name}.${trigger.name}`;
+}
+
+export async function inspectTriggers(
+  sql: Sql,
+): Promise<Map<string, InspectedTrigger>> {
   const triggers = await sql<InspectedTrigger[]>`
 with extension_oids as (
   select
@@ -79,5 +85,5 @@ order by
   1, 2;
   `;
 
-  return triggers;
+  return new Map(triggers.map((t) => [identifyTrigger(t), t]));
 }
