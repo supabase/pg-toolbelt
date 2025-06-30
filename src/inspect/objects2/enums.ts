@@ -8,7 +8,9 @@ export interface InspectedEnum {
   owner: string;
 }
 
-export async function inspectEnums(sql: Sql): Promise<InspectedEnum[]> {
+export async function inspectEnums(
+  sql: Sql,
+): Promise<Map<string, InspectedEnum[]>> {
   const enums = await sql<InspectedEnum[]>`
 with extension_oids as (
   select
@@ -39,5 +41,19 @@ order by
   1, 2, 3;
   `;
 
-  return enums;
+  const grouped = new Map<string, InspectedEnum[]>();
+  for (const e of enums) {
+    const key = identifyEnum(e);
+    const arr = grouped.get(key);
+    if (arr) {
+      arr.push(e);
+    } else {
+      grouped.set(key, [e]);
+    }
+  }
+  return grouped;
+}
+
+export function identifyEnum(enum_: InspectedEnum): string {
+  return `${enum_.schema}.${enum_.name}`;
 }
