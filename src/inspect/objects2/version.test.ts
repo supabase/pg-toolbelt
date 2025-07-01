@@ -7,9 +7,9 @@ describe.concurrent(
   "inspect version",
   () => {
     const assertions = new Map([
-      ["15", 150013],
-      ["16", 160009],
-      ["17", 170005],
+      ["15", 150000],
+      ["16", 160000],
+      ["17", 170000],
     ]);
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
@@ -25,7 +25,11 @@ describe.concurrent(
             assertions.get(`${postgresVersion}`) === undefined
               ? assertions.get("default")
               : assertions.get(`${postgresVersion}`);
-          expect(resultA.version).toBe(assertion);
+          // Check that our version is on the right major
+          // biome-ignore lint/style/noNonNullAssertion: no-op
+          expect(resultA.version).toBeGreaterThanOrEqual(assertion!);
+          // biome-ignore lint/style/noNonNullAssertion: no-op
+          expect(resultA.version).toBeLessThan(assertion! + 10000);
           expect(resultA).toEqual(resultB);
         });
       });

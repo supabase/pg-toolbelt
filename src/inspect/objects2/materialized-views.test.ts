@@ -13,6 +13,7 @@ describe.concurrent(
           [
             "public.test_mv",
             {
+              // In postgres 15, columns are prefixed with the table name automatically in definition
               definition: " SELECT mv_table.id\n   FROM mv_table;",
               force_row_security: false,
               has_indexes: false,
