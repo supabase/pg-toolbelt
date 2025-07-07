@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import { OBJECT_KIND_PREFIX } from "./constants.ts";
-import { inspectCompositeTypes } from "./objects2/composite-types.ts";
+import { inspectCompositeTypes } from "./objects/composite-types.ts";
 import {
   inspectCollations,
   inspectConstraints,
@@ -18,7 +18,7 @@ import {
   inspectTriggers,
   inspectTypes,
   inspectViews,
-} from "./objects2/index.ts";
+} from "./objects/index.ts";
 import type { InspectionMap } from "./types.ts";
 
 export async function inspect(sql: Sql): Promise<InspectionMap> {

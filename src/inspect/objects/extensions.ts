@@ -1,30 +1,50 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
-export type InspectedExtension = {
-  schema: string;
+export interface InspectedExtensionRow {
   name: string;
+  schema: string;
+  relocatable: boolean;
   version: string;
-  oid: number;
   owner: string;
-};
+}
+
+export type InspectedExtension = InspectedExtensionRow &
+  DependentDatabaseObject;
+
+export function identifyExtension(extension: InspectedExtensionRow): string {
+  return `${extension.schema}.${extension.name}`;
+}
 
 export async function inspectExtensions(
   sql: Sql,
-): Promise<InspectedExtension[]> {
+): Promise<Map<string, InspectedExtension>> {
   const extensions = await sql<InspectedExtension[]>`
-    select
-      nspname as schema,
-      extname as name,
-      extversion as version,
-      e.oid as oid,
-      pg_get_userbyid(e.extowner) as owner
-    from
-      pg_extension e
-      inner join pg_namespace on pg_namespace.oid = e.extnamespace
-    order by
-      schema,
-      name;
+select
+  extname as name,
+  n.nspname as schema,
+  extrelocatable as relocatable,
+  extversion as version,
+  pg_get_userbyid(extowner) as owner
+from
+  pg_catalog.pg_extension e
+  inner join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+  -- <EXCLUDE_INTERNAL>
+  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+  and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
+  -- </EXCLUDE_INTERNAL>
+order by
+  1;
   `;
 
-  return extensions;
+  return new Map(
+    extensions.map((e) => [
+      identifyExtension(e),
+      {
+        ...e,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

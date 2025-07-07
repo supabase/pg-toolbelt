@@ -1,215 +1,131 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
-export type InspectedConstraint = {
-  constraint_schema: string; // nc.nspname cast to sql_identifier
-  constraint_name: string; // c.conname cast to sql_identifier
-  table_schema: string; // nr.nspname cast to sql_identifier
-  table_name: string; // r.relname cast to sql_identifier
-  constraint_type: string | null; // case statement on c.contype, cast to character_data
-  is_deferrable: string; // 'YES' or 'NO' cast to yes_or_no
-  initially_deferred: string; // 'YES' or 'NO' cast to yes_or_no
-  enforced: string; // Always 'YES' cast to yes_or_no
+// PostgreSQL constraint types
+export type ConstraintType =
+  /** CHECK */
+  | "c"
+  /** FOREIGN KEY */
+  | "f"
+  /** PRIMARY KEY */
+  | "p"
+  /** UNIQUE */
+  | "u"
+  /** EXCLUDE */
+  | "x";
+// c = CHECK, f = FOREIGN KEY, p = PRIMARY KEY, u = UNIQUE, x = EXCLUDE
+
+// PostgreSQL foreign key actions
+export type ForeignKeyAction =
+  /** NO ACTION */
+  | "a"
+  /** RESTRICT */
+  | "r"
+  /** CASCADE */
+  | "c"
+  /** SET NULL */
+  | "n"
+  /** SET DEFAULT */
+  | "d";
+// a = NO ACTION, r = RESTRICT, c = CASCADE, n = SET NULL, d = SET DEFAULT
+
+// PostgreSQL foreign key match types
+export type ForeignKeyMatchType =
+  /** FULL */
+  | "f"
+  /** PARTIAL */
+  | "p"
+  /** SIMPLE */
+  | "s";
+// f = FULL, p = PARTIAL, s = SIMPLE
+
+export interface InspectedConstraintRow {
+  schema: string;
+  name: string;
+  table_schema: string;
+  table_name: string;
+  constraint_type: ConstraintType;
+  deferrable: boolean;
+  initially_deferred: boolean;
+  validated: boolean;
+  is_local: boolean;
+  no_inherit: boolean;
+  key_columns: number[];
+  foreign_key_columns: number[] | null;
+  foreign_key_table: string | null;
+  foreign_key_schema: string | null;
+  on_update: ForeignKeyAction | null;
+  on_delete: ForeignKeyAction | null;
+  match_type: ForeignKeyMatchType | null;
+  check_expression: string | null;
   owner: string;
-};
+}
 
-export async function inspectConstraints(sql: Sql) {
-  const constraints = await sql<InspectedConstraint[]>`
-    with information_schema_table_constraints as (
-      select
-        nc.nspname::information_schema.sql_identifier as constraint_schema,
-        c.conname::information_schema.sql_identifier as constraint_name,
-        nr.nspname::information_schema.sql_identifier as table_schema,
-        r.relname::information_schema.sql_identifier as table_name,
-        case c.contype
-        when 'c'::"char" then
-          'CHECK'::text
-        when 'f'::"char" then
-          'FOREIGN KEY'::text
-        when 'p'::"char" then
-          'PRIMARY KEY'::text
-        when 'u'::"char" then
-          'UNIQUE'::text
-        else
-          null::text
-        end::information_schema.character_data as constraint_type,
-        case when c.condeferrable then
-          'YES'::text
-        else
-          'NO'::text
-        end::information_schema.yes_or_no as is_deferrable,
-        case when c.condeferred then
-          'YES'::text
-        else
-          'NO'::text
-        end::information_schema.yes_or_no as initially_deferred,
-        'YES'::character varying::information_schema.yes_or_no as enforced
-      from
-        pg_namespace nc,
-        pg_namespace nr,
-        pg_constraint c,
-        pg_class r
-      where
-        nc.oid = c.connamespace
-        and nr.oid = r.relnamespace
-        and c.conrelid = r.oid
-        and (c.contype <> all (array['t'::"char",
-            'x'::"char"]))
-        and (r.relkind = any (array['r'::"char",
-            'p'::"char"]))
-        and not pg_is_other_temp_schema(nr.oid)
-        and (pg_has_role(r.relowner, 'USAGE'::text)
-          or has_table_privilege(r.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'::text)
-          or has_any_column_privilege(r.oid, 'SELECT, INSERT, UPDATE, REFERENCES'::text))
-      union all
-      select
-        nr.nspname::information_schema.sql_identifier as constraint_schema,
-        (((((nr.oid::text || '_'::text) || r.oid::text) || '_'::text) || a.attnum::text) || '_not_null'::text)::information_schema.sql_identifier as constraint_name,
-        nr.nspname::information_schema.sql_identifier as table_schema,
-        r.relname::information_schema.sql_identifier as table_name,
-        'CHECK'::character varying::information_schema.character_data as constraint_type,
-        'NO'::character varying::information_schema.yes_or_no as is_deferrable,
-        'NO'::character varying::information_schema.yes_or_no as initially_deferred,
-        'YES'::character varying::information_schema.yes_or_no as enforced
-      from
-        pg_namespace nr,
-        pg_class r,
-        pg_attribute a
-      where
-        nr.oid = r.relnamespace
-        and r.oid = a.attrelid
-        and a.attnotnull
-        and a.attnum > 0
-        and not a.attisdropped
-        and (r.relkind = any (array['r'::"char",
-            'p'::"char"]))
-        and not pg_is_other_temp_schema(nr.oid)
-        and (pg_has_role(r.relowner, 'USAGE'::text)
-          or has_table_privilege(r.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'::text)
-          or has_any_column_privilege(r.oid, 'SELECT, INSERT, UPDATE, REFERENCES'::text))
-    ),
-    extension_oids as (
-      select
-        objid
-      from
-        pg_depend d
-      where
-        d.refclassid = 'pg_extension'::regclass
-        and d.classid = 'pg_constraint'::regclass
-    ),
-    extension_rels as (
-      select
-        objid
-      from
-        pg_depend d
-      where
-        d.refclassid = 'pg_extension'::regclass
-        and d.classid = 'pg_class'::regclass
-    ),
-    indexes as (
-      select
-        schemaname as schema,
-        tablename as table_name,
-        indexname as name,
-        indexdef as definition,
-        indexdef as create_statement
-      from
-        pg_indexes
-        -- <EXCLUDE_INTERNAL>
-        where schemaname not in ('pg_catalog', 'information_schema', 'pg_toast')
-        and schemaname not like 'pg_temp_%' and schemaname not like 'pg_toast_temp_%'
-        -- </EXCLUDE_INTERNAL>
-      order by
-        schemaname,
-        tablename,
-        indexname
-    )
-    select
-      nspname as schema,
-      conname as name,
-      relname as table_name,
-      pg_get_constraintdef(pg_constraint.oid) as definition,
-      case contype
-      when 'c' then
-        'CHECK'
-      when 'f' then
-        'FOREIGN KEY'
-      when 'p' then
-        'PRIMARY KEY'
-      when 'u' then
-        'UNIQUE'
-      when 'x' then
-        'EXCLUDE'
-      end as constraint_type,
-      i.name as index,
-      e.objid as extension_oid,
-      case when contype = 'f' then
-      (
-        select
-          nspname
-        from
-          pg_catalog.pg_class as c
-          join pg_catalog.pg_namespace as ns on c.relnamespace = ns.oid
-        where
-          c.oid = confrelid::regclass)
-      end as foreign_table_schema,
-      case when contype = 'f' then
-      (
-        select
-          relname
-        from
-          pg_catalog.pg_class c
-        where
-          c.oid = confrelid::regclass)
-      end as foreign_table_name,
-      case when contype = 'f' then
-      (
-        select
-          array_agg(ta.attname order by c.rn)
-        from
-          pg_attribute ta
-          join unnest(conkey)
-          with ordinality c (cn, rn) on ta.attrelid = conrelid
-            and ta.attnum = c.cn)
-      else
-        null
-      end as fk_columns_local,
-      case when contype = 'f' then
-      (
-        select
-          array_agg(ta.attname order by c.rn)
-        from
-          pg_attribute ta
-        join unnest(confkey)
-        with ordinality c (cn, rn) on ta.attrelid = confrelid
-          and ta.attnum = c.cn)
-      else
-        null
-      end as fk_columns_foreign,
-      contype = 'f' as is_fk,
-      condeferrable as is_deferrable,
-      condeferred as initially_deferred,
-      pg_get_userbyid(pg_class.relowner) as owner
-    from
-      pg_constraint
-      inner join pg_class on conrelid = pg_class.oid
-      inner join pg_namespace on pg_namespace.oid = pg_class.relnamespace
-      left outer join indexes i on nspname = i.schema
-        and conname = i.name
-        and relname = i.table_name
-      left outer join extension_oids e on pg_class.oid = e.objid
-      left outer join extension_rels er on er.objid = conrelid
-      left outer join extension_rels cr on cr.objid = confrelid
-    where
-      contype in ('c', 'f', 'p', 'u', 'x')
-      -- <EXCLUDE_INTERNAL>
-      and nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
-      and e.objid is null and er.objid is null and cr.objid is null
-      -- </EXCLUDE_INTERNAL>
-    order by
-      1,
-      3,
-      2;
-`;
+export type InspectedConstraint = InspectedConstraintRow &
+  DependentDatabaseObject;
 
-  return constraints;
+export function identifyConstraint(constraint: InspectedConstraintRow): string {
+  return `${constraint.schema}.${constraint.table_name}.${constraint.name}`;
+}
+
+export async function inspectConstraints(
+  sql: Sql,
+): Promise<Map<string, InspectedConstraint>> {
+  const constraints = await sql<InspectedConstraintRow[]>`
+with extension_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_constraint'::regclass
+)
+select
+  n.nspname as schema,
+  c.conname as name,
+  tn.nspname as table_schema,
+  tc.relname as table_name,
+  c.contype as constraint_type,
+  c.condeferrable as deferrable,
+  c.condeferred as initially_deferred,
+  c.convalidated as validated,
+  c.conislocal as is_local,
+  c.connoinherit as no_inherit,
+  c.conkey as key_columns,
+  c.confkey as foreign_key_columns,
+  ftn.nspname as foreign_key_schema,
+  ftc.relname as foreign_key_table,
+  c.confupdtype as on_update,
+  c.confdeltype as on_delete,
+  c.confmatchtype as match_type,
+  pg_get_expr(c.conbin, c.conrelid) as check_expression,
+  pg_get_userbyid(tc.relowner) as owner
+from
+  pg_catalog.pg_constraint c
+  inner join pg_catalog.pg_class tc on tc.oid = c.conrelid
+  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
+  inner join pg_catalog.pg_namespace n on n.oid = c.connamespace
+  left join pg_catalog.pg_class ftc on ftc.oid = c.confrelid
+  left join pg_catalog.pg_namespace ftn on ftn.oid = ftc.relnamespace
+  left outer join extension_oids e on c.oid = e.objid
+  -- <EXCLUDE_INTERNAL>
+  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+  and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
+  and e.objid is null
+  -- </EXCLUDE_INTERNAL>
+order by
+  1, 2;
+  `;
+
+  return new Map(
+    constraints.map((c) => [
+      identifyConstraint(c),
+      {
+        ...c,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

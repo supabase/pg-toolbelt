@@ -1,70 +1,76 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedDomain {
+export interface InspectedDomainRow {
   schema: string;
   name: string;
-  data_type: string;
-  collation: string | null;
-  constraint_name: string | null;
+  base_type: string;
+  base_type_schema: string;
   not_null: boolean;
-  default: string | null;
-  check: string | null;
+  type_modifier: number | null;
+  array_dimensions: number | null;
+  collation: string | null;
+  default_bin: string | null;
+  default_value: string | null;
   owner: string;
 }
 
-export async function inspectDomains(sql: Sql): Promise<InspectedDomain[]> {
-  const domains = await sql<InspectedDomain[]>`
-    with extension_oids as (
-      select
-        objid
-      from
-        pg_depend d
-      where
-        d.refclassid = 'pg_extension'::regclass
-        and d.classid = 'pg_type'::regclass
-    )
-    select
-      n.nspname as "schema",
-      t.typname as "name",
-      pg_catalog.format_type(t.typbasetype, t.typtypmod) as "data_type",
-      (
-        select
-          c.collname
-        from
-          pg_catalog.pg_collation c,
-          pg_catalog.pg_type bt
-        where
-          c.oid = t.typcollation
-          and bt.oid = t.typbasetype
-          and t.typcollation <> bt.typcollation) as "collation",
-      rr.conname as "constraint_name",
-      t.typnotnull as "not_null",
-      t.typdefault as "default",
-      pg_catalog.array_to_string(array (
-          select
-            pg_catalog.pg_get_constraintdef(r.oid, true)
-          from pg_catalog.pg_constraint r
-          where
-            t.oid = r.contypid), ' ') as "check",
-      pg_get_userbyid(t.typowner) as "owner"
-    from
-      pg_catalog.pg_type t
-      left join pg_catalog.pg_namespace n on n.oid = t.typnamespace
-      left join pg_catalog.pg_constraint rr on t.oid = rr.contypid
-    where
-      t.typtype = 'd'
-      and n.nspname <> 'pg_catalog'
-      and n.nspname <> 'information_schema'
-      and pg_catalog.pg_type_is_visible(t.oid)
-      and t.oid not in (
-        select
-          *
-        from
-          extension_oids)
-    order by
-      1,
-      2;
+export type InspectedDomain = InspectedDomainRow & DependentDatabaseObject;
+
+export function identifyDomain(domain: InspectedDomainRow): string {
+  return `${domain.schema}.${domain.name}`;
+}
+
+export async function inspectDomains(
+  sql: Sql,
+): Promise<Map<string, InspectedDomain>> {
+  const domains = await sql<InspectedDomainRow[]>`
+with extension_oids as (
+  select
+    objid
+  from
+    pg_depend d
+  where
+    d.refclassid = 'pg_extension'::regclass
+    and d.classid = 'pg_type'::regclass
+)
+select
+  n.nspname as schema,
+  t.typname as name,
+  bt.typname as base_type,
+  bn.nspname as base_type_schema,
+  t.typnotnull as not_null,
+  t.typtypmod as type_modifier,
+  t.typndims as array_dimensions,
+  c.collname as collation,
+  pg_get_expr(t.typdefaultbin, 0) as default_bin,
+  t.typdefault as default_value,
+  pg_get_userbyid(t.typowner) as owner
+from
+  pg_catalog.pg_type t
+  inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
+  inner join pg_catalog.pg_type bt on bt.oid = t.typbasetype
+  inner join pg_catalog.pg_namespace bn on bn.oid = bt.typnamespace
+  left join pg_catalog.pg_collation c on c.oid = t.typcollation
+  left outer join extension_oids e on t.oid = e.objid
+  -- <EXCLUDE_INTERNAL>
+  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
+  and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'
+  and e.objid is null
+  and t.typtype = 'd'
+  -- </EXCLUDE_INTERNAL>
+order by
+  1, 2;
   `;
 
-  return domains;
+  return new Map(
+    domains.map((d) => [
+      identifyDomain(d),
+      {
+        ...d,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

@@ -1,20 +1,20 @@
-import type { InspectedCollation } from "./objects2/collations.ts";
-import type { InspectedCompositeType } from "./objects2/composite-types.ts";
-import type { InspectedConstraint } from "./objects2/constraints.ts";
-import type { InspectedDomain } from "./objects2/domains.ts";
-import type { InspectedEnum } from "./objects2/enums.ts";
-import type { InspectedExtension } from "./objects2/extensions.ts";
-import type { InspectedFunction } from "./objects2/functions.ts";
-import type { InspectedIndex } from "./objects2/indexes.ts";
-import type { InspectedMaterializedView } from "./objects2/materialized-views.ts";
-import type { InspectedPrivilege } from "./objects2/privileges.ts";
-import type { InspectedRlsPolicy } from "./objects2/rls-policies.ts";
-import type { InspectedSchema } from "./objects2/schemas.ts";
-import type { InspectedSequence } from "./objects2/sequences.ts";
-import type { InspectedTable } from "./objects2/tables.ts";
-import type { InspectedTrigger } from "./objects2/triggers.ts";
-import type { InspectedType } from "./objects2/types.ts";
-import type { InspectedView } from "./objects2/views.ts";
+import type { InspectedCollation } from "./objects/collations.ts";
+import type { InspectedCompositeType } from "./objects/composite-types.ts";
+import type { InspectedConstraint } from "./objects/constraints.ts";
+import type { InspectedDomain } from "./objects/domains.ts";
+import type { InspectedEnum } from "./objects/enums.ts";
+import type { InspectedExtension } from "./objects/extensions.ts";
+import type { InspectedFunction } from "./objects/functions.ts";
+import type { InspectedIndex } from "./objects/indexes.ts";
+import type { InspectedMaterializedView } from "./objects/materialized-views.ts";
+import type { InspectedPrivilege } from "./objects/privileges.ts";
+import type { InspectedRlsPolicy } from "./objects/rls-policies.ts";
+import type { InspectedSchema } from "./objects/schemas.ts";
+import type { InspectedSequence } from "./objects/sequences.ts";
+import type { InspectedTable } from "./objects/tables.ts";
+import type { InspectedTrigger } from "./objects/triggers.ts";
+import type { InspectedType } from "./objects/types.ts";
+import type { InspectedView } from "./objects/views.ts";
 
 export type InspectionMap = {
   [k: `collation:${string}`]: InspectedCollation;

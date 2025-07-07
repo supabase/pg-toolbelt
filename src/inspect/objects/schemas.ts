@@ -1,12 +1,21 @@
 import type { Sql } from "postgres";
+import type { DependentDatabaseObject } from "../types.ts";
 
-export interface InspectedSchema {
+export interface InspectedSchemaRow {
   schema: string;
   owner: string;
 }
 
-export async function inspectSchemas(sql: Sql) {
-  const schemas = await sql<InspectedSchema[]>`
+export type InspectedSchema = InspectedSchemaRow & DependentDatabaseObject;
+
+export function identifySchema(schema: InspectedSchemaRow): string {
+  return schema.schema;
+}
+
+export async function inspectSchemas(
+  sql: Sql,
+): Promise<Map<string, InspectedSchema>> {
+  const schemas = await sql<InspectedSchemaRow[]>`
 with extension_oids as (
   select
     objid
@@ -18,7 +27,7 @@ with extension_oids as (
 )
 select
   nspname as schema,
-  pg_get_userbyid(oid) as owner
+  pg_get_userbyid(nspowner) as owner
 from
   pg_catalog.pg_namespace
   left outer join extension_oids e on e.objid = oid
@@ -31,5 +40,10 @@ order by
   1;
   `;
 
-  return schemas;
+  return new Map(
+    schemas.map((s) => [
+      identifySchema(s),
+      { ...s, dependent_on: [], dependents: [] },
+    ]),
+  );
 }

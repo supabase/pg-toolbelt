@@ -26,29 +26,27 @@ describe.concurrent(
             new Map([
               [
                 "public.test_enum",
-                [
-                  {
-                    label: "a",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 1,
-                  },
-                  {
-                    label: "b",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 2,
-                  },
-                  {
-                    label: "c",
-                    name: "test_enum",
-                    owner: "test",
-                    schema: "public",
-                    sort_order: 3,
-                  },
-                ],
+                {
+                  schema: "public",
+                  name: "test_enum",
+                  owner: "test",
+                  dependent_on: [],
+                  dependents: [],
+                  labels: [
+                    {
+                      sort_order: 1,
+                      label: "a",
+                    },
+                    {
+                      sort_order: 2,
+                      label: "b",
+                    },
+                    {
+                      sort_order: 3,
+                      label: "c",
+                    },
+                  ],
+                },
               ],
             ]),
           );

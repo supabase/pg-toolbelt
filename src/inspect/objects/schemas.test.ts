@@ -1,43 +1,45 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
 import { getTest } from "../../../tests/migra/utils.ts";
-import { inspectCollations } from "./collations.ts";
+import { inspectSchemas } from "./schemas.ts";
 
 describe.concurrent(
-  "inspect collations",
+  "inspect schemas",
   () => {
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
 
-        test(`should be able to inspect stable properties of collations`, async ({
+        test(`should be able to inspect stable properties of schemas`, async ({
           db,
         }) => {
           // arrange
           const fixture = /* sql */ `
-            create collation test_collation (locale = 'C');
+            create schema test_schema;
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectCollations(db.a);
-          const resultB = await inspectCollations(db.b);
+          const resultA = await inspectSchemas(db.a);
+          const resultB = await inspectSchemas(db.b);
           // assert
           expect(resultA).toEqual(
             new Map([
               [
-                "public.test_collation",
+                "public",
                 {
-                  collate: "C",
-                  ctype: "C",
-                  encoding: 6,
-                  icu_rules: null,
-                  is_deterministic: true,
-                  locale: null,
-                  name: "test_collation",
-                  owner: "test",
-                  provider: "c",
+                  owner: "pg_database_owner",
                   schema: "public",
-                  version: null,
+                  dependent_on: [],
+                  dependents: [],
+                },
+              ],
+              [
+                "test_schema",
+                {
+                  owner: "test",
+                  schema: "test_schema",
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

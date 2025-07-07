@@ -39,6 +39,8 @@ describe.concurrent(
                   table_schema: "public",
                   using_expression: "true",
                   with_check_expression: null,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

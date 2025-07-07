@@ -47,6 +47,8 @@ describe.concurrent(
                   table_schema: "public",
                   trigger_type: 7,
                   when_condition: null,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

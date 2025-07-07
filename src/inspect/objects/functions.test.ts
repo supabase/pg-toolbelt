@@ -66,6 +66,8 @@ describe.concurrent(
                     "            ",
                   sql_body: null,
                   volatility: "v",
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

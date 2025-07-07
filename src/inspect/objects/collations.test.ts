@@ -1,37 +1,45 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
 import { getTest } from "../../../tests/migra/utils.ts";
-import { inspectExtensions } from "./extensions.ts";
+import { inspectCollations } from "./collations.ts";
 
 describe.concurrent(
-  "inspect extensions",
+  "inspect collations",
   () => {
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
 
-        test(`should be able to inspect stable properties of extensions`, async ({
+        test(`should be able to inspect stable properties of collations`, async ({
           db,
         }) => {
           // arrange
           const fixture = /* sql */ `
-            create extension citext;
+            create collation test_collation (locale = 'C');
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectExtensions(db.a);
-          const resultB = await inspectExtensions(db.b);
+          const resultA = await inspectCollations(db.a);
+          const resultB = await inspectCollations(db.b);
           // assert
           expect(resultA).toEqual(
             new Map([
               [
-                "public.citext",
+                "public.test_collation",
                 {
-                  name: "citext",
+                  collate: "C",
+                  ctype: "C",
+                  encoding: 6,
+                  icu_rules: null,
+                  is_deterministic: true,
+                  locale: null,
+                  name: "test_collation",
                   owner: "test",
-                  relocatable: true,
+                  provider: "c",
                   schema: "public",
-                  version: "1.6",
+                  version: null,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

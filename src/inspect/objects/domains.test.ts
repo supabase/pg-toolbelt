@@ -38,6 +38,8 @@ describe.concurrent(
                   owner: "test",
                   schema: "public",
                   type_modifier: -1,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

@@ -1,46 +1,45 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
 import { getTest } from "../../../tests/migra/utils.ts";
-import { inspectCompositeTypes } from "./composite-types.ts";
+import { inspectSequences } from "./sequences.ts";
 
 describe.concurrent(
-  "inspect composite types",
+  "inspect sequences",
   () => {
     for (const postgresVersion of POSTGRES_VERSIONS) {
       describe(`postgres ${postgresVersion}`, () => {
         const test = getTest(postgresVersion);
 
-        test(`should be able to inspect stable properties of composite types`, async ({
+        test(`should be able to inspect stable properties of sequences`, async ({
           db,
         }) => {
           // arrange
           const fixture = /* sql */ `
-            create type test_composite as (a integer, b text);
+            create sequence test_sequence;
           `;
           await Promise.all([db.a.unsafe(fixture), db.b.unsafe(fixture)]);
           // act
-          const resultA = await inspectCompositeTypes(db.a);
-          const resultB = await inspectCompositeTypes(db.b);
+          const resultA = await inspectSequences(db.a);
+          const resultB = await inspectSequences(db.b);
           // assert
           expect(resultA).toEqual(
             new Map([
               [
-                "public.test_composite",
+                "public.test_sequence",
                 {
-                  force_row_security: false,
-                  has_indexes: false,
-                  has_rules: false,
-                  has_subclasses: false,
-                  has_triggers: false,
-                  is_partition: false,
-                  is_populated: true,
-                  name: "test_composite",
-                  options: null,
+                  cache_size: "1",
+                  cycle_option: false,
+                  data_type: "bigint",
+                  increment: "1",
+                  maximum_value: "9223372036854775807",
+                  minimum_value: "1",
+                  name: "test_sequence",
                   owner: "test",
-                  partition_bound: null,
-                  replica_identity: "n",
-                  row_security: false,
+                  persistence: "p",
                   schema: "public",
+                  start_value: "1",
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

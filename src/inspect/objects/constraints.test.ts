@@ -46,6 +46,8 @@ describe.concurrent(
                   table_name: "test_constraints",
                   table_schema: "public",
                   validated: true,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
               [
@@ -70,6 +72,8 @@ describe.concurrent(
                   table_name: "test_constraints",
                   table_schema: "public",
                   validated: true,
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),

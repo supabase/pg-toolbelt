@@ -44,6 +44,8 @@ describe.concurrent(
                   schema: "public",
                   table_name: "test_indexes",
                   table_schema: "public",
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
               [
@@ -65,6 +67,8 @@ describe.concurrent(
                   schema: "public",
                   table_name: "test_indexes",
                   table_schema: "public",
+                  dependent_on: [],
+                  dependents: [],
                 },
               ],
             ]),
