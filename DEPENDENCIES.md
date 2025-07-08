@@ -23,6 +23,34 @@ The following object types participate in the dependency system:
 - **Triggers**: Database triggers
 - **Constraints**: Foreign key constraints (optional)
 
+## Explicit Dependency Table
+
+| Object Kind         | dependents (can be depended on by)                                   | dependent_on (can depend on)                                  |
+|---------------------|---------------------------------------------------------------------|---------------------------------------------------------------|
+| **collation**       | domain, table, materializedView, view, type, compositeType, function | schema, extension                                             |
+| **compositeType**   | table, materializedView, view, function, compositeType, domain, type | schema, extension, type, enum, domain, compositeType          |
+| **constraint**      | table, domain, materializedView, view                               | schema, extension, table, domain, type, enum, compositeType   |
+| **domain**          | table, materializedView, view, function, domain, type, constraint   | schema, extension, type, enum, domain, compositeType, collation|
+| **enum**            | table, materializedView, view, function, domain, type, constraint   | schema, extension                                             |
+| **extension**       | all (any object provided by extension)                              | schema (rarely), extension                                    |
+| **function**        | view, materializedView, function, trigger, table                    | schema, extension, table, view, materializedView, type, domain, enum, compositeType |
+| **index**           | (rare: partitioned index)                                           | schema, extension, table                                      |
+| **materializedView**| view, materializedView, function                                    | schema, extension, table, view, materializedView, function, type, domain, enum, compositeType |
+| **privilege**       | (none, metadata)                                                    | schema, extension, table, view, materializedView, sequence    |
+| **rlsPolicy**       | (none, metadata)                                                    | schema, extension, table                                      |
+| **schema**          | all (all objects in schema)                                         | extension (if schema is created by extension)                 |
+| **sequence**        | table, materializedView, view, function                             | schema, extension                                             |
+| **table**           | view, materializedView, function, index, trigger, constraint, rlsPolicy, privilege | schema, extension, type, domain, enum, compositeType, sequence, table (inheritance), collation |
+| **trigger**         | (none, metadata)                                                    | schema, extension, table, function                            |
+| **type**            | table, materializedView, view, function, domain, type, compositeType, constraint | schema, extension, type, enum, domain, compositeType, collation|
+| **view**            | view, materializedView, function                                    | schema, extension, table, view, materializedView, function, type, domain, enum, compositeType |
+
+**Legend/Notes:**
+- **all** = all object types in your InspectionMap
+- **metadata** = these objects are referenced for permissions/policies, not as data dependencies
+- Some objects (like privilege, rlsPolicy, trigger, index) are mostly metadata and rarely have dependents
+- **compositeType, type, domain, enum**: can be nested or used in each other
+
 ## Dependency Discovery
 
 ### 1. SQL Query-Based Discovery (`DEPS_QUERY`)

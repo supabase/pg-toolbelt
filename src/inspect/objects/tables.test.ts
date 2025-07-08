@@ -42,6 +42,8 @@ describe.concurrent(
                   replica_identity: "d",
                   row_security: false,
                   schema: "public",
+                  parent_schema: null,
+                  parent_name: null,
                   dependent_on: [],
                   dependents: [],
                 },

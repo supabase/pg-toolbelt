@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import { DEPENDENCY_KIND_PREFIX } from "./constants.js";
+import { identifyTable } from "./objects/tables.ts";
 import type { InspectionMap } from "./types.ts";
 
 // PostgreSQL dependency class types
@@ -152,8 +153,8 @@ schema_dependent_on, name_dependent_on, identity_arguments_dependent_on
 }
 
 export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
+  // First deal with selectable dependencies encoded in pg_depend and pg_rewrite
   const dependencies = await inspectDependencies(sql);
-
   for (const dependency of dependencies) {
     const identity = identifyDependency(
       dependency.kind,
@@ -175,6 +176,28 @@ export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
       objectDependentOn.dependents.push(identity);
     }
   }
+
+  // Then process partitioned and inherited tables dependencies
+  for (const [tableKey, table] of filterInspectionByPrefix(
+    inspection,
+    "table",
+  )) {
+    if (table.parent_schema && table.parent_name) {
+      const parentKey = `table:${identifyTable({
+        schema: table.parent_schema,
+        name: table.parent_name,
+      })}` as const;
+      const parent = inspection[parentKey];
+      if (parent) {
+        if (!table.dependent_on.includes(parentKey)) {
+          table.dependent_on.push(parentKey);
+        }
+        if (!parent.dependents.includes(tableKey)) {
+          parent.dependents.push(tableKey);
+        }
+      }
+    }
+  }
 }
 
 type DependencyKindPrefix =
@@ -188,4 +211,23 @@ function identifyDependency(
 ): `${DependencyKindPrefix}:${string}` {
   const prefix = DEPENDENCY_KIND_PREFIX[kind];
   return `${prefix}:${schema}.${name}${identity_arguments ? `(${identity_arguments})` : ""}`;
+}
+
+type InspectionPrefix = keyof InspectionMap extends `${infer Prefix}:${string}`
+  ? Prefix
+  : never;
+
+export function filterInspectionByPrefix<P extends InspectionPrefix>(
+  inspection: InspectionMap,
+  prefix: P,
+): [
+  keyof InspectionMap & `${P}:${string}`,
+  InspectionMap[keyof InspectionMap & `${P}:${string}`],
+][] {
+  return Object.entries(inspection)
+    .filter(([key]) => key.startsWith(`${prefix}:`))
+    .map(([key, value]) => [
+      key as keyof InspectionMap & `${P}:${string}`,
+      value as InspectionMap[keyof InspectionMap & `${P}:${string}`],
+    ]);
 }

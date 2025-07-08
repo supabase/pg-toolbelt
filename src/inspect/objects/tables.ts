@@ -37,11 +37,15 @@ export interface InspectedTableRow {
   options: string[] | null;
   partition_bound: string | null;
   owner: string;
+  parent_schema: string | null;
+  parent_name: string | null;
 }
 
 export type InspectedTable = InspectedTableRow & DependentDatabaseObject;
 
-export function identifyTable(table: InspectedTableRow): string {
+export function identifyTable(
+  table: Pick<InspectedTableRow, "schema" | "name">,
+): string {
   return `${table.schema}.${table.name}`;
 }
 
@@ -73,11 +77,16 @@ select
   c.relispartition as is_partition,
   c.reloptions as options,
   pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-  pg_get_userbyid(c.relowner) as owner
+  pg_get_userbyid(c.relowner) as owner,
+  n_parent.nspname as parent_schema,
+  c_parent.relname as parent_name
 from
   pg_catalog.pg_class c
   inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   left outer join extension_oids e on c.oid = e.objid
+  left join pg_inherits i on i.inhrelid = c.oid
+  left join pg_class c_parent on i.inhparent = c_parent.oid
+  left join pg_namespace n_parent on c_parent.relnamespace = n_parent.oid
   -- <EXCLUDE_INTERNAL>
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
   and n.nspname not like 'pg_temp_%' and n.nspname not like 'pg_toast_temp_%'

@@ -4,14 +4,18 @@ import { getTest } from "../../tests/migra/utils.ts";
 import { buildDependencies } from "./dependencies.ts";
 import { inspect } from "./inspect.ts";
 
-describe.concurrent("build dependencies", () => {
-  for (const postgresVersion of POSTGRES_VERSIONS) {
-    describe(`postgres ${postgresVersion}`, () => {
-      const test = getTest(postgresVersion);
+describe.concurrent(
+  "build dependencies",
+  () => {
+    for (const postgresVersion of POSTGRES_VERSIONS) {
+      describe(`postgres ${postgresVersion}`, () => {
+        const test = getTest(postgresVersion);
 
-      test(`should be able to build dependencies`, async ({ db }) => {
-        // arrange
-        const fixture = /* sql */ `
+        test(`should be able to build selectable dependencies`, async ({
+          db,
+        }) => {
+          // arrange
+          const fixture = /* sql */ `
             create table test_table (
               id serial primary key,
               name text
@@ -50,68 +54,133 @@ describe.concurrent("build dependencies", () => {
               for each row
               execute function test_table_trigger_fn();
           `;
-        await db.a.unsafe(fixture);
-        // act
-        const inspection = await inspect(db.a);
-        await buildDependencies(db.a, inspection);
-        // assert
-        expect(inspection).toMatchObject({
-          // Function and its dependent view
-          "function:public.test_func_with_args(arg1 integer, arg2 text)": {
-            dependent_on: [],
-            dependents: ["view:public.test_view_func"],
-          },
-          // Base table and its dependents (view, child table, trigger)
-          "table:public.test_table": {
-            dependent_on: [],
-            dependents: [
-              "table:public.child_table",
-              "trigger:public.test_table_trigger",
-              "view:public.test_view",
-            ],
-          },
-          // View depending on test_table
-          "view:public.test_view": {
-            dependent_on: ["table:public.test_table"],
-            dependents: [],
-          },
-          // View depending on function
-          "view:public.test_view_func": {
-            dependent_on: [
-              "function:public.test_func_with_args(arg1 integer, arg2 text)",
-            ],
-            dependents: [],
-          },
-          // Enum type and its dependent table
-          "enum:public.test_enum": {
-            dependent_on: [],
-            dependents: ["table:public.enum_table"],
-          },
-          // Table using enum
-          "table:public.enum_table": {
-            dependent_on: ["enum:public.test_enum"],
-            dependents: [],
-          },
-          // Child table inheriting from test_table
-          "table:public.child_table": {
-            dependent_on: ["table:public.test_table"],
-            dependents: [],
-          },
-          // Trigger function (no dependencies, but has dependent trigger)
-          "function:public.test_table_trigger_fn()": {
-            dependent_on: [],
-            dependents: ["trigger:public.test_table_trigger"],
-          },
-          // Trigger on test_table
-          "trigger:public.test_table_trigger": {
-            dependent_on: [
-              "function:public.test_table_trigger_fn()",
-              "table:public.test_table",
-            ],
-            dependents: [],
-          },
+          await db.a.unsafe(fixture);
+          // act
+          const inspection = await inspect(db.a);
+          await buildDependencies(db.a, inspection);
+          // assert
+          expect(inspection).toMatchObject({
+            // Function and its dependent view
+            "function:public.test_func_with_args(arg1 integer, arg2 text)": {
+              dependent_on: [],
+              dependents: ["view:public.test_view_func"],
+            },
+            // Base table and its dependents (view, child table, trigger)
+            "table:public.test_table": {
+              dependent_on: [],
+              dependents: [
+                "table:public.child_table",
+                "trigger:public.test_table_trigger",
+                "view:public.test_view",
+              ],
+            },
+            // View depending on test_table
+            "view:public.test_view": {
+              dependent_on: ["table:public.test_table"],
+              dependents: [],
+            },
+            // View depending on function
+            "view:public.test_view_func": {
+              dependent_on: [
+                "function:public.test_func_with_args(arg1 integer, arg2 text)",
+              ],
+              dependents: [],
+            },
+            // Enum type and its dependent table
+            "enum:public.test_enum": {
+              dependent_on: [],
+              dependents: ["table:public.enum_table"],
+            },
+            // Table using enum
+            "table:public.enum_table": {
+              dependent_on: ["enum:public.test_enum"],
+              dependents: [],
+            },
+            // Child table inheriting from test_table
+            "table:public.child_table": {
+              dependent_on: ["table:public.test_table"],
+              dependents: [],
+            },
+            // Trigger function (no dependencies, but has dependent trigger)
+            "function:public.test_table_trigger_fn()": {
+              dependent_on: [],
+              dependents: ["trigger:public.test_table_trigger"],
+            },
+            // Trigger on test_table
+            "trigger:public.test_table_trigger": {
+              dependent_on: [
+                "function:public.test_table_trigger_fn()",
+                "table:public.test_table",
+              ],
+              dependents: [],
+            },
+          });
         });
-      }, 30_000);
-    });
-  }
-});
+
+        test.only(`should be able to build partitioned and inherited table dependencies`, async ({
+          db,
+        }) => {
+          // arrange
+          const fixture = /* sql */ `
+          -- Inheritance
+          create table base_inherit (
+            id serial primary key,
+            data text
+          );
+          create table child_inherit (
+            extra text
+          ) inherits (base_inherit);
+
+          -- Partitioning
+          create table base_partition (
+            id int,
+            data text
+          ) partition by range (id);
+
+          create table part1 partition of base_partition for values from (1) to (100);
+          create table part2 partition of base_partition for values from (100) to (200);
+        `;
+          await db.a.unsafe(fixture);
+
+          // act
+          const inspection = await inspect(db.a);
+          await buildDependencies(db.a, inspection);
+
+          // assert
+          expect(inspection).toMatchObject({
+            // Inheritance: child_inherit depends on base_inherit
+            "table:public.base_inherit": {
+              dependents: expect.arrayContaining([
+                "table:public.child_inherit",
+              ]),
+            },
+            "table:public.child_inherit": {
+              dependent_on: expect.arrayContaining([
+                "table:public.base_inherit",
+              ]),
+            },
+
+            // Partitioning: part1 and part2 depend on base_partition
+            "table:public.base_partition": {
+              dependents: expect.arrayContaining([
+                "table:public.part1",
+                "table:public.part2",
+              ]),
+            },
+            "table:public.part1": {
+              dependent_on: expect.arrayContaining([
+                "table:public.base_partition",
+              ]),
+            },
+            "table:public.part2": {
+              dependent_on: expect.arrayContaining([
+                "table:public.base_partition",
+              ]),
+            },
+          });
+        });
+      });
+    }
+  },
+  30_000,
+);
