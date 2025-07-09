@@ -11,6 +11,14 @@ export type CollationProvider =
   /** icu */
   | "i";
 
+// All properties exposed by CREATE COLLATION statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createcollation.html
+//
+// ALTER COLLATION statement can only be generated for a subset of properties:
+//  - version, name, owner, schema
+// https://www.postgresql.org/docs/current/sql-altercollation.html
+//
+// Other properties require dropping and creating a new collation.
 export interface InspectedCollationRow {
   schema: string;
   name: string;
