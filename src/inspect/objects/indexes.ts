@@ -40,9 +40,9 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  n.nspname as schema,
+  c.relnamespace::regnamespace as schema,
   c.relname as name,
-  tn.nspname as table_schema,
+  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
   am.amname as index_type,
   i.indisunique as is_unique,
@@ -59,20 +59,16 @@ select
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
   pg_get_expr(i.indpred, i.indrelid) as partial_predicate,
-  pg_get_userbyid(c.relowner) as owner
+  c.relowner::regrole as owner
 from
-  pg_catalog.pg_class c
-  inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  inner join pg_catalog.pg_index i on i.indexrelid = c.oid
+  pg_catalog.pg_index i
+  inner join pg_catalog.pg_class c on c.oid = i.indexrelid
   inner join pg_catalog.pg_class tc on tc.oid = i.indrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
   inner join pg_catalog.pg_am am on am.oid = c.relam
   left outer join extension_oids e on c.oid = e.objid
   -- <EXCLUDE_INTERNAL>
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
-  and c.relkind = 'i'
   -- </EXCLUDE_INTERNAL>
 order by
   1, 2;
