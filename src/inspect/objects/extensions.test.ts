@@ -25,6 +25,18 @@ describe.concurrent(
           expect(resultA).toEqual(
             new Map([
               [
+                "pg_catalog.plpgsql",
+                {
+                  name: "plpgsql",
+                  owner: "test",
+                  relocatable: false,
+                  schema: "pg_catalog",
+                  version: "1.0",
+                  dependent_on: [],
+                  dependents: [],
+                },
+              ],
+              [
                 "public.citext",
                 {
                   name: "citext",
