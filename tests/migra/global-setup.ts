@@ -6,6 +6,7 @@ import {
 
 export async function setup() {
   const containerRuntimeClient = await getContainerRuntimeClient();
+  // pull all the images before running the tests
   await Promise.all(
     POSTGRES_VERSIONS.map((postgresVersion) =>
       containerRuntimeClient.image.pull(

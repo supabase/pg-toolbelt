@@ -1,7 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+// import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
 import { test as baseTest } from "vitest";
+import { SupabasePostgreSqlContainer } from "../supabase-postgres.ts";
 import {
   POSTGRES_VERSION_TO_DOCKER_TAG,
   type PostgresVersion,
@@ -57,10 +58,10 @@ export function getTest(postgresVersion: PostgresVersion) {
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
       const [containerA, containerB] = await Promise.all([
-        new PostgreSqlContainer(
+        new SupabasePostgreSqlContainer(
           `supabase/postgres:${POSTGRES_VERSION_TO_DOCKER_TAG[postgresVersion]}`,
         ).start(),
-        new PostgreSqlContainer(
+        new SupabasePostgreSqlContainer(
           `supabase/postgres:${POSTGRES_VERSION_TO_DOCKER_TAG[postgresVersion]}`,
         ).start(),
       ]);
