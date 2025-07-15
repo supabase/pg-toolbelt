@@ -14,11 +14,11 @@ import type { DependentDatabaseObject } from "../types.ts";
 // Other properties require dropping and creating a new index.
 //  - operator class and param (i.indclass)
 interface InspectedIndexRow {
-  schema: string;
-  name: string;
   table_schema: string;
   table_name: string;
+  name: string;
   index_type: string;
+  tablespace: string | null;
   is_unique: boolean;
   is_primary: boolean;
   is_exclusion: boolean;
@@ -36,7 +36,7 @@ interface InspectedIndexRow {
 export type InspectedIndex = InspectedIndexRow & DependentDatabaseObject;
 
 function identifyIndex(index: InspectedIndexRow): string {
-  return `${index.schema}.${index.table_name}.${index.name}`;
+  return `${index.table_schema}.${index.table_name}.${index.name}`;
 }
 
 export async function inspectIndexes(
@@ -53,11 +53,11 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  c.relnamespace::regnamespace as schema,
-  c.relname as name,
   tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
+  c.relname as name,
   am.amname as index_type,
+  ts.spcname as tablespace,
   i.indisunique as is_unique,
   i.indisprimary as is_primary,
   i.indisexclusion as is_exclusion,
@@ -72,9 +72,10 @@ select
   pg_get_expr(i.indpred, i.indrelid) as partial_predicate
 from
   pg_catalog.pg_index i
-  inner join pg_catalog.pg_class c on c.oid = i.indexrelid
   inner join pg_catalog.pg_class tc on tc.oid = i.indrelid
+  inner join pg_catalog.pg_class c on c.oid = i.indexrelid
   inner join pg_catalog.pg_am am on am.oid = c.relam
+  left join pg_catalog.pg_tablespace ts on ts.oid = c.reltablespace
   left outer join extension_oids e on c.oid = e.objid
   -- <EXCLUDE_INTERNAL>
   where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
