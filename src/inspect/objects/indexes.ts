@@ -1,29 +1,44 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE INDEX statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createindex.html
+//
+// ALTER INDEX statement can only be generated for a subset of properties:
+//  - name, storage param, statistics, tablespace, attach partition
+// https://www.postgresql.org/docs/current/sql-alterindex.html
+//
+// Unsupported alter properties include
+//  - depends on extension (all extension dependencies are excluded)
+//
+// Other properties require dropping and creating a new index.
 interface InspectedIndexRow {
-  schema: string;
-  name: string;
   table_schema: string;
   table_name: string;
+  name: string;
+  storage_params: string[];
+  statistics_target: number[];
   index_type: string;
+  tablespace: string | null;
   is_unique: boolean;
   is_primary: boolean;
   is_exclusion: boolean;
   nulls_not_distinct: boolean;
   immediate: boolean;
+  is_clustered: boolean;
+  is_replica_identity: boolean;
   key_columns: number[];
-  included_columns: number[];
+  column_collations: string[];
+  operator_classes: string[];
   column_options: number[];
   index_expressions: string | null;
   partial_predicate: string | null;
-  owner: string;
 }
 
 export type InspectedIndex = InspectedIndexRow & DependentDatabaseObject;
 
 function identifyIndex(index: InspectedIndexRow): string {
-  return `${index.schema}.${index.table_name}.${index.name}`;
+  return `${index.table_schema}.${index.table_name}.${index.name}`;
 }
 
 export async function inspectIndexes(
@@ -40,39 +55,45 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  n.nspname as schema,
-  c.relname as name,
-  tn.nspname as table_schema,
+  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
+  c.relname as name,
+  coalesce(c.reloptions, array[]::text[]) as storage_params,
   am.amname as index_type,
+  ts.spcname as tablespace,
   i.indisunique as is_unique,
   i.indisprimary as is_primary,
   i.indisexclusion as is_exclusion,
   i.indnullsnotdistinct as nulls_not_distinct,
   i.indimmediate as immediate,
+  i.indisclustered as is_clustered,
+  i.indisreplident as is_replica_identity,
   i.indkey as key_columns,
+  i.indcollation::regcollation[] as column_collations,
   array(
-    select generate_series(1, array_length(i.indkey, 1))
-    except
-    select unnest(i.indkey)
-  ) as included_columns,
+    select coalesce(attstattarget, -1)
+    from pg_catalog.pg_attribute a
+    where a.attrelid = i.indexrelid
+  ) as statistics_target,
+  array(
+    select format('%I.%I', opcnamespace::regnamespace, opcname)
+    from unnest(i.indclass) op
+    left join pg_opclass oc on oc.oid = op
+  ) as operator_classes,
   i.indoption as column_options,
   pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
-  pg_get_expr(i.indpred, i.indrelid) as partial_predicate,
-  pg_get_userbyid(c.relowner) as owner
+  pg_get_expr(i.indpred, i.indrelid) as partial_predicate
 from
-  pg_catalog.pg_class c
-  inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  inner join pg_catalog.pg_index i on i.indexrelid = c.oid
+  pg_catalog.pg_index i
   inner join pg_catalog.pg_class tc on tc.oid = i.indrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
+  inner join pg_catalog.pg_class c on c.oid = i.indexrelid
   inner join pg_catalog.pg_am am on am.oid = c.relam
+  left join pg_catalog.pg_tablespace ts on ts.oid = c.reltablespace
   left outer join extension_oids e on c.oid = e.objid
   -- <EXCLUDE_INTERNAL>
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+  and i.indislive is true
   and e.objid is null
-  and c.relkind = 'i'
   -- </EXCLUDE_INTERNAL>
 order by
   1, 2;
