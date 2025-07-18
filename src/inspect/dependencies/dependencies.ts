@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import { identifyFunction } from "../objects/functions.ts";
 import { identifyTable } from "../objects/tables.ts";
-import type { InspectionMap } from "../types.ts";
+import type { InspectionKey, InspectionMap } from "../types.ts";
 import type {
   InspectedDependency,
   SelectableDependenciesMap,
@@ -126,25 +126,14 @@ schema_dependent_on, name_dependent_on, identity_arguments_dependent_on
 export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
   // First deal with selectable dependencies encoded in pg_depend and pg_rewrite
   const dependencies = await inspectDependencies(sql);
-  for (const dependency of dependencies) {
-    const identity = identifyDependency(
-      dependency.kind,
-      dependency.schema,
-      dependency.name,
-      dependency.identity_arguments,
-    );
-    const identityDependentOn = identifyDependency(
-      dependency.kind_dependent_on,
-      dependency.schema_dependent_on,
-      dependency.name_dependent_on,
-      dependency.identity_arguments_dependent_on,
-    );
-    const object = inspection[identity];
-    const objectDependentOn = inspection[identityDependentOn];
-
-    if (object && objectDependentOn) {
-      object.dependent_on.push(identityDependentOn);
-      objectDependentOn.dependents.push(identity);
+  for (const [identity, { dependent_on }] of Object.entries(dependencies)) {
+    const object = inspection[identity as InspectionKey];
+    for (const identityDependentOn of dependent_on) {
+      const objectDependentOn = inspection[identityDependentOn as InspectionKey];
+      if (object && objectDependentOn) {
+        object.dependent_on.push(identityDependentOn);
+        objectDependentOn.dependents.push(identity as InspectionKey);
+      }
     }
   }
 

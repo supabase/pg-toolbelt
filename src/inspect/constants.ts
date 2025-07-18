@@ -8,7 +8,7 @@ export const OBJECT_KIND_PREFIX = {
   functions: "function",
   indexes: "index",
   materializedViews: "materializedView",
-  privileges: "privilege",
+  roles: "role",
   rlsPolicies: "rlsPolicy",
   schemas: "schema",
   sequences: "sequence",

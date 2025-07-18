@@ -26,7 +26,7 @@ export type InspectionMap = {
   [k: `function:${string}`]: InspectedFunction;
   [k: `index:${string}`]: InspectedIndex;
   [k: `materializedView:${string}`]: InspectedMaterializedView;
-  [k: `privilege:${string}`]: InspectedRole;
+  [k: `role:${string}`]: InspectedRole;
   [k: `rlsPolicy:${string}`]: InspectedRlsPolicy;
   [k: `schema:${string}`]: InspectedSchema;
   [k: `sequence:${string}`]: InspectedSequence;
