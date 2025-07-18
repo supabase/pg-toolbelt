@@ -1,34 +1,16 @@
 import type { Sql } from "postgres";
-import { DEPENDENCY_KIND_PREFIX } from "./constants.js";
-import { identifyFunction } from "./objects/functions.ts";
-import { identifyTable } from "./objects/tables.ts";
-import type { InspectionMap } from "./types.ts";
+import { identifyFunction } from "../objects/functions.ts";
+import { identifyTable } from "../objects/tables.ts";
+import type { InspectionMap } from "../types.ts";
+import type {
+  InspectedDependency,
+  SelectableDependenciesMap,
+} from "./types.ts";
+import { filterInspectionByPrefix, identifyDependency } from "./utils.ts";
 
-// PostgreSQL dependency kind (relation type)
-type DependencyKind =
-  /** table */
-  | "r"
-  /** view */
-  | "v"
-  /** materialized view */
-  | "m"
-  /** composite type */
-  | "c"
-  /** function */
-  | "f";
-
-interface InspectedDependency {
-  schema: string;
-  name: string;
-  identity_arguments: string | null;
-  kind: DependencyKind;
-  schema_dependent_on: string;
-  name_dependent_on: string;
-  identity_arguments_dependent_on: string | null;
-  kind_dependent_on: DependencyKind;
-}
-
-async function inspectDependencies(sql: Sql): Promise<InspectedDependency[]> {
+export async function inspectDependencies(
+  sql: Sql,
+): Promise<SelectableDependenciesMap> {
   const dependencies = await sql<InspectedDependency[]>`
 with things1 as (
   select
@@ -116,7 +98,29 @@ schema, name, identity_arguments, kind_dependent_on,
 schema_dependent_on, name_dependent_on, identity_arguments_dependent_on
   `;
 
-  return dependencies;
+  // Assuming dependencies is an array of dependency objects
+  // and identifyDependency is a function that builds the identity string
+
+  const selectableDependencieMap: SelectableDependenciesMap = {};
+  for (const d of dependencies) {
+    const key = identifyDependency(
+      d.kind,
+      d.schema,
+      d.name,
+      d.identity_arguments,
+    );
+    const depOn = identifyDependency(
+      d.kind_dependent_on,
+      d.schema_dependent_on,
+      d.name_dependent_on,
+      d.identity_arguments_dependent_on,
+    );
+    if (!selectableDependencieMap[key]) {
+      selectableDependencieMap[key] = { dependent_on: [] };
+    }
+    selectableDependencieMap[key].dependent_on.push(depOn);
+  }
+  return selectableDependencieMap;
 }
 
 export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
@@ -204,36 +208,4 @@ export async function buildDependencies(sql: Sql, inspection: InspectionMap) {
       }
     }
   }
-}
-
-type DependencyKindPrefix =
-  (typeof DEPENDENCY_KIND_PREFIX)[keyof typeof DEPENDENCY_KIND_PREFIX];
-
-function identifyDependency(
-  kind: DependencyKind,
-  schema: string,
-  name: string,
-  identity_arguments: string | null,
-): `${DependencyKindPrefix}:${string}` {
-  const prefix = DEPENDENCY_KIND_PREFIX[kind];
-  return `${prefix}:${schema}.${name}${identity_arguments ? `(${identity_arguments})` : ""}`;
-}
-
-type InspectionPrefix = keyof InspectionMap extends `${infer Prefix}:${string}`
-  ? Prefix
-  : never;
-
-function filterInspectionByPrefix<P extends InspectionPrefix>(
-  inspection: InspectionMap,
-  prefix: P,
-): [
-  keyof InspectionMap & `${P}:${string}`,
-  InspectionMap[keyof InspectionMap & `${P}:${string}`],
-][] {
-  return Object.entries(inspection)
-    .filter(([key]) => key.startsWith(`${prefix}:`))
-    .map(([key, value]) => [
-      key as keyof InspectionMap & `${P}:${string}`,
-      value as InspectionMap[keyof InspectionMap & `${P}:${string}`],
-    ]);
 }

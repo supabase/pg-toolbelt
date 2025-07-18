@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import type { InspectionKey } from "../types.ts";
 
 export interface InspectedRole {
   role_name: string;
@@ -11,6 +12,8 @@ export interface InspectedRole {
   connection_limit: number | null;
   can_bypass_rls: boolean;
   config: string[] | null;
+  dependent_on: InspectionKey[];
+  dependents: InspectionKey[];
 }
 
 function identifyRole(priv: InspectedRole): string {
@@ -20,7 +23,7 @@ function identifyRole(priv: InspectedRole): string {
 export async function inspectRoles(
   sql: Sql,
 ): Promise<Record<string, InspectedRole>> {
-  const privileges = await sql<InspectedRole[]>`
+  const roles = await sql<InspectedRole[]>`
 select
   rolname as role_name,
   rolsuper as is_superuser,
@@ -41,5 +44,14 @@ order by
   1;
   `;
 
-  return Object.fromEntries(privileges.map((p) => [identifyRole(p), p]));
+  return Object.fromEntries(
+    roles.map((r) => [
+      identifyRole(r),
+      {
+        ...r,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

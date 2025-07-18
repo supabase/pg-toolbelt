@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import type { InspectionKey } from "../types.ts";
 
 // PostgreSQL type kinds
 type TypeKind =
@@ -86,6 +87,8 @@ export interface InspectedType {
   default_bin: string | null;
   default_value: string | null;
   owner: string;
+  dependent_on: InspectionKey[];
+  dependents: InspectionKey[];
 }
 
 function identifyType(type: InspectedType): string {
@@ -136,5 +139,12 @@ order by
   1, 2;
   `;
 
-  return Object.fromEntries(types.map((t) => [identifyType(t), t]));
+  return Object.fromEntries(
+    types.map((t) => [identifyType(t), {
+        ...t,
+        dependent_on: [],
+        dependents: [],
+      },
+    ]),
+  );
 }

@@ -36,7 +36,9 @@ export type InspectionMap = {
   [k: `view:${string}`]: InspectedView;
 };
 
+export type InspectionKey = keyof InspectionMap;
+
 export interface DependentDatabaseObject {
-  dependent_on: string[];
-  dependents: string[];
+  dependent_on: InspectionKey[];
+  dependents: InspectionKey[];
 }

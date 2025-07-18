@@ -1,8 +1,8 @@
 import { describe, expect } from "vitest";
-import { POSTGRES_VERSIONS } from "../../tests/migra/constants.ts";
-import { getTest } from "../../tests/migra/utils.ts";
+import { POSTGRES_VERSIONS } from "../../../tests/migra/constants.ts";
+import { getTest } from "../../../tests/migra/utils.ts";
+import { inspect } from "../inspect.ts";
 import { buildDependencies } from "./dependencies.ts";
-import { inspect } from "./inspect.ts";
 
 describe.concurrent(
   "build dependencies",

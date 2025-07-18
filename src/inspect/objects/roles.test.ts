@@ -35,6 +35,8 @@ describe.concurrent("inspect roles", () => {
             connection_limit: -1,
             is_superuser: false,
             role_name: "custom_role",
+            dependent_on: [],
+            dependents: [],
           },
         });
         expect(resultB).toStrictEqual(resultA);

@@ -30,7 +30,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.13.1",
   "devDependencies": {
-    "@biomejs/biome": "2.1.1",
+    "@biomejs/biome": "2.1.2",
     "@tsconfig/node-ts": "^23.6.1",
     "@tsconfig/node24": "^24.0.1",
     "@types/node": "^24.0.14",

@@ -42,6 +42,8 @@ describe.concurrent("inspect types", () => {
             type_category: "A",
             type_modifier: -1,
             type_type: "b",
+            dependent_on: [],
+            dependents: [],
           },
           "public.test_type": {
             alignment: "d",
@@ -61,6 +63,8 @@ describe.concurrent("inspect types", () => {
             type_category: "C",
             type_modifier: -1,
             type_type: "c",
+            dependent_on: [],
+            dependents: [],
           },
         });
         expect(resultB).toStrictEqual(resultA);

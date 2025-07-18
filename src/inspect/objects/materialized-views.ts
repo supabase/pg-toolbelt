@@ -108,8 +108,9 @@ select
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),
         'is_enum', (e.enum_oid is not null),
-        'enum_schema', e.enum_schema,
-        'enum_name', e.enum_name,
+        'is_custom_type', (n.nspname not in ('pg_catalog', 'information_schema')),
+        'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
+        'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
         'not_null', a.attnotnull,
         'is_identity', a.attidentity != '',
         'is_identity_always', a.attidentity = 'a',
@@ -132,6 +133,8 @@ from
   left join pg_attribute a on a.attrelid = mv.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join enums e on a.atttypid = e.enum_oid
+  left join pg_type ty on ty.oid = a.atttypid
+  left join pg_namespace n on n.oid = ty.typnamespace
 group by
   mv.schema, mv.name, mv.definition, mv.row_security, mv.force_row_security, mv.has_indexes, mv.has_rules, mv.has_triggers, mv.has_subclasses, mv.is_populated, mv.replica_identity, mv.is_partition, mv.options, mv.partition_bound, mv.owner
 order by

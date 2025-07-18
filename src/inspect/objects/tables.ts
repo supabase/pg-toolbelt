@@ -27,8 +27,9 @@ export interface InspectedColumnRow {
   data_type: string;
   data_type_str: string;
   is_enum: boolean;
-  enum_schema: string | null;
-  enum_name: string | null;
+  is_custom_type: boolean;
+  custom_type_schema: string | null;
+  custom_type_name: string | null;
   not_null: boolean;
   is_identity: boolean;
   is_identity_always: boolean;
@@ -149,8 +150,9 @@ select
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),
         'is_enum', (e.enum_oid is not null),
-        'enum_schema', e.enum_schema,
-        'enum_name', e.enum_name,
+        'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
+        'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
+        'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
         'not_null', a.attnotnull,
         'is_identity', a.attidentity != '',
         'is_identity_always', a.attidentity = 'a',
@@ -173,6 +175,8 @@ from
   left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join enums e on a.atttypid = e.enum_oid
+  left join pg_type ty on ty.oid = a.atttypid
+  left join pg_namespace n on n.oid = ty.typnamespace
 group by
   t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.owner, t.parent_schema, t.parent_name
 order by
