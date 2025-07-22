@@ -78,7 +78,7 @@ order by
   return grouped;
 }
 
-function identifyEnum(
+export function identifyEnum(
   enum_: Pick<InspectedEnumRow, "schema" | "name">,
 ): string {
   return `${enum_.schema}.${enum_.name}`;

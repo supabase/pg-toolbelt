@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
+import type { TypeCategory, TypeKind } from "./types.ts";
 
 // PostgreSQL relation persistence types
 type RelationPersistence =
@@ -26,8 +27,9 @@ export interface InspectedColumnRow {
   position: number;
   data_type: string;
   data_type_str: string;
-  is_enum: boolean;
   is_custom_type: boolean;
+  custom_type_type: TypeKind | null;
+  custom_type_category: TypeCategory | null;
   custom_type_schema: string | null;
   custom_type_name: string | null;
   not_null: boolean;
@@ -80,16 +82,6 @@ with extension_oids as (
   from pg_depend d
   where d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_class'::regclass
-), enums as (
-  select
-    t.oid as enum_oid,
-    n.nspname as enum_schema,
-    t.typname as enum_name
-  from pg_type t
-  left join pg_namespace n on n.oid = t.typnamespace
-  left join extension_oids e on t.oid = e.objid
-  where t.typcategory = 'E'
-    and e.objid is null
 ), tables as (
   select
     n.nspname as schema,
@@ -149,8 +141,9 @@ select
         'position', a.attnum,
         'data_type', a.atttypid::regtype::text,
         'data_type_str', format_type(a.atttypid, a.atttypmod),
-        'is_enum', (e.enum_oid is not null),
         'is_custom_type', n.nspname not in ('pg_catalog', 'information_schema'),
+        'custom_type_type', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
+        'custom_type_category', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
         'custom_type_schema', case when n.nspname not in ('pg_catalog', 'information_schema') then n.nspname else null end,
         'custom_type_name', case when n.nspname not in ('pg_catalog', 'information_schema') then ty.typname else null end,
         'not_null', a.attnotnull,
@@ -174,7 +167,6 @@ from
   tables t
   left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
-  left join enums e on a.atttypid = e.enum_oid
   left join pg_type ty on ty.oid = a.atttypid
   left join pg_namespace n on n.oid = ty.typnamespace
 group by

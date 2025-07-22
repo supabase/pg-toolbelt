@@ -17,7 +17,9 @@ interface InspectedDomainRow {
 
 export type InspectedDomain = InspectedDomainRow & DependentDatabaseObject;
 
-function identifyDomain(domain: InspectedDomainRow): string {
+export function identifyDomain(
+  domain: Pick<InspectedDomainRow, "schema" | "name">,
+): string {
   return `${domain.schema}.${domain.name}`;
 }
 

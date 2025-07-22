@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import type { InspectionKey } from "../types.ts";
 
 // PostgreSQL type kinds
-type TypeKind =
+export type TypeKind =
   /** base */
   | "b"
   /** composite */
@@ -15,7 +15,7 @@ type TypeKind =
   | "p";
 
 // PostgreSQL type categories (see Postgres docs for full list)
-type TypeCategory =
+export type TypeCategory =
   /** array */
   | "A"
   /** boolean */
@@ -91,7 +91,9 @@ export interface InspectedType {
   dependents: InspectionKey[];
 }
 
-function identifyType(type: InspectedType): string {
+export function identifyType(
+  type: Pick<InspectedType, "schema" | "name">,
+): string {
   return `${type.schema}.${type.name}`;
 }
 
@@ -140,7 +142,9 @@ order by
   `;
 
   return Object.fromEntries(
-    types.map((t) => [identifyType(t), {
+    types.map((t) => [
+      identifyType(t),
+      {
         ...t,
         dependent_on: [],
         dependents: [],
