@@ -1,6 +1,11 @@
 import type { Sql } from "postgres";
 import type { DependentDatabaseObject } from "../types.ts";
 
+// All properties exposed by CREATE SCHEMA statement are included in diff output.
+// https://www.postgresql.org/docs/current/sql-createschema.html
+//
+// ALTER SCHEMA statement can be generated for all properties.
+// https://www.postgresql.org/docs/current/sql-alterschema.html
 interface InspectedSchemaRow {
   schema: string;
   owner: string;
