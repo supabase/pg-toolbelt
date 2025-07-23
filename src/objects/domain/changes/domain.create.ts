@@ -1,6 +1,24 @@
 import { Change, quoteIdentifier } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
+/**
+ * Create a domain.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-createdomain.html
+ *
+ * Synopsis
+ * ```sql
+ * CREATE DOMAIN name [ AS ] data_type
+ * [ COLLATE collation ]
+ * [ DEFAULT expression ]
+ * [ domain_constraint [ ... ] ]
+ *
+ * where domain_constraint is:
+ *
+ * [ CONSTRAINT constraint_name ]
+ * { NOT NULL | NULL | CHECK (expression) }
+ * ```
+ */
 export class CreateDomain extends Change {
   public readonly domain: Domain;
 

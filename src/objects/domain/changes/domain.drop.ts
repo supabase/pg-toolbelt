@@ -1,6 +1,16 @@
 import { Change, quoteIdentifier } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
+/**
+ * Drop a domain.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-dropdomain.html
+ *
+ * Synopsis
+ * ```sql
+ * DROP DOMAIN [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
+ * ```
+ */
 export class DropDomain extends Change {
   public readonly domain: Domain;
 

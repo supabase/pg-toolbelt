@@ -5,6 +5,13 @@ import { CreateDomain } from "./changes/domain.create.ts";
 import { DropDomain } from "./changes/domain.drop.ts";
 import type { Domain } from "./domain.model.ts";
 
+/**
+ * Diff two sets of domains from master and branch catalogs.
+ *
+ * @param master - The domains in the master catalog.
+ * @param branch - The domains in the branch catalog.
+ * @returns A list of changes to apply to master to make it match branch.
+ */
 export function diffDomains(
   master: Record<string, Domain>,
   branch: Record<string, Domain>,

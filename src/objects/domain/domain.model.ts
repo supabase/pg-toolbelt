@@ -15,6 +15,11 @@ interface DomainProps {
   owner: string;
 }
 
+/**
+ * A domain is a user-defined data type that is based on another underlying type.
+ *
+ * @see https://www.postgresql.org/docs/17/domains.html#DOMAINS
+ */
 export class Domain extends BasePgModel {
   public readonly schema: DomainProps["schema"];
   public readonly name: DomainProps["name"];
@@ -73,6 +78,12 @@ export class Domain extends BasePgModel {
   }
 }
 
+/**
+ * Extract all domains from the database.
+ *
+ * @param sql - The SQL client.
+ * @returns A list of domains.
+ */
 export async function extractDomains(sql: Sql): Promise<Domain[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
