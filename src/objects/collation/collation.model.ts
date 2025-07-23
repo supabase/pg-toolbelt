@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "./base.ts";
-import { extractVersion } from "./version.ts";
+import { extractVersion } from "../../version.ts";
+import { BasePgModel } from "../base.model.ts";
 
 type CollationProvider = "d" | "c" | "i";
 

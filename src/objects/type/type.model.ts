@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "./base.ts";
+import { BasePgModel } from "../base.model.ts";
 
 export type TypeKind = "b" | "c" | "d" | "e" | "p";
 export type TypeCategory =

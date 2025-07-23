@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "./base.ts";
+import { BasePgModel } from "../base.model.ts";
 
 type FunctionKind = "f" | "p" | "a" | "w";
 type FunctionVolatility = "i" | "s" | "v";

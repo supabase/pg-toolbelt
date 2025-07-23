@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "./base.ts";
-import type { ReplicaIdentity } from "./table.ts";
+import { BasePgModel } from "../base.model.ts";
+
+export type ReplicaIdentity = "d" | "n" | "f" | "i";
 
 interface ViewProps {
   schema: string;

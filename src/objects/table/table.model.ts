@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { BasePgModel } from "./base.ts";
+import { BasePgModel } from "../base.model.ts";
 
 export type RelationPersistence = "p" | "u" | "t";
 export type ReplicaIdentity = "d" | "n" | "f" | "i";
