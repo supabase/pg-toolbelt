@@ -33,7 +33,21 @@ import type { Domain } from "../domain.model.ts";
  *     { NOT NULL | CHECK (expression) }
  * ```
  */
-export class AlterDomain extends Change {
+export type AlterDomain =
+  | AlterDomainSetDefault
+  | AlterDomainDropDefault
+  | AlterDomainSetNotNull
+  | AlterDomainDropNotNull
+  | AlterDomainChangeOwner
+  | AlterDomainAddConstraint
+  | AlterDomainDropConstraint
+  | AlterDomainRenameConstraint
+  | AlterDomainValidateConstraint;
+
+/**
+ * ALTER DOMAIN ... SET DEFAULT ...
+ */
+export class AlterDomainSetDefault extends Change {
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -44,6 +58,118 @@ export class AlterDomain extends Change {
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} RENAME TO ${quoteIdentifier(this.branch.name)}`;
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET DEFAULT ${this.branch.default_value}`;
+  }
+}
+
+/**
+ * ALTER DOMAIN ... DROP DEFAULT
+ */
+export class AlterDomainDropDefault extends Change {
+  public readonly main: Domain;
+  public readonly branch: Domain;
+
+  constructor(props: { main: Domain; branch: Domain }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} DROP DEFAULT`;
+  }
+}
+
+/**
+ * ALTER DOMAIN ... SET NOT NULL
+ */
+export class AlterDomainSetNotNull extends Change {
+  public readonly main: Domain;
+  public readonly branch: Domain;
+
+  constructor(props: { main: Domain; branch: Domain }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} SET NOT NULL`;
+  }
+}
+
+/**
+ * ALTER DOMAIN ... DROP NOT NULL
+ */
+export class AlterDomainDropNotNull extends Change {
+  public readonly main: Domain;
+  public readonly branch: Domain;
+
+  constructor(props: { main: Domain; branch: Domain }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} DROP NOT NULL`;
+  }
+}
+
+/**
+ * ALTER DOMAIN ... OWNER TO ...
+ */
+export class AlterDomainChangeOwner extends Change {
+  public readonly main: Domain;
+  public readonly branch: Domain;
+
+  constructor(props: { main: Domain; branch: Domain }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    return `ALTER DOMAIN ${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)} OWNER TO ${quoteIdentifier(this.branch.owner)}`;
+  }
+}
+
+/**
+ * Dummy class for ADD CONSTRAINT (to be implemented when constraints are added to Domain)
+ */
+export class AlterDomainAddConstraint extends Change {
+  // TODO: Implement when constraints are tracked in Domain
+  serialize(): string {
+    throw new Error("AlterDomainAddConstraint.serialize not implemented");
+  }
+}
+
+/**
+ * Dummy class for DROP CONSTRAINT (to be implemented when constraints are added to Domain)
+ */
+export class AlterDomainDropConstraint extends Change {
+  // TODO: Implement when constraints are tracked in Domain
+  serialize(): string {
+    throw new Error("AlterDomainDropConstraint.serialize not implemented");
+  }
+}
+
+/**
+ * Dummy class for RENAME CONSTRAINT (to be implemented when constraints are added to Domain)
+ */
+export class AlterDomainRenameConstraint extends Change {
+  // TODO: Implement when constraints are tracked in Domain
+  serialize(): string {
+    throw new Error("AlterDomainRenameConstraint.serialize not implemented");
+  }
+}
+
+/**
+ * Dummy class for VALIDATE CONSTRAINT (to be implemented when constraints are added to Domain)
+ */
+export class AlterDomainValidateConstraint extends Change {
+  // TODO: Implement when constraints are tracked in Domain
+  serialize(): string {
+    throw new Error("AlterDomainValidateConstraint.serialize not implemented");
   }
 }

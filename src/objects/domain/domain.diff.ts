@@ -1,6 +1,12 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
-import { AlterDomain } from "./changes/domain.alter.ts";
+import {
+  AlterDomainChangeOwner,
+  AlterDomainDropDefault,
+  AlterDomainDropNotNull,
+  AlterDomainSetDefault,
+  AlterDomainSetNotNull,
+} from "./changes/domain.alter.ts";
 import { CreateDomain } from "./changes/domain.create.ts";
 import { DropDomain } from "./changes/domain.drop.ts";
 import type { Domain } from "./domain.model.ts";
@@ -29,9 +35,47 @@ export function diffDomains(
   }
 
   for (const domainId of altered) {
-    changes.push(
-      new AlterDomain({ main: main[domainId], branch: branch[domainId] }),
-    );
+    const mainDomain = main[domainId];
+    const branchDomain = branch[domainId];
+
+    // DEFAULT
+    if (mainDomain.default_value !== branchDomain.default_value) {
+      if (branchDomain.default_value === null) {
+        changes.push(
+          new AlterDomainDropDefault({
+            main: mainDomain,
+            branch: branchDomain,
+          }),
+        );
+      } else {
+        changes.push(
+          new AlterDomainSetDefault({ main: mainDomain, branch: branchDomain }),
+        );
+      }
+    }
+
+    // NOT NULL
+    if (mainDomain.not_null !== branchDomain.not_null) {
+      if (branchDomain.not_null) {
+        changes.push(
+          new AlterDomainSetNotNull({ main: mainDomain, branch: branchDomain }),
+        );
+      } else {
+        changes.push(
+          new AlterDomainDropNotNull({
+            main: mainDomain,
+            branch: branchDomain,
+          }),
+        );
+      }
+    }
+
+    // OWNER
+    if (mainDomain.owner !== branchDomain.owner) {
+      changes.push(
+        new AlterDomainChangeOwner({ main: mainDomain, branch: branchDomain }),
+      );
+    }
   }
 
   return changes;
