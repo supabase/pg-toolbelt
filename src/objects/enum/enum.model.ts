@@ -6,6 +6,20 @@ interface EnumLabel {
   label: string;
 }
 
+/**
+ * All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
+ * https://www.postgresql.org/docs/current/sql-createtype.html
+ *
+ * ALTER TYPE statement can be generated for changes to the following properties:
+ *  - name, owner, schema, add or rename value
+ * https://www.postgresql.org/docs/current/sql-altertype.html
+ *
+ * Sort order of values may be negative or fractional.
+ * https://www.postgresql.org/docs/current/catalog-pg-enum.html
+ *
+ * Type ACL will be supported separately.
+ * https://www.postgresql.org/docs/current/ddl-priv.html
+ */
 interface EnumProps {
   schema: string;
   name: string;

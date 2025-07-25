@@ -4,6 +4,16 @@ import { BasePgModel } from "../base.model.ts";
 
 type CollationProvider = "d" | "c" | "i";
 
+/**
+ * All properties exposed by CREATE COLLATION statement are included in diff output.
+ * https://www.postgresql.org/docs/current/sql-createcollation.html
+ *
+ * ALTER COLLATION statement can only be generated for a subset of properties:
+ *  - version, name, owner, schema
+ * https://www.postgresql.org/docs/current/sql-altercollation.html
+ *
+ * Other properties require dropping and creating a new collation.
+ */
 interface CollationProps {
   schema: string;
   name: string;

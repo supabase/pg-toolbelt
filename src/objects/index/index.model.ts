@@ -1,6 +1,19 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
+/**
+ * All properties exposed by CREATE INDEX statement are included in diff output.
+ * https://www.postgresql.org/docs/current/sql-createindex.html
+ *
+ * ALTER INDEX statement can only be generated for a subset of properties:
+ *  - name, storage param, statistics, tablespace, attach partition
+ * https://www.postgresql.org/docs/current/sql-alterindex.html
+ *
+ * Unsupported alter properties include
+ *  - depends on extension (all extension dependencies are excluded)
+ *
+ * Other properties require dropping and creating a new index.
+ */
 interface IndexProps {
   table_schema: string;
   table_name: string;
