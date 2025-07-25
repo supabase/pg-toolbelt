@@ -1,6 +1,13 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
+/**
+ * All properties exposed by CREATE SCHEMA statement are included in diff output.
+ * https://www.postgresql.org/docs/current/sql-createschema.html
+ *
+ * ALTER SCHEMA statement can be generated for all properties.
+ * https://www.postgresql.org/docs/current/sql-alterschema.html
+ */
 interface SchemaProps {
   schema: string;
   owner: string;
@@ -39,26 +46,28 @@ export class Schema extends BasePgModel {
 
 export async function extractSchemas(sql: Sql): Promise<Schema[]> {
   const schemaRows = await sql<SchemaProps[]>`
-with extension_oids as (
-  select
-    objid
-  from
-    pg_depend d
-  where
-    d.refclassid = 'pg_extension'::regclass
-    and d.classid = 'pg_namespace'::regclass
-)
-select
-  nspname as schema,
-  pg_get_userbyid(nspowner) as owner
-from
-  pg_catalog.pg_namespace
-  left outer join extension_oids e on e.objid = oid
-  where nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and nspname not like 'pg\_temp\_%' and nspname not like 'pg\_toast\_temp\_%'
-  and e.objid is null
-order by
-  1;
+    with extension_oids as (
+      with extension_oids as (
+      select
+        objid
+      from
+        pg_depend d
+      where
+        d.refclassid = 'pg_extension'::regclass
+        and d.classid = 'pg_namespace'::regclass
+    )
+    select
+      nspname as schema,
+      nspowner::regrole as owner
+    from
+      pg_catalog.pg_namespace
+      left outer join extension_oids e on e.objid = oid
+      -- <EXCLUDE_INTERNAL>
+      where not nspname like any(array['pg\\_%', 'information\\_schema'])
+      and e.objid is null
+      -- </EXCLUDE_INTERNAL>
+    order by
+      1;
   `;
   return schemaRows.map((row) => new Schema(row));
 }
