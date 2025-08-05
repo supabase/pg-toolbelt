@@ -1,0 +1,30 @@
+import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import type { Collation } from "../collation.model.ts";
+
+/**
+ * Drop a collation.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-dropcollation.html
+ *
+ * Synopsis
+ * ```sql
+ * DROP COLLATION [ IF EXISTS ] name [ CASCADE | RESTRICT ]
+ * ```
+ */
+export class DropCollation extends DropChange {
+  public readonly collation: Collation;
+
+  constructor(props: { collation: Collation }) {
+    super();
+    this.collation = props.collation;
+  }
+
+  serialize(): string {
+    return [
+      "DROP COLLATION",
+      quoteIdentifier(this.collation.schema),
+      ".",
+      quoteIdentifier(this.collation.name),
+    ].join(" ");
+  }
+}

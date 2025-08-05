@@ -1,0 +1,43 @@
+import type { Change } from "../base.change.ts";
+import { diffObjects } from "../base.diff.ts";
+import { ReplaceTrigger } from "./changes/trigger.alter.ts";
+import { CreateTrigger } from "./changes/trigger.create.ts";
+import { DropTrigger } from "./changes/trigger.drop.ts";
+import type { Trigger } from "./trigger.model.ts";
+
+/**
+ * Diff two sets of triggers from main and branch catalogs.
+ *
+ * @param main - The triggers in the main catalog.
+ * @param branch - The triggers in the branch catalog.
+ * @returns A list of changes to apply to main to make it match branch.
+ */
+export function diffTriggers(
+  main: Record<string, Trigger>,
+  branch: Record<string, Trigger>,
+): Change[] {
+  const { created, dropped, altered } = diffObjects(main, branch);
+
+  const changes: Change[] = [];
+
+  for (const triggerId of created) {
+    changes.push(new CreateTrigger({ trigger: branch[triggerId] }));
+  }
+
+  for (const triggerId of dropped) {
+    changes.push(new DropTrigger({ trigger: main[triggerId] }));
+  }
+
+  for (const triggerId of altered) {
+    const mainTrigger = main[triggerId];
+    const branchTrigger = branch[triggerId];
+
+    // All trigger properties require dropping and recreating the trigger
+    // since triggers have no alterable properties
+    changes.push(
+      new ReplaceTrigger({ main: mainTrigger, branch: branchTrigger }),
+    );
+  }
+
+  return changes;
+}

@@ -1,0 +1,32 @@
+import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import type { RlsPolicy } from "../rls-policy.model.ts";
+
+/**
+ * Drop an RLS policy.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-droppolicy.html
+ *
+ * Synopsis
+ * ```sql
+ * DROP POLICY [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
+ * ```
+ */
+export class DropRlsPolicy extends DropChange {
+  public readonly rlsPolicy: RlsPolicy;
+
+  constructor(props: { rlsPolicy: RlsPolicy }) {
+    super();
+    this.rlsPolicy = props.rlsPolicy;
+  }
+
+  serialize(): string {
+    return [
+      "DROP POLICY",
+      quoteIdentifier(this.rlsPolicy.name),
+      "ON",
+      quoteIdentifier(this.rlsPolicy.table_schema),
+      ".",
+      quoteIdentifier(this.rlsPolicy.table_name),
+    ].join(" ");
+  }
+}

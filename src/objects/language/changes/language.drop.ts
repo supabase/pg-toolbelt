@@ -4,7 +4,7 @@ import type { Language } from "../language.model.ts";
 /**
  * Drop a language.
  *
- * @see https://www.postgresql.org/docs/current/sql-droplanguage.html
+ * @see https://www.postgresql.org/docs/17/sql-droplanguage.html
  *
  * Synopsis
  * ```sql

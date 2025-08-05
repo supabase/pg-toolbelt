@@ -1,0 +1,35 @@
+import { DropChange, quoteIdentifier } from "../../base.change.ts";
+import type { Procedure } from "../procedure.model.ts";
+
+/**
+ * Drop a procedure.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-dropfunction.html
+ *
+ * Synopsis
+ * ```sql
+ * DROP FUNCTION [ IF EXISTS ] name ( [ [ argmode ] [ argname ] argtype [, ...] ] ) [, ...] [ CASCADE | RESTRICT ]
+ * DROP PROCEDURE [ IF EXISTS ] name ( [ [ argmode ] [ argname ] argtype [, ...] ] ) [, ...] [ CASCADE | RESTRICT ]
+ * ```
+ */
+export class DropProcedure extends DropChange {
+  public readonly procedure: Procedure;
+
+  constructor(props: { procedure: Procedure }) {
+    super();
+    this.procedure = props.procedure;
+  }
+
+  serialize(): string {
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+
+    return [
+      "DROP",
+      objectType,
+      quoteIdentifier(this.procedure.schema),
+      ".",
+      quoteIdentifier(this.procedure.name),
+      "()",
+    ].join(" ");
+  }
+}

@@ -1,0 +1,74 @@
+import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import type { Sequence } from "../sequence.model.ts";
+
+/**
+ * Create a sequence.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-createsequence.html
+ *
+ * Synopsis
+ * ```sql
+ * CREATE [ TEMPORARY | TEMP ] SEQUENCE [ IF NOT EXISTS ] name [ INCREMENT [ BY ] increment ]
+ *     [ MINVALUE minvalue | NO MINVALUE ] [ MAXVALUE maxvalue | NO MAXVALUE ]
+ *     [ START [ WITH ] start ] [ CACHE cache ] [ [ NO ] CYCLE ]
+ *     [ OWNED BY { table_name.column_name | NONE } ]
+ * ```
+ */
+export class CreateSequence extends CreateChange {
+  public readonly sequence: Sequence;
+
+  constructor(props: { sequence: Sequence }) {
+    super();
+    this.sequence = props.sequence;
+  }
+
+  serialize(): string {
+    const parts: string[] = ["CREATE SEQUENCE"];
+
+    // Add schema and name
+    parts.push(
+      quoteIdentifier(this.sequence.schema),
+      ".",
+      quoteIdentifier(this.sequence.name),
+    );
+
+    // Add data type if not default
+    if (this.sequence.data_type && this.sequence.data_type !== "bigint") {
+      parts.push("AS", this.sequence.data_type);
+    }
+
+    // Add INCREMENT
+    if (this.sequence.increment !== 1) {
+      parts.push("INCREMENT BY", this.sequence.increment.toString());
+    }
+
+    // Add MINVALUE
+    if (this.sequence.minimum_value !== 1) {
+      parts.push("MINVALUE", this.sequence.minimum_value.toString());
+    }
+
+    // Add MAXVALUE
+    if (this.sequence.maximum_value.toString() !== "9223372036854775807") {
+      parts.push("MAXVALUE", this.sequence.maximum_value.toString());
+    }
+
+    // Add START
+    if (this.sequence.start_value !== 1) {
+      parts.push("START WITH", this.sequence.start_value.toString());
+    }
+
+    // Add CACHE
+    if (this.sequence.cache_size !== 1) {
+      parts.push("CACHE", this.sequence.cache_size.toString());
+    }
+
+    // Add CYCLE
+    if (this.sequence.cycle_option) {
+      parts.push("CYCLE");
+    } else {
+      parts.push("NO CYCLE");
+    }
+
+    return parts.join(" ");
+  }
+}

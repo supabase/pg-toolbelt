@@ -4,7 +4,7 @@ import type { Language } from "../language.model.ts";
 /**
  * Create a language.
  *
- * @see https://www.postgresql.org/docs/current/sql-createlanguage.html
+ * @see https://www.postgresql.org/docs/17/sql-createlanguage.html
  *
  * Synopsis
  * ```sql

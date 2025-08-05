@@ -10,7 +10,7 @@ import { DropLanguage } from "./language.drop.ts";
 /**
  * Alter a language.
  *
- * @see https://www.postgresql.org/docs/current/sql-alterlanguage.html
+ * @see https://www.postgresql.org/docs/17/sql-alterlanguage.html
  *
  * Synopsis
  * ```sql
