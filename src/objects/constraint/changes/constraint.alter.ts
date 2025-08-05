@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { ReplaceChange } from "../../base.change.ts";
 import type { Constraint } from "../constraint.model.ts";
 import { CreateConstraint } from "./constraint.create.ts";
 import { DropConstraint } from "./constraint.drop.ts";

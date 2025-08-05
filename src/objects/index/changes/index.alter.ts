@@ -109,6 +109,7 @@ export class AlterIndexSetTablespace extends AlterChange {
       ".",
       quoteIdentifier(this.main.name),
       "SET TABLESPACE",
+      // biome-ignore lint/style/noNonNullAssertion: the tablespace is set in this case
       quoteIdentifier(this.branch.tablespace!),
     ].join(" ");
   }
