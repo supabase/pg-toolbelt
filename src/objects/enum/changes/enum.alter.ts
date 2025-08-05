@@ -20,7 +20,7 @@ import { DropEnum } from "./enum.drop.ts";
  * ALTER TYPE name RENAME VALUE existing_enum_value TO new_enum_value
  * ```
  */
-export type AlterEnum = AlterEnumChangeOwner;
+export type AlterEnum = AlterEnumChangeOwner | AlterEnumAddValue;
 
 /**
  * ALTER TYPE ... OWNER TO ...
@@ -44,6 +44,48 @@ export class AlterEnumChangeOwner extends AlterChange {
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
+  }
+}
+
+/**
+ * ALTER TYPE ... ADD VALUE ...
+ */
+export class AlterEnumAddValue extends AlterChange {
+  public readonly main: Enum;
+  public readonly branch: Enum;
+  public readonly newValue: string;
+  public readonly position?: { before?: string; after?: string };
+
+  constructor(props: {
+    main: Enum;
+    branch: Enum;
+    newValue: string;
+    position?: { before?: string; after?: string };
+  }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+    this.newValue = props.newValue;
+    this.position = props.position;
+  }
+
+  serialize(): string {
+    const parts = [
+      "ALTER TYPE",
+      quoteIdentifier(this.main.schema),
+      ".",
+      quoteIdentifier(this.main.name),
+      "ADD VALUE",
+      quoteIdentifier(this.newValue),
+    ];
+
+    if (this.position?.before) {
+      parts.push("BEFORE", quoteIdentifier(this.position.before));
+    } else if (this.position?.after) {
+      parts.push("AFTER", quoteIdentifier(this.position.after));
+    }
+
+    return parts.join(" ");
   }
 }
 
