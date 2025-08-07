@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { ReplaceChange } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { CreateTrigger } from "./trigger.create.ts";
 import { DropTrigger } from "./trigger.drop.ts";
