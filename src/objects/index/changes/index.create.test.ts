@@ -25,6 +25,7 @@ describe("index", () => {
       column_options: [],
       index_expressions: null,
       partial_predicate: null,
+      table_relkind: "r",
     });
 
     const change = new CreateIndex({

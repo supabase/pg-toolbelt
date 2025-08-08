@@ -22,6 +22,7 @@ describe.concurrent("table", () => {
         partition_bound: null,
         parent_schema: null,
         parent_name: null,
+        columns: [],
       };
       const main = new Table({
         ...props,
@@ -60,6 +61,7 @@ describe.concurrent("table", () => {
         owner: "test",
         parent_schema: null,
         parent_name: null,
+        columns: [],
       };
       const main = new Table({
         ...props,

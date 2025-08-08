@@ -30,6 +30,7 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+        table_relkind: "r",
       };
       const main = new Index({
         ...props,
@@ -71,6 +72,7 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+        table_relkind: "r",
       };
       const main = new Index({
         ...props,
@@ -112,6 +114,7 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+        table_relkind: "r",
       };
       const main = new Index({
         ...props,
@@ -153,6 +156,7 @@ describe.concurrent("index", () => {
         column_options: [],
         index_expressions: null,
         partial_predicate: null,
+        table_relkind: "r",
       };
       const main = new Index({
         ...props,
