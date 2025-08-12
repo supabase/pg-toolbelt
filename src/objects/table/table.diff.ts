@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import { AlterTableChangeOwner, ReplaceTable } from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
@@ -34,22 +35,28 @@ export function diffTables(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the table
-    const nonAlterablePropsChanged =
-      mainTable.persistence !== branchTable.persistence ||
-      mainTable.row_security !== branchTable.row_security ||
-      mainTable.force_row_security !== branchTable.force_row_security ||
-      mainTable.has_indexes !== branchTable.has_indexes ||
-      mainTable.has_rules !== branchTable.has_rules ||
-      mainTable.has_triggers !== branchTable.has_triggers ||
-      mainTable.has_subclasses !== branchTable.has_subclasses ||
-      mainTable.is_populated !== branchTable.is_populated ||
-      mainTable.replica_identity !== branchTable.replica_identity ||
-      mainTable.is_partition !== branchTable.is_partition ||
-      JSON.stringify(mainTable.options) !==
-        JSON.stringify(branchTable.options) ||
-      mainTable.partition_bound !== branchTable.partition_bound ||
-      mainTable.parent_schema !== branchTable.parent_schema ||
-      mainTable.parent_name !== branchTable.parent_name;
+    const NON_ALTERABLE_FIELDS: Array<keyof Table> = [
+      "persistence",
+      "row_security",
+      "force_row_security",
+      "has_indexes",
+      "has_rules",
+      "has_triggers",
+      "has_subclasses",
+      "is_populated",
+      "replica_identity",
+      "is_partition",
+      "options",
+      "partition_bound",
+      "parent_schema",
+      "parent_name",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainTable,
+      branchTable,
+      NON_ALTERABLE_FIELDS,
+      { options: deepEqual },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire table (drop + create)

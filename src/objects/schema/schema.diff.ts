@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSchemaChangeOwner,
   ReplaceSchema,
@@ -37,7 +38,12 @@ export function diffSchemas(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the schema
-    const nonAlterablePropsChanged = false; // All schema properties are alterable
+    const NON_ALTERABLE_FIELDS: Array<keyof Schema> = [];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainSchema,
+      branchSchema,
+      NON_ALTERABLE_FIELDS,
+    ); // All schema properties are alterable
 
     if (nonAlterablePropsChanged) {
       // Replace the entire schema (drop + create)

@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
@@ -39,7 +40,13 @@ export function diffExtensions(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the extension
-    const nonAlterablePropsChanged = !mainExtension.relocatable;
+    const NON_ALTERABLE_FIELDS: Array<keyof Extension> = [];
+    const nonAlterablePropsChanged =
+      hasNonAlterableChanges(
+        mainExtension,
+        branchExtension,
+        NON_ALTERABLE_FIELDS,
+      ) || !mainExtension.relocatable;
 
     if (nonAlterablePropsChanged) {
       // Replace the entire extension (drop + create)

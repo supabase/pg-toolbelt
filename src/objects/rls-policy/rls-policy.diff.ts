@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterRlsPolicyChangeOwner,
   ReplaceRlsPolicy,
@@ -37,14 +38,19 @@ export function diffRlsPolicies(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the RLS policy
-    const nonAlterablePropsChanged =
-      mainRlsPolicy.command !== branchRlsPolicy.command ||
-      mainRlsPolicy.permissive !== branchRlsPolicy.permissive ||
-      JSON.stringify(mainRlsPolicy.roles) !==
-        JSON.stringify(branchRlsPolicy.roles) ||
-      mainRlsPolicy.using_expression !== branchRlsPolicy.using_expression ||
-      mainRlsPolicy.with_check_expression !==
-        branchRlsPolicy.with_check_expression;
+    const NON_ALTERABLE_FIELDS: Array<keyof RlsPolicy> = [
+      "command",
+      "permissive",
+      "roles",
+      "using_expression",
+      "with_check_expression",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainRlsPolicy,
+      branchRlsPolicy,
+      NON_ALTERABLE_FIELDS,
+      { roles: deepEqual },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire RLS policy (drop + create)

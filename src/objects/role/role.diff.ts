@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import { ReplaceRole } from "./changes/role.alter.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
@@ -33,8 +34,25 @@ export function diffRoles(
     const branchRole = branch[roleId];
 
     // All role properties require dropping and recreating the role
-    // since roles have no alterable properties
-    changes.push(new ReplaceRole({ main: mainRole, branch: branchRole }));
+    const NON_ALTERABLE_FIELDS: Array<keyof Role> = [
+      "is_superuser",
+      "can_inherit",
+      "can_create_roles",
+      "can_create_databases",
+      "can_login",
+      "can_replicate",
+      "connection_limit",
+      "can_bypass_rls",
+      "config",
+    ];
+    const shouldReplace = hasNonAlterableChanges(
+      mainRole,
+      branchRole,
+      NON_ALTERABLE_FIELDS,
+    );
+    if (shouldReplace) {
+      changes.push(new ReplaceRole({ main: mainRole, branch: branchRole }));
+    }
   }
 
   return changes;

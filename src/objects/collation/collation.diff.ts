@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
@@ -38,14 +39,20 @@ export function diffCollations(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the collation
-    const nonAlterablePropsChanged =
-      mainCollation.provider !== branchCollation.provider ||
-      mainCollation.is_deterministic !== branchCollation.is_deterministic ||
-      mainCollation.encoding !== branchCollation.encoding ||
-      mainCollation.collate !== branchCollation.collate ||
-      mainCollation.ctype !== branchCollation.ctype ||
-      mainCollation.locale !== branchCollation.locale ||
-      mainCollation.icu_rules !== branchCollation.icu_rules;
+    const NON_ALTERABLE_FIELDS: Array<keyof Collation> = [
+      "provider",
+      "is_deterministic",
+      "encoding",
+      "collate",
+      "ctype",
+      "locale",
+      "icu_rules",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainCollation,
+      branchCollation,
+      NON_ALTERABLE_FIELDS,
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire collation (drop + create)

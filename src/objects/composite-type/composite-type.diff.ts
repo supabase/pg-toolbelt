@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterCompositeTypeChangeOwner,
   ReplaceCompositeType,
@@ -41,21 +42,25 @@ export function diffCompositeTypes(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the composite type
-    const nonAlterablePropsChanged =
-      mainCompositeType.row_security !== branchCompositeType.row_security ||
-      mainCompositeType.force_row_security !==
-        branchCompositeType.force_row_security ||
-      mainCompositeType.has_indexes !== branchCompositeType.has_indexes ||
-      mainCompositeType.has_rules !== branchCompositeType.has_rules ||
-      mainCompositeType.has_triggers !== branchCompositeType.has_triggers ||
-      mainCompositeType.has_subclasses !== branchCompositeType.has_subclasses ||
-      mainCompositeType.is_populated !== branchCompositeType.is_populated ||
-      mainCompositeType.replica_identity !==
-        branchCompositeType.replica_identity ||
-      mainCompositeType.is_partition !== branchCompositeType.is_partition ||
-      JSON.stringify(mainCompositeType.options) !==
-        JSON.stringify(branchCompositeType.options) ||
-      mainCompositeType.partition_bound !== branchCompositeType.partition_bound;
+    const NON_ALTERABLE_FIELDS: Array<keyof CompositeType> = [
+      "row_security",
+      "force_row_security",
+      "has_indexes",
+      "has_rules",
+      "has_triggers",
+      "has_subclasses",
+      "is_populated",
+      "replica_identity",
+      "is_partition",
+      "options",
+      "partition_bound",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainCompositeType,
+      branchCompositeType,
+      NON_ALTERABLE_FIELDS,
+      { options: deepEqual },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire composite type (drop + create)

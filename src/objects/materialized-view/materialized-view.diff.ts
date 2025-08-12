@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
   ReplaceMaterializedView,
@@ -43,28 +44,26 @@ export function diffMaterializedViews(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the materialized view
-    const nonAlterablePropsChanged =
-      mainMaterializedView.definition !== branchMaterializedView.definition ||
-      mainMaterializedView.row_security !==
-        branchMaterializedView.row_security ||
-      mainMaterializedView.force_row_security !==
-        branchMaterializedView.force_row_security ||
-      mainMaterializedView.has_indexes !== branchMaterializedView.has_indexes ||
-      mainMaterializedView.has_rules !== branchMaterializedView.has_rules ||
-      mainMaterializedView.has_triggers !==
-        branchMaterializedView.has_triggers ||
-      mainMaterializedView.has_subclasses !==
-        branchMaterializedView.has_subclasses ||
-      mainMaterializedView.is_populated !==
-        branchMaterializedView.is_populated ||
-      mainMaterializedView.replica_identity !==
-        branchMaterializedView.replica_identity ||
-      mainMaterializedView.is_partition !==
-        branchMaterializedView.is_partition ||
-      JSON.stringify(mainMaterializedView.options) !==
-        JSON.stringify(branchMaterializedView.options) ||
-      mainMaterializedView.partition_bound !==
-        branchMaterializedView.partition_bound;
+    const NON_ALTERABLE_FIELDS: Array<keyof MaterializedView> = [
+      "definition",
+      "row_security",
+      "force_row_security",
+      "has_indexes",
+      "has_rules",
+      "has_triggers",
+      "has_subclasses",
+      "is_populated",
+      "replica_identity",
+      "is_partition",
+      "options",
+      "partition_bound",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainMaterializedView,
+      branchMaterializedView,
+      NON_ALTERABLE_FIELDS,
+      { options: deepEqual },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire materialized view (drop + create)

@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
   ReplaceProcedure,
@@ -37,34 +38,41 @@ export function diffProcedures(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the procedure
-    const nonAlterablePropsChanged =
-      mainProcedure.kind !== branchProcedure.kind ||
-      mainProcedure.return_type !== branchProcedure.return_type ||
-      mainProcedure.return_type_schema !== branchProcedure.return_type_schema ||
-      mainProcedure.language !== branchProcedure.language ||
-      mainProcedure.security_definer !== branchProcedure.security_definer ||
-      mainProcedure.volatility !== branchProcedure.volatility ||
-      mainProcedure.parallel_safety !== branchProcedure.parallel_safety ||
-      mainProcedure.is_strict !== branchProcedure.is_strict ||
-      mainProcedure.leakproof !== branchProcedure.leakproof ||
-      mainProcedure.returns_set !== branchProcedure.returns_set ||
-      mainProcedure.argument_count !== branchProcedure.argument_count ||
-      mainProcedure.argument_default_count !==
-        branchProcedure.argument_default_count ||
-      JSON.stringify(mainProcedure.argument_names) !==
-        JSON.stringify(branchProcedure.argument_names) ||
-      JSON.stringify(mainProcedure.argument_types) !==
-        JSON.stringify(branchProcedure.argument_types) ||
-      JSON.stringify(mainProcedure.all_argument_types) !==
-        JSON.stringify(branchProcedure.all_argument_types) ||
-      JSON.stringify(mainProcedure.argument_modes) !==
-        JSON.stringify(branchProcedure.argument_modes) ||
-      mainProcedure.argument_defaults !== branchProcedure.argument_defaults ||
-      mainProcedure.source_code !== branchProcedure.source_code ||
-      mainProcedure.binary_path !== branchProcedure.binary_path ||
-      mainProcedure.sql_body !== branchProcedure.sql_body ||
-      JSON.stringify(mainProcedure.config) !==
-        JSON.stringify(branchProcedure.config);
+    const NON_ALTERABLE_FIELDS: Array<keyof Procedure> = [
+      "kind",
+      "return_type",
+      "return_type_schema",
+      "language",
+      "security_definer",
+      "volatility",
+      "parallel_safety",
+      "is_strict",
+      "leakproof",
+      "returns_set",
+      "argument_count",
+      "argument_default_count",
+      "argument_names",
+      "argument_types",
+      "all_argument_types",
+      "argument_modes",
+      "argument_defaults",
+      "source_code",
+      "binary_path",
+      "sql_body",
+      "config",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainProcedure,
+      branchProcedure,
+      NON_ALTERABLE_FIELDS,
+      {
+        argument_names: deepEqual,
+        argument_types: deepEqual,
+        all_argument_types: deepEqual,
+        argument_modes: deepEqual,
+        config: deepEqual,
+      },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire procedure (drop + create)

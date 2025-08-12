@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import { AlterViewChangeOwner, ReplaceView } from "./changes/view.alter.ts";
 import { CreateView } from "./changes/view.create.ts";
 import { DropView } from "./changes/view.drop.ts";
@@ -34,19 +35,26 @@ export function diffViews(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the view
-    const nonAlterablePropsChanged =
-      mainView.definition !== branchView.definition ||
-      mainView.row_security !== branchView.row_security ||
-      mainView.force_row_security !== branchView.force_row_security ||
-      mainView.has_indexes !== branchView.has_indexes ||
-      mainView.has_rules !== branchView.has_rules ||
-      mainView.has_triggers !== branchView.has_triggers ||
-      mainView.has_subclasses !== branchView.has_subclasses ||
-      mainView.is_populated !== branchView.is_populated ||
-      mainView.replica_identity !== branchView.replica_identity ||
-      mainView.is_partition !== branchView.is_partition ||
-      JSON.stringify(mainView.options) !== JSON.stringify(branchView.options) ||
-      mainView.partition_bound !== branchView.partition_bound;
+    const NON_ALTERABLE_FIELDS: Array<keyof View> = [
+      "definition",
+      "row_security",
+      "force_row_security",
+      "has_indexes",
+      "has_rules",
+      "has_triggers",
+      "has_subclasses",
+      "is_populated",
+      "replica_identity",
+      "is_partition",
+      "options",
+      "partition_bound",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainView,
+      branchView,
+      NON_ALTERABLE_FIELDS,
+      { options: deepEqual },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire view (drop + create)

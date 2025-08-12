@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -38,7 +39,12 @@ export function diffEnums(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the enum
-    const nonAlterablePropsChanged = false; // All enum properties are alterable
+    const NON_ALTERABLE_FIELDS: Array<keyof Enum> = [];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainEnum,
+      branchEnum,
+      NON_ALTERABLE_FIELDS,
+    ); // All enum properties are alterable
 
     if (nonAlterablePropsChanged) {
       // Replace the entire enum (drop + create)
@@ -95,7 +101,10 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
   );
 
   for (const newValue of addedValues) {
-    const newValueSortOrder = branchLabelMap.get(newValue)!;
+    const newValueSortOrder = branchLabelMap.get(newValue);
+    if (newValueSortOrder === undefined) {
+      continue;
+    }
 
     // Find the correct position for the new value
     const position = findEnumValuePosition(mainEnum.labels, newValueSortOrder);

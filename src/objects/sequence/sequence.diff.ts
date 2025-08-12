@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceChangeOwner,
   ReplaceSequence,
@@ -37,15 +38,21 @@ export function diffSequences(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the sequence
-    const nonAlterablePropsChanged =
-      mainSequence.data_type !== branchSequence.data_type ||
-      mainSequence.start_value !== branchSequence.start_value ||
-      mainSequence.minimum_value !== branchSequence.minimum_value ||
-      mainSequence.maximum_value !== branchSequence.maximum_value ||
-      mainSequence.increment !== branchSequence.increment ||
-      mainSequence.cycle_option !== branchSequence.cycle_option ||
-      mainSequence.cache_size !== branchSequence.cache_size ||
-      mainSequence.persistence !== branchSequence.persistence;
+    const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = [
+      "data_type",
+      "start_value",
+      "minimum_value",
+      "maximum_value",
+      "increment",
+      "cycle_option",
+      "cache_size",
+      "persistence",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainSequence,
+      branchSequence,
+      NON_ALTERABLE_FIELDS,
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire sequence (drop + create)

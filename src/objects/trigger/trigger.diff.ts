@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import { ReplaceTrigger } from "./changes/trigger.alter.ts";
 import { CreateTrigger } from "./changes/trigger.create.ts";
 import { DropTrigger } from "./changes/trigger.drop.ts";
@@ -32,11 +33,33 @@ export function diffTriggers(
     const mainTrigger = main[triggerId];
     const branchTrigger = branch[triggerId];
 
-    // All trigger properties require dropping and recreating the trigger
-    // since triggers have no alterable properties
-    changes.push(
-      new ReplaceTrigger({ main: mainTrigger, branch: branchTrigger }),
+    const NON_ALTERABLE_FIELDS: Array<keyof Trigger> = [
+      "function_schema",
+      "function_name",
+      "trigger_type",
+      "enabled",
+      "is_internal",
+      "deferrable",
+      "initially_deferred",
+      "argument_count",
+      "column_numbers",
+      "arguments",
+      "when_condition",
+      "old_table",
+      "new_table",
+      "owner",
+    ];
+    const shouldReplace = hasNonAlterableChanges(
+      mainTrigger,
+      branchTrigger,
+      NON_ALTERABLE_FIELDS,
+      { column_numbers: deepEqual, arguments: deepEqual },
     );
+    if (shouldReplace) {
+      changes.push(
+        new ReplaceTrigger({ main: mainTrigger, branch: branchTrigger }),
+      );
+    }
   }
 
   return changes;

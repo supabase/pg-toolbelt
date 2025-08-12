@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterLanguageChangeOwner,
   ReplaceLanguage,
@@ -37,12 +38,18 @@ export function diffLanguages(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the language
-    const nonAlterablePropsChanged =
-      mainLanguage.is_trusted !== branchLanguage.is_trusted ||
-      mainLanguage.is_procedural !== branchLanguage.is_procedural ||
-      mainLanguage.call_handler !== branchLanguage.call_handler ||
-      mainLanguage.inline_handler !== branchLanguage.inline_handler ||
-      mainLanguage.validator !== branchLanguage.validator;
+    const NON_ALTERABLE_FIELDS: Array<keyof Language> = [
+      "is_trusted",
+      "is_procedural",
+      "call_handler",
+      "inline_handler",
+      "validator",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainLanguage,
+      branchLanguage,
+      NON_ALTERABLE_FIELDS,
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire language (drop + create)

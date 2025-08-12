@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import { ReplaceConstraint } from "./changes/constraint.alter.ts";
 import { CreateConstraint } from "./changes/constraint.create.ts";
 import { DropConstraint } from "./changes/constraint.drop.ts";
@@ -33,13 +34,36 @@ export function diffConstraints(
     const branchConstraint = branch[constraintId];
 
     // All constraint properties require dropping and recreating the constraint
-    // since constraints have no alterable properties
-    changes.push(
-      new ReplaceConstraint({
-        main: mainConstraint,
-        branch: branchConstraint,
-      }),
+    const NON_ALTERABLE_FIELDS: Array<keyof Constraint> = [
+      "constraint_type",
+      "deferrable",
+      "initially_deferred",
+      "validated",
+      "is_local",
+      "no_inherit",
+      "key_columns",
+      "foreign_key_columns",
+      "foreign_key_table",
+      "foreign_key_schema",
+      "on_update",
+      "on_delete",
+      "match_type",
+      "check_expression",
+      "owner",
+    ];
+    const shouldReplace = hasNonAlterableChanges(
+      mainConstraint,
+      branchConstraint,
+      NON_ALTERABLE_FIELDS,
     );
+    if (shouldReplace) {
+      changes.push(
+        new ReplaceConstraint({
+          main: mainConstraint,
+          branch: branchConstraint,
+        }),
+      );
+    }
   }
 
   return changes;

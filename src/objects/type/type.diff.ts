@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterTypeChangeOwner, ReplaceType } from "./changes/type.alter.ts";
 import { CreateType } from "./changes/type.create.ts";
 import { DropType } from "./changes/type.drop.ts";
@@ -34,21 +35,27 @@ export function diffTypes(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the type
-    const nonAlterablePropsChanged =
-      mainType.type_type !== branchType.type_type ||
-      mainType.type_category !== branchType.type_category ||
-      mainType.is_preferred !== branchType.is_preferred ||
-      mainType.is_defined !== branchType.is_defined ||
-      mainType.delimiter !== branchType.delimiter ||
-      mainType.storage_length !== branchType.storage_length ||
-      mainType.passed_by_value !== branchType.passed_by_value ||
-      mainType.alignment !== branchType.alignment ||
-      mainType.storage !== branchType.storage ||
-      mainType.not_null !== branchType.not_null ||
-      mainType.type_modifier !== branchType.type_modifier ||
-      mainType.array_dimensions !== branchType.array_dimensions ||
-      mainType.default_bin !== branchType.default_bin ||
-      mainType.default_value !== branchType.default_value;
+    const NON_ALTERABLE_FIELDS: Array<keyof Type> = [
+      "type_type",
+      "type_category",
+      "is_preferred",
+      "is_defined",
+      "delimiter",
+      "storage_length",
+      "passed_by_value",
+      "alignment",
+      "storage",
+      "not_null",
+      "type_modifier",
+      "array_dimensions",
+      "default_bin",
+      "default_value",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainType,
+      branchType,
+      NON_ALTERABLE_FIELDS,
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire type (drop + create)

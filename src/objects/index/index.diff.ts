@@ -1,5 +1,6 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
@@ -39,25 +40,33 @@ export function diffIndexes(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the index
-    const nonAlterablePropsChanged =
-      mainIndex.index_type !== branchIndex.index_type ||
-      mainIndex.is_unique !== branchIndex.is_unique ||
-      mainIndex.is_primary !== branchIndex.is_primary ||
-      mainIndex.is_exclusion !== branchIndex.is_exclusion ||
-      mainIndex.nulls_not_distinct !== branchIndex.nulls_not_distinct ||
-      mainIndex.immediate !== branchIndex.immediate ||
-      mainIndex.is_clustered !== branchIndex.is_clustered ||
-      mainIndex.is_replica_identity !== branchIndex.is_replica_identity ||
-      JSON.stringify(mainIndex.key_columns) !==
-        JSON.stringify(branchIndex.key_columns) ||
-      JSON.stringify(mainIndex.column_collations) !==
-        JSON.stringify(branchIndex.column_collations) ||
-      JSON.stringify(mainIndex.operator_classes) !==
-        JSON.stringify(branchIndex.operator_classes) ||
-      JSON.stringify(mainIndex.column_options) !==
-        JSON.stringify(branchIndex.column_options) ||
-      mainIndex.index_expressions !== branchIndex.index_expressions ||
-      mainIndex.partial_predicate !== branchIndex.partial_predicate;
+    const NON_ALTERABLE_FIELDS: Array<keyof Index> = [
+      "index_type",
+      "is_unique",
+      "is_primary",
+      "is_exclusion",
+      "nulls_not_distinct",
+      "immediate",
+      "is_clustered",
+      "is_replica_identity",
+      "key_columns",
+      "column_collations",
+      "operator_classes",
+      "column_options",
+      "index_expressions",
+      "partial_predicate",
+    ];
+    const nonAlterablePropsChanged = hasNonAlterableChanges(
+      mainIndex,
+      branchIndex,
+      NON_ALTERABLE_FIELDS,
+      {
+        key_columns: deepEqual,
+        column_collations: deepEqual,
+        operator_classes: deepEqual,
+        column_options: deepEqual,
+      },
+    );
 
     if (nonAlterablePropsChanged) {
       // Replace the entire index (drop + create)
