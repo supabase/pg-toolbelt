@@ -18,7 +18,7 @@ export interface PgDepend {
  */
 export async function extractDepends(
   sql: Sql,
-  params: {
+  _params: {
     user_oids: number[];
     user_namespace_oids: number[];
     user_constraint_oids: number[];

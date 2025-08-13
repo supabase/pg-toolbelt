@@ -1,8 +1,4 @@
-import {
-  AlterChange,
-  quoteIdentifier,
-  ReplaceChange,
-} from "../../base.change.ts";
+import { ReplaceChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
 import { DropRole } from "./role.drop.ts";

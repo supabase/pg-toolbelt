@@ -188,8 +188,8 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const main = new Domain(props);
-      const branch = new Domain(props);
+      const _main = new Domain(props);
+      const _branch = new Domain(props);
 
       const change = new AlterDomainAddConstraint();
 
@@ -212,8 +212,8 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const main = new Domain(props);
-      const branch = new Domain(props);
+      const _main = new Domain(props);
+      const _branch = new Domain(props);
 
       const change = new AlterDomainDropConstraint();
 
@@ -236,8 +236,8 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const main = new Domain(props);
-      const branch = new Domain(props);
+      const _main = new Domain(props);
+      const _branch = new Domain(props);
 
       const change = new AlterDomainRenameConstraint();
 
@@ -260,8 +260,8 @@ describe.concurrent("domain", () => {
         default_value: null,
         owner: "test",
       };
-      const main = new Domain(props);
-      const branch = new Domain(props);
+      const _main = new Domain(props);
+      const _branch = new Domain(props);
 
       const change = new AlterDomainValidateConstraint();
 
