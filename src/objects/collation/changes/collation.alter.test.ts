@@ -3,12 +3,13 @@ import { Collation, type CollationProps } from "../collation.model.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
+  ReplaceCollation,
 } from "./collation.alter.ts";
 
 describe.concurrent("collation", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const props: Omit<CollationProps, "owner"> = {
+      const base: Omit<CollationProps, "owner"> = {
         schema: "public",
         name: "test",
         provider: "c",
@@ -21,11 +22,11 @@ describe.concurrent("collation", () => {
         icu_rules: "test",
       };
       const main = new Collation({
-        ...props,
+        ...base,
         owner: "old_owner",
       });
       const branch = new Collation({
-        ...props,
+        ...base,
         owner: "new_owner",
       });
 
@@ -40,7 +41,7 @@ describe.concurrent("collation", () => {
     });
 
     test("refresh version", () => {
-      const props: Omit<CollationProps, "version"> = {
+      const base: Omit<CollationProps, "version"> = {
         schema: "public",
         name: "test",
         provider: "c",
@@ -53,11 +54,11 @@ describe.concurrent("collation", () => {
         owner: "test",
       };
       const main = new Collation({
-        ...props,
+        ...base,
         version: "1.0",
       });
       const branch = new Collation({
-        ...props,
+        ...base,
         version: "2.0",
       });
 
@@ -68,6 +69,39 @@ describe.concurrent("collation", () => {
 
       expect(change.serialize()).toBe(
         "ALTER COLLATION public.test REFRESH VERSION",
+      );
+    });
+
+    test("replace collation (drop + create)", () => {
+      const base: Omit<CollationProps, "provider"> = {
+        schema: "public",
+        name: "test",
+        encoding: 1,
+        owner: "owner",
+        is_deterministic: true,
+        collate: "C",
+        ctype: "C",
+        locale: null,
+        version: null,
+        icu_rules: null,
+      };
+
+      const main = new Collation({
+        ...base,
+        provider: "c",
+      });
+      const branch = new Collation({
+        ...base,
+        provider: "b",
+      });
+
+      const change = new ReplaceCollation({ main, branch });
+
+      expect(change.serialize()).toBe(
+        [
+          "DROP COLLATION public.test",
+          "CREATE COLLATION public.test (LC_COLLATE = 'C', LC_CTYPE = 'C', PROVIDER = builtin)",
+        ].join(";\n"),
       );
     });
   });

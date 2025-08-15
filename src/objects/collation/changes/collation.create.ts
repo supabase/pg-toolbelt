@@ -61,14 +61,13 @@ export class CreateCollation extends CreateChange {
 
     // PROVIDER
     const providerMap: Record<string, string> = {
-      d: "icu",
       c: "libc",
-      i: "internal",
+      i: "icu",
+      b: "builtin",
     };
-    if (this.collation.provider) {
-      properties.push(
-        `PROVIDER = ${providerMap[this.collation.provider] || this.collation.provider}`,
-      );
+    // provider 'd' means default provider in catalog; omit PROVIDER clause
+    if (this.collation.provider !== "d") {
+      properties.push(`PROVIDER = ${providerMap[this.collation.provider]}`);
     }
 
     // DETERMINISTIC
@@ -85,12 +84,6 @@ export class CreateCollation extends CreateChange {
     // VERSION
     if (this.collation.version) {
       properties.push(`VERSION = ${quoteLiteral(this.collation.version)}`);
-    }
-
-    if (properties.length === 0) {
-      throw new Error(
-        "Cannot CREATE COLLATION without properties in diff-generated migrations",
-      );
     }
 
     parts.push(["(", properties.join(", "), ")"].join(""));

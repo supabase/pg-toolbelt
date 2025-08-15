@@ -2,7 +2,7 @@ import type { Sql } from "postgres";
 import { extractVersion } from "../../version.ts";
 import { BasePgModel } from "../base.model.ts";
 
-type CollationProvider = "d" | "c" | "i";
+type CollationProvider = "d" | "c" | "i" | "b";
 
 /**
  * All properties exposed by CREATE COLLATION statement are included in diff output.

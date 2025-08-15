@@ -3,27 +3,47 @@ import { Collation } from "../collation.model.ts";
 import { CreateCollation } from "./collation.create.ts";
 
 describe("collation", () => {
-  test("create", () => {
+  test("create minimal", () => {
     const collation = new Collation({
       schema: "public",
       name: "test",
-      provider: "c",
+      provider: "d",
       is_deterministic: true,
+      encoding: 1,
+      collate: "C",
+      locale: null,
+      version: null,
+      ctype: "C",
+      icu_rules: null,
+      owner: "owner",
+    });
+
+    const change = new CreateCollation({ collation });
+
+    expect(change.serialize()).toBe(
+      `CREATE COLLATION public.test (LC_COLLATE = 'C', LC_CTYPE = 'C')`,
+    );
+  });
+
+  test("create with all options", () => {
+    const collation = new Collation({
+      schema: "public",
+      name: "test",
+      provider: "i",
+      is_deterministic: false,
       encoding: 1,
       collate: "en_US",
       locale: "en_US",
       version: "1.0",
-      ctype: "test",
-      icu_rules: "test",
-      owner: "test",
+      ctype: "en_US",
+      icu_rules: "& A < a <<< à",
+      owner: "owner",
     });
 
-    const change = new CreateCollation({
-      collation,
-    });
+    const change = new CreateCollation({ collation });
 
     expect(change.serialize()).toBe(
-      `CREATE COLLATION public.test (LOCALE = 'en_US', LC_COLLATE = 'en_US', LC_CTYPE = 'test', PROVIDER = libc, RULES = 'test', VERSION = '1.0')`,
+      `CREATE COLLATION public.test (LOCALE = 'en_US', LC_COLLATE = 'en_US', LC_CTYPE = 'en_US', PROVIDER = icu, DETERMINISTIC = false, RULES = '& A < a <<< à', VERSION = '1.0')`,
     );
   });
 });
