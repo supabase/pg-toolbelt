@@ -1,4 +1,8 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import {
+  CreateChange,
+  quoteIdentifier,
+  quoteLiteral,
+} from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 
 /**
@@ -42,19 +46,17 @@ export class CreateCollation extends CreateChange {
 
     // LOCALE
     if (this.collation.locale) {
-      properties.push(`LOCALE = ${quoteIdentifier(this.collation.locale)}`);
+      properties.push(`LOCALE = ${quoteLiteral(this.collation.locale)}`);
     }
 
     // LC_COLLATE
     if (this.collation.collate) {
-      properties.push(
-        `LC_COLLATE = ${quoteIdentifier(this.collation.collate)}`,
-      );
+      properties.push(`LC_COLLATE = ${quoteLiteral(this.collation.collate)}`);
     }
 
     // LC_CTYPE
     if (this.collation.ctype) {
-      properties.push(`LC_CTYPE = ${quoteIdentifier(this.collation.ctype)}`);
+      properties.push(`LC_CTYPE = ${quoteLiteral(this.collation.ctype)}`);
     }
 
     // PROVIDER
@@ -70,21 +72,28 @@ export class CreateCollation extends CreateChange {
     }
 
     // DETERMINISTIC
-    properties.push(`DETERMINISTIC = ${this.collation.is_deterministic}`);
+    // DETERMINISTIC (only emit when false; true is default in PG)
+    if (this.collation.is_deterministic === false) {
+      properties.push(`DETERMINISTIC = false`);
+    }
 
     // RULES (ICU rules)
     if (this.collation.icu_rules) {
-      properties.push(`RULES = ${quoteIdentifier(this.collation.icu_rules)}`);
+      properties.push(`RULES = ${quoteLiteral(this.collation.icu_rules)}`);
     }
 
     // VERSION
     if (this.collation.version) {
-      properties.push(`VERSION = ${quoteIdentifier(this.collation.version)}`);
+      properties.push(`VERSION = ${quoteLiteral(this.collation.version)}`);
     }
 
-    if (properties.length > 0) {
-      parts.push(["(", properties.join(", "), ")"].join(""));
+    if (properties.length === 0) {
+      throw new Error(
+        "Cannot CREATE COLLATION without properties in diff-generated migrations",
+      );
     }
+
+    parts.push(["(", properties.join(", "), ")"].join(""));
 
     return parts.join(" ");
   }

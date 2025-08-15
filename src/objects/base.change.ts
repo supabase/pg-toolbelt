@@ -159,3 +159,8 @@ export function quoteIdentifier(ident: string): string {
   // Quote and double any embedded quotes using a template string
   return `"${ident.replace(/"/g, '""')}"`;
 }
+
+// Port of string literal quoting: doubles single quotes inside and wraps with single quotes
+export function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}

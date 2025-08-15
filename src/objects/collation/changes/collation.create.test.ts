@@ -23,7 +23,7 @@ describe("collation", () => {
     });
 
     expect(change.serialize()).toBe(
-      `CREATE COLLATION public.test (LOCALE = "en_US", LC_COLLATE = "en_US", LC_CTYPE = test, PROVIDER = libc, DETERMINISTIC = true, RULES = test, VERSION = "1.0")`,
+      `CREATE COLLATION public.test (LOCALE = 'en_US', LC_COLLATE = 'en_US', LC_CTYPE = 'test', PROVIDER = libc, RULES = 'test', VERSION = '1.0')`,
     );
   });
 });
