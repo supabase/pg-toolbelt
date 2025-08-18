@@ -117,7 +117,7 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         t.typnamespace::regnamespace as schema,
         t.typname as name,
         bt.typname as base_type,
-        bn.nspname as base_type_schema,
+        bt.typnamespace::regnamespace as base_type_schema,
         format_type(t.typbasetype, t.typtypmod) as base_type_str,
         t.typnotnull as not_null,
         t.typtypmod as type_modifier,
