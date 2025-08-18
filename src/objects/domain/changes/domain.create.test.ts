@@ -48,7 +48,6 @@ describe("domain", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE <> ''",
-          owner: "test",
         },
       ],
     });

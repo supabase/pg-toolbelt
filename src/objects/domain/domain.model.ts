@@ -23,7 +23,6 @@ export interface DomainConstraintProps {
   is_local: boolean;
   no_inherit: boolean;
   check_expression: string | null;
-  owner: string;
 }
 
 /**

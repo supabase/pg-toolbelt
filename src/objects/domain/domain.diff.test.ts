@@ -48,7 +48,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: base.owner,
         },
         {
           name: "c_not_valid",
@@ -56,7 +55,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE < 100",
-          owner: base.owner,
         },
       ],
     });
@@ -125,7 +123,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: base.owner,
         },
       ],
     });
@@ -138,7 +135,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE >= 0", // changed expression
-          owner: base.owner,
         },
       ],
     });
@@ -164,7 +160,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: base.owner,
         },
       ],
     });
@@ -177,7 +172,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE >= 0", // changed expression
-          owner: base.owner,
         },
       ],
     });
@@ -203,7 +197,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE <> ''",
-          owner: base.owner,
         },
       ],
     });
@@ -228,7 +221,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE <> ''",
-          owner: base.owner,
         },
       ],
     });
@@ -253,7 +245,6 @@ describe.concurrent("domain.diff", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE <> ''",
-          owner: base.owner,
         },
       ],
     });

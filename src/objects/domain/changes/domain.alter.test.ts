@@ -203,7 +203,6 @@ describe.concurrent("domain", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: "test",
         },
       });
 
@@ -237,7 +236,6 @@ describe.concurrent("domain", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: "test",
         },
       });
 
@@ -271,7 +269,6 @@ describe.concurrent("domain", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: "test",
         },
       });
 
@@ -305,7 +302,6 @@ describe.concurrent("domain", () => {
           is_local: true,
           no_inherit: false,
           check_expression: "VALUE > 0",
-          owner: "test",
         },
       });
 
