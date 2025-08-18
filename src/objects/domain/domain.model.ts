@@ -125,7 +125,7 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         case when t.typcollation <> bt.typcollation then c.collname else null end as collation,
         pg_get_expr(t.typdefaultbin, 0) as default_bin,
         t.typdefault as default_value,
-        pg_get_userbyid(t.typowner) as owner,
+        t.typowner::regrole as owner,
         coalesce(
           (
             select json_agg(
