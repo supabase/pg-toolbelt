@@ -144,7 +144,6 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         ) as constraints
       from
         pg_catalog.pg_type t
-        inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
         inner join pg_catalog.pg_type bt on bt.oid = t.typbasetype
         left join pg_catalog.pg_collation c on c.oid = t.typcollation
         left outer join extension_oids e on t.oid = e.objid
