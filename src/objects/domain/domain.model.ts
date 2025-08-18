@@ -134,18 +134,12 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
                 'validated', con.convalidated,
                 'is_local', con.conislocal,
                 'no_inherit', con.connoinherit,
-                'check_expression', pg_get_expr(con.conbin, 0),
-                'owner', pg_get_userbyid(t.typowner)
+                'check_expression', pg_get_expr(con.conbin, 0)
               )
               order by con.conname
             )
             from pg_catalog.pg_constraint con
-            inner join pg_catalog.pg_namespace cn on cn.oid = con.connamespace
-            left join pg_depend de on de.classid = 'pg_constraint'::regclass and de.objid = con.oid and de.refclassid = 'pg_extension'::regclass
             where con.contypid = t.oid
-              and cn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-              and cn.nspname not like 'pg\_temp\_%' and cn.nspname not like 'pg\_toast\_temp\_%'
-              and de.objid is null
           ), '[]'
         ) as constraints
       from
