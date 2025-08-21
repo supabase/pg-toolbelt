@@ -3,6 +3,12 @@ import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
+  AlterProcedureSetConfig,
+  AlterProcedureSetLeakproof,
+  AlterProcedureSetParallel,
+  AlterProcedureSetSecurity,
+  AlterProcedureSetStrictness,
+  AlterProcedureSetVolatility,
   ReplaceProcedure,
 } from "./changes/procedure.alter.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
@@ -43,11 +49,15 @@ export function diffProcedures(
       "return_type",
       "return_type_schema",
       "language",
-      "security_definer",
-      "volatility",
-      "parallel_safety",
-      "is_strict",
-      "leakproof",
+      // The following properties are alterable in SQL, but our generator may choose
+      // to replace on changes not covered by explicit ALTER actions. Keep them out here
+      // to allow ALTER for those we implement below.
+      // security_definer,
+      // volatility,
+      // parallel_safety,
+      // is_strict,
+      // leakproof,
+      // Returns-set is part of the signature and not alterable
       "returns_set",
       "argument_count",
       "argument_default_count",
@@ -59,7 +69,7 @@ export function diffProcedures(
       "source_code",
       "binary_path",
       "sql_body",
-      "config",
+      // config is alterable via SET/RESET
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
       mainProcedure,
@@ -86,6 +96,73 @@ export function diffProcedures(
       if (mainProcedure.owner !== branchProcedure.owner) {
         changes.push(
           new AlterProcedureChangeOwner({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // SECURITY DEFINER/INVOKER
+      if (mainProcedure.security_definer !== branchProcedure.security_definer) {
+        changes.push(
+          new AlterProcedureSetSecurity({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // CONFIG SET/RESET
+      const serializeConfig = (cfg?: string[] | null) =>
+        (cfg ?? []).slice().sort();
+      const mainCfg = serializeConfig(mainProcedure.config);
+      const branchCfg = serializeConfig(branchProcedure.config);
+      const configChanged =
+        mainCfg.length !== branchCfg.length ||
+        mainCfg.some((val, idx) => val !== branchCfg[idx]);
+      if (configChanged) {
+        changes.push(
+          new AlterProcedureSetConfig({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // VOLATILITY
+      if (mainProcedure.volatility !== branchProcedure.volatility) {
+        changes.push(
+          new AlterProcedureSetVolatility({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // STRICTNESS
+      if (mainProcedure.is_strict !== branchProcedure.is_strict) {
+        changes.push(
+          new AlterProcedureSetStrictness({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // LEAKPROOF
+      if (mainProcedure.leakproof !== branchProcedure.leakproof) {
+        changes.push(
+          new AlterProcedureSetLeakproof({
+            main: mainProcedure,
+            branch: branchProcedure,
+          }),
+        );
+      }
+
+      // PARALLEL
+      if (mainProcedure.parallel_safety !== branchProcedure.parallel_safety) {
+        changes.push(
+          new AlterProcedureSetParallel({
             main: mainProcedure,
             branch: branchProcedure,
           }),

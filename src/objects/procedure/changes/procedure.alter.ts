@@ -31,7 +31,14 @@ import { DropProcedure } from "./procedure.drop.ts";
  *     RESET ALL
  * ```
  */
-export type AlterProcedure = AlterProcedureChangeOwner;
+export type AlterProcedure =
+  | AlterProcedureChangeOwner
+  | AlterProcedureSetSecurity
+  | AlterProcedureSetConfig
+  | AlterProcedureSetVolatility
+  | AlterProcedureSetStrictness
+  | AlterProcedureSetLeakproof
+  | AlterProcedureSetParallel;
 
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
@@ -55,6 +62,204 @@ export class AlterProcedureChangeOwner extends AlterChange {
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
+ */
+export class AlterProcedureSetSecurity extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const security = this.branch.security_definer
+      ? "SECURITY DEFINER"
+      : "SECURITY INVOKER"; // INVOKER is default; only emitted when changed via diff
+
+    return [
+      "ALTER",
+      objectType,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      security,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... SET/RESET configuration_parameter
+ * Emits individual RESET for removed keys and SET for added/changed keys.
+ */
+export class AlterProcedureSetConfig extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const parseOptions = (options: string[] | null | undefined) => {
+      const map = new Map<string, string>();
+      if (!options) return map;
+      for (const opt of options) {
+        const eqIndex = opt.indexOf("=");
+        const key = opt.slice(0, eqIndex).trim();
+        const value = opt.slice(eqIndex + 1).trim();
+        map.set(key, value);
+      }
+      return map;
+    };
+
+    const mainMap = parseOptions(this.main.config);
+    const branchMap = parseOptions(this.branch.config);
+
+    const head = [
+      "ALTER",
+      this.main.kind === "p" ? "PROCEDURE" : "FUNCTION",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+    ].join(" ");
+
+    const statements: string[] = [];
+
+    // Removed or changed keys -> RESET key
+    for (const [key, oldValue] of mainMap.entries()) {
+      const hasInBranch = branchMap.has(key);
+      const newValue = branchMap.get(key);
+      const changed = hasInBranch ? oldValue !== newValue : true;
+      if (changed) {
+        statements.push(`${head} RESET ${key}`);
+      }
+    }
+
+    // Added or changed keys -> SET key=value
+    for (const [key, newValue] of branchMap.entries()) {
+      const oldValue = mainMap.get(key);
+      if (oldValue !== newValue) {
+        statements.push(`${head} SET ${key}=${newValue}`);
+      }
+    }
+
+    return statements.join(";\n");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
+ */
+export class AlterProcedureSetVolatility extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const volMap: Record<string, string> = {
+      i: "IMMUTABLE",
+      s: "STABLE",
+      v: "VOLATILE",
+    };
+    return [
+      "ALTER",
+      objectType,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      volMap[this.branch.volatility],
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
+ */
+export class AlterProcedureSetStrictness extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const strictness = this.branch.is_strict
+      ? "STRICT"
+      : "CALLED ON NULL INPUT";
+    return [
+      "ALTER",
+      objectType,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      strictness,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
+ */
+export class AlterProcedureSetLeakproof extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const leak = this.branch.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
+    return [
+      "ALTER",
+      objectType,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      leak,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
+ */
+export class AlterProcedureSetParallel extends AlterChange {
+  public readonly main: Procedure;
+  public readonly branch: Procedure;
+
+  constructor(props: { main: Procedure; branch: Procedure }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  serialize(): string {
+    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const parallelMap: Record<string, string> = {
+      u: "PARALLEL UNSAFE",
+      s: "PARALLEL SAFE",
+      r: "PARALLEL RESTRICTED",
+    };
+    return [
+      "ALTER",
+      objectType,
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+      parallelMap[this.branch.parallel_safety],
     ].join(" ");
   }
 }

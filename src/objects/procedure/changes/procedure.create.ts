@@ -55,9 +55,14 @@ export class CreateProcedure extends CreateChange {
       `${quoteIdentifier(this.procedure.schema)}.${quoteIdentifier(this.procedure.name)}(${args})`,
     );
 
-    // Add RETURNS clause for functions
+    // Add RETURNS clause for functions (omit for procedures)
     if (this.procedure.kind !== "p") {
-      parts.push("RETURNS", this.procedure.return_type);
+      const returnsParts: string[] = ["RETURNS"];
+      if (this.procedure.returns_set) {
+        returnsParts.push("SETOF");
+      }
+      returnsParts.push(this.procedure.return_type);
+      parts.push(returnsParts.join(" "));
     }
 
     // Add LANGUAGE
@@ -70,6 +75,11 @@ export class CreateProcedure extends CreateChange {
       parts.push("SECURITY DEFINER");
     }
     // SECURITY INVOKER is default, don't print it
+
+    // Mark window functions explicitly
+    if (this.procedure.kind === "w") {
+      parts.push("WINDOW");
+    }
 
     // Add volatility
     const volatilityMap: Record<string, string> = {
@@ -108,13 +118,19 @@ export class CreateProcedure extends CreateChange {
     }
     // NOT LEAKPROOF is default, don't print it
 
+    // Add SET configuration parameters (only non-defaults; default is no SET)
+    if (this.procedure.config && this.procedure.config.length > 0) {
+      for (const opt of this.procedure.config) {
+        // opt comes as "key=value" from proconfig; emit as-is
+        parts.push("SET", opt);
+      }
+    }
+
     // Add AS clause
     if (this.procedure.sql_body) {
       parts.push("AS", `$$${this.procedure.sql_body}$$`);
     } else if (this.procedure.source_code) {
       parts.push("AS", `$$${this.procedure.source_code}$$`);
-    } else {
-      parts.push("AS", "$$SELECT 1$$");
     }
 
     return parts.join(" ");

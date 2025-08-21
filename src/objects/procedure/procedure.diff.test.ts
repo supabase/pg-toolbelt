@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
   AlterProcedureChangeOwner,
+  AlterProcedureSetConfig,
+  AlterProcedureSetLeakproof,
+  AlterProcedureSetParallel,
+  AlterProcedureSetSecurity,
+  AlterProcedureSetStrictness,
+  AlterProcedureSetVolatility,
   ReplaceProcedure,
 } from "./changes/procedure.alter.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
@@ -62,5 +68,78 @@ describe.concurrent("procedure.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(ReplaceProcedure);
+  });
+
+  test("replace when returns_set changes", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, returns_set: true });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(ReplaceProcedure);
+  });
+
+  test("diff emits alter security when security_definer changes", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, security_definer: true });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetSecurity);
+  });
+
+  test("diff emits config set/reset when config changes", () => {
+    const main = new Procedure({ ...base, config: ["search_path=public"] });
+    const branch = new Procedure({
+      ...base,
+      config: ["search_path=pg_temp", "work_mem=64MB"],
+    });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetConfig);
+  });
+
+  test("diff emits volatility change", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, volatility: "i" });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetVolatility);
+  });
+
+  test("diff emits strictness change", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, is_strict: true });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetStrictness);
+  });
+
+  test("diff emits leakproof change", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, leakproof: true });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetLeakproof);
+  });
+
+  test("diff emits parallel safety change", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, parallel_safety: "r" });
+    const changes = diffProcedures(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterProcedureSetParallel);
   });
 });

@@ -37,4 +37,37 @@ describe("procedure", () => {
 
     expect(change.serialize()).toBe("DROP PROCEDURE public.test_procedure()");
   });
+
+  test("drop function", () => {
+    const fn = new Procedure({
+      schema: "public",
+      name: "test_function",
+      kind: "f",
+      return_type: "int4",
+      return_type_schema: "pg_catalog",
+      language: "sql",
+      security_definer: false,
+      volatility: "v",
+      parallel_safety: "u",
+      is_strict: false,
+      leakproof: false,
+      returns_set: false,
+      argument_count: 0,
+      argument_default_count: 0,
+      argument_names: null,
+      argument_types: null,
+      all_argument_types: null,
+      argument_modes: null,
+      argument_defaults: null,
+      source_code: null,
+      binary_path: null,
+      sql_body: "SELECT 1",
+      config: null,
+      owner: "test",
+    });
+
+    const change = new DropProcedure({ procedure: fn });
+
+    expect(change.serialize()).toBe("DROP FUNCTION public.test_function()");
+  });
 });
