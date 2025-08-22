@@ -27,7 +27,6 @@ export type AlterType = AlterTypeChangeOwner;
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterTypeChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Type;
   public readonly branch: Type;
 
@@ -35,7 +34,10 @@ export class AlterTypeChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -53,7 +55,6 @@ export class AlterTypeChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER TYPE change.
  */
 export class ReplaceType extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Type;
   public readonly branch: Type;
 
@@ -61,7 +62,10 @@ export class ReplaceType extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

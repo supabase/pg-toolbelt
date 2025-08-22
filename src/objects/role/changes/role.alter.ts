@@ -37,7 +37,6 @@ export type AlterRole = never; // No alterable properties for roles
  * This is used when properties that cannot be altered via ALTER ROLE change.
  */
 export class ReplaceRole extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Role;
   public readonly branch: Role;
 
@@ -45,7 +44,10 @@ export class ReplaceRole extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

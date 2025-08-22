@@ -44,7 +44,6 @@ export type AlterMaterializedView =
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
  */
 export class AlterMaterializedViewChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: MaterializedView;
   public readonly branch: MaterializedView;
 
@@ -52,7 +51,10 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -70,7 +72,6 @@ export class AlterMaterializedViewChangeOwner extends AlterChange {
  * Accepts main and branch, computes differences, and emits RESET then SET statements.
  */
 export class AlterMaterializedViewSetStorageParams extends AlterChange {
-  public readonly stableId: string;
   public readonly main: MaterializedView;
   public readonly branch: MaterializedView;
 
@@ -78,7 +79,10 @@ export class AlterMaterializedViewSetStorageParams extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -135,7 +139,6 @@ export class AlterMaterializedViewSetStorageParams extends AlterChange {
  * This is used when properties that cannot be altered via ALTER MATERIALIZED VIEW change.
  */
 export class ReplaceMaterializedView extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: MaterializedView;
   public readonly branch: MaterializedView;
 
@@ -143,7 +146,10 @@ export class ReplaceMaterializedView extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

@@ -24,7 +24,6 @@ export type AlterSchema = AlterSchemaChangeOwner;
  * ALTER SCHEMA ... OWNER TO ...
  */
 export class AlterSchemaChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Schema;
   public readonly branch: Schema;
 
@@ -32,7 +31,10 @@ export class AlterSchemaChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -50,7 +52,6 @@ export class AlterSchemaChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER SCHEMA change.
  */
 export class ReplaceSchema extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Schema;
   public readonly branch: Schema;
 
@@ -58,7 +59,10 @@ export class ReplaceSchema extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

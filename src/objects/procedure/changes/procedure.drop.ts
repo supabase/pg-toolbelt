@@ -14,13 +14,15 @@ import { formatFunctionArguments } from "../utils.ts";
  * ```
  */
 export class DropProcedure extends DropChange {
-  public readonly stableId: string;
   public readonly procedure: Procedure;
 
   constructor(props: { procedure: Procedure }) {
     super();
     this.procedure = props.procedure;
-    this.stableId = `${this.procedure.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.procedure.stableId}`;
   }
 
   serialize(): string {

@@ -26,7 +26,6 @@ export type AlterSequence = AlterSequenceChangeOwner;
  * ALTER SEQUENCE ... OWNER TO ...
  */
 export class AlterSequenceChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Sequence;
   public readonly branch: Sequence;
 
@@ -34,7 +33,10 @@ export class AlterSequenceChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -52,7 +54,6 @@ export class AlterSequenceChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER SEQUENCE change.
  */
 export class ReplaceSequence extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Sequence;
   public readonly branch: Sequence;
 
@@ -60,7 +61,10 @@ export class ReplaceSequence extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

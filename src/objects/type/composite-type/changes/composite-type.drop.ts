@@ -12,13 +12,15 @@ import type { CompositeType } from "../composite-type.model.ts";
  * ```
  */
 export class DropCompositeType extends DropChange {
-  public readonly stableId: string;
   public readonly compositeType: CompositeType;
 
   constructor(props: { compositeType: CompositeType }) {
     super();
     this.compositeType = props.compositeType;
-    this.stableId = `${this.compositeType.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.compositeType.stableId}`;
   }
 
   serialize(): string {

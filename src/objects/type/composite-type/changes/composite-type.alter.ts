@@ -26,7 +26,6 @@ export type AlterCompositeType = AlterCompositeTypeChangeOwner;
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterCompositeTypeChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: CompositeType;
   public readonly branch: CompositeType;
 
@@ -34,7 +33,10 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -52,7 +54,6 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER TYPE change.
  */
 export class ReplaceCompositeType extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: CompositeType;
   public readonly branch: CompositeType;
 
@@ -60,7 +61,10 @@ export class ReplaceCompositeType extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

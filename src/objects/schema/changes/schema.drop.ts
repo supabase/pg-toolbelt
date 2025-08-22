@@ -12,13 +12,15 @@ import type { Schema } from "../schema.model.ts";
  * ```
  */
 export class DropSchema extends DropChange {
-  public readonly stableId: string;
   public readonly schema: Schema;
 
   constructor(props: { schema: Schema }) {
     super();
     this.schema = props.schema;
-    this.stableId = `${this.schema.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.schema.stableId}`;
   }
 
   serialize(): string {

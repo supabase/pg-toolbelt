@@ -12,13 +12,15 @@ import type { Index } from "../index.model.ts";
  * ```
  */
 export class DropIndex extends DropChange {
-  public readonly stableId: string;
   public readonly index: Index;
 
   constructor(props: { index: Index }) {
     super();
     this.index = props.index;
-    this.stableId = `${this.index.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.index.stableId}`;
   }
 
   serialize(): string {

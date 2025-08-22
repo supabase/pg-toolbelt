@@ -24,13 +24,15 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - WITH NO DATA is PostgreSQL's default and is omitted; WITH DATA is emitted only when requested.
  */
 export class CreateMaterializedView extends CreateChange {
-  public readonly stableId: string;
   public readonly materializedView: MaterializedView;
 
   constructor(props: { materializedView: MaterializedView }) {
     super();
     this.materializedView = props.materializedView;
-    this.stableId = `${this.materializedView.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.materializedView.stableId}`;
   }
 
   serialize(): string {

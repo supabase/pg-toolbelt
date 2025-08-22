@@ -408,9 +408,10 @@ export class ConstraintSolver {
     }
     // Topological sort
     try {
-      const orderedIndices = topologicalSort(graph);
+      const orderedChangesIds = topologicalSort(graph);
       return new Ok(
-        orderedIndices.map((changeId) => changesById.get(changeId)!),
+        // biome-ignore lint/style/noNonNullAssertion: if the change is not in the graph, it means it was not added to the changesById map
+        orderedChangesIds.map((changeId) => changesById.get(changeId)!),
       );
     } catch (error) {
       if (error instanceof CycleError) {

@@ -29,13 +29,15 @@ import type { Role } from "../role.model.ts";
  * ```
  */
 export class CreateRole extends CreateChange {
-  public readonly stableId: string;
   public readonly role: Role;
 
   constructor(props: { role: Role }) {
     super();
     this.role = props.role;
-    this.stableId = `${this.role.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.role.stableId}`;
   }
 
   serialize(): string {

@@ -18,7 +18,6 @@ import type { Index } from "../index.model.ts";
  * ```
  */
 export class CreateIndex extends CreateChange {
-  public readonly stableId: string;
   public readonly index: Index;
   public readonly indexableObject?: TableLikeObject;
 
@@ -26,7 +25,10 @@ export class CreateIndex extends CreateChange {
     super();
     this.index = props.index;
     this.indexableObject = props.indexableObject;
-    this.stableId = `${this.index.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.index.stableId}`;
   }
 
   /**

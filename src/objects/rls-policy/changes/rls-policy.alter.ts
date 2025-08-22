@@ -26,7 +26,6 @@ export type AlterRlsPolicy = AlterRlsPolicyChangeOwner;
  * ALTER POLICY ... OWNER TO ...
  */
 export class AlterRlsPolicyChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: RlsPolicy;
   public readonly branch: RlsPolicy;
 
@@ -34,7 +33,10 @@ export class AlterRlsPolicyChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -54,7 +56,6 @@ export class AlterRlsPolicyChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER POLICY change.
  */
 export class ReplaceRlsPolicy extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: RlsPolicy;
   public readonly branch: RlsPolicy;
 
@@ -62,7 +63,10 @@ export class ReplaceRlsPolicy extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

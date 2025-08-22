@@ -47,7 +47,6 @@ export type AlterDomain =
  * ALTER DOMAIN ... SET DEFAULT ...
  */
 export class AlterDomainSetDefault extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -55,7 +54,10 @@ export class AlterDomainSetDefault extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -67,7 +69,6 @@ export class AlterDomainSetDefault extends AlterChange {
  * ALTER DOMAIN ... DROP DEFAULT
  */
 export class AlterDomainDropDefault extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -75,7 +76,10 @@ export class AlterDomainDropDefault extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -87,7 +91,6 @@ export class AlterDomainDropDefault extends AlterChange {
  * ALTER DOMAIN ... SET NOT NULL
  */
 export class AlterDomainSetNotNull extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -95,7 +98,10 @@ export class AlterDomainSetNotNull extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -107,7 +113,6 @@ export class AlterDomainSetNotNull extends AlterChange {
  * ALTER DOMAIN ... DROP NOT NULL
  */
 export class AlterDomainDropNotNull extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -115,7 +120,10 @@ export class AlterDomainDropNotNull extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -127,7 +135,6 @@ export class AlterDomainDropNotNull extends AlterChange {
  * ALTER DOMAIN ... OWNER TO ...
  */
 export class AlterDomainChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Domain;
   public readonly branch: Domain;
 
@@ -135,7 +142,10 @@ export class AlterDomainChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -147,7 +157,6 @@ export class AlterDomainChangeOwner extends AlterChange {
  * ALTER DOMAIN ... ADD CONSTRAINT ... [ NOT VALID ]
  */
 export class AlterDomainAddConstraint extends AlterChange {
-  public readonly stableId: string;
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
 
@@ -155,7 +164,10 @@ export class AlterDomainAddConstraint extends AlterChange {
     super();
     this.domain = props.domain;
     this.constraint = props.constraint;
-    this.stableId = `${this.domain.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.domain.stableId}`;
   }
 
   serialize(): string {
@@ -180,7 +192,6 @@ export class AlterDomainAddConstraint extends AlterChange {
  * ALTER DOMAIN ... DROP CONSTRAINT ...
  */
 export class AlterDomainDropConstraint extends AlterChange {
-  public readonly stableId: string;
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
 
@@ -188,7 +199,10 @@ export class AlterDomainDropConstraint extends AlterChange {
     super();
     this.domain = props.domain;
     this.constraint = props.constraint;
-    this.stableId = `${this.domain.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.domain.stableId}`;
   }
 
   serialize(): string {
@@ -209,7 +223,6 @@ export class AlterDomainDropConstraint extends AlterChange {
  * ALTER DOMAIN ... VALIDATE CONSTRAINT ...
  */
 export class AlterDomainValidateConstraint extends AlterChange {
-  public readonly stableId: string;
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
 
@@ -217,7 +230,10 @@ export class AlterDomainValidateConstraint extends AlterChange {
     super();
     this.domain = props.domain;
     this.constraint = props.constraint;
-    this.stableId = `${this.domain.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.domain.stableId}`;
   }
 
   serialize(): string {

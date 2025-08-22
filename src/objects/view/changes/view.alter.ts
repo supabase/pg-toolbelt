@@ -27,7 +27,6 @@ export type AlterView = AlterViewChangeOwner;
  * ALTER VIEW ... OWNER TO ...
  */
 export class AlterViewChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: View;
   public readonly branch: View;
 
@@ -35,7 +34,10 @@ export class AlterViewChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -53,7 +55,6 @@ export class AlterViewChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER VIEW change.
  */
 export class ReplaceView extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: View;
   public readonly branch: View;
 
@@ -61,7 +62,10 @@ export class ReplaceView extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

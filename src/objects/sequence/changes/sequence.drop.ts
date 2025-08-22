@@ -12,13 +12,15 @@ import type { Sequence } from "../sequence.model.ts";
  * ```
  */
 export class DropSequence extends DropChange {
-  public readonly stableId: string;
   public readonly sequence: Sequence;
 
   constructor(props: { sequence: Sequence }) {
     super();
     this.sequence = props.sequence;
-    this.stableId = `${this.sequence.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.sequence.stableId}`;
   }
 
   serialize(): string {

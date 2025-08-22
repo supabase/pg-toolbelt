@@ -23,13 +23,15 @@ import type { Table } from "../table.model.ts";
  * ```
  */
 export class CreateTable extends CreateChange {
-  public readonly stableId: string;
   public readonly table: Table;
 
   constructor(props: { table: Table }) {
     super();
     this.table = props.table;
-    this.stableId = `${this.table.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
   }
 
   serialize(): string {

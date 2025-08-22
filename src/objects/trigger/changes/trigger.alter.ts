@@ -20,7 +20,6 @@ export type AlterTrigger = never; // No alterable properties for triggers
  * This is used when properties that cannot be altered via ALTER TRIGGER change.
  */
 export class ReplaceTrigger extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Trigger;
   public readonly branch: Trigger;
 
@@ -28,7 +27,10 @@ export class ReplaceTrigger extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

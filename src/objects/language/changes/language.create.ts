@@ -13,13 +13,15 @@ import type { Language } from "../language.model.ts";
  * ```
  */
 export class CreateLanguage extends CreateChange {
-  public readonly stableId: string;
   public readonly language: Language;
 
   constructor(props: { language: Language }) {
     super();
     this.language = props.language;
-    this.stableId = `${this.language.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.language.stableId}`;
   }
 
   serialize(): string {

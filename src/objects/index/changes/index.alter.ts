@@ -31,7 +31,6 @@ export type AlterIndex =
  * ALTER INDEX ... SET ( storage_parameter = value [, ... ] )
  */
 export class AlterIndexSetStorageParams extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Index;
   public readonly branch: Index;
 
@@ -39,7 +38,10 @@ export class AlterIndexSetStorageParams extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -94,7 +96,6 @@ export class AlterIndexSetStorageParams extends AlterChange {
  * ALTER INDEX ... SET STATISTICS ...
  */
 export class AlterIndexSetStatistics extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Index;
   public readonly branch: Index;
 
@@ -102,7 +103,10 @@ export class AlterIndexSetStatistics extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -135,7 +139,6 @@ export class AlterIndexSetStatistics extends AlterChange {
  * ALTER INDEX ... SET TABLESPACE ...
  */
 export class AlterIndexSetTablespace extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Index;
   public readonly branch: Index;
 
@@ -143,7 +146,10 @@ export class AlterIndexSetTablespace extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -162,7 +168,6 @@ export class AlterIndexSetTablespace extends AlterChange {
  * This is used when properties that cannot be altered via ALTER INDEX change.
  */
 export class ReplaceIndex extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Index;
   public readonly branch: Index;
   public readonly indexableObject?: TableLikeObject;
@@ -176,7 +181,10 @@ export class ReplaceIndex extends ReplaceChange {
     this.main = props.main;
     this.branch = props.branch;
     this.indexableObject = props.indexableObject;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {

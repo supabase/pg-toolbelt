@@ -27,7 +27,6 @@ export type AlterCollation =
  * ALTER COLLATION ... OWNER TO ...
  */
 export class AlterCollationChangeOwner extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Collation;
   public readonly branch: Collation;
 
@@ -35,7 +34,10 @@ export class AlterCollationChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -52,7 +54,6 @@ export class AlterCollationChangeOwner extends AlterChange {
  * ALTER COLLATION ... REFRESH VERSION
  */
 export class AlterCollationRefreshVersion extends AlterChange {
-  public readonly stableId: string;
   public readonly main: Collation;
   public readonly branch: Collation;
 
@@ -60,7 +61,10 @@ export class AlterCollationRefreshVersion extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -77,7 +81,6 @@ export class AlterCollationRefreshVersion extends AlterChange {
  * This is used when properties that cannot be altered via ALTER COLLATION change.
  */
 export class ReplaceCollation extends ReplaceChange {
-  public readonly stableId: string;
   public readonly main: Collation;
   public readonly branch: Collation;
 
@@ -85,7 +88,10 @@ export class ReplaceCollation extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
-    this.stableId = `${this.main.stableId}`;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
   }
 
   serialize(): string {
