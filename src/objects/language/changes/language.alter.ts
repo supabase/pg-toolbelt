@@ -24,6 +24,7 @@ export type AlterLanguage = AlterLanguageChangeOwner;
  * ALTER LANGUAGE ... OWNER TO ...
  */
 export class AlterLanguageChangeOwner extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Language;
   public readonly branch: Language;
 
@@ -31,6 +32,7 @@ export class AlterLanguageChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -56,6 +58,7 @@ export class AlterLanguageChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER LANGUAGE change.
  */
 export class ReplaceLanguage extends ReplaceChange {
+  public readonly stableId: string;
   public readonly main: Language;
   public readonly branch: Language;
 
@@ -63,6 +66,7 @@ export class ReplaceLanguage extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {

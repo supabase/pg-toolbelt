@@ -12,11 +12,13 @@ import type { Enum } from "../enum.model.ts";
  * ```
  */
 export class CreateEnum extends CreateChange {
+  public readonly stableId: string;
   public readonly enum: Enum;
 
   constructor(props: { enum: Enum }) {
     super();
     this.enum = props.enum;
+    this.stableId = `${this.enum.stableId}`;
   }
 
   serialize(): string {

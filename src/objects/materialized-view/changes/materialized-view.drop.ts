@@ -16,11 +16,13 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - We do not emit CASCADE; dependency ordering ensures safe drops, and RESTRICT is default.
  */
 export class DropMaterializedView extends DropChange {
+  public readonly stableId: string;
   public readonly materializedView: MaterializedView;
 
   constructor(props: { materializedView: MaterializedView }) {
     super();
     this.materializedView = props.materializedView;
+    this.stableId = `${this.materializedView.stableId}`;
   }
 
   serialize(): string {

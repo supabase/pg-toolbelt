@@ -15,11 +15,13 @@ import type { Sequence } from "../sequence.model.ts";
  * ```
  */
 export class CreateSequence extends CreateChange {
+  public readonly stableId: string;
   public readonly sequence: Sequence;
 
   constructor(props: { sequence: Sequence }) {
     super();
     this.sequence = props.sequence;
+    this.stableId = `${this.sequence.stableId}`;
   }
 
   serialize(): string {

@@ -26,6 +26,7 @@ export type AlterEnum = AlterEnumChangeOwner | AlterEnumAddValue;
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterEnumChangeOwner extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Enum;
   public readonly branch: Enum;
 
@@ -33,6 +34,7 @@ export class AlterEnumChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -49,6 +51,7 @@ export class AlterEnumChangeOwner extends AlterChange {
  * ALTER TYPE ... ADD VALUE ...
  */
 export class AlterEnumAddValue extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Enum;
   public readonly branch: Enum;
   public readonly newValue: string;
@@ -65,6 +68,7 @@ export class AlterEnumAddValue extends AlterChange {
     this.branch = props.branch;
     this.newValue = props.newValue;
     this.position = props.position;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -90,6 +94,7 @@ export class AlterEnumAddValue extends AlterChange {
  * This is used when properties that cannot be altered via ALTER TYPE change.
  */
 export class ReplaceEnum extends ReplaceChange {
+  public readonly stableId: string;
   public readonly main: Enum;
   public readonly branch: Enum;
 
@@ -97,6 +102,7 @@ export class ReplaceEnum extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {

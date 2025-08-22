@@ -20,11 +20,13 @@ import type { Domain } from "../domain.model.ts";
  * ```
  */
 export class CreateDomain extends CreateChange {
+  public readonly stableId: string;
   public readonly domain: Domain;
 
   constructor(props: { domain: Domain }) {
     super();
     this.domain = props.domain;
+    this.stableId = `${this.domain.stableId}`;
   }
 
   serialize(): string {

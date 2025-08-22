@@ -12,11 +12,13 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * ```
  */
 export class DropRlsPolicy extends DropChange {
+  public readonly stableId: string;
   public readonly rlsPolicy: RlsPolicy;
 
   constructor(props: { rlsPolicy: RlsPolicy }) {
     super();
     this.rlsPolicy = props.rlsPolicy;
+    this.stableId = `${this.rlsPolicy.stableId}`;
   }
 
   serialize(): string {

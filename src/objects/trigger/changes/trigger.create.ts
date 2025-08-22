@@ -79,11 +79,13 @@ function decodeTriggerLevel(triggerType: number): string {
  * ```
  */
 export class CreateTrigger extends CreateChange {
+  public readonly stableId: string;
   public readonly trigger: Trigger;
 
   constructor(props: { trigger: Trigger }) {
     super();
     this.trigger = props.trigger;
+    this.stableId = `${this.trigger.stableId}`;
   }
 
   serialize(): string {

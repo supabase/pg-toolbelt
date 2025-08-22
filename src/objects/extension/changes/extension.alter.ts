@@ -29,6 +29,7 @@ export type AlterExtension =
  * ALTER EXTENSION ... UPDATE TO ...
  */
 export class AlterExtensionUpdateVersion extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Extension;
   public readonly branch: Extension;
 
@@ -36,6 +37,7 @@ export class AlterExtensionUpdateVersion extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -52,6 +54,7 @@ export class AlterExtensionUpdateVersion extends AlterChange {
  * ALTER EXTENSION ... SET SCHEMA ...
  */
 export class AlterExtensionSetSchema extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Extension;
   public readonly branch: Extension;
 
@@ -59,6 +62,7 @@ export class AlterExtensionSetSchema extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -75,6 +79,7 @@ export class AlterExtensionSetSchema extends AlterChange {
  * ALTER EXTENSION ... OWNER TO ...
  */
 export class AlterExtensionChangeOwner extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Extension;
   public readonly branch: Extension;
 
@@ -82,6 +87,7 @@ export class AlterExtensionChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -99,6 +105,7 @@ export class AlterExtensionChangeOwner extends AlterChange {
  * This is used when properties that cannot be altered via ALTER EXTENSION change.
  */
 export class ReplaceExtension extends ReplaceChange {
+  public readonly stableId: string;
   public readonly main: Extension;
   public readonly branch: Extension;
 
@@ -106,6 +113,7 @@ export class ReplaceExtension extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {

@@ -81,6 +81,7 @@ export type AlterTable =
  * ALTER TABLE ... OWNER TO ...
  */
 export class AlterTableChangeOwner extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -88,6 +89,7 @@ export class AlterTableChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -104,6 +106,7 @@ export class AlterTableChangeOwner extends AlterChange {
  * ALTER TABLE ... SET LOGGED
  */
 export class AlterTableSetLogged extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -111,6 +114,7 @@ export class AlterTableSetLogged extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -126,6 +130,7 @@ export class AlterTableSetLogged extends AlterChange {
  * ALTER TABLE ... SET UNLOGGED
  */
 export class AlterTableSetUnlogged extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -133,6 +138,7 @@ export class AlterTableSetUnlogged extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -148,6 +154,7 @@ export class AlterTableSetUnlogged extends AlterChange {
  * ALTER TABLE ... ENABLE ROW LEVEL SECURITY
  */
 export class AlterTableEnableRowLevelSecurity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -155,6 +162,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -170,6 +178,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterChange {
  * ALTER TABLE ... DISABLE ROW LEVEL SECURITY
  */
 export class AlterTableDisableRowLevelSecurity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -177,6 +186,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -192,6 +202,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterChange {
  * ALTER TABLE ... FORCE ROW LEVEL SECURITY
  */
 export class AlterTableForceRowLevelSecurity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -199,6 +210,7 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -214,6 +226,7 @@ export class AlterTableForceRowLevelSecurity extends AlterChange {
  * ALTER TABLE ... NO FORCE ROW LEVEL SECURITY
  */
 export class AlterTableNoForceRowLevelSecurity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -221,6 +234,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -236,6 +250,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterChange {
  * ALTER TABLE ... SET ( storage_parameter = value [, ... ] )
  */
 export class AlterTableSetStorageParams extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -243,6 +258,7 @@ export class AlterTableSetStorageParams extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -261,6 +277,7 @@ export class AlterTableSetStorageParams extends AlterChange {
  * ALTER TABLE ... ADD CONSTRAINT ...
  */
 export class AlterTableAddConstraint extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
 
@@ -268,6 +285,7 @@ export class AlterTableAddConstraint extends AlterChange {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -315,6 +333,7 @@ export class AlterTableAddConstraint extends AlterChange {
  * ALTER TABLE ... DROP CONSTRAINT ...
  */
 export class AlterTableDropConstraint extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
 
@@ -322,6 +341,7 @@ export class AlterTableDropConstraint extends AlterChange {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -338,6 +358,7 @@ export class AlterTableDropConstraint extends AlterChange {
  * ALTER TABLE ... VALIDATE CONSTRAINT ...
  */
 export class AlterTableValidateConstraint extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
 
@@ -345,6 +366,7 @@ export class AlterTableValidateConstraint extends AlterChange {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -361,6 +383,7 @@ export class AlterTableValidateConstraint extends AlterChange {
  * ALTER TABLE ... REPLICA IDENTITY ...
  */
 export class AlterTableSetReplicaIdentity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Table;
   public readonly branch: Table;
 
@@ -368,6 +391,7 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -393,6 +417,7 @@ export class AlterTableSetReplicaIdentity extends AlterChange {
  * ALTER TABLE ... ADD COLUMN ...
  */
 export class AlterTableAddColumn extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -400,6 +425,7 @@ export class AlterTableAddColumn extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -427,6 +453,7 @@ export class AlterTableAddColumn extends AlterChange {
  * ALTER TABLE ... DROP COLUMN ...
  */
 export class AlterTableDropColumn extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -434,6 +461,7 @@ export class AlterTableDropColumn extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -450,6 +478,7 @@ export class AlterTableDropColumn extends AlterChange {
  * ALTER TABLE ... ALTER COLUMN ... TYPE ...
  */
 export class AlterTableAlterColumnType extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -457,6 +486,7 @@ export class AlterTableAlterColumnType extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -479,6 +509,7 @@ export class AlterTableAlterColumnType extends AlterChange {
  * ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...
  */
 export class AlterTableAlterColumnSetDefault extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -486,6 +517,7 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -504,6 +536,7 @@ export class AlterTableAlterColumnSetDefault extends AlterChange {
  * ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT
  */
 export class AlterTableAlterColumnDropDefault extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -511,6 +544,7 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -528,6 +562,7 @@ export class AlterTableAlterColumnDropDefault extends AlterChange {
  * ALTER TABLE ... ALTER COLUMN ... SET NOT NULL
  */
 export class AlterTableAlterColumnSetNotNull extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -535,6 +570,7 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {
@@ -552,6 +588,7 @@ export class AlterTableAlterColumnSetNotNull extends AlterChange {
  * ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL
  */
 export class AlterTableAlterColumnDropNotNull extends AlterChange {
+  public readonly stableId: string;
   public readonly table: Table;
   public readonly column: ColumnProps;
 
@@ -559,6 +596,7 @@ export class AlterTableAlterColumnDropNotNull extends AlterChange {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {

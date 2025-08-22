@@ -12,11 +12,13 @@ import type { Extension } from "../extension.model.ts";
  * ```
  */
 export class DropExtension extends DropChange {
+  public readonly stableId: string;
   public readonly extension: Extension;
 
   constructor(props: { extension: Extension }) {
     super();
     this.extension = props.extension;
+    this.stableId = `${this.extension.stableId}`;
   }
 
   serialize(): string {

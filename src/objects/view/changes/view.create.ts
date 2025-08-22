@@ -15,11 +15,13 @@ import type { View } from "../view.model.ts";
  * ```
  */
 export class CreateView extends CreateChange {
+  public readonly stableId: string;
   public readonly view: View;
 
   constructor(props: { view: View }) {
     super();
     this.view = props.view;
+    this.stableId = `${this.view.stableId}`;
   }
 
   serialize(): string {

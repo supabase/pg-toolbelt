@@ -12,11 +12,13 @@ import type { Table } from "../table.model.ts";
  * ```
  */
 export class DropTable extends DropChange {
+  public readonly stableId: string;
   public readonly table: Table;
 
   constructor(props: { table: Table }) {
     super();
     this.table = props.table;
+    this.stableId = `${this.table.stableId}`;
   }
 
   serialize(): string {

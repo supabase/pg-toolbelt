@@ -17,11 +17,13 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * ```
  */
 export class CreateRlsPolicy extends CreateChange {
+  public readonly stableId: string;
   public readonly rlsPolicy: RlsPolicy;
 
   constructor(props: { rlsPolicy: RlsPolicy }) {
     super();
     this.rlsPolicy = props.rlsPolicy;
+    this.stableId = `${this.rlsPolicy.stableId}`;
   }
 
   serialize(): string {

@@ -26,11 +26,13 @@ import type { Collation } from "../collation.model.ts";
  * ```
  */
 export class CreateCollation extends CreateChange {
+  public readonly stableId: string;
   public readonly collation: Collation;
 
   constructor(props: { collation: Collation }) {
     super();
     this.collation = props.collation;
+    this.stableId = `${this.collation.stableId}`;
   }
 
   serialize(): string {

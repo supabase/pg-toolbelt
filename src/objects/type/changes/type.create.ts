@@ -45,11 +45,13 @@ import type { Type } from "../type.model.ts";
  * ```
  */
 export class CreateType extends CreateChange {
+  public readonly stableId: string;
   public readonly type: Type;
 
   constructor(props: { type: Type }) {
     super();
     this.type = props.type;
+    this.stableId = `${this.type.stableId}`;
   }
 
   serialize(): string {

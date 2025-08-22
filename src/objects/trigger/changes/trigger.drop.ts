@@ -12,11 +12,13 @@ import type { Trigger } from "../trigger.model.ts";
  * ```
  */
 export class DropTrigger extends DropChange {
+  public readonly stableId: string;
   public readonly trigger: Trigger;
 
   constructor(props: { trigger: Trigger }) {
     super();
     this.trigger = props.trigger;
+    this.stableId = `${this.trigger.stableId}`;
   }
 
   serialize(): string {

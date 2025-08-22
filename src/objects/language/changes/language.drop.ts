@@ -12,11 +12,13 @@ import type { Language } from "../language.model.ts";
  * ```
  */
 export class DropLanguage extends DropChange {
+  public readonly stableId: string;
   public readonly language: Language;
 
   constructor(props: { language: Language }) {
     super();
     this.language = props.language;
+    this.stableId = `${this.language.stableId}`;
   }
 
   serialize(): string {

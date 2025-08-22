@@ -44,6 +44,7 @@ export type AlterProcedure =
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
  */
 export class AlterProcedureChangeOwner extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -51,6 +52,7 @@ export class AlterProcedureChangeOwner extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -70,6 +72,7 @@ export class AlterProcedureChangeOwner extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
  */
 export class AlterProcedureSetSecurity extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -77,6 +80,7 @@ export class AlterProcedureSetSecurity extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -99,6 +103,7 @@ export class AlterProcedureSetSecurity extends AlterChange {
  * Emits individual RESET for removed keys and SET for added/changed keys.
  */
 export class AlterProcedureSetConfig extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -106,6 +111,7 @@ export class AlterProcedureSetConfig extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -158,6 +164,7 @@ export class AlterProcedureSetConfig extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
  */
 export class AlterProcedureSetVolatility extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -165,6 +172,7 @@ export class AlterProcedureSetVolatility extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -187,6 +195,7 @@ export class AlterProcedureSetVolatility extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
  */
 export class AlterProcedureSetStrictness extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -194,6 +203,7 @@ export class AlterProcedureSetStrictness extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -214,6 +224,7 @@ export class AlterProcedureSetStrictness extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
  */
 export class AlterProcedureSetLeakproof extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -221,6 +232,7 @@ export class AlterProcedureSetLeakproof extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -239,6 +251,7 @@ export class AlterProcedureSetLeakproof extends AlterChange {
  * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
  */
 export class AlterProcedureSetParallel extends AlterChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -246,6 +259,7 @@ export class AlterProcedureSetParallel extends AlterChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
@@ -269,6 +283,7 @@ export class AlterProcedureSetParallel extends AlterChange {
  * This is used when properties that cannot be altered via ALTER FUNCTION/PROCEDURE change.
  */
 export class ReplaceProcedure extends ReplaceChange {
+  public readonly stableId: string;
   public readonly main: Procedure;
   public readonly branch: Procedure;
 
@@ -276,6 +291,7 @@ export class ReplaceProcedure extends ReplaceChange {
     super();
     this.main = props.main;
     this.branch = props.branch;
+    this.stableId = `${this.main.stableId}`;
   }
 
   serialize(): string {
