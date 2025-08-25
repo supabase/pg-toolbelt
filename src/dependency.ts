@@ -1,5 +1,6 @@
 import { CycleError, Graph, topologicalSort } from "graph-data-structure";
 import { Err, Ok, type Result } from "neverthrow";
+import { DEBUG } from "../tests/constants.ts";
 import { type Catalog, emptyCatalog } from "./catalog.model.js";
 import {
   AlterChange,
@@ -385,6 +386,18 @@ export class OperationSemantics {
   }
 }
 
+// utils functions to debug dependency resolution
+function graphToDot(graph: Graph): string {
+  const lines: string[] = ["digraph G {"];
+  for (const from of graph.nodes) {
+    for (const to of graph.adjacent(from) ?? []) {
+      lines.push(`  "${from}" -> "${to}";`);
+    }
+  }
+  lines.push("}");
+  return lines.join("\n");
+}
+
 export class ConstraintSolver {
   solve(
     changes: Change[],
@@ -415,6 +428,9 @@ export class ConstraintSolver {
       );
     } catch (error) {
       if (error instanceof CycleError) {
+        if (DEBUG) {
+          console.log(graphToDot(graph));
+        }
         return new Err(error);
       }
       return new Err(new UnexpectedError("Unknown error", error));

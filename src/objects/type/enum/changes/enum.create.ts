@@ -1,4 +1,8 @@
-import { CreateChange, quoteIdentifier } from "../../../base.change.ts";
+import {
+  CreateChange,
+  quoteIdentifier,
+  quoteLiteral,
+} from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
@@ -35,9 +39,7 @@ export class CreateEnum extends CreateChange {
     parts.push("AS ENUM");
 
     // Add labels
-    const labels = this.enum.labels.map((label) =>
-      quoteIdentifier(label.label),
-    );
+    const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
     parts.push(`(${labels.join(", ")})`);
 
     return parts.join(" ");

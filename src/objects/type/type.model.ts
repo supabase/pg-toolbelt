@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import { BasePgModel } from "../base.model.ts";
 
-export type TypeKind = "b" | "c" | "d" | "e" | "p";
+export type TypeKind = "b" | "c" | "d" | "e" | "p" | "r";
 export type TypeCategory =
   | "A"
   | "B"
@@ -39,6 +39,7 @@ export interface TypeProps {
   default_bin: string | null;
   default_value: string | null;
   owner: string;
+  range_subtype: string | null;
 }
 
 export class Type extends BasePgModel {
@@ -59,6 +60,7 @@ export class Type extends BasePgModel {
   public readonly default_bin: TypeProps["default_bin"];
   public readonly default_value: TypeProps["default_value"];
   public readonly owner: TypeProps["owner"];
+  public readonly range_subtype: TypeProps["range_subtype"];
 
   constructor(props: TypeProps) {
     super();
@@ -83,6 +85,7 @@ export class Type extends BasePgModel {
     this.default_bin = props.default_bin;
     this.default_value = props.default_value;
     this.owner = props.owner;
+    this.range_subtype = props.range_subtype;
   }
 
   get stableId(): `type:${string}` {
@@ -113,6 +116,7 @@ export class Type extends BasePgModel {
       default_bin: this.default_bin,
       default_value: this.default_value,
       owner: this.owner,
+      range_subtype: this.range_subtype,
     };
   }
 }
@@ -147,15 +151,29 @@ select
   t.typndims as array_dimensions,
   pg_get_expr(t.typdefaultbin, 0) as default_bin,
   t.typdefault as default_value,
-  pg_get_userbyid(t.typowner) as owner
+  pg_get_userbyid(t.typowner) as owner,
+  format_type(r.rngsubtype, 0) as range_subtype
 from
   pg_catalog.pg_type t
   inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
   left outer join extension_oids e on t.oid = e.objid
+  left outer join pg_catalog.pg_type elem_type on t.typelem = elem_type.oid
+  left outer join pg_catalog.pg_range r on t.oid = r.rngtypid
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
   and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
   and e.objid is null
-  and t.typtype in ('b','d','p')
+  and t.typtype in ('b','d','p','r') -- Only domain and range types composites and enums are handled by dedicated modules
+  and t.typisdefined = true -- Only fully defined types
+  and not (t.typtype = 'c' and t.typrelid != 0 and exists (
+    select 1 from pg_catalog.pg_class c
+    where c.oid = t.typrelid and c.relkind = 'r'
+  ))  -- Exclude composite types that are created for regular tables
+  and not exists (
+    select 1 from pg_catalog.pg_depend d
+    where d.classid = 1247  -- pg_type
+    and d.objid = t.oid
+    and d.deptype = 'i'  -- internal dependency (auto-generated)
+  )
 order by
   1, 2;
     `;

@@ -23,6 +23,7 @@ const base: TypeProps = {
   default_bin: null,
   default_value: null,
   owner: "o1",
+  range_subtype: null,
 };
 
 describe.concurrent("type.diff", () => {

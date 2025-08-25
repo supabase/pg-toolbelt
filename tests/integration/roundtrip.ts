@@ -6,7 +6,9 @@ import type postgres from "postgres";
 import { expect } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
+import type { PgDepend } from "../../src/depend.ts";
 import { resolveDependencies } from "../../src/dependency.ts";
+import type { Change } from "../../src/objects/base.change.ts";
 
 export interface RoundtripTestOptions {
   masterSession: postgres.Sql;
@@ -15,6 +17,13 @@ export interface RoundtripTestOptions {
   testSql?: string;
   description: string;
   expectedSqlTerms: string[];
+  // List of dependencies that must be present in master catalog.
+  expectedMasterDependencies?: PgDepend[];
+  // List of dependencies that must be present in branch catalog.
+  expectedBranchDependencies?: PgDepend[];
+  // List of stable_ids in the order they should appear in the generated changes.
+  // This validates dependency resolution ordering.
+  expectedOperationOrder?: Change[];
 }
 
 /**
@@ -37,6 +46,9 @@ export async function roundtripFidelityTest(
     initialSetup,
     testSql,
     expectedSqlTerms,
+    expectedMasterDependencies,
+    expectedBranchDependencies,
+    expectedOperationOrder,
   } = options;
 
   // Set up initial schema in BOTH databases
@@ -54,6 +66,15 @@ export async function roundtripFidelityTest(
   const masterCatalog = await extractCatalog(masterSession);
   const branchCatalog = await extractCatalog(branchSession);
 
+  if (expectedMasterDependencies && expectedBranchDependencies) {
+    validateDependencies(
+      masterCatalog,
+      branchCatalog,
+      expectedMasterDependencies,
+      expectedBranchDependencies,
+    );
+  }
+
   // Generate migration from master to branch
   const changes = diffCatalogs(masterCatalog, branchCatalog);
 
@@ -67,6 +88,10 @@ export async function roundtripFidelityTest(
     throw sortedChangesResult.error;
   }
   const sortedChanges = sortedChangesResult.value;
+
+  if (expectedOperationOrder) {
+    validateOperationOrder(sortedChanges, expectedOperationOrder);
+  }
 
   // Generate SQL from changes
   const sqlStatements = sortedChanges.map((change) => change.serialize());
@@ -148,4 +173,59 @@ function catalogsSemanticalyEqual(
 
   // Additional checks could be added here for object content equality
   return true;
+}
+
+function getDependencyStableId(depend: PgDepend): string {
+  return `${depend.dependent_stable_id} -> ${depend.referenced_stable_id} :: ${depend.deptype}`;
+}
+
+function validateDependencies(
+  masterCatalog: Catalog,
+  branchCatalog: Catalog,
+  expectedMasterDependencies: PgDepend[],
+  expectedBranchDependencies: PgDepend[],
+) {
+  const masterDependencies = new Set(
+    masterCatalog.depends.reduce((acc, depend) => {
+      if (
+        !depend.dependent_stable_id.startsWith("unknown") &&
+        !depend.referenced_stable_id.startsWith("unknown")
+      ) {
+        acc.add(getDependencyStableId(depend));
+      }
+      return acc;
+    }, new Set<string>()),
+  );
+  const branchDependencies = new Set(
+    branchCatalog.depends.reduce((acc, depend) => {
+      if (
+        !depend.dependent_stable_id.startsWith("unknown") &&
+        !depend.referenced_stable_id.startsWith("unknown")
+      ) {
+        acc.add(getDependencyStableId(depend));
+      }
+      return acc;
+    }, new Set<string>()),
+  );
+
+  // Extract dependencies from master catalog
+  const expectedMasterSet = new Set(
+    expectedMasterDependencies.map(getDependencyStableId),
+  );
+  const expectedBranchSet = new Set(
+    expectedBranchDependencies.map(getDependencyStableId),
+  );
+  // Validate master dependencies
+  const masterMissing = expectedMasterSet.difference(masterDependencies);
+  const branchMissing = expectedBranchSet.difference(branchDependencies);
+
+  expect(masterMissing).toEqual(new Set());
+  expect(branchMissing).toEqual(new Set());
+}
+
+function validateOperationOrder(
+  changes: Change[],
+  expectedOperationOrder: Change[],
+) {
+  expect(changes).toStrictEqual(expectedOperationOrder);
 }
