@@ -8,8 +8,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: Change[] = [];
 
   changes.push(...diffDomains(main.domains, branch.domains));
-  changes.push(...diffSchemas(main.schemas, branch.schemas));
   changes.push(...diffTypes(main.types, branch.types));
-
+  changes.push(...diffSchemas(main.schemas, branch.schemas));
   return changes;
 }
