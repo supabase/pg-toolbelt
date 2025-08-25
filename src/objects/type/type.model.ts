@@ -163,11 +163,7 @@ from
   and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
   and e.objid is null
   and t.typtype in ('b','d','p','r') -- Only domain and range types composites and enums are handled by dedicated modules
-  and t.typisdefined = true -- Only fully defined types
-  and not (t.typtype = 'c' and t.typrelid != 0 and exists (
-    select 1 from pg_catalog.pg_class c
-    where c.oid = t.typrelid and c.relkind = 'r'
-  ))  -- Exclude composite types that are created for regular tables
+  -- Exclude internal auto-generated types (e.g custom type create an internal _customType type)
   and not exists (
     select 1 from pg_catalog.pg_depend d
     where d.classid = 1247  -- pg_type
