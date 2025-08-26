@@ -802,15 +802,15 @@ describe("DependencyResolver", () => {
         extractFromCatalog: (
           model: DependencyModel,
           catalog: Catalog,
-          relevantObjects: Record<string, boolean>,
+          relevantObjects: Set<string>,
           source: string,
         ) => DependencyModel;
       };
       const model = new DependencyModel();
-      const relevantObjects: Record<string, boolean> = {
-        "relevant:test.obj1": true,
-        "relevant:test.obj2": true,
-      };
+      const relevantObjects = new Set([
+        "relevant:test.obj1",
+        "relevant:test.obj2",
+      ]);
 
       extractor.extractFromCatalog(model, catalog, relevantObjects, "master");
 
