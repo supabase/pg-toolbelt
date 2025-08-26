@@ -1,7 +1,6 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./objects/base.change.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
-import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
@@ -31,7 +30,9 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ...diffMaterializedViews(main.materializedViews, branch.materializedViews),
   );
   changes.push(...diffProcedures(main.procedures, branch.procedures));
-  changes.push(...diffIndexes(main.indexes, branch.indexes));
+  // TODO: Fix indexes CREATE with columns from table to work
+  // Error: CreateIndex requires an indexableObject with columns when key_columns are used
+  // changes.push(...diffIndexes(main.indexes, branch.indexes));
   changes.push(...diffRlsPolicies(main.rlsPolicies, branch.rlsPolicies));
   changes.push(...diffTriggers(main.triggers, branch.triggers));
 

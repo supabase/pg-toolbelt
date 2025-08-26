@@ -16,6 +16,7 @@ import { UnexpectedError } from "./objects/utils.js";
 export type ConstraintType = "before";
 
 export interface Constraint {
+  constraintStableId: string;
   changeAIndex: number;
   type: ConstraintType;
   changeBIndex: number;
@@ -89,9 +90,7 @@ export class DependencyExtractor {
     changes: Change[],
     maxDepth: number = 2,
   ): Set<string> {
-    const relevant = new Set<string>(
-      ...changes.map((change) => change.stableId),
-    );
+    const relevant = new Set<string>(changes.map((change) => change.stableId));
     // Add transitive dependencies up to max_depth
     for (let i = 0; i < maxDepth; i++) {
       const newObjects = new Set<string>();
@@ -265,6 +264,7 @@ export class OperationSemantics {
         referencedChange instanceof CreateTable
       ) {
         return {
+          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
           changeAIndex: depIdx, // CreateSequence should come first
           type: "before",
           changeBIndex: refIdx, // Before CreateTable
@@ -279,6 +279,7 @@ export class OperationSemantics {
       referencedChange instanceof DropChange
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: depIdx,
         type: "before",
         changeBIndex: refIdx,
@@ -292,6 +293,7 @@ export class OperationSemantics {
       referencedChange instanceof CreateChange
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -309,6 +311,7 @@ export class OperationSemantics {
         referencedChange instanceof ReplaceChange)
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -324,6 +327,7 @@ export class OperationSemantics {
         dependentChange instanceof ReplaceChange)
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -365,6 +369,7 @@ export class OperationSemantics {
         // Add sequential constraints
         for (let k = 0; k < sortedIndices.length - 1; k++) {
           constraints.push({
+            constraintStableId: `${changes[sortedIndices[k]].stableId} -> ${changes[sortedIndices[k + 1]].stableId}`,
             changeAIndex: sortedIndices[k],
             type: "before",
             changeBIndex: sortedIndices[k + 1],
@@ -387,11 +392,16 @@ export class OperationSemantics {
 }
 
 // utils functions to debug dependency resolution
-function graphToDot(graph: Graph): string {
+function graphToDot(graph: Graph<string, Constraint>): string {
   const lines: string[] = ["digraph G {"];
   for (const from of graph.nodes) {
     for (const to of graph.adjacent(from) ?? []) {
-      lines.push(`  "${from}" -> "${to}";`);
+      const constraint = graph.edgeProperties.get(from)?.get(to);
+      if (constraint) {
+        lines.push(
+          `  "${from}" -> "${to}" [constraint="${constraint.constraintStableId} :: ${constraint.reason}"];`,
+        );
+      }
     }
   }
   lines.push("}");
@@ -403,7 +413,7 @@ export class ConstraintSolver {
     changes: Change[],
     constraints: Constraint[],
   ): Result<Change[], CycleError | UnexpectedError> {
-    const graph = new Graph();
+    const graph = new Graph<string, Constraint>();
     const nodeIdToChange = new Map<string, Change>();
     const indexToNodeId = new Map<number, string>();
     // Helper to build unique node id per change instance (not per object)
@@ -421,7 +431,7 @@ export class ConstraintSolver {
       if (constraint.type === "before") {
         const fromId = indexToNodeId.get(constraint.changeAIndex)!;
         const toId = indexToNodeId.get(constraint.changeBIndex)!;
-        graph.addEdge(fromId, toId);
+        graph.addEdge(fromId, toId, { props: constraint });
       }
     }
     // Topological sort
@@ -437,9 +447,6 @@ export class ConstraintSolver {
       if (error instanceof CycleError) {
         if (DEBUG) {
           console.log("graph", graphToDot(graph));
-          console.log("constraints", constraints);
-          console.log("nodeIdToChange", nodeIdToChange);
-          console.log("indexToNodeId", indexToNodeId);
         }
         return new Err(error);
       }
