@@ -379,8 +379,8 @@ export class OperationSemantics {
 
   private getOperationPriority(change: Change): number {
     if (change instanceof DropChange) return 0;
-    if (change instanceof CreateChange) return 1;
-    if (change instanceof AlterChange) return 2;
+    if (change instanceof CreateChange) return 1; // CREATE should come before ALTER for same object
+    if (change instanceof AlterChange) return 2; // ALTER should come after CREATE for same object
     if (change instanceof ReplaceChange) return 3;
     return 4;
   }
@@ -404,32 +404,42 @@ export class ConstraintSolver {
     constraints: Constraint[],
   ): Result<Change[], CycleError | UnexpectedError> {
     const graph = new Graph();
-    const changesById = new Map<string, Change>();
+    const nodeIdToChange = new Map<string, Change>();
+    const indexToNodeId = new Map<number, string>();
+    // Helper to build unique node id per change instance (not per object)
+    const getNodeId = (index: number, change: Change) =>
+      `${change.stableId}#${index}`;
     // Add all changes as nodes
     for (let i = 0; i < changes.length; i++) {
-      changesById.set(changes[i].stableId, changes[i]);
-      graph.addNode(changes[i].stableId);
+      const nodeId = getNodeId(i, changes[i]);
+      nodeIdToChange.set(nodeId, changes[i]);
+      indexToNodeId.set(i, nodeId);
+      graph.addNode(nodeId);
     }
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
-        graph.addEdge(
-          changes[constraint.changeAIndex].stableId,
-          changes[constraint.changeBIndex].stableId,
-        );
+        const fromId = indexToNodeId.get(constraint.changeAIndex)!;
+        const toId = indexToNodeId.get(constraint.changeBIndex)!;
+        graph.addEdge(fromId, toId);
       }
     }
     // Topological sort
     try {
-      const orderedChangesIds = topologicalSort(graph);
+      const orderedNodeIds = topologicalSort(graph);
       return new Ok(
-        // biome-ignore lint/style/noNonNullAssertion: if the change is not in the graph, it means it was not added to the changesById map
-        orderedChangesIds.map((changeId) => changesById.get(changeId)!),
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
+        orderedNodeIds.map((nodeId) => nodeIdToChange.get(nodeId)!),
       );
     } catch (error) {
+      // TODO: Ask Oli if this is even possible since each node in the graph has a index
+      // from list as node id
       if (error instanceof CycleError) {
         if (DEBUG) {
-          console.log(graphToDot(graph));
+          console.log("graph", graphToDot(graph));
+          console.log("constraints", constraints);
+          console.log("nodeIdToChange", nodeIdToChange);
+          console.log("indexToNodeId", indexToNodeId);
         }
         return new Err(error);
       }

@@ -1,4 +1,4 @@
-import { AlterChange, quoteIdentifier } from "../../base.change.ts";
+import { AlterChange, DropChange, quoteIdentifier } from "../../base.change.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 
 /**
@@ -167,7 +167,7 @@ export class AlterDomainAddConstraint extends AlterChange {
   }
 
   get stableId(): string {
-    return `${this.domain.stableId}`;
+    return `${this.domain.stableId}:${this.constraint.name}`;
   }
 
   serialize(): string {
@@ -191,7 +191,7 @@ export class AlterDomainAddConstraint extends AlterChange {
 /**
  * ALTER DOMAIN ... DROP CONSTRAINT ...
  */
-export class AlterDomainDropConstraint extends AlterChange {
+export class AlterDomainDropConstraint extends DropChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
 
@@ -202,7 +202,7 @@ export class AlterDomainDropConstraint extends AlterChange {
   }
 
   get stableId(): string {
-    return `${this.domain.stableId}`;
+    return `${this.domain.stableId}:${this.constraint.name}`;
   }
 
   serialize(): string {
