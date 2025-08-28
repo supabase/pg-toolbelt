@@ -1,37 +1,67 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-type FunctionKind = "f" | "p" | "a" | "w";
-type FunctionVolatility = "i" | "s" | "v";
-type FunctionParallelSafety = "u" | "s" | "r";
-type FunctionArgumentMode = "i" | "o" | "b" | "v" | "t";
+const FunctionKindSchema = z.enum([
+  "f", // function
+  "p", // procedure
+  "a", // aggregate function
+  "w", // window function
+]);
 
-export interface ProcedureProps {
-  schema: string;
-  name: string;
-  kind: FunctionKind;
-  return_type: string;
-  return_type_schema: string;
-  language: string;
-  security_definer: boolean;
-  volatility: FunctionVolatility;
-  parallel_safety: FunctionParallelSafety;
-  is_strict: boolean;
-  leakproof: boolean;
-  returns_set: boolean;
-  argument_count: number;
-  argument_default_count: number;
-  argument_names: string[] | null;
-  argument_types: string[] | null;
-  all_argument_types: string[] | null;
-  argument_modes: FunctionArgumentMode[] | null;
-  argument_defaults: string | null;
-  source_code: string | null;
-  binary_path: string | null;
-  sql_body: string | null;
-  config: string[] | null;
-  owner: string;
-}
+const FunctionVolatilitySchema = z.enum([
+  "i", // IMMUTABLE
+  "s", // STABLE
+  "v", // VOLATILE
+]);
+
+const FunctionParallelSafetySchema = z.enum([
+  "u", // UNSAFE (cannot run in parallel)
+  "s", // SAFE (can run in parallel)
+  "r", // RESTRICTED (can run in parallel with restrictions)
+]);
+
+const FunctionArgumentModeSchema = z.enum([
+  "i", // IN parameter
+  "o", // OUT parameter
+  "b", // INOUT parameter
+  "v", // VARIADIC parameter
+  "t", // TABLE parameter
+]);
+
+type FunctionKind = z.infer<typeof FunctionKindSchema>;
+type FunctionVolatility = z.infer<typeof FunctionVolatilitySchema>;
+type FunctionParallelSafety = z.infer<typeof FunctionParallelSafetySchema>;
+type FunctionArgumentMode = z.infer<typeof FunctionArgumentModeSchema>;
+
+const procedurePropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  kind: FunctionKindSchema,
+  return_type: z.string(),
+  return_type_schema: z.string(),
+  language: z.string(),
+  security_definer: z.boolean(),
+  volatility: FunctionVolatilitySchema,
+  parallel_safety: FunctionParallelSafetySchema,
+  is_strict: z.boolean(),
+  leakproof: z.boolean(),
+  returns_set: z.boolean(),
+  argument_count: z.number(),
+  argument_default_count: z.number(),
+  argument_names: z.array(z.string()).nullable(),
+  argument_types: z.array(z.string()).nullable(),
+  all_argument_types: z.array(z.string()).nullable(),
+  argument_modes: z.array(FunctionArgumentModeSchema).nullable(),
+  argument_defaults: z.string().nullable(),
+  source_code: z.string().nullable(),
+  binary_path: z.string().nullable(),
+  sql_body: z.string().nullable(),
+  config: z.array(z.string()).nullable(),
+  owner: z.string(),
+});
+
+export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
 
 export class Procedure extends BasePgModel {
   public readonly schema: ProcedureProps["schema"];
@@ -133,7 +163,7 @@ export class Procedure extends BasePgModel {
 export async function extractProcedures(sql: Sql): Promise<Procedure[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const procedureRows = await sql<ProcedureProps[]>`
+    const procedureRows = await sql`
 with extension_oids as (
   select
     objid
@@ -185,6 +215,10 @@ from
 order by
   1, 2;
     `;
-    return procedureRows.map((row) => new Procedure(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = procedureRows.map((row: unknown) =>
+      procedurePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: ProcedureProps) => new Procedure(row));
   });
 }

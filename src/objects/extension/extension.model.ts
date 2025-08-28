@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
 /**
@@ -17,13 +18,15 @@ import { BasePgModel } from "../base.model.ts";
  *  - extconfig, extcondition
  * https://www.postgresql.org/docs/current/catalog-pg-extension.html
  */
-export interface ExtensionProps {
-  name: string;
-  schema: string;
-  relocatable: boolean;
-  version: string;
-  owner: string;
-}
+const extensionPropsSchema = z.object({
+  name: z.string(),
+  schema: z.string(),
+  relocatable: z.boolean(),
+  version: z.string(),
+  owner: z.string(),
+});
+
+export type ExtensionProps = z.infer<typeof extensionPropsSchema>;
 
 export class Extension extends BasePgModel {
   public readonly name: ExtensionProps["name"];
@@ -67,7 +70,7 @@ export class Extension extends BasePgModel {
 }
 
 export async function extractExtensions(sql: Sql): Promise<Extension[]> {
-  const extensionRows = await sql<ExtensionProps[]>`
+  const extensionRows = await sql`
 select
   extname as name,
   extnamespace::regnamespace as schema,
@@ -79,5 +82,9 @@ from
 order by
   1;
   `;
-  return extensionRows.map((row) => new Extension(row));
+  // Validate and parse each row using the Zod schema
+  const validatedRows = extensionRows.map((row: unknown) =>
+    extensionPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: ExtensionProps) => new Extension(row));
 }

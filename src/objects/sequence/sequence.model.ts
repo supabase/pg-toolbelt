@@ -1,19 +1,22 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-export interface SequenceProps {
-  schema: string;
-  name: string;
-  data_type: string;
-  start_value: number;
-  minimum_value: bigint;
-  maximum_value: bigint;
-  increment: number;
-  cycle_option: boolean;
-  cache_size: number;
-  persistence: string;
-  owner: string;
-}
+const sequencePropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  data_type: z.string(),
+  start_value: z.number(),
+  minimum_value: z.bigint(),
+  maximum_value: z.bigint(),
+  increment: z.number(),
+  cycle_option: z.boolean(),
+  cache_size: z.number(),
+  persistence: z.string(),
+  owner: z.string(),
+});
+
+export type SequenceProps = z.infer<typeof sequencePropsSchema>;
 
 export class Sequence extends BasePgModel {
   public readonly schema: SequenceProps["schema"];
@@ -74,7 +77,7 @@ export class Sequence extends BasePgModel {
 }
 
 export async function extractSequences(sql: Sql): Promise<Sequence[]> {
-  const sequenceRows = await sql<SequenceProps[]>`
+  const sequenceRows = await sql`
 with extension_oids as (
   select
     objid
@@ -88,12 +91,12 @@ select
   n.nspname as schema,
   c.relname as name,
   format_type(s.seqtypid, null) as data_type,
-  s.seqstart as start_value,
+  s.seqstart::int as start_value,
   s.seqmin as minimum_value,
   s.seqmax as maximum_value,
-  s.seqincrement as increment,
+  s.seqincrement::int as increment,
   s.seqcycle as cycle_option,
-  s.seqcache as cache_size,
+  s.seqcache::int as cache_size,
   c.relpersistence as persistence,
   pg_get_userbyid(c.relowner) as owner
 from
@@ -108,5 +111,9 @@ from
 order by
   1, 2;
   `;
-  return sequenceRows.map((row) => new Sequence(row));
+  // Validate and parse each row using the Zod schema
+  const validatedRows = sequenceRows.map((row: unknown) =>
+    sequencePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: SequenceProps) => new Sequence(row));
 }

@@ -1,18 +1,21 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-export interface RoleProps {
-  role_name: string;
-  is_superuser: boolean;
-  can_inherit: boolean;
-  can_create_roles: boolean;
-  can_create_databases: boolean;
-  can_login: boolean;
-  can_replicate: boolean;
-  connection_limit: number | null;
-  can_bypass_rls: boolean;
-  config: string[] | null;
-}
+const rolePropsSchema = z.object({
+  role_name: z.string(),
+  is_superuser: z.boolean(),
+  can_inherit: z.boolean(),
+  can_create_roles: z.boolean(),
+  can_create_databases: z.boolean(),
+  can_login: z.boolean(),
+  can_replicate: z.boolean(),
+  connection_limit: z.number().nullable(),
+  can_bypass_rls: z.boolean(),
+  config: z.array(z.string()).nullable(),
+});
+
+export type RoleProps = z.infer<typeof rolePropsSchema>;
 
 export class Role extends BasePgModel {
   public readonly role_name: RoleProps["role_name"];
@@ -70,7 +73,7 @@ export class Role extends BasePgModel {
 }
 
 export async function extractRoles(sql: Sql): Promise<Role[]> {
-  const roleRows = await sql<RoleProps[]>`
+  const roleRows = await sql`
 select
   rolname as role_name,
   rolsuper as is_superuser,
@@ -88,5 +91,9 @@ from
 order by
   1;
   `;
-  return roleRows.map((row) => new Role(row));
+  // Validate and parse each row using the Zod schema
+  const validatedRows = roleRows.map((row: unknown) =>
+    rolePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: RoleProps) => new Role(row));
 }

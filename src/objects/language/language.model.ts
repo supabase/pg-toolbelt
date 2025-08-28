@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
 /**
@@ -10,15 +11,17 @@ import { BasePgModel } from "../base.model.ts";
  *
  * Other properties require dropping and creating a new language.
  */
-export interface LanguageProps {
-  name: string;
-  is_trusted: boolean;
-  is_procedural: boolean;
-  call_handler: string | null;
-  inline_handler: string | null;
-  validator: string | null;
-  owner: string;
-}
+const languagePropsSchema = z.object({
+  name: z.string(),
+  is_trusted: z.boolean(),
+  is_procedural: z.boolean(),
+  call_handler: z.string().nullable(),
+  inline_handler: z.string().nullable(),
+  validator: z.string().nullable(),
+  owner: z.string(),
+});
+
+export type LanguageProps = z.infer<typeof languagePropsSchema>;
 
 export class Language extends BasePgModel {
   public readonly name: LanguageProps["name"];
@@ -67,7 +70,7 @@ export class Language extends BasePgModel {
 }
 
 export async function extractLanguages(sql: Sql): Promise<Language[]> {
-  const languageRows = await sql<LanguageProps[]>`
+  const languageRows = await sql`
     with extension_oids as (
       select
         objid
@@ -94,13 +97,17 @@ export async function extractLanguages(sql: Sql): Promise<Language[]> {
       lan.lanname;
   `;
 
-  return languageRows.map(
-    (row) =>
-      new Language({
-        ...row,
-        call_handler: row.call_handler === "-" ? null : row.call_handler,
-        inline_handler: row.inline_handler === "-" ? null : row.inline_handler,
-        validator: row.validator === "-" ? null : row.validator,
-      }),
+  // Process rows to handle "-" as null values
+  const processedRows = languageRows.map((row: any) => ({
+    ...row,
+    call_handler: row.call_handler === "-" ? null : row.call_handler,
+    inline_handler: row.inline_handler === "-" ? null : row.inline_handler,
+    validator: row.validator === "-" ? null : row.validator,
+  }));
+
+  // Validate and parse each row using the Zod schema
+  const validatedRows = processedRows.map((row: unknown) =>
+    languagePropsSchema.parse(row),
   );
+  return validatedRows.map((row: LanguageProps) => new Language(row));
 }

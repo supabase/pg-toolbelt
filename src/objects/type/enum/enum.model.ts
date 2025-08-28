@@ -1,10 +1,13 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 
-interface EnumLabel {
-  sort_order: number;
-  label: string;
-}
+const enumLabelSchema = z.object({
+  sort_order: z.number(),
+  label: z.string(),
+});
+
+type EnumLabel = z.infer<typeof enumLabelSchema>;
 
 /**
  * All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
@@ -20,12 +23,14 @@ interface EnumLabel {
  * Type ACL will be supported separately.
  * https://www.postgresql.org/docs/current/ddl-priv.html
  */
-export interface EnumProps {
-  schema: string;
-  name: string;
-  owner: string;
-  labels: EnumLabel[];
-}
+const enumPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  owner: z.string(),
+  labels: z.array(enumLabelSchema),
+});
+
+export type EnumProps = z.infer<typeof enumPropsSchema>;
 
 export class Enum extends BasePgModel {
   public readonly schema: EnumProps["schema"];
@@ -65,15 +70,7 @@ export class Enum extends BasePgModel {
 }
 
 export async function extractEnums(sql: Sql): Promise<Enum[]> {
-  const enumRows = await sql<
-    {
-      schema: string;
-      name: string;
-      owner: string;
-      sort_order: number;
-      label: string;
-    }[]
-  >`
+  const enumRows = await sql`
 with extension_oids as (
   select
     objid
@@ -119,5 +116,9 @@ order by
     }
     grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
   }
-  return Object.values(grouped).map((e) => new Enum(e));
+  // Validate and parse each enum using the Zod schema
+  const validatedEnums = Object.values(grouped).map((e) =>
+    enumPropsSchema.parse(e),
+  );
+  return validatedEnums.map((e: EnumProps) => new Enum(e));
 }

@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
 /**
@@ -8,10 +9,12 @@ import { BasePgModel } from "../base.model.ts";
  * ALTER SCHEMA statement can be generated for all properties.
  * https://www.postgresql.org/docs/current/sql-alterschema.html
  */
-export interface SchemaProps {
-  schema: string;
-  owner: string;
-}
+const schemaPropsSchema = z.object({
+  schema: z.string(),
+  owner: z.string(),
+});
+
+export type SchemaProps = z.infer<typeof schemaPropsSchema>;
 
 export class Schema extends BasePgModel {
   public readonly schema: SchemaProps["schema"];
@@ -45,7 +48,7 @@ export class Schema extends BasePgModel {
 }
 
 export async function extractSchemas(sql: Sql): Promise<Schema[]> {
-  const schemaRows = await sql<SchemaProps[]>`
+  const schemaRows = await sql`
     with extension_oids as (
       select
         objid
@@ -68,5 +71,9 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
     order by
       1;
   `;
-  return schemaRows.map((row) => new Schema(row));
+  // Validate and parse each row using the Zod schema
+  const validatedRows = schemaRows.map((row: unknown) =>
+    schemaPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: SchemaProps) => new Schema(row));
 }

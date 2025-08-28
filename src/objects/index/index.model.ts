@@ -2,7 +2,10 @@ import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-const TableRelkindSchema = z.enum(["r", "m"]);
+const TableRelkindSchema = z.enum([
+  "r", // table (regular relation)
+  "m", // materialized view
+]);
 
 export type TableRelkind = z.infer<typeof TableRelkindSchema>;
 
