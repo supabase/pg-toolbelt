@@ -1,37 +1,31 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import {
   BasePgModel,
-  type ColumnProps,
+  columnPropsSchema,
   type TableLikeObject,
 } from "../../base.model.ts";
+import { ReplicaIdentitySchema } from "../../table/table.model.ts";
 
-export type ReplicaIdentity =
-  /** DEFAULT */
-  | "d"
-  /** NOTHING */
-  | "n"
-  /** FULL */
-  | "f"
-  /** INDEX */
-  | "i";
+const compositeTypePropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  row_security: z.boolean(),
+  force_row_security: z.boolean(),
+  has_indexes: z.boolean(),
+  has_rules: z.boolean(),
+  has_triggers: z.boolean(),
+  has_subclasses: z.boolean(),
+  is_populated: z.boolean(),
+  replica_identity: ReplicaIdentitySchema,
+  is_partition: z.boolean(),
+  options: z.array(z.string()).nullable(),
+  partition_bound: z.string().nullable(),
+  owner: z.string(),
+  columns: z.array(columnPropsSchema),
+});
 
-export interface CompositeTypeProps {
-  schema: string;
-  name: string;
-  row_security: boolean;
-  force_row_security: boolean;
-  has_indexes: boolean;
-  has_rules: boolean;
-  has_triggers: boolean;
-  has_subclasses: boolean;
-  is_populated: boolean;
-  replica_identity: ReplicaIdentity;
-  is_partition: boolean;
-  options: string[] | null;
-  partition_bound: string | null;
-  owner: string;
-  columns: ColumnProps[];
-}
+export type CompositeTypeProps = z.infer<typeof compositeTypePropsSchema>;
 
 export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly schema: CompositeTypeProps["schema"];
@@ -109,7 +103,7 @@ export async function extractCompositeTypes(
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
 
-    const compositeTypeRows = await sql<CompositeTypeProps[]>`
+    const compositeTypeRows = await sql`
       with extension_oids as (
         select
           objid
@@ -200,6 +194,12 @@ export async function extractCompositeTypes(
         ct.schema, ct.name;
     `;
 
-    return compositeTypeRows.map((ct) => new CompositeType(ct));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = compositeTypeRows.map((row: unknown) =>
+      compositeTypePropsSchema.parse(row),
+    );
+    return validatedRows.map(
+      (row: CompositeTypeProps) => new CompositeType(row),
+    );
   });
 }

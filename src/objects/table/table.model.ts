@@ -1,56 +1,92 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import {
   BasePgModel,
-  type ColumnProps,
+  columnPropsSchema,
   type TableLikeObject,
 } from "../base.model.ts";
 
-export type RelationPersistence = "p" | "u" | "t";
-export type ReplicaIdentity = "d" | "n" | "f" | "i";
+export const RelationPersistenceSchema = z.enum([
+  "p", // permanent
+  "u", // unlogged
+  "t", // temporary
+]);
 
-type ForeignKeyAction = "a" | "r" | "c" | "n" | "d";
-type ForeignKeyMatchType = "f" | "p" | "s";
+export const ReplicaIdentitySchema = z.enum([
+  "d", // DEFAULT (use default key)
+  "n", // NOTHING (no replica identity)
+  "f", // FULL (all columns)
+  "i", // INDEX (specific index)
+]);
 
-export interface TableConstraintProps {
-  name: string;
-  constraint_type: "c" | "f" | "p" | "u" | "x";
-  deferrable: boolean;
-  initially_deferred: boolean;
-  validated: boolean;
-  is_local: boolean;
-  no_inherit: boolean;
-  key_columns: number[];
-  foreign_key_columns: number[] | null;
-  foreign_key_table: string | null;
-  foreign_key_schema: string | null;
-  on_update: ForeignKeyAction | null;
-  on_delete: ForeignKeyAction | null;
-  match_type: ForeignKeyMatchType | null;
-  check_expression: string | null;
-  owner: string;
-}
+const ForeignKeyActionSchema = z.enum([
+  "a", // NO ACTION
+  "r", // RESTRICT
+  "c", // CASCADE
+  "n", // SET NULL
+  "d", // SET DEFAULT
+]);
 
-export interface TableProps {
-  schema: string;
-  name: string;
-  persistence: RelationPersistence;
-  row_security: boolean;
-  force_row_security: boolean;
-  has_indexes: boolean;
-  has_rules: boolean;
-  has_triggers: boolean;
-  has_subclasses: boolean;
-  is_populated: boolean;
-  replica_identity: ReplicaIdentity;
-  is_partition: boolean;
-  options: string[] | null;
-  partition_bound: string | null;
-  owner: string;
-  parent_schema: string | null;
-  parent_name: string | null;
-  columns: ColumnProps[];
-  constraints?: TableConstraintProps[];
-}
+const ForeignKeyMatchTypeSchema = z.enum([
+  "f", // FULL
+  "p", // PARTIAL
+  "s", // SIMPLE
+  "u", // UNSPECIFIED (default)
+]);
+
+export type RelationPersistence = z.infer<typeof RelationPersistenceSchema>;
+export type ReplicaIdentity = z.infer<typeof ReplicaIdentitySchema>;
+
+const tableConstraintPropsSchema = z.object({
+  name: z.string(),
+  constraint_type: z.enum([
+    "c", // CHECK constraint
+    "f", // FOREIGN KEY constraint
+    "p", // PRIMARY KEY constraint
+    "u", // UNIQUE constraint
+    "x", // EXCLUDE constraint
+  ]),
+  deferrable: z.boolean(),
+  initially_deferred: z.boolean(),
+  validated: z.boolean(),
+  is_local: z.boolean(),
+  no_inherit: z.boolean(),
+  key_columns: z.array(z.number()),
+  foreign_key_columns: z.array(z.number()).nullable(),
+  foreign_key_table: z.string().nullable(),
+  foreign_key_schema: z.string().nullable(),
+  on_update: ForeignKeyActionSchema.nullable(),
+  on_delete: ForeignKeyActionSchema.nullable(),
+  match_type: ForeignKeyMatchTypeSchema.nullable(),
+  check_expression: z.string().nullable(),
+  owner: z.string(),
+});
+
+export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
+
+const tablePropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  persistence: RelationPersistenceSchema,
+  row_security: z.boolean(),
+  force_row_security: z.boolean(),
+  has_indexes: z.boolean(),
+  has_rules: z.boolean(),
+  has_triggers: z.boolean(),
+  has_subclasses: z.boolean(),
+  is_populated: z.boolean(),
+  replica_identity: ReplicaIdentitySchema,
+  is_partition: z.boolean(),
+  options: z.array(z.string()).nullable(),
+  partition_bound: z.string().nullable(),
+  owner: z.string(),
+  parent_schema: z.string().nullable(),
+  parent_name: z.string().nullable(),
+  columns: z.array(columnPropsSchema),
+  constraints: z.array(tableConstraintPropsSchema).optional(),
+});
+
+export type TableProps = z.infer<typeof tablePropsSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
@@ -129,7 +165,7 @@ export class Table extends BasePgModel implements TableLikeObject {
 export async function extractTables(sql: Sql): Promise<Table[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const tableRows = await sql<TableProps[]>`
+    const tableRows = await sql`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -202,9 +238,9 @@ select
           'foreign_key_columns', c.confkey,
           'foreign_key_table', ftc.relname,
           'foreign_key_schema', ftn.nspname,
-          'on_update', c.confupdtype,
-          'on_delete', c.confdeltype,
-          'match_type', c.confmatchtype,
+          'on_update', case when c.contype = 'f' then c.confupdtype else null end,
+          'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
+          'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
           'check_expression', pg_get_expr(c.conbin, c.conrelid),
           'owner', t.owner
         )
@@ -261,6 +297,10 @@ group by
 order by
   t.schema, t.name;
     `;
-    return tableRows.map((row) => new Table(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = tableRows.map((row: unknown) =>
+      tablePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: TableProps) => new Table(row));
   });
 }

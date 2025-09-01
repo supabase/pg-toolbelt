@@ -1,28 +1,38 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-type TriggerEnabled = "O" | "D" | "R" | "A";
+const TriggerEnabledSchema = z.enum([
+  "O", // ORIGIN - trigger fires in "origin" and "local" replica modes
+  "D", // DISABLED - trigger is disabled
+  "R", // REPLICA - trigger fires only in "replica" mode
+  "A", // ALWAYS - trigger fires regardless of replication mode
+]);
 
-export interface TriggerProps {
-  schema: string;
-  name: string;
-  table_schema: string;
-  table_name: string;
-  function_schema: string;
-  function_name: string;
-  trigger_type: number;
-  enabled: TriggerEnabled;
-  is_internal: boolean;
-  deferrable: boolean;
-  initially_deferred: boolean;
-  argument_count: number;
-  column_numbers: number[] | null;
-  arguments: string[];
-  when_condition: string | null;
-  old_table: string | null;
-  new_table: string | null;
-  owner: string;
-}
+type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
+
+const triggerPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  table_schema: z.string(),
+  table_name: z.string(),
+  function_schema: z.string(),
+  function_name: z.string(),
+  trigger_type: z.number(),
+  enabled: TriggerEnabledSchema,
+  is_internal: z.boolean(),
+  deferrable: z.boolean(),
+  initially_deferred: z.boolean(),
+  argument_count: z.number(),
+  column_numbers: z.array(z.number()).nullable(),
+  arguments: z.array(z.string()),
+  when_condition: z.string().nullable(),
+  old_table: z.string().nullable(),
+  new_table: z.string().nullable(),
+  owner: z.string(),
+});
+
+export type TriggerProps = z.infer<typeof triggerPropsSchema>;
 
 export class Trigger extends BasePgModel {
   public readonly schema: TriggerProps["schema"];
@@ -106,7 +116,7 @@ export class Trigger extends BasePgModel {
 export async function extractTriggers(sql: Sql): Promise<Trigger[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const triggerRows = await sql<TriggerProps[]>`
+    const triggerRows = await sql`
 with extension_oids as (
   select
     objid
@@ -149,6 +159,10 @@ from
 order by
   1, 2;
     `;
-    return triggerRows.map((row) => new Trigger(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = triggerRows.map((row: unknown) =>
+      triggerPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: TriggerProps) => new Trigger(row));
   });
 }

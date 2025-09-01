@@ -22,6 +22,7 @@ describe.concurrent("type", () => {
         array_dimensions: null,
         default_bin: null,
         default_value: null,
+        range_subtype: null,
       };
       const main = new Type({
         ...props,
@@ -60,6 +61,7 @@ describe.concurrent("type", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        range_subtype: null,
       };
       const main = new Type({
         ...props,

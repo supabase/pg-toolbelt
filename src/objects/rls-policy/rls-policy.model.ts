@@ -1,20 +1,31 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-type RlsPolicyCommand = "r" | "a" | "w" | "d" | "*";
+const RlsPolicyCommandSchema = z.enum([
+  "r", // SELECT command
+  "a", // INSERT command (add)
+  "w", // UPDATE command (write)
+  "d", // DELETE command
+  "*", // ALL commands
+]);
 
-export interface RlsPolicyProps {
-  schema: string;
-  name: string;
-  table_schema: string;
-  table_name: string;
-  command: RlsPolicyCommand;
-  permissive: boolean;
-  roles: string[];
-  using_expression: string | null;
-  with_check_expression: string | null;
-  owner: string;
-}
+type RlsPolicyCommand = z.infer<typeof RlsPolicyCommandSchema>;
+
+const rlsPolicyPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  table_schema: z.string(),
+  table_name: z.string(),
+  command: RlsPolicyCommandSchema,
+  permissive: z.boolean(),
+  roles: z.array(z.string()),
+  using_expression: z.string().nullable(),
+  with_check_expression: z.string().nullable(),
+  owner: z.string(),
+});
+
+export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
 
 export class RlsPolicy extends BasePgModel {
   public readonly schema: RlsPolicyProps["schema"];
@@ -73,7 +84,7 @@ export class RlsPolicy extends BasePgModel {
 export async function extractRlsPolicies(sql: Sql): Promise<RlsPolicy[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const policyRows = await sql<RlsPolicyProps[]>`
+    const policyRows = await sql`
 with extension_oids as (
   select
     objid
@@ -110,6 +121,10 @@ from
 order by
   1, 2;
     `;
-    return policyRows.map((row) => new RlsPolicy(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = policyRows.map((row: unknown) =>
+      rlsPolicyPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: RlsPolicyProps) => new RlsPolicy(row));
   });
 }

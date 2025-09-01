@@ -59,7 +59,7 @@ describe.concurrent("enum", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER TYPE public.test_enum ADD VALUE value3",
+        "ALTER TYPE public.test_enum ADD VALUE 'value3'",
       );
     });
 
@@ -91,7 +91,7 @@ describe.concurrent("enum", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER TYPE public.test_enum ADD VALUE value1_5 BEFORE value2",
+        "ALTER TYPE public.test_enum ADD VALUE 'value1_5' BEFORE 'value2'",
       );
     });
 
@@ -123,7 +123,7 @@ describe.concurrent("enum", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER TYPE public.test_enum ADD VALUE value1_5 AFTER value1",
+        "ALTER TYPE public.test_enum ADD VALUE 'value1_5' AFTER 'value1'",
       );
     });
 
@@ -149,7 +149,7 @@ describe.concurrent("enum", () => {
       });
 
       expect(change.serialize()).toBe(
-        "DROP TYPE public.test_enum;\nCREATE TYPE public.test_enum AS ENUM (value1, value2, value3)",
+        "DROP TYPE public.test_enum;\nCREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",
       );
     });
   });

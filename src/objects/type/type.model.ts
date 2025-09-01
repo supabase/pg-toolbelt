@@ -1,45 +1,75 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-export type TypeKind = "b" | "c" | "d" | "e" | "p";
-export type TypeCategory =
-  | "A"
-  | "B"
-  | "C"
-  | "D"
-  | "E"
-  | "G"
-  | "I"
-  | "N"
-  | "P"
-  | "R"
-  | "S"
-  | "T"
-  | "U"
-  | "V"
-  | "X";
-type TypeAlignment = "c" | "s" | "i" | "d";
-type TypeStorage = "p" | "e" | "m" | "x";
+const TypeKindSchema = z.enum([
+  "b", // base type
+  "c", // composite type
+  "d", // domain
+  "e", // enum type
+  "p", // pseudo-type
+  "r", // range type
+]);
 
-export interface TypeProps {
-  schema: string;
-  name: string;
-  type_type: TypeKind;
-  type_category: TypeCategory;
-  is_preferred: boolean;
-  is_defined: boolean;
-  delimiter: string;
-  storage_length: number;
-  passed_by_value: boolean;
-  alignment: TypeAlignment;
-  storage: TypeStorage;
-  not_null: boolean;
-  type_modifier: number | null;
-  array_dimensions: number | null;
-  default_bin: string | null;
-  default_value: string | null;
-  owner: string;
-}
+const TypeCategorySchema = z.enum([
+  "A", // Array types
+  "B", // Boolean types
+  "C", // Composite types
+  "D", // Date/time types
+  "E", // Enum types
+  "G", // Geometric types
+  "I", // Network address types
+  "N", // Numeric types
+  "P", // Pseudo-types
+  "R", // Range types
+  "S", // String types
+  "T", // Timespan types
+  "U", // User-defined types
+  "V", // Bit-string types
+  "X", // unknown type
+]);
+
+const TypeAlignmentSchema = z.enum([
+  "c", // char alignment (1 byte)
+  "s", // short alignment (2 bytes)
+  "i", // int alignment (4 bytes)
+  "d", // double alignment (8 bytes)
+]);
+
+const TypeStorageSchema = z.enum([
+  "p", // plain storage
+  "e", // external storage
+  "m", // main storage
+  "x", // extended storage
+]);
+
+export type TypeKind = z.infer<typeof TypeKindSchema>;
+export type TypeCategory = z.infer<typeof TypeCategorySchema>;
+type TypeAlignment = z.infer<typeof TypeAlignmentSchema>;
+type TypeStorage = z.infer<typeof TypeStorageSchema>;
+
+const typePropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  type_type: TypeKindSchema,
+  type_category: TypeCategorySchema,
+  is_preferred: z.boolean(),
+  is_defined: z.boolean(),
+  delimiter: z.string(),
+  storage_length: z.number(),
+  passed_by_value: z.boolean(),
+  alignment: TypeAlignmentSchema,
+  storage: TypeStorageSchema,
+  not_null: z.boolean(),
+  type_modifier: z.number().nullable(),
+  array_dimensions: z.number().nullable(),
+  default_bin: z.string().nullable(),
+  default_value: z.string().nullable(),
+  owner: z.string(),
+  range_subtype: z.string().nullable(),
+});
+
+export type TypeProps = z.infer<typeof typePropsSchema>;
 
 export class Type extends BasePgModel {
   public readonly schema: TypeProps["schema"];
@@ -59,6 +89,7 @@ export class Type extends BasePgModel {
   public readonly default_bin: TypeProps["default_bin"];
   public readonly default_value: TypeProps["default_value"];
   public readonly owner: TypeProps["owner"];
+  public readonly range_subtype: TypeProps["range_subtype"];
 
   constructor(props: TypeProps) {
     super();
@@ -83,6 +114,7 @@ export class Type extends BasePgModel {
     this.default_bin = props.default_bin;
     this.default_value = props.default_value;
     this.owner = props.owner;
+    this.range_subtype = props.range_subtype;
   }
 
   get stableId(): `type:${string}` {
@@ -113,6 +145,7 @@ export class Type extends BasePgModel {
       default_bin: this.default_bin,
       default_value: this.default_value,
       owner: this.owner,
+      range_subtype: this.range_subtype,
     };
   }
 }
@@ -120,7 +153,7 @@ export class Type extends BasePgModel {
 export async function extractTypes(sql: Sql): Promise<Type[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const typeRows = await sql<TypeProps[]>`
+    const typeRows = await sql`
 with extension_oids as (
   select
     objid
@@ -147,18 +180,32 @@ select
   t.typndims as array_dimensions,
   pg_get_expr(t.typdefaultbin, 0) as default_bin,
   t.typdefault as default_value,
-  pg_get_userbyid(t.typowner) as owner
+  pg_get_userbyid(t.typowner) as owner,
+  format_type(r.rngsubtype, 0) as range_subtype
 from
   pg_catalog.pg_type t
   inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
   left outer join extension_oids e on t.oid = e.objid
+  left outer join pg_catalog.pg_type elem_type on t.typelem = elem_type.oid
+  left outer join pg_catalog.pg_range r on t.oid = r.rngtypid
   where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
   and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
   and e.objid is null
-  and t.typtype in ('b','d','p')
+  and t.typtype in ('b','c', 'd', 'e', 'p', 'r')
+  -- Exclude internal auto-generated types (e.g custom type create an internal _customType type)
+  and not exists (
+    select 1 from pg_catalog.pg_depend d
+    where d.classid = 1247  -- pg_type
+    and d.objid = t.oid
+    and d.deptype = 'i'  -- internal dependency (auto-generated)
+  )
 order by
   1, 2;
     `;
-    return typeRows.map((row) => new Type(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = typeRows.map((row: unknown) =>
+      typePropsSchema.parse(row),
+    );
+    return validatedRows.map((row: TypeProps) => new Type(row));
   });
 }

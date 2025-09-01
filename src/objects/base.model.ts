@@ -1,23 +1,26 @@
+import z from "zod";
 import { deepEqual } from "./utils.ts";
 
-export interface ColumnProps {
-  name: string;
-  position: number;
-  data_type: string;
-  data_type_str: string;
-  is_custom_type: boolean;
-  custom_type_type: string | null;
-  custom_type_category: string | null;
-  custom_type_schema: string | null;
-  custom_type_name: string | null;
-  not_null: boolean;
-  is_identity: boolean;
-  is_identity_always: boolean;
-  is_generated: boolean;
-  collation: string | null;
-  default: string | null;
-  comment: string | null;
-}
+export const columnPropsSchema = z.object({
+  name: z.string(),
+  position: z.number(),
+  data_type: z.string(),
+  data_type_str: z.string(),
+  is_custom_type: z.boolean(),
+  custom_type_type: z.string().nullable(),
+  custom_type_category: z.string().nullable(),
+  custom_type_schema: z.string().nullable(),
+  custom_type_name: z.string().nullable(),
+  not_null: z.boolean(),
+  is_identity: z.boolean(),
+  is_identity_always: z.boolean(),
+  is_generated: z.boolean(),
+  collation: z.string().nullable(),
+  default: z.string().nullable(),
+  comment: z.string().nullable(),
+});
+
+export type ColumnProps = z.infer<typeof columnPropsSchema>;
 
 /**
  * Interface for table-like objects that have columns (tables, views, materialized views).

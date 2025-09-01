@@ -20,7 +20,7 @@ describe("enum", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE TYPE public.test_enum AS ENUM (value1, value2, value3)",
+      "CREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",
     );
   });
 });

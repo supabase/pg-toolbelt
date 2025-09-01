@@ -1,5 +1,6 @@
 import { CycleError, Graph, topologicalSort } from "graph-data-structure";
 import { Err, Ok, type Result } from "neverthrow";
+import { DEBUG } from "../tests/constants.ts";
 import { type Catalog, emptyCatalog } from "./catalog.model.js";
 import {
   AlterChange,
@@ -15,6 +16,7 @@ import { UnexpectedError } from "./objects/utils.js";
 export type ConstraintType = "before";
 
 export interface Constraint {
+  constraintStableId: string;
   changeAIndex: number;
   type: ConstraintType;
   changeBIndex: number;
@@ -78,6 +80,9 @@ export class DependencyExtractor {
 
   extractForChangeset(changes: Change[]): DependencyModel {
     const relevant = this.findRelevantObjects(changes);
+    if (DEBUG) {
+      console.log("relevant", relevant);
+    }
     const model = new DependencyModel();
     this.extractFromCatalog(model, this.masterCatalog, relevant, "master");
     this.extractFromCatalog(model, this.branchCatalog, relevant, "branch");
@@ -88,9 +93,7 @@ export class DependencyExtractor {
     changes: Change[],
     maxDepth: number = 2,
   ): Set<string> {
-    const relevant = new Set<string>(
-      ...changes.map((change) => change.stableId),
-    );
+    const relevant = new Set<string>(changes.map((change) => change.stableId));
     // Add transitive dependencies up to max_depth
     for (let i = 0; i < maxDepth; i++) {
       const newObjects = new Set<string>();
@@ -141,8 +144,8 @@ export class DependencyExtractor {
   ): DependencyModel {
     for (const depend of catalog.depends) {
       if (
-        depend.dependent_stable_id in relevantObjects &&
-        depend.referenced_stable_id in relevantObjects &&
+        relevantObjects.has(depend.dependent_stable_id) &&
+        relevantObjects.has(depend.referenced_stable_id) &&
         !depend.dependent_stable_id.startsWith("unknown.") &&
         !depend.referenced_stable_id.startsWith("unknown.")
       ) {
@@ -264,6 +267,7 @@ export class OperationSemantics {
         referencedChange instanceof CreateTable
       ) {
         return {
+          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
           changeAIndex: depIdx, // CreateSequence should come first
           type: "before",
           changeBIndex: refIdx, // Before CreateTable
@@ -278,6 +282,7 @@ export class OperationSemantics {
       referencedChange instanceof DropChange
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: depIdx,
         type: "before",
         changeBIndex: refIdx,
@@ -291,6 +296,7 @@ export class OperationSemantics {
       referencedChange instanceof CreateChange
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -308,6 +314,7 @@ export class OperationSemantics {
         referencedChange instanceof ReplaceChange)
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -323,6 +330,7 @@ export class OperationSemantics {
         dependentChange instanceof ReplaceChange)
     ) {
       return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -364,6 +372,7 @@ export class OperationSemantics {
         // Add sequential constraints
         for (let k = 0; k < sortedIndices.length - 1; k++) {
           constraints.push({
+            constraintStableId: `${changes[sortedIndices[k]].stableId} -> ${changes[sortedIndices[k + 1]].stableId}`,
             changeAIndex: sortedIndices[k],
             type: "before",
             changeBIndex: sortedIndices[k + 1],
@@ -378,11 +387,28 @@ export class OperationSemantics {
 
   private getOperationPriority(change: Change): number {
     if (change instanceof DropChange) return 0;
-    if (change instanceof CreateChange) return 1;
-    if (change instanceof AlterChange) return 2;
+    if (change instanceof CreateChange) return 1; // CREATE should come before ALTER for same object
+    if (change instanceof AlterChange) return 2; // ALTER should come after CREATE for same object
     if (change instanceof ReplaceChange) return 3;
     return 4;
   }
+}
+
+// utils functions to debug dependency resolution
+function graphToDot(graph: Graph<string, Constraint>): string {
+  const lines: string[] = ["digraph G {"];
+  for (const from of graph.nodes) {
+    for (const to of graph.adjacent(from) ?? []) {
+      const constraint = graph.edgeProperties.get(from)?.get(to);
+      if (constraint) {
+        lines.push(
+          `  "${from}" -> "${to}" [constraint="${constraint.constraintStableId} :: ${constraint.reason}"];`,
+        );
+      }
+    }
+  }
+  lines.push("}");
+  return lines.join("\n");
 }
 
 export class ConstraintSolver {
@@ -390,31 +416,45 @@ export class ConstraintSolver {
     changes: Change[],
     constraints: Constraint[],
   ): Result<Change[], CycleError | UnexpectedError> {
-    const graph = new Graph();
-    const changesById = new Map<string, Change>();
+    const graph = new Graph<string, Constraint>();
+    const nodeIdToChange = new Map<string, Change>();
+    const indexToNodeId = new Map<number, string>();
+    // Helper to build unique node id per change instance (not per object)
+    const getNodeId = (index: number, change: Change) =>
+      `${change.stableId}#${index}`;
     // Add all changes as nodes
     for (let i = 0; i < changes.length; i++) {
-      changesById.set(changes[i].stableId, changes[i]);
-      graph.addNode(changes[i].stableId);
+      const nodeId = getNodeId(i, changes[i]);
+      nodeIdToChange.set(nodeId, changes[i]);
+      indexToNodeId.set(i, nodeId);
+      graph.addNode(nodeId);
     }
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
-        graph.addEdge(
-          changes[constraint.changeAIndex].stableId,
-          changes[constraint.changeBIndex].stableId,
-        );
+        const fromId = indexToNodeId.get(constraint.changeAIndex)!;
+        const toId = indexToNodeId.get(constraint.changeBIndex)!;
+        graph.addEdge(fromId, toId, { props: constraint });
       }
     }
     // Topological sort
     try {
-      const orderedChangesIds = topologicalSort(graph);
+      const orderedNodeIds = topologicalSort(graph);
+      if (DEBUG) {
+        console.log("graph", graphToDot(graph));
+        console.log("constraints", constraints);
+      }
       return new Ok(
-        // biome-ignore lint/style/noNonNullAssertion: if the change is not in the graph, it means it was not added to the changesById map
-        orderedChangesIds.map((changeId) => changesById.get(changeId)!),
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
+        orderedNodeIds.map((nodeId) => nodeIdToChange.get(nodeId)!),
       );
     } catch (error) {
+      // TODO: Ask Oli if this is even possible since each node in the graph has a index
+      // from list as node id
       if (error instanceof CycleError) {
+        if (DEBUG) {
+          console.log("graph", graphToDot(graph));
+        }
         return new Err(error);
       }
       return new Err(new UnexpectedError("Unknown error", error));

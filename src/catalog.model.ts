@@ -1,6 +1,6 @@
 import type { Sql } from "postgres";
 import { extractDepends, type PgDepend } from "./depend.ts";
-import type { BasePgModel } from "./objects/base.model.ts";
+import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
   type Collation,
   extractCollations,
@@ -61,6 +61,7 @@ interface CatalogProps {
   types: Record<string, Type>;
   views: Record<string, View>;
   depends: PgDepend[];
+  indexableObjects: Record<string, TableLikeObject>;
 }
 
 export class Catalog {
@@ -81,6 +82,7 @@ export class Catalog {
   public readonly types: CatalogProps["types"];
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
+  public readonly indexableObjects: CatalogProps["indexableObjects"];
 
   constructor(props: CatalogProps) {
     this.collations = props.collations;
@@ -100,6 +102,7 @@ export class Catalog {
     this.types = props.types;
     this.views = props.views;
     this.depends = props.depends;
+    this.indexableObjects = props.indexableObjects;
   }
 }
 
@@ -137,10 +140,26 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
-    extractTypes(sql).then(listToRecord),
+    extractTypes(sql).then((list) =>
+      // Exclude enums, composite-types and domains as they are handled by dedicated modules
+      // TODO: Directly exclude thems from the types extraction query itself ?
+      listToRecord(
+        list.filter(
+          (type) =>
+            type.type_type !== "c" &&
+            type.type_type !== "e" &&
+            type.type_type !== "d",
+        ),
+      ),
+    ),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
   ]);
+
+  const indexableObjects = {
+    ...tables,
+    ...materializedViews,
+  };
 
   return new Catalog({
     collations,
@@ -160,6 +179,7 @@ export async function extractCatalog(sql: Sql) {
     types,
     views,
     depends,
+    indexableObjects,
   });
 }
 
@@ -186,5 +206,6 @@ export function emptyCatalog() {
     types: {},
     views: {},
     depends: [],
+    indexableObjects: {},
   });
 }

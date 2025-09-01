@@ -1,29 +1,33 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-export interface DomainProps {
-  schema: string;
-  name: string;
-  base_type: string;
-  base_type_schema: string;
-  base_type_str?: string;
-  not_null: boolean;
-  type_modifier: number | null;
-  array_dimensions: number | null;
-  collation: string | null;
-  default_bin: string | null;
-  default_value: string | null;
-  owner: string;
-  constraints: DomainConstraintProps[];
-}
+const domainConstraintPropsSchema = z.object({
+  name: z.string(),
+  validated: z.boolean(),
+  is_local: z.boolean(),
+  no_inherit: z.boolean(),
+  check_expression: z.string().nullable(),
+});
 
-export interface DomainConstraintProps {
-  name: string;
-  validated: boolean;
-  is_local: boolean;
-  no_inherit: boolean;
-  check_expression: string | null;
-}
+const domainPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  base_type: z.string(),
+  base_type_schema: z.string(),
+  base_type_str: z.string().optional(),
+  not_null: z.boolean(),
+  type_modifier: z.number().nullable(),
+  array_dimensions: z.number().nullable(),
+  collation: z.string().nullable(),
+  default_bin: z.string().nullable(),
+  default_value: z.string().nullable(),
+  owner: z.string(),
+  constraints: z.array(domainConstraintPropsSchema),
+});
+
+export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
+export type DomainProps = z.infer<typeof domainPropsSchema>;
 
 /**
  * A domain is a user-defined data type that is based on another underlying type.
@@ -102,7 +106,7 @@ export class Domain extends BasePgModel {
 export async function extractDomains(sql: Sql): Promise<Domain[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const domainRows = await sql<DomainProps[]>`
+    const domainRows = await sql`
       with extension_oids as (
         select
           objid
@@ -152,6 +156,10 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
       order by
         1, 2;
     `;
-    return domainRows.map((row) => new Domain(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = domainRows.map((row: unknown) =>
+      domainPropsSchema.parse(row),
+    );
+    return validatedRows.map((row: DomainProps) => new Domain(row));
   });
 }

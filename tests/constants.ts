@@ -13,3 +13,5 @@ export const POSTGRES_VERSIONS = process.env.TEST_POSTGRES_VERSIONS
   : (Object.keys(POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG).map(
       Number,
     ) as PostgresVersion[]);
+
+export const DEBUG = process.env.DEBUG;

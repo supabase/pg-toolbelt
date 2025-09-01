@@ -1,6 +1,7 @@
 import {
   AlterChange,
   quoteIdentifier,
+  quoteLiteral,
   ReplaceChange,
 } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
@@ -80,13 +81,13 @@ export class AlterEnumAddValue extends AlterChange {
       "ALTER TYPE",
       `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
       "ADD VALUE",
-      quoteIdentifier(this.newValue),
+      quoteLiteral(this.newValue),
     ];
 
     if (this.position?.before) {
-      parts.push("BEFORE", quoteIdentifier(this.position.before));
+      parts.push("BEFORE", quoteLiteral(this.position.before));
     } else if (this.position?.after) {
-      parts.push("AFTER", quoteIdentifier(this.position.after));
+      parts.push("AFTER", quoteLiteral(this.position.after));
     }
 
     return parts.join(" ");

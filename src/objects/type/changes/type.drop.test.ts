@@ -22,6 +22,7 @@ describe("type", () => {
       default_bin: null,
       default_value: null,
       owner: "test",
+      range_subtype: null,
     });
 
     const change = new DropType({

@@ -1,19 +1,17 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import { extractVersion } from "../../version.ts";
 import { BasePgModel } from "../base.model.ts";
 
 /**
  * Collation provider codes as stored in pg_collation.collprovider
  */
-type CollationProvider =
-  /** d = database default provider (omit PROVIDER clause) */
-  | "d"
-  /** b = builtin */
-  | "b"
-  /** c = libc */
-  | "c"
-  /** i = icu */
-  | "i";
+const CollationProviderSchema = z.enum([
+  "d", // database default provider (omit PROVIDER clause)
+  "b", // builtin
+  "c", // libc
+  "i", // icu
+]);
 
 /**
  * All properties exposed by CREATE COLLATION statement are included in diff output.
@@ -25,19 +23,21 @@ type CollationProvider =
  *
  * Other properties require dropping and creating a new collation.
  */
-export interface CollationProps {
-  schema: string;
-  name: string;
-  provider: CollationProvider;
-  is_deterministic: boolean;
-  encoding: number;
-  collate: string;
-  ctype: string;
-  locale: string | null;
-  icu_rules: string | null;
-  version: string | null;
-  owner: string;
-}
+const collationPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  provider: CollationProviderSchema,
+  is_deterministic: z.boolean(),
+  encoding: z.number(),
+  collate: z.string(),
+  ctype: z.string(),
+  locale: z.string().nullable(),
+  icu_rules: z.string().nullable(),
+  version: z.string().nullable(),
+  owner: z.string(),
+});
+
+export type CollationProps = z.infer<typeof collationPropsSchema>;
 
 export class Collation extends BasePgModel {
   public readonly schema: CollationProps["schema"];
@@ -101,9 +101,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
   const version = await extractVersion(sql);
   const isPostgres17OrGreater = version >= 170000;
   const isPostgres16OrGreater = version >= 160000;
-  let collations: CollationProps[];
+  let collations: any[];
   if (isPostgres17OrGreater) {
-    collations = await sql<CollationProps[]>`
+    collations = await sql`
       with extension_oids as (
         select
           objid
@@ -137,7 +137,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
   `;
   } else if (isPostgres16OrGreater) {
     // On postgres 16 there colllocale column was named colliculocale
-    collations = await sql<CollationProps[]>`
+    collations = await sql`
       with extension_oids as (
         select
           objid
@@ -171,7 +171,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
     `;
   } else {
     // On postgres 15 icu_rules does not exist
-    collations = await sql<CollationProps[]>`
+    collations = await sql`
       with extension_oids as (
         select
           objid
@@ -205,5 +205,9 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
     `;
   }
 
-  return collations.map((collation) => new Collation(collation));
+  // Validate and parse each row using the Zod schema
+  const validatedRows = collations.map((row: unknown) =>
+    collationPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: CollationProps) => new Collation(row));
 }

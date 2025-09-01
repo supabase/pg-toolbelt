@@ -1,29 +1,32 @@
 import type { Sql } from "postgres";
+import z from "zod";
 import {
   BasePgModel,
-  type ColumnProps,
+  columnPropsSchema,
   type TableLikeObject,
 } from "../base.model.ts";
-import type { ReplicaIdentity } from "../table/table.model.ts";
+import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
-export interface MaterializedViewProps {
-  schema: string;
-  name: string;
-  definition: string;
-  row_security: boolean;
-  force_row_security: boolean;
-  has_indexes: boolean;
-  has_rules: boolean;
-  has_triggers: boolean;
-  has_subclasses: boolean;
-  is_populated: boolean;
-  replica_identity: ReplicaIdentity;
-  is_partition: boolean;
-  options: string[] | null;
-  partition_bound: string | null;
-  owner: string;
-  columns: ColumnProps[];
-}
+const materializedViewPropsSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  definition: z.string(),
+  row_security: z.boolean(),
+  force_row_security: z.boolean(),
+  has_indexes: z.boolean(),
+  has_rules: z.boolean(),
+  has_triggers: z.boolean(),
+  has_subclasses: z.boolean(),
+  is_populated: z.boolean(),
+  replica_identity: ReplicaIdentitySchema,
+  is_partition: z.boolean(),
+  options: z.array(z.string()).nullable(),
+  partition_bound: z.string().nullable(),
+  owner: z.string(),
+  columns: z.array(columnPropsSchema),
+});
+
+export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly schema: MaterializedViewProps["schema"];
@@ -103,7 +106,7 @@ export async function extractMaterializedViews(
 ): Promise<MaterializedView[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
-    const mvRows = await sql<MaterializedViewProps[]>`
+    const mvRows = await sql`
 with extension_oids as (
   select
     objid
@@ -172,6 +175,12 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname;
     `;
-    return mvRows.map((row) => new MaterializedView(row));
+    // Validate and parse each row using the Zod schema
+    const validatedRows = mvRows.map((row: unknown) =>
+      materializedViewPropsSchema.parse(row),
+    );
+    return validatedRows.map(
+      (row: MaterializedViewProps) => new MaterializedView(row),
+    );
   });
 }

@@ -71,8 +71,9 @@ export class CreateType extends CreateChange {
         throw new Error(
           "Composite and Enum types are handled by dedicated modules",
         );
+      case "r":
       case "d":
-        parts.push("AS RANGE ()"); // Range type
+        parts.push(`AS RANGE (subtype = ${this.type.range_subtype})`); // Range type
         break;
       case "b": {
         // Base type - no AS keyword, no options for minimal creation
