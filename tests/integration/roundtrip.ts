@@ -110,7 +110,7 @@ export async function roundtripFidelityTest(
   }
   // Apply migration to master database
   if (diffScript.trim()) {
-    await masterSession.unsafe(diffScript);
+    await expect(masterSession.unsafe(diffScript)).resolves.not.toThrow();
   }
 
   // Extract final catalog from master database

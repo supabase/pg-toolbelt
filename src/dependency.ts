@@ -449,8 +449,6 @@ export class ConstraintSolver {
         orderedNodeIds.map((nodeId) => nodeIdToChange.get(nodeId)!),
       );
     } catch (error) {
-      // TODO: Ask Oli if this is even possible since each node in the graph has a index
-      // from list as node id
       if (error instanceof CycleError) {
         if (DEBUG) {
           console.log("graph", graphToDot(graph));

@@ -119,7 +119,8 @@ with extension_oids as (
 select
   regexp_replace(c.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as schema,
   c.relname as name,
-  pg_get_viewdef(c.oid) as definition,
+  -- remove trailing semicolon from the definition if present
+  rtrim(pg_get_viewdef(c.oid), ';') as definition,
   c.relrowsecurity as row_security,
   c.relforcerowsecurity as force_row_security,
   c.relhasindex as has_indexes,
