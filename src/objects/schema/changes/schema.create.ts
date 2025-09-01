@@ -31,10 +31,8 @@ export class CreateSchema extends CreateChange {
     // Add schema name
     parts.push(quoteIdentifier(this.schema.schema));
 
-    // Add AUTHORIZATION if owner is specified
-    if (this.schema.owner) {
-      parts.push("AUTHORIZATION", quoteIdentifier(this.schema.owner));
-    }
+    // Add AUTHORIZATION
+    parts.push("AUTHORIZATION", quoteIdentifier(this.schema.owner));
 
     return parts.join(" ");
   }
