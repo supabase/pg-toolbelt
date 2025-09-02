@@ -127,11 +127,11 @@ with extension_oids as (
     and d.classid = 'pg_trigger'::regclass
 )
 select
-  tn.nspname as schema,
+  tc.relnamespace::regnamespace as schema,
   t.tgname as name,
-  tn.nspname as table_schema,
+  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
-  fn.nspname as function_schema,
+  fc.pronamespace::regnamespace as function_schema,
   fc.proname as function_name,
   t.tgtype as trigger_type,
   t.tgenabled as enabled,
@@ -144,16 +144,13 @@ select
   pg_get_expr(t.tgqual, t.tgrelid) as when_condition,
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
-  pg_get_userbyid(tc.relowner) as owner
+  tc.relowner::regrole as owner
 from
   pg_catalog.pg_trigger t
   inner join pg_catalog.pg_class tc on tc.oid = t.tgrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
   inner join pg_catalog.pg_proc fc on fc.oid = t.tgfoid
-  inner join pg_catalog.pg_namespace fn on fn.oid = fc.pronamespace
   left outer join extension_oids e on t.oid = e.objid
-  where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and tn.nspname not like 'pg\_temp\_%' and tn.nspname not like 'pg\_toast\_temp\_%'
+  where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and not t.tgisinternal
 order by

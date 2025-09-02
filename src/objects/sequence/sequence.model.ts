@@ -88,7 +88,7 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  n.nspname as schema,
+  c.relnamespace::regnamespace as schema,
   c.relname as name,
   format_type(s.seqtypid, null) as data_type,
   s.seqstart::int as start_value,
@@ -98,14 +98,12 @@ select
   s.seqcycle as cycle_option,
   s.seqcache::int as cache_size,
   c.relpersistence as persistence,
-  pg_get_userbyid(c.relowner) as owner
+  c.relowner::regrole as owner
 from
   pg_catalog.pg_class c
-  inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid
   left outer join extension_oids e on c.oid = e.objid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and c.relkind = 'S'
 order by

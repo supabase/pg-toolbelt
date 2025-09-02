@@ -107,7 +107,7 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 ), views as (
   select
-    n.nspname as schema,
+    c.relnamespace::regnamespace as schema,
     c.relname as name,
     pg_get_viewdef(c.oid) as definition,
     c.relrowsecurity as row_security,
@@ -121,14 +121,12 @@ with extension_oids as (
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-    pg_get_userbyid(c.relowner) as owner,
+    c.relowner::regrole as owner,
     c.oid as oid
   from
     pg_catalog.pg_class c
-    inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
     left outer join extension_oids e on c.oid = e.objid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-    and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
     and e.objid is null
     and c.relkind = 'v'
 )

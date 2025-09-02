@@ -164,7 +164,7 @@ with extension_oids as (
     and d.classid = 'pg_type'::regclass
 )
 select
-  n.nspname as schema,
+  t.typnamespace::regnamespace as schema,
   t.typname as name,
   t.typtype as type_type,
   t.typcategory as type_category,
@@ -180,16 +180,14 @@ select
   t.typndims as array_dimensions,
   pg_get_expr(t.typdefaultbin, 0) as default_bin,
   t.typdefault as default_value,
-  pg_get_userbyid(t.typowner) as owner,
+  t.typowner::regrole as owner,
   format_type(r.rngsubtype, 0) as range_subtype
 from
   pg_catalog.pg_type t
-  inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
   left outer join extension_oids e on t.oid = e.objid
   left outer join pg_catalog.pg_type elem_type on t.typelem = elem_type.oid
   left outer join pg_catalog.pg_range r on t.oid = r.rngtypid
-  where n.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and n.nspname not like 'pg\_temp\_%' and n.nspname not like 'pg\_toast\_temp\_%'
+  where not t.typnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and t.typtype in ('b','c', 'd', 'e', 'p', 'r')
   -- Exclude internal auto-generated types (e.g custom type create an internal _customType type)

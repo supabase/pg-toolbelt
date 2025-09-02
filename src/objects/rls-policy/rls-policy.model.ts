@@ -95,9 +95,9 @@ with extension_oids as (
     and d.classid = 'pg_policy'::regclass
 )
 select
-  n.nspname as schema,
+  tc.relnamespace::regnamespace as schema,
   p.polname as name,
-  tn.nspname as table_schema,
+  tc.relnamespace::regnamespace as table_schema,
   tc.relname as table_name,
   p.polcmd as command,
   p.polpermissive as permissive,
@@ -108,15 +108,12 @@ select
   ) as roles,
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
-  pg_get_userbyid(tc.relowner) as owner
+  tc.relowner::regrole as owner
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
-  inner join pg_catalog.pg_namespace n on n.oid = tc.relnamespace
   left outer join extension_oids e on p.oid = e.objid
-  where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and tn.nspname not like 'pg\_temp\_%' and tn.nspname not like 'pg\_toast\_temp\_%'
+  where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
 order by
   1, 2;
