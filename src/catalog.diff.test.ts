@@ -38,6 +38,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(2);
     });
 
     test("create table with columns and constraints", async ({ db }) => {
@@ -56,14 +57,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_pkey",
-              table_schema: "test_schema",
-              table_name: "users",
-            }),
-          }),
           expect.objectContaining({
             kind: "create",
             index: expect.objectContaining({
@@ -98,6 +91,36 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "alter",
+            table: expect.objectContaining({
+              name: "users",
+              schema: "test_schema",
+            }),
+            constraint: expect.objectContaining({
+              name: "users_pkey",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "alter",
+            table: expect.objectContaining({
+              name: "users",
+              schema: "test_schema",
+            }),
+            constraint: expect.objectContaining({
+              name: "users_username_key",
+            }),
+          }),
+          expect.objectContaining({
+            kind: "alter",
+            table: expect.objectContaining({
+              name: "users",
+              schema: "test_schema",
+            }),
+            constraint: expect.objectContaining({
+              name: "users_email_key",
             }),
           }),
         ]),
@@ -159,6 +182,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(5);
     });
 
     test("create sequence", async ({ db }) => {
@@ -192,6 +216,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(2);
     });
 
     test("create enum type", async ({ db }) => {
@@ -220,6 +245,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(2);
     });
 
     test("create domain", async ({ db }) => {
@@ -249,6 +275,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(2);
     });
 
     test("create procedure", async ({ db }) => {
@@ -286,6 +313,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(2);
     });
 
     test("create materialized view", async ({ db }) => {
@@ -348,6 +376,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(5);
     });
 
     test("create trigger", async ({ db }) => {
@@ -423,6 +452,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(6);
     });
 
     test("create RLS policy", async ({ db }) => {
@@ -485,6 +515,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(5);
     });
 
     test("complex scenario with multiple entity creations", async ({ db }) => {
@@ -608,6 +639,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(10);
     });
 
     test("complex scenario with multiple entity drops", async ({ db }) => {
@@ -711,6 +743,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(7);
     });
 
     test("complex scenario with multiple entity alter", async ({ db }) => {
@@ -881,6 +914,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
       ]);
+      expect(changes).toHaveLength(7);
     });
 
     test("test enum modification - add new value", async ({ db }) => {
@@ -907,6 +941,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           position: { after: "inactive" },
         }),
       ]);
+      expect(changes).toHaveLength(1);
     });
 
     test("test domain modification - add constraint", async ({ db }) => {
@@ -940,6 +975,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
       ]);
+      expect(changes).toHaveLength(1);
     });
 
     test("test table modification - add column", async ({ db }) => {
@@ -978,6 +1014,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
       ]);
+      expect(changes).toHaveLength(1);
     });
 
     test("test view modification - change definition", async ({ db }) => {
@@ -1025,6 +1062,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         }),
       ]);
+      expect(changes).toHaveLength(1);
     });
   });
 }
