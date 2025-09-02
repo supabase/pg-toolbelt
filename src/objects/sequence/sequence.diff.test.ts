@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AlterSequenceChangeOwner,
+  AlterSequenceSetOptions,
   ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
@@ -41,9 +42,29 @@ describe.concurrent("sequence.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterSequenceChangeOwner);
   });
 
+  test("alter options via diff", () => {
+    const main = new Sequence(base);
+    const branch = new Sequence({
+      ...base,
+      increment: 2,
+      minimum_value: 5n,
+      maximum_value: 500n,
+      start_value: 10,
+      cache_size: 3,
+      cycle_option: true,
+    });
+    const changes = diffSequences(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterSequenceSetOptions)).toBe(
+      true,
+    );
+  });
+
   test("replace on non-alterable change", () => {
     const main = new Sequence(base);
-    const branch = new Sequence({ ...base, increment: 2 });
+    const branch = new Sequence({ ...base, data_type: "integer" });
     const changes = diffSequences(
       { [main.stableId]: main },
       { [branch.stableId]: branch },

@@ -20,7 +20,7 @@ import { DropSequence } from "./sequence.drop.ts";
  *     [ CACHE cache ] [ [ NO ] CYCLE ] [ OWNED BY { table_name.column_name | NONE } ]
  * ```
  */
-export type AlterSequence = AlterSequenceChangeOwner;
+export type AlterSequence = AlterSequenceChangeOwner | AlterSequenceSetOptions;
 
 /**
  * ALTER SEQUENCE ... OWNER TO ...
@@ -46,6 +46,81 @@ export class AlterSequenceChangeOwner extends AlterChange {
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
+  }
+}
+
+/**
+ * ALTER SEQUENCE ... set options ...
+ * Emits only changed options, in a stable order.
+ */
+export class AlterSequenceSetOptions extends AlterChange {
+  public readonly main: Sequence;
+  public readonly branch: Sequence;
+
+  constructor(props: { main: Sequence; branch: Sequence }) {
+    super();
+    this.main = props.main;
+    this.branch = props.branch;
+  }
+
+  get stableId(): string {
+    return `${this.main.stableId}`;
+  }
+
+  private computeDefaultMax(type: string): bigint {
+    return type === "integer"
+      ? BigInt("2147483647")
+      : BigInt("9223372036854775807");
+  }
+
+  serialize(): string {
+    const parts: string[] = [
+      "ALTER SEQUENCE",
+      `${quoteIdentifier(this.main.schema)}.${quoteIdentifier(this.main.name)}`,
+    ];
+    const options: string[] = [];
+
+    // INCREMENT
+    if (this.main.increment !== this.branch.increment) {
+      options.push("INCREMENT BY", String(this.branch.increment));
+    }
+
+    // MINVALUE | NO MINVALUE
+    if (this.main.minimum_value !== this.branch.minimum_value) {
+      const defaultMin = BigInt(1);
+      if (this.branch.minimum_value === defaultMin) {
+        options.push("NO MINVALUE");
+      } else {
+        options.push("MINVALUE", this.branch.minimum_value.toString());
+      }
+    }
+
+    // MAXVALUE | NO MAXVALUE
+    if (this.main.maximum_value !== this.branch.maximum_value) {
+      const defaultMax = this.computeDefaultMax(this.branch.data_type);
+      if (this.branch.maximum_value === defaultMax) {
+        options.push("NO MAXVALUE");
+      } else {
+        options.push("MAXVALUE", this.branch.maximum_value.toString());
+      }
+    }
+
+    // START WITH
+    if (this.main.start_value !== this.branch.start_value) {
+      options.push("START WITH", String(this.branch.start_value));
+    }
+
+    // CACHE
+    if (this.main.cache_size !== this.branch.cache_size) {
+      options.push("CACHE", String(this.branch.cache_size));
+    }
+
+    // [ NO ] CYCLE
+    if (this.main.cycle_option !== this.branch.cycle_option) {
+      options.push(this.branch.cycle_option ? "CYCLE" : "NO CYCLE");
+    }
+
+    return [...parts, ...options].join(" ");
   }
 }
 

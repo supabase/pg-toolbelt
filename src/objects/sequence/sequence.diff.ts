@@ -3,6 +3,7 @@ import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceChangeOwner,
+  AlterSequenceSetOptions,
   ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
@@ -40,12 +41,6 @@ export function diffSequences(
     // These require dropping and recreating the sequence
     const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = [
       "data_type",
-      "start_value",
-      "minimum_value",
-      "maximum_value",
-      "increment",
-      "cycle_option",
-      "cache_size",
       "persistence",
     ];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
@@ -60,9 +55,23 @@ export function diffSequences(
         new ReplaceSequence({ main: mainSequence, branch: branchSequence }),
       );
     } else {
-      // Only alterable properties changed - check each one
+      // Only alterable properties changed - emit ALTER for options/owner
+      const optionsChanged =
+        mainSequence.increment !== branchSequence.increment ||
+        mainSequence.minimum_value !== branchSequence.minimum_value ||
+        mainSequence.maximum_value !== branchSequence.maximum_value ||
+        mainSequence.start_value !== branchSequence.start_value ||
+        mainSequence.cache_size !== branchSequence.cache_size ||
+        mainSequence.cycle_option !== branchSequence.cycle_option;
 
-      // OWNER
+      if (optionsChanged) {
+        const alterOptions = new AlterSequenceSetOptions({
+          main: mainSequence,
+          branch: branchSequence,
+        });
+        changes.push(alterOptions);
+      }
+
       if (mainSequence.owner !== branchSequence.owner) {
         changes.push(
           new AlterSequenceChangeOwner({
