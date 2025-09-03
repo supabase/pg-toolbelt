@@ -17,6 +17,7 @@ import {
   AlterTableEnableRowLevelSecurity,
   AlterTableForceRowLevelSecurity,
   AlterTableNoForceRowLevelSecurity,
+  AlterTableResetStorageParams,
   AlterTableSetLogged,
   AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
@@ -41,17 +42,9 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
   const branchByName = new Map(
     (branchTable.constraints ?? []).map((c) => [c.name, c]),
   );
-  if (DEBUG) {
-    console.log("branchByName: ", branchByName);
-    console.log("mainByName: ", mainByName);
-  }
 
   // Created constraints
   for (const [name, c] of branchByName) {
-    if (DEBUG) {
-      console.log("name: ", name);
-      console.log("c: ", c);
-    }
     if (!mainByName.has(name)) {
       changes.push(
         new AlterTableAddConstraint({ table: branchTable, constraint: c }),
@@ -222,7 +215,11 @@ export function diffTables(
 
     // STORAGE PARAMS (WITH (...))
     if (!deepEqual(mainTable.options, branchTable.options)) {
-      if (branchTable.options && branchTable.options.length > 0) {
+      const mainOpts = mainTable.options ?? [];
+      const branchOpts = branchTable.options ?? [];
+
+      // Always set branch options when provided
+      if (branchOpts.length > 0) {
         changes.push(
           new AlterTableSetStorageParams({
             main: mainTable,
@@ -230,16 +227,37 @@ export function diffTables(
           }),
         );
       }
+
+      // Reset any params that are present in main but absent in branch
+      if (mainOpts.length > 0) {
+        const mainNames = new Set(mainOpts.map((opt) => opt.split("=")[0]));
+        const branchNames = new Set(branchOpts.map((opt) => opt.split("=")[0]));
+        const removed: string[] = [];
+        for (const name of mainNames) {
+          if (!branchNames.has(name)) removed.push(name);
+        }
+        if (removed.length > 0) {
+          changes.push(
+            new AlterTableResetStorageParams({
+              table: mainTable,
+              params: removed,
+            }),
+          );
+        }
+      }
     }
 
     // REPLICA IDENTITY
     if (mainTable.replica_identity !== branchTable.replica_identity) {
-      changes.push(
-        new AlterTableSetReplicaIdentity({
-          main: mainTable,
-          branch: branchTable,
-        }),
-      );
+      // Skip when target is 'i' (USING INDEX) — handled by index changes
+      if (branchTable.replica_identity !== "i") {
+        changes.push(
+          new AlterTableSetReplicaIdentity({
+            main: mainTable,
+            branch: branchTable,
+          }),
+        );
+      }
     }
 
     // OWNER

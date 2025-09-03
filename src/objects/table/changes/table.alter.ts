@@ -65,6 +65,7 @@ export type AlterTable =
   | AlterTableForceRowLevelSecurity
   | AlterTableNoForceRowLevelSecurity
   | AlterTableSetStorageParams
+  | AlterTableResetStorageParams
   | AlterTableAddConstraint
   | AlterTableDropConstraint
   | AlterTableValidateConstraint
@@ -287,6 +288,33 @@ export class AlterTableSetStorageParams extends AlterChange {
   }
 }
 
+/**
+ * ALTER TABLE ... RESET ( storage_parameter [, ... ] )
+ */
+export class AlterTableResetStorageParams extends AlterChange {
+  public readonly table: Table;
+  public readonly params: string[];
+
+  constructor(props: { table: Table; params: string[] }) {
+    super();
+    this.table = props.table;
+    this.params = props.params;
+  }
+
+  get stableId(): string {
+    return `${this.table.stableId}`;
+  }
+
+  serialize(): string {
+    const paramsSql = this.params.join(", ");
+    return [
+      "ALTER TABLE",
+      `${quoteIdentifier(this.table.schema)}.${quoteIdentifier(this.table.name)}`,
+      `RESET (${paramsSql})`,
+    ].join(" ");
+  }
+}
+
 // Intentionally no ReplaceTable: destructive changes are not emitted
 
 /**
@@ -311,12 +339,8 @@ export class AlterTableAddConstraint extends AlterChange {
       this.table.columns.map((c) => [c.position, c]),
     );
     return this.constraint.key_columns.map((position) => {
-      const column = columnByPosition.get(position);
-      if (!column) {
-        throw new Error(
-          `AlterTableAddConstraint could not resolve column position ${position} to a column name`,
-        );
-      }
+      // biome-ignore lint/style/noNonNullAssertion: it is guaranteed by our query
+      const column = columnByPosition.get(position)!;
       return quoteIdentifier(column.name);
     });
   }
