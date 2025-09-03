@@ -480,82 +480,6 @@ UNION ALL
       });
     });
 
-    // View cycle detection tests right now this error isn't properly handled so it produce invalid sql
-    // TODO: make those tests pass
-    test.fails(
-      "obvious view cycles are detected and reported",
-      async ({ db }) => {
-        // Test case: A -> B -> A cycle
-        await roundtripFidelityTest({
-          masterSession: db.main,
-          branchSession: db.branch,
-          initialSetup: "CREATE SCHEMA test_schema;",
-          testSql: `
-            CREATE TABLE test_schema.base_table (
-              id integer,
-              name text
-            );
-
-            -- This should create a cycle: view_a -> view_b -> view_a
-            CREATE VIEW test_schema.view_a AS
-            SELECT id, name
-            FROM test_schema.base_table
-            WHERE id IN (SELECT id FROM test_schema.view_b WHERE name IS NOT NULL);
-
-            CREATE VIEW test_schema.view_b AS
-            SELECT id, name
-            FROM test_schema.base_table
-            WHERE id IN (SELECT id FROM test_schema.view_a WHERE name IS NOT NULL);
-          `,
-          description: "obvious view cycles are detected and reported",
-          expectedSqlTerms: [], // Should fail before generating SQL
-          expectedMasterDependencies: [],
-          expectedBranchDependencies: [],
-        });
-      },
-    );
-
-    test.fails("complex multi-level cycles are identified", async ({ db }) => {
-      // Test case: A -> B -> C -> D -> A (4-level cycle)
-      await roundtripFidelityTest({
-        masterSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
-            CREATE TABLE test_schema.base_table (
-              id integer,
-              name text,
-              value integer
-            );
-
-            -- Create a 4-level cycle: A -> B -> C -> D -> A
-            CREATE VIEW test_schema.view_a AS
-            SELECT id, name, value
-            FROM test_schema.base_table
-            WHERE value > (SELECT AVG(value) FROM test_schema.view_d);
-
-            CREATE VIEW test_schema.view_b AS
-            SELECT id, name, value
-            FROM test_schema.base_table
-            WHERE id IN (SELECT id FROM test_schema.view_a WHERE value > 10);
-
-            CREATE VIEW test_schema.view_c AS
-            SELECT id, name, value
-            FROM test_schema.base_table
-            WHERE id IN (SELECT id FROM test_schema.view_b WHERE value > 20);
-
-            CREATE VIEW test_schema.view_d AS
-            SELECT id, name, value
-            FROM test_schema.base_table
-            WHERE id IN (SELECT id FROM test_schema.view_c WHERE value > 30);
-          `,
-        description: "complex multi-level cycles are identified",
-        expectedSqlTerms: [], // Should fail before generating SQL
-        expectedMasterDependencies: [],
-        expectedBranchDependencies: [],
-      });
-    });
-
     test("valid recursive patterns are not flagged as cycles", async ({
       db,
     }) => {
@@ -630,41 +554,23 @@ UNION ALL
         ],
       });
     });
-
-    test.fails(
-      "proper error messages guide users on resolving cycles",
-      async ({ db }) => {
-        // Test case: Ensure error messages are helpful for cycle resolution
-        await roundtripFidelityTest({
-          masterSession: db.main,
-          branchSession: db.branch,
-          initialSetup: "CREATE SCHEMA test_schema;",
-          testSql: `
-            CREATE TABLE test_schema.data (
-              id integer,
-              value text
-            );
-
-            -- Create a simple cycle for error message testing
-            CREATE VIEW test_schema.view_x AS
-            SELECT id, value
-            FROM test_schema.data
-            WHERE id IN (SELECT id FROM test_schema.view_y);
-
-            CREATE VIEW test_schema.view_y AS
-            SELECT id, value
-            FROM test_schema.data
-            WHERE id IN (SELECT id FROM test_schema.view_x);
-          `,
-          description: "proper error messages guide users on resolving cycles",
-          expectedSqlTerms: [], // Should fail before generating SQL
-          expectedMasterDependencies: [],
-          expectedBranchDependencies: [],
-        });
-      },
-    );
   });
 }
-
 // CASCADE operations are intentionally not supported as dependency resolution
 // handles proper ordering of DROP operations automatically
+// NOTE: View cycles can occur in PostgreSQL through recursive CTEs or complex dependency patterns.
+// For example:
+// - View A references View B in a subquery
+// - View B references View A in a different context
+// - Both views exist but create a logical circular dependency
+//
+// PostgreSQL itself prevents direct cycles during view creation, but complex patterns
+// involving multiple views, functions, and recursive CTEs can create scenarios where
+// dependency resolution becomes challenging.
+//
+// TODO: Add integration tests for view cycle detection once cycle detection is implemented
+// in the dependency resolution system. These tests should verify that:
+// 1. Obvious cycles are detected and reported
+// 2. Complex multi-level cycles are identified
+// 3. False positives (valid recursive patterns) are not flagged as cycles
+// 4. Proper error messages guide users on how to resolve cycles

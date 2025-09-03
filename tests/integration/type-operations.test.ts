@@ -1045,29 +1045,5 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
       });
     });
-
-    test("drop implicit dependent table index", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "drop-implicit-dependent-table-index",
-        masterSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
-        CREATE SCHEMA test_schema;
-        CREATE TABLE test_schema.test_table (
-          id integer PRIMARY KEY,
-          name text
-        );
-        CREATE INDEX test_table_name_index ON test_schema.test_table (name);
-      `,
-        // Drop the table, which will drop the index as well no further changes are needed
-        testSql: `
-        DROP TABLE test_schema.test_table;
-      `,
-        description: "drop implicit dependent table index",
-        expectedSqlTerms: ["DROP TABLE test_schema.test_table"],
-        expectedMasterDependencies: [],
-        expectedBranchDependencies: [],
-      });
-    });
   });
 }

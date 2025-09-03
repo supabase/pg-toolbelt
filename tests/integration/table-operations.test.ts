@@ -140,7 +140,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       await roundtripFidelityTest({
         masterSession: db.main,
         branchSession: db.branch,
-        initialSetup: null,
+        initialSetup: "",
         testSql: `
           CREATE TABLE public.simple_table (
             id integer,

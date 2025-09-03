@@ -83,7 +83,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     // TODO: Fix sequence-table dependency cycle detection
-    test.skip("create table with serial column (sequence dependency)", async ({
+    test("create table with serial column (sequence dependency)", async ({
       db,
     }) => {
       await roundtripFidelityTest({
@@ -104,32 +104,33 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `ALTER SEQUENCE test_schema.users_id_seq OWNED BY test_schema.users.id`,
         ],
         expectedMasterDependencies: [],
+        // Serial column creates multiple dependencies:
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
-          },
+          }, // sequence depends on schema
           {
             dependent_stable_id: "sequence:test_schema.users_id_seq",
             referenced_stable_id: "table:test_schema.users",
             deptype: "n",
-          },
+          }, // sequence owned by table
           {
             dependent_stable_id: "table:test_schema.users",
             referenced_stable_id: "schema:test_schema",
             deptype: "n",
-          },
+          }, // table depends on schema
           {
             dependent_stable_id: "constraint:test_schema.users.users_pkey",
             referenced_stable_id: "table:test_schema.users",
             deptype: "a",
-          },
+          }, // constraint depends on table
           {
             dependent_stable_id: "index:test_schema.users_pkey",
             referenced_stable_id: "constraint:test_schema.users.users_pkey",
             deptype: "i",
-          },
+          }, // index depends on constraint
         ],
       });
     });
