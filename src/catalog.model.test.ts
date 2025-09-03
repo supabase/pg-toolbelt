@@ -1,11 +1,13 @@
 import { describe, expect } from "vitest";
 import { POSTGRES_VERSIONS } from "../tests/constants.ts";
-import { getTest } from "../tests/utils.ts";
+import { getTest, getTestWithSupabaseIsolated } from "../tests/utils.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import { stringifyWithBigInt } from "./objects/utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
+  const testWithSupabase = getTestWithSupabaseIsolated(pgVersion);
+
   test("extract empty catalog", async ({ db }) => {
     const catalog = await extractCatalog(db.a);
     expect(stringifyWithBigInt(catalog)).toMatchSnapshot(
@@ -149,7 +151,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(orderedTable.columns[2].position).toBe(3);
     });
 
-    test("extract type system and dependencies", async ({ db }) => {
+    testWithSupabase("extract type system and dependencies", async ({ db }) => {
       // Create types and check dependencies
       await db.a.unsafe(`
         CREATE SCHEMA test_schema;
@@ -312,7 +314,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(policy.table_name).toBe("users");
     });
 
-    test("extract system objects and filtering", async ({ db }) => {
+    testWithSupabase("extract system objects and filtering", async ({ db }) => {
       // Test system schema filtering and role extraction
       await db.a.unsafe("CREATE TABLE public.test_table (id int)");
 
