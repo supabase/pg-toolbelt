@@ -84,11 +84,11 @@ class ContainerManager {
   }
 
   /**
-   * Get a database pair (a, b) for testing from the container
+   * Get a database pair (main, branch) for testing from the container
    */
   async getDatabasePair(version: PostgresVersion): Promise<{
-    a: postgres.Sql;
-    b: postgres.Sql;
+    main: postgres.Sql;
+    branch: postgres.Sql;
     cleanup: () => Promise<void>;
   }> {
     await this.ensureInitialized([version]);
@@ -99,71 +99,74 @@ class ContainerManager {
     }
 
     // Generate unique database names
-    const dbNameA = `test_db_${this.dbCounter++}_${Date.now()}_a`;
-    const dbNameB = `test_db_${this.dbCounter++}_${Date.now()}_b`;
+    const dbNameMain = `test_db_${this.dbCounter++}_${Date.now()}_main`;
+    const dbNameBranch = `test_db_${this.dbCounter++}_${Date.now()}_branch`;
 
     // Create both databases on the same container
     await Promise.all([
-      container.createDatabase(dbNameA),
-      container.createDatabase(dbNameB),
+      container.createDatabase(dbNameMain),
+      container.createDatabase(dbNameBranch),
     ]);
 
     // Create SQL connections to both databases on the same container
-    const sqlA = postgres(
-      container.getConnectionUriForDatabase(dbNameA),
+    const sqlMain = postgres(
+      container.getConnectionUriForDatabase(dbNameMain),
       postgresConfig,
     );
-    const sqlB = postgres(
-      container.getConnectionUriForDatabase(dbNameB),
+    const sqlBranch = postgres(
+      container.getConnectionUriForDatabase(dbNameBranch),
       postgresConfig,
     );
 
     const cleanup = async () => {
       try {
         // Close connections
-        await Promise.all([sqlA.end(), sqlB.end()]);
+        await Promise.all([sqlMain.end(), sqlBranch.end()]);
 
         // Drop databases
         await Promise.all([
-          container.dropDatabase(dbNameA),
-          container.dropDatabase(dbNameB),
+          container.dropDatabase(dbNameMain),
+          container.dropDatabase(dbNameBranch),
         ]);
       } catch (error) {
         console.error("Error during database cleanup:", error);
       }
     };
 
-    return { a: sqlA, b: sqlB, cleanup };
+    return { main: sqlMain, branch: sqlBranch, cleanup };
   }
 
   /**
    * Get isolated containers (creates new containers for the test)
    */
   async getIsolatedContainers(version: PostgresVersion): Promise<{
-    a: postgres.Sql;
-    b: postgres.Sql;
+    main: postgres.Sql;
+    branch: postgres.Sql;
     cleanup: () => Promise<void>;
   }> {
     const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
 
-    const [containerA, containerB] = await Promise.all([
+    const [containerMain, containerBranch] = await Promise.all([
       new PostgresAlpineContainer(image).start(),
       new PostgresAlpineContainer(image).start(),
     ]);
 
-    const sqlA = postgres(containerA.getConnectionUri(), postgresConfig);
-    const sqlB = postgres(containerB.getConnectionUri(), postgresConfig);
+    const sqlMain = postgres(containerMain.getConnectionUri(), postgresConfig);
+    const sqlBranch = postgres(
+      containerBranch.getConnectionUri(),
+      postgresConfig,
+    );
 
     const cleanup = async () => {
       try {
-        await Promise.all([sqlA.end(), sqlB.end()]);
-        await Promise.all([containerA.stop(), containerB.stop()]);
+        await Promise.all([sqlMain.end(), sqlBranch.end()]);
+        await Promise.all([containerMain.stop(), containerBranch.stop()]);
       } catch (error) {
         console.error("Error during isolated container cleanup:", error);
       }
     };
 
-    return { a: sqlA, b: sqlB, cleanup };
+    return { main: sqlMain, branch: sqlBranch, cleanup };
   }
 
   /**

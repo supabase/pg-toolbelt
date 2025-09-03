@@ -15,14 +15,14 @@ import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
  */
 export function getTest(postgresVersion: PostgresVersion) {
   return baseTest.extend<{
-    db: { a: postgres.Sql; b: postgres.Sql };
+    db: { main: postgres.Sql; branch: postgres.Sql };
   }>({
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
-      const { a, b, cleanup } =
+      const { main, branch, cleanup } =
         await containerManager.getDatabasePair(postgresVersion);
 
-      await use({ a, b });
+      await use({ main, branch });
 
       await cleanup();
     },
@@ -36,14 +36,14 @@ export function getTest(postgresVersion: PostgresVersion) {
  */
 export function getTestIsolated(postgresVersion: PostgresVersion) {
   return baseTest.extend<{
-    db: { a: postgres.Sql; b: postgres.Sql };
+    db: { main: postgres.Sql; branch: postgres.Sql };
   }>({
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
-      const { a, b, cleanup } =
+      const { main, branch, cleanup } =
         await containerManager.getIsolatedContainers(postgresVersion);
 
-      await use({ a, b });
+      await use({ main, branch });
 
       await cleanup();
     },
@@ -57,22 +57,25 @@ export function getTestIsolated(postgresVersion: PostgresVersion) {
  */
 export function getTestWithSupabaseIsolated(postgresVersion: PostgresVersion) {
   return baseTest.extend<{
-    db: { a: postgres.Sql; b: postgres.Sql };
+    db: { main: postgres.Sql; branch: postgres.Sql };
   }>({
     // biome-ignore lint/correctness/noEmptyPattern: The first argument inside a fixture must use object destructuring pattern
     db: async ({}, use) => {
       const image = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`;
-      const [containerA, containerB] = await Promise.all([
+      const [containerMain, containerBranch] = await Promise.all([
         new SupabasePostgreSqlContainer(image).start(),
         new SupabasePostgreSqlContainer(image).start(),
       ]);
-      const a = postgres(containerA.getConnectionUri(), postgresConfig);
-      const b = postgres(containerB.getConnectionUri(), postgresConfig);
+      const main = postgres(containerMain.getConnectionUri(), postgresConfig);
+      const branch = postgres(
+        containerBranch.getConnectionUri(),
+        postgresConfig,
+      );
 
-      await use({ a, b });
+      await use({ main, branch });
 
-      await Promise.all([a.end(), b.end()]);
-      await Promise.all([containerA.stop(), containerB.stop()]);
+      await Promise.all([main.end(), branch.end()]);
+      await Promise.all([containerMain.stop(), containerBranch.stop()]);
     },
   });
 }
