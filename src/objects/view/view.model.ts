@@ -6,7 +6,7 @@ import { ReplicaIdentitySchema } from "../table/table.model.ts";
 const viewPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
-  definition: z.string().nullable(),
+  definition: z.string(),
   row_security: z.boolean(),
   force_row_security: z.boolean(),
   has_indexes: z.boolean(),
@@ -109,7 +109,7 @@ with extension_oids as (
   select
     c.relnamespace::regnamespace as schema,
     c.relname as name,
-    pg_get_viewdef(c.oid) as definition,
+    rtrim(pg_get_viewdef(c.oid), ';') as definition,
     c.relrowsecurity as row_security,
     c.relforcerowsecurity as force_row_security,
     c.relhasindex as has_indexes,

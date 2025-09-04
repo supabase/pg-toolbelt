@@ -27,7 +27,7 @@ export class CreateView extends CreateChange {
   }
 
   serialize(): string {
-    const parts: string[] = ["CREATE OR REPLACE VIEW"];
+    const parts: string[] = ["CREATE VIEW"];
 
     // Add schema and name
     parts.push(
@@ -40,11 +40,7 @@ export class CreateView extends CreateChange {
     }
 
     // Add AS query
-    if (this.view.definition) {
-      parts.push("AS", this.view.definition);
-    } else {
-      parts.push("AS SELECT 1"); // Placeholder
-    }
+    parts.push("AS", this.view.definition);
 
     return parts.join(" ");
   }
