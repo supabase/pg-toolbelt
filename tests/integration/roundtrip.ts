@@ -134,7 +134,8 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
     const keys = new Set<string>();
     Object.keys(cat.schemas || {}).forEach((key) => keys.add(`schema:${key}`));
     Object.keys(cat.tables || {}).forEach((key) => keys.add(`table:${key}`));
-    Object.keys(cat.types || {}).forEach((key) => keys.add(`type:${key}`));
+    // Object.keys(cat.types || {}).forEach((key) => keys.add(`type:${key}`));
+    Object.keys(cat.ranges || {}).forEach((key) => keys.add(`range:${key}`));
     Object.keys(cat.domains || {}).forEach((key) => keys.add(`domain:${key}`));
     Object.keys(cat.enums || {}).forEach((key) => keys.add(`enum:${key}`));
     Object.keys(cat.compositeTypes || {}).forEach((key) =>

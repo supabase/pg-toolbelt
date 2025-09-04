@@ -82,7 +82,8 @@ describe("DependencyResolver", () => {
       sequences: {},
       tables: {},
       triggers: {},
-      types: {},
+      // types: {},
+      ranges: {},
       views: {},
       depends: dependencies,
       indexableObjects: {},
@@ -1704,7 +1705,8 @@ describe("DependencyResolver", () => {
         sequences: {},
         tables: {},
         triggers: {},
-        types: {},
+        // types: {},
+        ranges: {},
         views: {},
         depends: [
           {
