@@ -16,11 +16,18 @@ import { DropCompositeType } from "./composite-type.drop.ts";
  * ```sql
  * ALTER TYPE name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
  * ALTER TYPE name RENAME TO new_name
- * ALTER TYPE name RENAME ATTRIBUTE attribute_name TO new_attribute_name
  * ALTER TYPE name SET SCHEMA new_schema
+ * -- Attribute actions (composite types):
+ * ALTER TYPE name ADD ATTRIBUTE attribute_name data_type [ COLLATE collation ] [ CASCADE | RESTRICT ]
+ * ALTER TYPE name DROP ATTRIBUTE [ IF EXISTS ] attribute_name [ CASCADE | RESTRICT ]
+ * ALTER TYPE name ALTER ATTRIBUTE attribute_name [ SET DATA ] TYPE data_type [ COLLATE collation ] [ CASCADE | RESTRICT ]
  * ```
  */
-export type AlterCompositeType = AlterCompositeTypeChangeOwner;
+export type AlterCompositeType =
+  | AlterCompositeTypeChangeOwner
+  | AlterCompositeTypeAddAttribute
+  | AlterCompositeTypeDropAttribute
+  | AlterCompositeTypeAlterAttributeType;
 
 /**
  * ALTER TYPE ... OWNER TO ...
@@ -46,6 +53,107 @@ export class AlterCompositeTypeChangeOwner extends AlterChange {
       "OWNER TO",
       quoteIdentifier(this.branch.owner),
     ].join(" ");
+  }
+}
+
+/**
+ * ALTER TYPE ... ADD ATTRIBUTE ...
+ */
+export class AlterCompositeTypeAddAttribute extends AlterChange {
+  public readonly compositeType: CompositeType;
+  public readonly attribute: CompositeType["columns"][number];
+
+  constructor(props: {
+    compositeType: CompositeType;
+    attribute: CompositeType["columns"][number];
+  }) {
+    super();
+    this.compositeType = props.compositeType;
+    this.attribute = props.attribute;
+  }
+
+  get stableId(): string {
+    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  }
+
+  serialize(): string {
+    const parts = [
+      "ALTER TYPE",
+      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      "ADD ATTRIBUTE",
+      quoteIdentifier(this.attribute.name),
+      this.attribute.data_type_str,
+    ];
+    if (this.attribute.collation) {
+      parts.push("COLLATE", quoteIdentifier(this.attribute.collation));
+    }
+    return parts.join(" ");
+  }
+}
+
+/**
+ * ALTER TYPE ... DROP ATTRIBUTE ...
+ */
+export class AlterCompositeTypeDropAttribute extends AlterChange {
+  public readonly compositeType: CompositeType;
+  public readonly attribute: CompositeType["columns"][number];
+
+  constructor(props: {
+    compositeType: CompositeType;
+    attribute: CompositeType["columns"][number];
+  }) {
+    super();
+    this.compositeType = props.compositeType;
+    this.attribute = props.attribute;
+  }
+
+  get stableId(): string {
+    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TYPE",
+      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      "DROP ATTRIBUTE",
+      quoteIdentifier(this.attribute.name),
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TYPE ... ALTER ATTRIBUTE ... TYPE ... [ COLLATE ... ]
+ */
+export class AlterCompositeTypeAlterAttributeType extends AlterChange {
+  public readonly compositeType: CompositeType;
+  public readonly attribute: CompositeType["columns"][number];
+
+  constructor(props: {
+    compositeType: CompositeType;
+    attribute: CompositeType["columns"][number];
+  }) {
+    super();
+    this.compositeType = props.compositeType;
+    this.attribute = props.attribute;
+  }
+
+  get stableId(): string {
+    return `${this.compositeType.stableId}:${this.attribute.name}`;
+  }
+
+  serialize(): string {
+    const parts = [
+      "ALTER TYPE",
+      `${quoteIdentifier(this.compositeType.schema)}.${quoteIdentifier(this.compositeType.name)}`,
+      "ALTER ATTRIBUTE",
+      quoteIdentifier(this.attribute.name),
+      "TYPE",
+      this.attribute.data_type_str,
+    ];
+    if (this.attribute.collation) {
+      parts.push("COLLATE", quoteIdentifier(this.attribute.collation));
+    }
+    return parts.join(" ");
   }
 }
 
