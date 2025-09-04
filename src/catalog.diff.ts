@@ -16,7 +16,6 @@ import { diffTriggers } from "./objects/trigger/trigger.diff.ts";
 import { diffCompositeTypes } from "./objects/type/composite-type/composite-type.diff.ts";
 import { diffEnums } from "./objects/type/enum/enum.diff.ts";
 import { diffRanges } from "./objects/type/range/range.diff.ts";
-// import { diffTypes } from "./objects/type/type.diff.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
@@ -43,7 +42,6 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
-  // changes.push(...diffTypes(main.types, branch.types));
   changes.push(...diffRanges(main.ranges, branch.ranges));
   changes.push(...diffViews(main.views, branch.views));
 

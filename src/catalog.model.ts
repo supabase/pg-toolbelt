@@ -41,7 +41,6 @@ import {
 } from "./objects/type/composite-type/composite-type.model.ts";
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
-// import { extractTypes, type Type } from "./objects/type/type.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
 
 interface CatalogProps {
@@ -59,7 +58,6 @@ interface CatalogProps {
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
   triggers: Record<string, Trigger>;
-  // types: Record<string, Type>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
   depends: PgDepend[];
@@ -81,7 +79,6 @@ export class Catalog {
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
   public readonly triggers: CatalogProps["triggers"];
-  // public readonly types: CatalogProps["types"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
   public readonly depends: CatalogProps["depends"];
@@ -102,7 +99,6 @@ export class Catalog {
     this.sequences = props.sequences;
     this.tables = props.tables;
     this.triggers = props.triggers;
-    // this.types = props.types;
     this.ranges = props.ranges;
     this.views = props.views;
     this.depends = props.depends;
@@ -126,7 +122,6 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
-    // types,
     ranges,
     views,
     depends,
@@ -145,19 +140,6 @@ export async function extractCatalog(sql: Sql) {
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
     extractTriggers(sql).then(listToRecord),
-    // extractTypes(sql).then((list) =>
-    //   // Exclude enums, composite-types and domains as they are handled by dedicated modules
-    //   // TODO: Directly exclude thems from the types extraction query itself ?
-    //   listToRecord(
-    //     list.filter(
-    //       (type) =>
-    //         type.type_type !== "c" &&
-    //         type.type_type !== "e" &&
-    //         type.type_type !== "d" &&
-    //         type.type_type !== "r",
-    //     ),
-    //   ),
-    // ),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
     extractDepends(sql),
@@ -183,7 +165,6 @@ export async function extractCatalog(sql: Sql) {
     sequences,
     tables,
     triggers,
-    // types,
     ranges,
     views,
     depends,
@@ -211,7 +192,6 @@ export function emptyCatalog() {
     sequences: {},
     tables: {},
     triggers: {},
-    // types: {},
     ranges: {},
     views: {},
     depends: [],
