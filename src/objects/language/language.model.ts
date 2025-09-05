@@ -70,7 +70,7 @@ export class Language extends BasePgModel {
 }
 
 export async function extractLanguages(sql: Sql): Promise<Language[]> {
-  const languageRows = await sql`
+  const languageRows = await sql<LanguageProps[]>`
     with extension_oids as (
       select
         objid
@@ -98,7 +98,7 @@ export async function extractLanguages(sql: Sql): Promise<Language[]> {
   `;
 
   // Process rows to handle "-" as null values
-  const processedRows = languageRows.map((row: any) => ({
+  const processedRows = languageRows.map((row) => ({
     ...row,
     call_handler: row.call_handler === "-" ? null : row.call_handler,
     inline_handler: row.inline_handler === "-" ? null : row.inline_handler,

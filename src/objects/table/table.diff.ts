@@ -1,4 +1,3 @@
-import { DEBUG } from "../../../tests/constants.ts";
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual } from "../utils.ts";

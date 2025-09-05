@@ -101,7 +101,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
   const version = await extractVersion(sql);
   const isPostgres17OrGreater = version >= 170000;
   const isPostgres16OrGreater = version >= 160000;
-  let collations: any[];
+  let collations: Collation[];
   if (isPostgres17OrGreater) {
     collations = await sql`
       with extension_oids as (

@@ -9,7 +9,7 @@ const TriggerEnabledSchema = z.enum([
   "A", // ALWAYS - trigger fires regardless of replication mode
 ]);
 
-type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
+export type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
 
 const triggerPropsSchema = z.object({
   schema: z.string(),

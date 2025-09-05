@@ -433,7 +433,9 @@ export class ConstraintSolver {
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const fromId = indexToNodeId.get(constraint.changeAIndex)!;
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const toId = indexToNodeId.get(constraint.changeBIndex)!;
         graph.addEdge(fromId, toId, { props: constraint });
       }
