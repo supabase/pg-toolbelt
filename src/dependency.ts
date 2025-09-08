@@ -13,9 +13,9 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { UnexpectedError } from "./objects/utils.js";
 
-export type ConstraintType = "before";
+type ConstraintType = "before";
 
-export interface Constraint {
+interface Constraint {
   constraintStableId: string;
   changeAIndex: number;
   type: ConstraintType;
@@ -23,7 +23,7 @@ export interface Constraint {
   reason?: string;
 }
 
-export interface ObjectDependency {
+interface ObjectDependency {
   dependent: string;
   referenced: string;
   source?: "master" | "branch" | string;
@@ -433,7 +433,9 @@ export class ConstraintSolver {
     // Add constraint edges
     for (const constraint of constraints) {
       if (constraint.type === "before") {
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const fromId = indexToNodeId.get(constraint.changeAIndex)!;
+        // biome-ignore lint/style/noNonNullAssertion: node ids were built from the provided changes
         const toId = indexToNodeId.get(constraint.changeBIndex)!;
         graph.addEdge(fromId, toId, { props: constraint });
       }

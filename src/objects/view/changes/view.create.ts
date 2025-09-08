@@ -1,4 +1,4 @@
-import { CreateChange, quoteIdentifier } from "../../base.change.ts";
+import { CreateChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
 /**
@@ -27,12 +27,10 @@ export class CreateView extends CreateChange {
   }
 
   serialize(): string {
-    const parts: string[] = ["CREATE OR REPLACE VIEW"];
+    const parts: string[] = ["CREATE VIEW"];
 
     // Add schema and name
-    parts.push(
-      `${quoteIdentifier(this.view.schema)}.${quoteIdentifier(this.view.name)}`,
-    );
+    parts.push(`${this.view.schema}.${this.view.name}`);
 
     // Add WITH options if specified
     if (this.view.options && this.view.options.length > 0) {
@@ -40,11 +38,7 @@ export class CreateView extends CreateChange {
     }
 
     // Add AS query
-    if (this.view.definition) {
-      parts.push("AS", this.view.definition);
-    } else {
-      parts.push("AS SELECT 1"); // Placeholder
-    }
+    parts.push("AS", this.view.definition);
 
     return parts.join(" ");
   }

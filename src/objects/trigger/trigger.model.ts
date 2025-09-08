@@ -14,7 +14,6 @@ type TriggerEnabled = z.infer<typeof TriggerEnabledSchema>;
 const triggerPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
-  table_schema: z.string(),
   table_name: z.string(),
   function_schema: z.string(),
   function_name: z.string(),
@@ -37,7 +36,6 @@ export type TriggerProps = z.infer<typeof triggerPropsSchema>;
 export class Trigger extends BasePgModel {
   public readonly schema: TriggerProps["schema"];
   public readonly name: TriggerProps["name"];
-  public readonly table_schema: TriggerProps["table_schema"];
   public readonly table_name: TriggerProps["table_name"];
   public readonly function_schema: TriggerProps["function_schema"];
   public readonly function_name: TriggerProps["function_name"];
@@ -60,7 +58,6 @@ export class Trigger extends BasePgModel {
     // Identity fields
     this.schema = props.schema;
     this.name = props.name;
-    this.table_schema = props.table_schema;
     this.table_name = props.table_name;
 
     // Data fields
@@ -88,7 +85,6 @@ export class Trigger extends BasePgModel {
     return {
       schema: this.schema,
       name: this.name,
-      table_schema: this.table_schema,
       table_name: this.table_name,
     };
   }
@@ -127,12 +123,11 @@ with extension_oids as (
     and d.classid = 'pg_trigger'::regclass
 )
 select
-  tn.nspname as schema,
-  t.tgname as name,
-  tn.nspname as table_schema,
-  tc.relname as table_name,
-  fn.nspname as function_schema,
-  fc.proname as function_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(t.tgname) as name,
+  quote_ident(tc.relname) as table_name,
+  fc.pronamespace::regnamespace::text as function_schema,
+  quote_ident(fc.proname) as function_name,
   t.tgtype as trigger_type,
   t.tgenabled as enabled,
   t.tgisinternal as is_internal,
@@ -144,16 +139,13 @@ select
   pg_get_expr(t.tgqual, t.tgrelid) as when_condition,
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
-  pg_get_userbyid(tc.relowner) as owner
+  tc.relowner::regrole::text as owner
 from
   pg_catalog.pg_trigger t
   inner join pg_catalog.pg_class tc on tc.oid = t.tgrelid
-  inner join pg_catalog.pg_namespace tn on tn.oid = tc.relnamespace
   inner join pg_catalog.pg_proc fc on fc.oid = t.tgfoid
-  inner join pg_catalog.pg_namespace fn on fn.oid = fc.pronamespace
   left outer join extension_oids e on t.oid = e.objid
-  where tn.nspname not in ('pg_internal', 'pg_catalog', 'information_schema', 'pg_toast')
-  and tn.nspname not like 'pg\_temp\_%' and tn.nspname not like 'pg\_toast\_temp\_%'
+  where not tc.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
   and not t.tgisinternal
 order by

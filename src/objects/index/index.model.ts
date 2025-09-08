@@ -7,10 +7,10 @@ const TableRelkindSchema = z.enum([
   "m", // materialized view
 ]);
 
-export type TableRelkind = z.infer<typeof TableRelkindSchema>;
+type TableRelkind = z.infer<typeof TableRelkindSchema>;
 
 const indexPropsSchema = z.object({
-  table_schema: z.string(),
+  schema: z.string(),
   table_name: z.string(),
   name: z.string(),
   storage_params: z.array(z.string()),
@@ -50,7 +50,7 @@ const indexPropsSchema = z.object({
 export type IndexProps = z.infer<typeof indexPropsSchema>;
 
 export class Index extends BasePgModel {
-  public readonly table_schema: IndexProps["table_schema"];
+  public readonly schema: IndexProps["schema"];
   public readonly table_name: IndexProps["table_name"];
   public readonly name: IndexProps["name"];
   public readonly storage_params: IndexProps["storage_params"];
@@ -77,7 +77,7 @@ export class Index extends BasePgModel {
     super();
 
     // Identity fields
-    this.table_schema = props.table_schema;
+    this.schema = props.schema;
     this.table_name = props.table_name;
     this.name = props.name;
 
@@ -104,16 +104,16 @@ export class Index extends BasePgModel {
   }
 
   get stableId(): `index:${string}` {
-    return `index:${this.table_schema}.${this.table_name}.${this.name}`;
+    return `index:${this.schema}.${this.table_name}.${this.name}`;
   }
 
   get tableStableId(): `table:${string}` {
-    return `table:${this.table_schema}.${this.table_name}`;
+    return `table:${this.schema}.${this.table_name}`;
   }
 
   get identityFields() {
     return {
-      table_schema: this.table_schema,
+      schema: this.schema,
       table_name: this.table_name,
       name: this.name,
     };
@@ -158,13 +158,13 @@ with extension_oids as (
     and d.classid = 'pg_class'::regclass
 )
 select
-  regexp_replace(tc.relnamespace::regnamespace::text, '^"(.*)"$', '\\1') as table_schema,
-  tc.relname as table_name,
+  tc.relnamespace::regnamespace::text as schema,
+  quote_ident(tc.relname) as table_name,
   tc.relkind as table_relkind,
-  c.relname as name,
+  quote_ident(c.relname) as name,
   coalesce(c.reloptions, array[]::text[]) as storage_params,
   am.amname as index_type,
-  ts.spcname as tablespace,
+  quote_ident(ts.spcname) as tablespace,
   i.indisunique as is_unique,
   i.indisprimary as is_primary,
   i.indisexclusion as is_exclusion,
@@ -183,7 +183,11 @@ select
   end as is_constraint,
   coalesce(
     array(
-      select distinct coalesce(collname, 'default')
+      select distinct
+        case
+          when coll is null then 'default'
+          else c.collnamespace::regnamespace::text || '.' || c.collname
+        end
       from unnest(i.indcollation::regcollation[]) coll
       left join pg_collation c on c.oid = coll
     ),
@@ -195,7 +199,7 @@ select
     where a.attrelid = i.indexrelid
   ) as statistics_target,
   array(
-    select format('%I.%I', regexp_replace(opcnamespace::regnamespace::text, '^"(.*)"$', '\\1'), opcname)
+    select opcnamespace::regnamespace::text || '.' || quote_ident(opcname)
     from unnest(i.indclass) op
     left join pg_opclass oc on oc.oid = op
   ) as operator_classes,

@@ -114,7 +114,7 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "sequences": {},
   "tables": {},
   "triggers": {},
-  "types": {},
+  "ranges": {},
   "views": {},
   "depends": [
     {
