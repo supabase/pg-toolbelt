@@ -9,8 +9,14 @@ import {
   DropChange,
   ReplaceChange,
 } from "./objects/base.change.ts";
+import {
+  AlterSequenceChangeOwner,
+  AlterSequenceSetOptions,
+} from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
+import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
+import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { UnexpectedError } from "./objects/utils.js";
 
 type ConstraintType = "before";
@@ -255,27 +261,31 @@ export class OperationSemantics {
     reason: string,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases
-    // Special rule: For CREATE operations with sequences and tables
+
+    // Special rule: For sequence-table dependencies
     // PostgreSQL reports sequence ownership (sequence depends on table)
     // But for creation, table depends on sequence (table needs sequence to exist first)
+    // If sequedepends on table, invert for all operations
+    // Sequence should be created before table, and table should be dropped before sequence
     if (
-      dependentChange instanceof CreateChange &&
-      referencedChange instanceof CreateChange
+      (dependentChange instanceof CreateSequence ||
+        dependentChange instanceof AlterSequenceChangeOwner ||
+        dependentChange instanceof AlterSequenceSetOptions ||
+        dependentChange instanceof DropSequence ||
+        dependentChange instanceof DropSequence) &&
+      (referencedChange instanceof CreateTable ||
+        referencedChange instanceof AlterChange ||
+        referencedChange instanceof DropChange ||
+        referencedChange instanceof DropTable)
     ) {
-      // If sequence depends on table, invert for CREATE operations
-      if (
-        dependentChange instanceof CreateSequence &&
-        referencedChange instanceof CreateTable
-      ) {
-        return {
-          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
-          changeAIndex: depIdx, // CreateSequence should come first
-          type: "before",
-          changeBIndex: refIdx, // Before CreateTable
-          reason: `CREATE table before sequence that uses it (${reason})`,
-        };
+      return {
+        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        changeAIndex: depIdx, // Sequence should come first
+        type: "before",
+        changeBIndex: refIdx, // Before Table
+        reason: `Sequence before table that uses it (${reason})`,
+      };
       }
-    }
 
     // Rule: For DROP operations, drop dependents before dependencies
     if (
