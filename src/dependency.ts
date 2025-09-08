@@ -10,8 +10,8 @@ import {
   ReplaceChange,
 } from "./objects/base.change.ts";
 import {
-  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
+  AlterSequenceSetOwnedBy,
 } from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
@@ -269,7 +269,7 @@ export class OperationSemantics {
     // Sequence should be created before table, and table should be dropped before sequence
     if (
       (dependentChange instanceof CreateSequence ||
-        dependentChange instanceof AlterSequenceChangeOwner ||
+        dependentChange instanceof AlterSequenceSetOwnedBy ||
         dependentChange instanceof AlterSequenceSetOptions ||
         dependentChange instanceof DropSequence ||
         dependentChange instanceof DropSequence) &&
@@ -278,6 +278,20 @@ export class OperationSemantics {
         referencedChange instanceof DropChange ||
         referencedChange instanceof DropTable)
     ) {
+      // Special rule for AlterSequenceSetOwnedBy and CreateTable if the table uses the sequence
+      // we need to first create the sequence, then then table, then set the sequence owned by the table after the table is created
+      if (
+        dependentChange instanceof AlterSequenceSetOwnedBy &&
+        referencedChange instanceof CreateTable
+      ) {
+        return {
+          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+          changeAIndex: refIdx, // Sequence owner should come after the table is created
+          type: "before",
+          changeBIndex: depIdx,
+          reason: `Sequence owner after the table is created (${reason})`,
+        };
+      }
       return {
         constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
         changeAIndex: depIdx, // Sequence should come first
@@ -285,7 +299,7 @@ export class OperationSemantics {
         changeBIndex: refIdx, // Before Table
         reason: `Sequence before table that uses it (${reason})`,
       };
-      }
+    }
 
     // Rule: For DROP operations, drop dependents before dependencies
     if (

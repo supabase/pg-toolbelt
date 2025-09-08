@@ -86,8 +86,6 @@ export class Sequence extends BasePgModel {
 
 export async function extractSequences(sql: Sql): Promise<Sequence[]> {
   const sequenceRows = await sql`
-  set search_path = '';
-  
 with extension_oids as (
   select
     objid
@@ -108,7 +106,7 @@ select
   s.seqcycle as cycle_option,
   s.seqcache::int as cache_size,
   c.relpersistence as persistence,
-  t_ns.nspname as owned_by_schema,
+  quote_ident(t_ns.nspname) as owned_by_schema,
   case when t.relname is not null then quote_ident(t.relname) else null end as owned_by_table,
   case when att.attname is not null then quote_ident(att.attname) else null end as owned_by_column
 from

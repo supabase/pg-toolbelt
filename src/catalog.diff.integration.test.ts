@@ -72,6 +72,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
+          expect.objectContaining({
             kind: "create",
             table: expect.objectContaining({
               name: "users",
@@ -110,7 +120,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
-      expect(changes).toHaveLength(6);
+      expect(changes).toHaveLength(7);
     });
 
     test("create view", async ({ db }) => {
@@ -166,9 +176,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("create sequence", async ({ db }) => {
@@ -360,9 +380,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               name: "users_pkey",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("create trigger", async ({ db }) => {
@@ -436,9 +466,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(6);
+      expect(changes).toHaveLength(7);
     });
 
     test("create RLS policy", async ({ db }) => {
@@ -499,9 +539,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               name: "users_pkey",
             }),
           }),
+          expect.objectContaining({
+            kind: "alter",
+            branch: expect.objectContaining({
+              name: "users_id_seq",
+              schema: "test_schema",
+              owned_by_schema: "test_schema",
+              owned_by_table: "users",
+              owned_by_column: "id",
+            }),
+          }),
         ]),
       );
-      expect(changes).toHaveLength(5);
+      expect(changes).toHaveLength(6);
     });
 
     test("complex scenario with multiple entity creations", async ({ db }) => {
