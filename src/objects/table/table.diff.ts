@@ -27,7 +27,11 @@ import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
 import { Table } from "./table.model.js";
 
-function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
+function createAlterConstraintChange(
+  mainTable: Table,
+  branchTable: Table,
+  branchCatalog: Record<string, Table>,
+) {
   const changes: Change[] = [];
 
   // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
@@ -44,9 +48,18 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
 
   // Created constraints
   for (const [name, c] of branchByName) {
+    const branchForeignKeyTable =
+      c.constraint_type === "f"
+        ? branchCatalog[`table:${c.foreign_key_schema}.${c.foreign_key_table}`]
+        : undefined;
+
     if (!mainByName.has(name)) {
       changes.push(
-        new AlterTableAddConstraint({ table: branchTable, constraint: c }),
+        new AlterTableAddConstraint({
+          table: branchTable,
+          constraint: c,
+          foreignKeyTable: branchForeignKeyTable,
+        }),
       );
       if (!c.validated) {
         changes.push(
@@ -71,6 +84,12 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
   // Altered constraints -> drop + add
   for (const [name, mainC] of mainByName) {
     const branchC = branchByName.get(name);
+    const branchForeignKeyTable =
+      branchC?.constraint_type === "f"
+        ? branchCatalog[
+            `table:${branchC.foreign_key_schema}.${branchC.foreign_key_table}`
+          ]
+        : undefined;
     if (!branchC) continue;
     const changed =
       mainC.constraint_type !== branchC.constraint_type ||
@@ -101,6 +120,7 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
         new AlterTableAddConstraint({
           table: branchTable,
           constraint: branchC,
+          foreignKeyTable: branchForeignKeyTable,
         }),
       );
       if (!branchC.validated) {
@@ -134,14 +154,16 @@ export function diffTables(
 
   for (const tableId of created) {
     changes.push(new CreateTable({ table: branch[tableId] }));
+    const branchTable = branch[tableId];
     changes.push(
       ...createAlterConstraintChange(
         // Create a dummy table with no constraints do diff constraints against
         new Table({
-          ...branch[tableId],
+          ...branchTable,
           constraints: [],
         }),
-        branch[tableId],
+        branchTable,
+        branch,
       ),
     );
   }
@@ -269,7 +291,9 @@ export function diffTables(
       );
     }
 
-    changes.push(...createAlterConstraintChange(mainTable, branchTable));
+    changes.push(
+      ...createAlterConstraintChange(mainTable, branchTable, branch),
+    );
 
     // COLUMNS
     const mainCols = new Map(mainTable.columns.map((c) => [c.name, c]));

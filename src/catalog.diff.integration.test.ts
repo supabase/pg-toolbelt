@@ -57,20 +57,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       expect(changes).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_username_key",
-              table_name: "users",
-            }),
-          }),
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_email_key",
-              table_name: "users",
-            }),
-          }),
+          // Remove the two index expectations - unique constraints are handled as table constraints
           expect.objectContaining({
             kind: "create",
             schema: expect.objectContaining({
@@ -123,6 +110,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
+      expect(changes).toHaveLength(6);
     });
 
     test("create view", async ({ db }) => {
@@ -573,13 +561,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               schema: "test_schema",
             }),
           }),
-          expect.objectContaining({
-            kind: "create",
-            index: expect.objectContaining({
-              name: "users_username_key",
-              table_name: "users",
-            }),
-          }),
+          // Remove the index expectation - unique constraints are handled as table constraints
           expect.objectContaining({
             kind: "create",
             procedure: expect.objectContaining({
@@ -636,7 +618,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
         ]),
       );
-      expect(changes).toHaveLength(10);
+      expect(changes).toHaveLength(9);
     });
 
     test("complex scenario with multiple entity drops", async ({ db }) => {
