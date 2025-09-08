@@ -16,9 +16,10 @@
     "format": "biome format . --error-on-warnings",
     "lint": "biome lint . --error-on-warnings",
     "knip": "knip",
-    "test": "vitest",
+    "test": "vitest run",
     "test:unit": "vitest --project unit",
     "test:integration": "vitest --project integration",
+    "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
