@@ -100,8 +100,8 @@ describe("DependencyResolver", () => {
     });
 
     test("cross-catalog dependencies", () => {
-      // Create master catalog with a view
-      const masterCatalog = createCatalogWithDependencies([
+      // Create main catalog with a view
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.view1",
           referenced_stable_id: "table:test.table1",
@@ -112,7 +112,7 @@ describe("DependencyResolver", () => {
       // Create branch catalog (empty)
       const branchCatalog = emptyCatalog();
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create changes that involve cross-catalog checks
       const changes = [
@@ -142,7 +142,7 @@ describe("DependencyResolver", () => {
 
     test("mixed operation dependencies", () => {
       // Create catalogs with dependencies
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.view1",
           referenced_stable_id: "table:test.table1",
@@ -151,7 +151,7 @@ describe("DependencyResolver", () => {
       ]);
 
       const branchCatalog = emptyCatalog();
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create mixed operations
       const changes = [
@@ -169,7 +169,7 @@ describe("DependencyResolver", () => {
 
     test("dependency constraints with view depending on table", () => {
       // Create catalog with view depending on table
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.user_view",
           referenced_stable_id: "table:test.users",
@@ -185,7 +185,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create changes where order matters due to dependencies
       const changes = [
@@ -207,7 +207,7 @@ describe("DependencyResolver", () => {
 
     test("drop operations with dependencies", () => {
       // Create catalog with view depending on table
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.user_view",
           referenced_stable_id: "table:test.users",
@@ -216,7 +216,7 @@ describe("DependencyResolver", () => {
       ]);
 
       const branchCatalog = emptyCatalog();
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create drop changes where order matters
       const changes = [
@@ -283,7 +283,7 @@ describe("DependencyResolver", () => {
 
     test("complex dependency chain", () => {
       // Create a complex dependency chain: schema -> table -> view -> materialized view
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "table:test.users",
           referenced_stable_id: "schema:test",
@@ -319,7 +319,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create changes in reverse dependency order
       const changes = [
@@ -350,7 +350,7 @@ describe("DependencyResolver", () => {
 
     test("sequence-table create dependency special case", () => {
       // Test the special sequence-table CREATE rule in dependencySemanticRule
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "sequence:test.user_id_seq",
           referenced_stable_id: "table:test.users",
@@ -366,7 +366,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create real CreateTable and CreateSequence changes
       const table = new Table({
@@ -466,7 +466,7 @@ describe("DependencyResolver", () => {
 
     test("mixed create/alter/replace dependency constraints", () => {
       // Test constraint generation for mixed operation types
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.dependent_view",
           referenced_stable_id: "table:test.base_table",
@@ -482,7 +482,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Mix of different operation types with dependencies
       const changes = [
@@ -503,7 +503,7 @@ describe("DependencyResolver", () => {
 
     test("deep dependency traversal with max depth", () => {
       // Test deep dependency chain beyond typical depth
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "schema_level_1:test.obj1",
           referenced_stable_id: "schema_level_0:test.obj0",
@@ -549,7 +549,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Create all objects in random order
       const changes = [
@@ -581,7 +581,7 @@ describe("DependencyResolver", () => {
 
     test("drop operations with reverse dependency ordering", () => {
       // Test that drops happen in reverse dependency order
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.view_level_2",
           referenced_stable_id: "view:test.view_level_1",
@@ -595,7 +595,7 @@ describe("DependencyResolver", () => {
       ]);
 
       const branchCatalog = emptyCatalog();
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Drop all objects
       const changes = [
@@ -619,8 +619,8 @@ describe("DependencyResolver", () => {
     });
 
     test("cross-catalog dependency scenarios", () => {
-      // Master catalog has one set of dependencies
-      const masterCatalog = createCatalogWithDependencies([
+      // Main catalog has one set of dependencies
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.old_view",
           referenced_stable_id: "table:test.users",
@@ -637,11 +637,11 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Mix of operations across catalogs
       const changes = [
-        new DummyDrop("view:test.old_view"), // From master
+        new DummyDrop("view:test.old_view"), // From main
         new DummyCreate("view:test.new_view"), // For branch
         new DummyAlter("table:test.users"), // Exists in both
       ];
@@ -671,7 +671,7 @@ describe("DependencyResolver", () => {
 
     test("unknown object filtering", () => {
       // Test that dependencies with "unknown." prefixes are filtered out
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "table:test.users",
           referenced_stable_id: "unknown.missing_object",
@@ -702,7 +702,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new DummyCreate("view:test.user_view"),
@@ -815,22 +815,18 @@ describe("DependencyResolver", () => {
         "relevant:test.obj2",
       ]);
 
-      extractor.extractFromCatalog(model, catalog, relevantObjects, "master");
+      extractor.extractFromCatalog(model, catalog, relevantObjects, "main");
 
       // Only the valid pair should be recorded
       expect(
-        model.hasDependency(
-          "relevant:test.obj1",
-          "relevant:test.obj2",
-          "master",
-        ),
+        model.hasDependency("relevant:test.obj1", "relevant:test.obj2", "main"),
       ).toBe(true);
       // Unknown.* entries are ignored
       expect(
-        model.hasDependency("relevant:test.obj1", "unknown.missing", "master"),
+        model.hasDependency("relevant:test.obj1", "unknown.missing", "main"),
       ).toBe(false);
       expect(
-        model.hasDependency("unknown.missing", "relevant:test.obj2", "master"),
+        model.hasDependency("unknown.missing", "relevant:test.obj2", "main"),
       ).toBe(false);
     });
 
@@ -856,7 +852,7 @@ describe("DependencyResolver", () => {
     });
 
     test("replace operations with dependency constraints", () => {
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "materializedView:test.summary",
           referenced_stable_id: "view:test.base_view",
@@ -872,7 +868,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new DummyReplace("materializedView:test.summary"),
@@ -893,7 +889,7 @@ describe("DependencyResolver", () => {
 
     test("multi-schema dependency resolution", () => {
       // Complex scenario with objects across multiple schemas
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "table:schema_a.table_a",
           referenced_stable_id: "schema:schema_a",
@@ -939,7 +935,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new DummyCreate("view:schema_b.cross_schema_view"),
@@ -992,7 +988,7 @@ describe("DependencyResolver", () => {
 
     test("constraint solver with complex graph", () => {
       // Create a complex but valid dependency graph
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         // Multiple dependencies pointing to same object
         {
           dependent_stable_id: "view:test.view1",
@@ -1040,7 +1036,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new DummyCreate("materializedView:test.summary"),
@@ -1072,7 +1068,7 @@ describe("DependencyResolver", () => {
 
     test("drop before create constraint", () => {
       // Test DROP before CREATE/ALTER/REPLACE constraint rule
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.dependent",
           referenced_stable_id: "table:test.base",
@@ -1088,7 +1084,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       // Mix DROP with CREATE operations
       const changes = [
@@ -1113,7 +1109,7 @@ describe("DependencyResolver", () => {
 
     test("sequence table special rule coverage", () => {
       // Test the specific sequence-table logic more thoroughly
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "sequence:test.id_seq",
           referenced_stable_id: "table:test.main",
@@ -1149,7 +1145,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new CreateTable({
@@ -1213,7 +1209,7 @@ describe("DependencyResolver", () => {
 
     test("mixed operation types with complex dependencies", () => {
       // Test all operation types together with dependencies
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.old_view",
           referenced_stable_id: "table:test.base",
@@ -1239,7 +1235,7 @@ describe("DependencyResolver", () => {
         },
       ]);
 
-      const resolver = new DependencyResolver(masterCatalog, branchCatalog);
+      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
 
       const changes = [
         new DummyCreate("view:test.new_view"),
@@ -1329,26 +1325,26 @@ describe("DependencyResolver", () => {
 
     test("dependency model addDependency and hasDependency methods", () => {
       // Test DependencyModel methods directly for uncovered lines 40-51, 64-65
-      const masterCatalog = emptyCatalog();
+      const mainCatalog = emptyCatalog();
       const branchCatalog = emptyCatalog();
-      const extractor = new DependencyExtractor(masterCatalog, branchCatalog);
+      const extractor = new DependencyExtractor(mainCatalog, branchCatalog);
 
       // Create a simple change to trigger dependency model usage
       const changes = [new DummyCreate("table:test.users")];
       const model = extractor.extractForChangeset(changes);
 
       // Test addDependency method (lines 40-51)
-      model.addDependency("dep:test.a", "ref:test.b", "master");
-      model.addDependency("dep:test.a", "ref:test.b", "master"); // Add same dependency again
+      model.addDependency("dep:test.a", "ref:test.b", "main");
+      model.addDependency("dep:test.a", "ref:test.b", "main"); // Add same dependency again
 
       // Test hasDependency method (lines 64-65)
-      expect(model.hasDependency("dep:test.a", "ref:test.b", "master")).toBe(
+      expect(model.hasDependency("dep:test.a", "ref:test.b", "main")).toBe(
         true,
       );
       expect(model.hasDependency("dep:test.a", "ref:test.b", "branch")).toBe(
         false,
       );
-      expect(model.hasDependency("dep:test.x", "ref:test.y", "master")).toBe(
+      expect(model.hasDependency("dep:test.x", "ref:test.y", "main")).toBe(
         false,
       );
     });
@@ -1525,7 +1521,7 @@ describe("DependencyResolver", () => {
 
     test("resolveDependencies function with null branch catalog", () => {
       // Test lines 449-458 - standalone resolveDependencies function
-      const masterCatalog = createCatalogWithDependencies([
+      const mainCatalog = createCatalogWithDependencies([
         {
           dependent_stable_id: "view:test.user_view",
           referenced_stable_id: "table:test.users",
@@ -1539,7 +1535,7 @@ describe("DependencyResolver", () => {
       ];
 
       // Test with null branch catalog (line 453-454)
-      const result = resolveDependencies(changes, masterCatalog, null);
+      const result = resolveDependencies(changes, mainCatalog, null);
 
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
@@ -1663,9 +1659,9 @@ describe("DependencyResolver", () => {
 
     test("dependency model methods direct access", () => {
       // Test the DependencyModel class methods that might not be covered
-      const masterCatalog = emptyCatalog();
+      const mainCatalog = emptyCatalog();
       const branchCatalog = emptyCatalog();
-      const extractor = new DependencyExtractor(masterCatalog, branchCatalog);
+      const extractor = new DependencyExtractor(mainCatalog, branchCatalog);
       const model = extractor.extractForChangeset([]);
 
       // Test addDependency with different scenarios

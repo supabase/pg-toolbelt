@@ -13,7 +13,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`type operations (pg${pgVersion})`, () => {
     test("create enum type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -27,7 +27,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create domain type with constraint", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -41,7 +41,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create composite type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -59,7 +59,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("create range type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -73,7 +73,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("drop enum type", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE TYPE test_schema.old_mood AS ENUM ('sad', 'happy');",
@@ -86,7 +86,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("replace enum type (modify values)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE TYPE test_schema.status AS ENUM ('pending', 'approved');",
@@ -102,7 +102,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
     test("replace domain type (modify constraint)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup:
           "CREATE SCHEMA test_schema; CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE > 0);",
@@ -121,7 +121,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("enum type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "enum-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -139,7 +139,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, status test_schema.user_status DEFAULT 'pending'::test_schema.user_status)`,
           `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:test_schema.user_status",
@@ -173,7 +173,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("domain type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "domain-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -191,7 +191,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE test_schema.users (id integer NOT NULL, name text NOT NULL, email_address test_schema.email)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "domain:test_schema.email",
@@ -225,7 +225,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("composite type with table dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "composite-table-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: `
@@ -248,7 +248,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE test_schema.customers (id integer NOT NULL, name text NOT NULL, billing_address test_schema.address, shipping_address test_schema.address)",
           "ALTER TABLE test_schema.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "compositeType:test_schema.address",
@@ -284,7 +284,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("multiple types complex dependencies", async ({ db }) => {
       await roundtripFidelityTest({
         name: "multiple-types-complex-dependencies",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA commerce;",
         testSql: `
@@ -322,7 +322,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE commerce.products (id integer NOT NULL, info commerce.product_info, category text)",
           "ALTER TABLE commerce.products ADD CONSTRAINT products_pkey PRIMARY KEY (id)",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:commerce.order_status",
@@ -396,7 +396,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("type cascade drop with dependent table", async ({ db }) => {
       await roundtripFidelityTest({
         name: "type-cascade-drop-dependent-table",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
         CREATE SCHEMA test_schema;
@@ -417,7 +417,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "DROP TABLE test_schema.tasks",
           "DROP TYPE test_schema.priority",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "enum:test_schema.priority",
             referenced_stable_id: "schema:test_schema",
@@ -451,7 +451,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("type name with special characters", async ({ db }) => {
       await roundtripFidelityTest({
         name: "type-name-special-characters",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: 'CREATE SCHEMA "test-schema";',
         testSql: `
@@ -463,7 +463,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `CREATE TYPE "test-schema"."user-status" AS ENUM ('active', 'in-active')`,
           `CREATE DOMAIN "test-schema"."positive-number" AS integer CHECK ((VALUE > 0))`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:test-schema.user-status",
@@ -482,7 +482,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with enum dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-enum-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA analytics;",
         testSql: `
@@ -511,7 +511,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM analytics.users
   GROUP BY status WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "enum:analytics.status",
@@ -563,7 +563,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with domain dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-domain-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA financial;",
         testSql: `
@@ -592,7 +592,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM financial.transactions
   WHERE ((amount)::numeric > (0)::numeric) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "domain:financial.currency",
@@ -640,7 +640,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with composite type dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-composite-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA inventory;",
         testSql: `
@@ -675,7 +675,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM inventory.warehouses
   WHERE ((location).city IS NOT NULL) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "compositeType:inventory.address",
@@ -725,7 +725,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     }) => {
       await roundtripFidelityTest({
         name: "complex-mixed-dependencies-materialized-views",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA ecommerce;",
         testSql: `
@@ -790,7 +790,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM ecommerce.products
   WHERE (((info).base_price)::numeric > (0)::numeric) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           // Type dependencies
           {
@@ -898,7 +898,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("drop type with materialized view dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "drop-type-materialized-view-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
         CREATE SCHEMA reporting;
@@ -927,7 +927,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // TODO: should not try to drop the index on the table since it has been dropped already
           "DROP TYPE reporting.priority",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "enum:reporting.priority",
             referenced_stable_id: "schema:reporting",
@@ -976,7 +976,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("materialized view with range type dependency", async ({ db }) => {
       await roundtripFidelityTest({
         name: "materialized-view-range-dependency",
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA scheduling;",
         testSql: `
@@ -1005,7 +1005,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
    FROM scheduling.events
   WHERE (time_slot IS NOT NULL) WITH DATA`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "range:scheduling.time_range",

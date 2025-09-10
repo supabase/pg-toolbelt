@@ -15,7 +15,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`function operations (pg${pgVersion})`, () => {
     test("simple function creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -26,7 +26,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT $1 + $2$function$;
         `,
         description: "simple function creation",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id:
@@ -40,7 +40,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("plpgsql function with security definer", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -55,7 +55,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "plpgsql function with security definer",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.get_user_count()",
@@ -68,7 +68,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function replacement", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -86,7 +86,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         AS $function$SELECT 'v2.0'$function$;
       `,
         description: "function replacement",
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.version_function()",
             referenced_stable_id: "schema:test_schema",
@@ -105,7 +105,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function overloading", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -122,7 +122,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT prefix || input_val::text$function$;
         `,
         description: "function overloading",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.format_value(integer)",
@@ -141,7 +141,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("drop function", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -154,7 +154,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP FUNCTION test_schema.temp_function();
         `,
         description: "drop function",
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.temp_function()",
             referenced_stable_id: "schema:test_schema",
@@ -167,7 +167,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function with complex attributes", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -184,7 +184,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with complex attributes",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id:
@@ -198,7 +198,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function with configuration parameters", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -215,7 +215,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with configuration parameters",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.config_function()",
@@ -228,7 +228,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function used in table default", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -241,7 +241,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
         description: "function used in table default",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.get_timestamp()",
@@ -259,7 +259,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function no changes when identical", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -271,7 +271,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: ``,
         description: "function no changes when identical",
         expectedSqlTerms: [],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.stable_function()",
             referenced_stable_id: "schema:test_schema",
@@ -293,7 +293,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`function dependency ordering (pg${pgVersion})`, () => {
     test("function before constraint that uses it", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -310,7 +310,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
         description: "function before constraint that uses it",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.validate_email(text)",
@@ -339,7 +339,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("function before view that uses it", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -355,7 +355,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
              FROM test_schema.products;
         `,
         description: "function before view that uses it",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.format_price(numeric)",
@@ -386,7 +386,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`complex function scenarios (pg${pgVersion})`, () => {
     test("function with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: dedent`
@@ -427,7 +427,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "Complex function scenario with multiple dependencies",
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id:

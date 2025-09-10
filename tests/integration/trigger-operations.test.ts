@@ -13,7 +13,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`trigger operations (pg${pgVersion})`, () => {
     test("simple trigger creation", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -42,7 +42,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `CREATE TRIGGER update_timestamp_trigger BEFORE UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.update_timestamp()`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.update_timestamp()",
             referenced_stable_id: "schema:test_schema",
@@ -123,7 +123,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("multi-event trigger", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -166,7 +166,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE TRIGGER audit_trigger AFTER INSERT OR UPDATE OR DELETE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes()",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.audit_changes()",
             referenced_stable_id: "schema:test_schema",
@@ -305,7 +305,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("conditional trigger with WHEN clause", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -336,7 +336,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE TRIGGER price_change_trigger AFTER UPDATE ON test_schema.products FOR EACH ROW WHEN (old.price IS DISTINCT FROM new.price) EXECUTE FUNCTION test_schema.log_price_changes()",
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.log_price_changes()",
             referenced_stable_id: "schema:test_schema",
@@ -421,7 +421,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger dropping", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -443,7 +443,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           `DROP TRIGGER old_trigger ON test_schema.test_table`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.test_trigger_func()",
             referenced_stable_id: "schema:test_schema",
@@ -526,7 +526,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("trigger replacement (modification)", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
@@ -594,7 +594,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `DROP TRIGGER email_validation_trigger ON test_schema.users;
 CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
         ],
-        expectedMasterDependencies: [
+        expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.validate_email()",
             referenced_stable_id: "schema:test_schema",
@@ -709,7 +709,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
 
     test("trigger after function dependency", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
@@ -748,7 +748,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           $$`,
           `CREATE TRIGGER event_notification_trigger AFTER INSERT ON test_schema.events FOR EACH ROW EXECUTE FUNCTION test_schema.notify_event()`,
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.events_id_seq",
@@ -799,7 +799,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
     test("trigger semantic equality", async ({ db }) => {
       // Setup: Create a trigger in both databases
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: `CREATE SCHEMA test_schema
         CREATE TABLE test_schema.test_table (
@@ -821,7 +821,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
 
     test("trigger with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
-        masterSession: db.main,
+        mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
         testSql: `
@@ -909,7 +909,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           $$`,
           "CREATE TRIGGER order_status_audit_trigger AFTER UPDATE ON test_schema.orders FOR EACH ROW WHEN (old.status IS DISTINCT FROM new.status) EXECUTE FUNCTION test_schema.audit_order_status()",
         ],
-        expectedMasterDependencies: [],
+        expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
             dependent_stable_id: "sequence:test_schema.orders_id_seq",
