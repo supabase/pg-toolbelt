@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL function operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -17,17 +18,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.add_numbers(a integer, b integer)
-          RETURNS integer
-          LANGUAGE sql
-          IMMUTABLE
-          AS 'SELECT $1 + $2';
+           RETURNS integer
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT $1 + $2$function$;
         `,
         description: "simple function creation",
-        expectedSqlTerms: [
-          `CREATE FUNCTION test_schema.add_numbers(a integer, b integer) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT $1 + $2'`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -45,26 +43,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.get_user_count()
-          RETURNS bigint
-          LANGUAGE plpgsql
-          SECURITY DEFINER
-          STABLE
-          AS $$
+           RETURNS bigint
+           LANGUAGE plpgsql
+           STABLE SECURITY DEFINER
+          AS $function$
           BEGIN
             RETURN (SELECT COUNT(*) FROM pg_catalog.pg_user);
           END;
-          $$;
+          $function$;
         `,
         description: "plpgsql function with security definer",
-        expectedSqlTerms: [
-          `CREATE FUNCTION test_schema.get_user_count() RETURNS bigint LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$
-          BEGIN
-            RETURN (SELECT COUNT(*) FROM pg_catalog.pg_user);
-          END;
-          $$`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -88,17 +78,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           IMMUTABLE
           AS 'SELECT ''v1.0''';
         `,
-        testSql: `
-          CREATE OR REPLACE FUNCTION test_schema.version_function()
-          RETURNS text
-          LANGUAGE sql
-          IMMUTABLE
-          AS 'SELECT ''v2.0''';
-        `,
+        testSql: dedent`
+        CREATE OR REPLACE FUNCTION test_schema.version_function()
+         RETURNS text
+         LANGUAGE sql
+         IMMUTABLE
+        AS $function$SELECT 'v2.0'$function$;
+      `,
         description: "function replacement",
-        expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.version_function() RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT ''v2.0'''`,
-        ],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.version_function()",
@@ -121,26 +108,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
-          -- Function with one parameter
+        testSql: dedent`
           CREATE FUNCTION test_schema.format_value(input_val integer)
-          RETURNS text
-          LANGUAGE sql
-          IMMUTABLE
-          AS 'SELECT input_val::text';
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT input_val::text$function$;
 
-          -- Function with two parameters (overload)
           CREATE FUNCTION test_schema.format_value(input_val integer, prefix text)
-          RETURNS text
-          LANGUAGE sql
-          IMMUTABLE
-          AS 'SELECT prefix || input_val::text';
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT prefix || input_val::text$function$;
         `,
         description: "function overloading",
-        expectedSqlTerms: [
-          `CREATE FUNCTION test_schema.format_value(input_val integer) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT input_val::text'`,
-          `CREATE FUNCTION test_schema.format_value(input_val integer, prefix text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT prefix || input_val::text'`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -169,11 +150,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           LANGUAGE sql
           AS 'SELECT ''temporary''';
         `,
-        testSql: `
+        testSql: dedent`
           DROP FUNCTION test_schema.temp_function();
         `,
         description: "drop function",
-        expectedSqlTerms: [`DROP FUNCTION test_schema.temp_function()`],
         expectedMasterDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.temp_function()",
@@ -190,32 +170,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.expensive_function(input_data text)
-          RETURNS text
-          LANGUAGE plpgsql
-          VOLATILE
-          STRICT
-          PARALLEL RESTRICTED
-          COST 1000
-          AS $$
+           RETURNS text
+           LANGUAGE plpgsql
+           PARALLEL RESTRICTED STRICT COST 1000
+          AS $function$
           BEGIN
             -- Simulate expensive operation
             PERFORM pg_sleep(0.1);
             RETURN upper(input_data);
           END;
-          $$;
+          $function$;
         `,
         description: "function with complex attributes",
-        expectedSqlTerms: [
-          `CREATE FUNCTION test_schema.expensive_function(input_data text) RETURNS text LANGUAGE plpgsql STRICT PARALLEL RESTRICTED COST 1000 AS $$
-          BEGIN
-            -- Simulate expensive operation
-            PERFORM pg_sleep(0.1);
-            RETURN upper(input_data);
-          END;
-          $$`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -233,28 +201,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.config_function()
-          RETURNS void
-          LANGUAGE plpgsql
-          SET work_mem = '256MB'
-          SET statement_timeout = '30s'
-          AS $$
+           RETURNS void
+           LANGUAGE plpgsql
+           SET work_mem TO '256MB'
+           SET statement_timeout TO '30s'
+          AS $function$
           BEGIN
             -- Function with custom configuration
             RAISE NOTICE 'Function executed with custom config';
           END;
-          $$;
+          $function$;
         `,
         description: "function with configuration parameters",
-        expectedSqlTerms: [
-          `CREATE FUNCTION test_schema.config_function() RETURNS void LANGUAGE plpgsql SET work_mem TO '256MB' SET statement_timeout TO '30s' AS $$
-          BEGIN
-            -- Function with custom configuration
-            RAISE NOTICE 'Function executed with custom config';
-          END;
-          $$`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -271,22 +231,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.get_timestamp()
-          RETURNS timestamp
-          LANGUAGE sql
-          STABLE
-          AS 'SELECT NOW()';
+           RETURNS timestamp with time zone
+           LANGUAGE sql
+           STABLE
+          AS $function$SELECT NOW()$function$;
 
-          CREATE TABLE test_schema.events (
-            created_at timestamp DEFAULT test_schema.get_timestamp()
-          );
+          CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
         description: "function used in table default",
-        expectedSqlTerms: [
-          "CREATE FUNCTION test_schema.get_timestamp() RETURNS timestamp without time zone LANGUAGE sql STABLE AS 'SELECT NOW()'",
-          "CREATE TABLE test_schema.events (created_at timestamp without time zone DEFAULT test_schema.get_timestamp())",
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -342,26 +296,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        testSql: dedent`
           CREATE FUNCTION test_schema.validate_email(email text)
-          RETURNS boolean
-          LANGUAGE sql
-          IMMUTABLE
-          AS $$
-            SELECT email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'
-          $$;
+           RETURNS boolean
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$
+           SELECT email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'
+          $function$;
 
-          CREATE TABLE test_schema.users (
-            email text,
-            CONSTRAINT valid_email CHECK (test_schema.validate_email(email))
-          );
+          CREATE TABLE test_schema.users (email text);
+
+          ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
         description: "function before constraint that uses it",
-        expectedSqlTerms: [
-          "CREATE FUNCTION test_schema.validate_email(email text) RETURNS boolean LANGUAGE sql IMMUTABLE AS 'SELECT email ~ ''^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'''",
-          "CREATE TABLE test_schema.users (email text)",
-          "ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email))",
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -394,29 +342,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
-          CREATE TABLE test_schema.products (
-            price numeric(10,2)
-          );
+        testSql: dedent`
+          CREATE TABLE test_schema.products (price numeric(10,2));
 
           CREATE FUNCTION test_schema.format_price(price numeric)
-          RETURNS text
-          LANGUAGE sql
-          IMMUTABLE
-          AS 'SELECT ''$'' || price::text';
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT '$' || price::text$function$;
 
-          CREATE VIEW test_schema.product_display AS
-          SELECT
-            test_schema.format_price(price) as formatted_price
-          FROM test_schema.products;
+          CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
+             FROM test_schema.products;
         `,
         description: "function before view that uses it",
-        expectedSqlTerms: [
-          "CREATE TABLE test_schema.products (price numeric(10,2))",
-          "CREATE FUNCTION test_schema.format_price(price numeric) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT ''$'' || price::text'",
-          `CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
-   FROM test_schema.products`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
@@ -451,41 +389,30 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         masterSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
-          -- Create a utility function first
+        testSql: dedent`
+          CREATE TABLE test_schema.metrics (name text NOT NULL, total_value numeric DEFAULT 0, count_value integer DEFAULT 0);
+        
           CREATE FUNCTION test_schema.safe_divide(numerator numeric, denominator numeric)
-          RETURNS numeric
-          LANGUAGE sql
-          IMMUTABLE
-          STRICT
-          AS $$
+           RETURNS numeric
+           LANGUAGE sql
+           IMMUTABLE STRICT
+          AS $function$
             SELECT CASE
               WHEN denominator = 0 THEN NULL
               ELSE numerator / denominator
             END
-          $$;
+          $function$;
 
-          -- Create tables that will use the function
-          CREATE TABLE test_schema.metrics (
-            name text NOT NULL,
-            total_value numeric DEFAULT 0,
-            count_value integer DEFAULT 0
-          );
+          CREATE VIEW test_schema.metric_averages AS SELECT name,
+              test_schema.safe_divide(total_value, (count_value)::numeric) AS average_value
+             FROM test_schema.metrics
+            WHERE (count_value > 0);
 
-          -- Create a view that uses the function
-          CREATE VIEW test_schema.metric_averages AS
-          SELECT
-            name,
-            test_schema.safe_divide(total_value, count_value::numeric) as average_value
-          FROM test_schema.metrics
-          WHERE count_value > 0;
-
-          -- Create another function that depends on the first function
           CREATE FUNCTION test_schema.get_metric_summary(metric_id integer)
-          RETURNS text
-          LANGUAGE plpgsql
-          STABLE
-          AS $$
+           RETURNS text
+           LANGUAGE plpgsql
+           STABLE
+          AS $function$
           DECLARE
             metric_name text;
             avg_val numeric;
@@ -497,33 +424,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             RETURN metric_name || ': ' || COALESCE(avg_val::text, 'N/A');
           END;
-          $$;
+          $function$;
         `,
         description: "Complex function scenario with multiple dependencies",
-        expectedSqlTerms: [
-          "CREATE TABLE test_schema.metrics (name text NOT NULL, total_value numeric DEFAULT 0, count_value integer DEFAULT 0)",
-          `CREATE FUNCTION test_schema.safe_divide(numerator numeric, denominator numeric) RETURNS numeric LANGUAGE sql IMMUTABLE STRICT AS 'SELECT CASE
-              WHEN denominator = 0 THEN NULL
-              ELSE numerator / denominator
-            END'`,
-          `CREATE VIEW test_schema.metric_averages AS SELECT name,
-    test_schema.safe_divide(total_value, (count_value)::numeric) AS average_value
-   FROM test_schema.metrics
-  WHERE (count_value > 0)`,
-          `CREATE FUNCTION test_schema.get_metric_summary(metric_id integer) RETURNS text LANGUAGE plpgsql STABLE AS $$
-          DECLARE
-            metric_name text;
-            avg_val numeric;
-          BEGIN
-            SELECT m.name, test_schema.safe_divide(m.total_value, m.count_value::numeric)
-            INTO metric_name, avg_val
-            FROM test_schema.metrics m
-            WHERE m.id = metric_id;
-
-            RETURN metric_name || ': ' || COALESCE(avg_val::text, 'N/A');
-          END;
-          $$`,
-        ],
         expectedMasterDependencies: [],
         expectedBranchDependencies: [
           {
