@@ -1,6 +1,5 @@
 import { CreateChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
-import { formatConfigValue, formatFunctionArguments } from "../utils.ts";
 
 /**
  * Create a procedure.
