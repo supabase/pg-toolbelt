@@ -13,9 +13,7 @@ export default defineConfig({
     coverage: {
       // Also report coverage if some tests fail
       reportOnFailure: true,
-      // Only consider integrations tests for coverage as their the only ones
-      // ensuring real e2e working behaviour
-      include: testIntegrationsInclude,
+      reporter: ["text", "lcov", "html"],
     },
     projects: [
       {
@@ -33,7 +31,7 @@ export default defineConfig({
         test: {
           // Integration tests - run with single fork to share containers
           name: "integration",
-          retry: 0,
+          retry: process.env.CI ? 1 : 0,
           include: testIntegrationsInclude,
           pool: "forks",
           poolOptions: {
