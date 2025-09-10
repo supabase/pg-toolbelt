@@ -39,6 +39,8 @@ const procedurePropsSchema = z.object({
   security_definer: z.boolean(),
   volatility: FunctionVolatilitySchema,
   parallel_safety: FunctionParallelSafetySchema,
+  execution_cost: z.number(),
+  result_rows: z.number(),
   is_strict: z.boolean(),
   leakproof: z.boolean(),
   returns_set: z.boolean(),
@@ -69,6 +71,8 @@ export class Procedure extends BasePgModel {
   public readonly security_definer: ProcedureProps["security_definer"];
   public readonly volatility: ProcedureProps["volatility"];
   public readonly parallel_safety: ProcedureProps["parallel_safety"];
+  public readonly execution_cost: ProcedureProps["execution_cost"];
+  public readonly result_rows: ProcedureProps["result_rows"];
   public readonly is_strict: ProcedureProps["is_strict"];
   public readonly leakproof: ProcedureProps["leakproof"];
   public readonly returns_set: ProcedureProps["returns_set"];
@@ -101,6 +105,8 @@ export class Procedure extends BasePgModel {
     this.security_definer = props.security_definer;
     this.volatility = props.volatility;
     this.parallel_safety = props.parallel_safety;
+    this.execution_cost = props.execution_cost;
+    this.result_rows = props.result_rows;
     this.is_strict = props.is_strict;
     this.leakproof = props.leakproof;
     this.returns_set = props.returns_set;
@@ -140,6 +146,9 @@ export class Procedure extends BasePgModel {
       security_definer: this.security_definer,
       volatility: this.volatility,
       parallel_safety: this.parallel_safety,
+      // execution_cost and result_rows are planner hints. We intentionally
+      // exclude them from dataFields to avoid generating diffs solely due to
+      // changes in estimates. They are still used for CREATE serialization.
       is_strict: this.is_strict,
       leakproof: this.leakproof,
       returns_set: this.returns_set,
@@ -183,6 +192,8 @@ select
   p.prosecdef as security_definer,
   p.provolatile as volatility,
   p.proparallel as parallel_safety,
+  p.procost as execution_cost,
+  p.prorows as result_rows,
   p.proisstrict as is_strict,
   p.proleakproof as leakproof,
   p.proretset as returns_set,

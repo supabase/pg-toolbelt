@@ -151,6 +151,7 @@ export class DependencyExtractor {
     source: string,
   ): DependencyModel {
     for (const depend of catalog.depends) {
+      // Direct dependency between relevant objects
       if (
         relevantObjects.has(depend.dependent_stable_id) &&
         relevantObjects.has(depend.referenced_stable_id) &&
@@ -251,7 +252,8 @@ export class OperationSemantics {
       );
     }
 
-    return null;
+    // No dependency found, but we could sort them by operation priority
+    return this.semanticRuleNoDependency(i, changeA, j, changeB);
   }
 
   private dependencySemanticRule(
@@ -262,6 +264,67 @@ export class OperationSemantics {
     reason: string,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases
+
+    // Rule: Sort function overloads by parameter types
+    if (
+      dependentChange instanceof CreateProcedure &&
+      referencedChange instanceof CreateProcedure
+    ) {
+      // Given that the functions have the same name, we need to sort them by parameter types
+      const a = dependentChange.procedure;
+      const b = referencedChange.procedure;
+      if (a.schema === b.schema && a.name === b.name) {
+        const aCount = a.argument_count ?? a.argument_types?.length ?? 0;
+        const bCount = b.argument_count ?? b.argument_types?.length ?? 0;
+        if (aCount !== bCount) {
+          // The overload with fewer arguments should come first
+          if (aCount < bCount) {
+            return {
+              constraintStableId: `${dependentChange.stableId} overload before ${referencedChange.stableId}`,
+              changeAIndex: depIdx,
+              type: "before",
+              changeBIndex: refIdx,
+              reason:
+                "Function overloads ordered by argument count (fewer args first)",
+            };
+          } else {
+            return {
+              constraintStableId: `${referencedChange.stableId} overload before ${dependentChange.stableId}`,
+              changeAIndex: refIdx,
+              type: "before",
+              changeBIndex: depIdx,
+              reason:
+                "Function overloads ordered by argument count (fewer args first)",
+            };
+          }
+        } else {
+          // Same number of args -> sort alphabetically by argument type list
+          const aSig = a.argument_types?.join(",") ?? "";
+          const bSig = b.argument_types?.join(",") ?? "";
+          if (aSig !== bSig) {
+            if (aSig.localeCompare(bSig) < 0) {
+              return {
+                constraintStableId: `${dependentChange.stableId} alphabetical before ${referencedChange.stableId}`,
+                changeAIndex: depIdx,
+                type: "before",
+                changeBIndex: refIdx,
+                reason:
+                  "Function overloads ordered alphabetically when arg count equal",
+              };
+            } else {
+              return {
+                constraintStableId: `${referencedChange.stableId} alphabetical before ${dependentChange.stableId}`,
+                changeAIndex: refIdx,
+                type: "before",
+                changeBIndex: depIdx,
+                reason:
+                  "Function overloads ordered alphabetically when arg count equal",
+              };
+            }
+          }
+        }
+      }
+    }
 
     // Special rule: For sequence-table dependencies
     // PostgreSQL reports sequence ownership (sequence depends on table)
@@ -364,66 +427,82 @@ export class OperationSemantics {
       };
     }
 
+    return null;
+  }
+
+  private semanticRuleNoDependency(
+    idxA: number,
+    changeA: Change,
+    idxB: number,
+    changeB: Change,
+  ): Constraint | null {
+    // TODO: Investigate and eliminate all special cases
+
     // Rule: Sort function overloads by parameter types
     if (
-      dependentChange instanceof CreateProcedure &&
-      referencedChange instanceof CreateProcedure
+      changeA instanceof CreateProcedure &&
+      changeB instanceof CreateProcedure
     ) {
       // Given that the functions have the same name, we need to sort them by parameter types
-      const a = dependentChange.procedure;
-      const b = referencedChange.procedure;
-      if (a.schema === b.schema && a.name === b.name) {
-        const aCount = a.argument_count ?? a.argument_types?.length ?? 0;
-        const bCount = b.argument_count ?? b.argument_types?.length ?? 0;
-        if (aCount !== bCount) {
+      const procedureA = changeA.procedure;
+      const procedureB = changeB.procedure;
+      if (
+        procedureA.schema === procedureB.schema &&
+        procedureA.name === procedureB.name
+      ) {
+        const argumentCountA =
+          procedureA.argument_count ?? procedureA.argument_types?.length ?? 0;
+        const argumentCountB =
+          procedureB.argument_count ?? procedureB.argument_types?.length ?? 0;
+        if (argumentCountA !== argumentCountB) {
           // The overload with fewer arguments should come first
-          if (aCount < bCount) {
+          if (argumentCountA < argumentCountB) {
             return {
-              constraintStableId: `${dependentChange.stableId} overload before ${referencedChange.stableId}`,
-              changeAIndex: depIdx,
+              constraintStableId: `${changeA.stableId} overload before ${changeB.stableId}`,
+              changeAIndex: idxA,
               type: "before",
-              changeBIndex: refIdx,
-              reason:
-                "Function overloads ordered by argument count (fewer args first)",
-            };
-          } else {
-            return {
-              constraintStableId: `${referencedChange.stableId} overload before ${dependentChange.stableId}`,
-              changeAIndex: refIdx,
-              type: "before",
-              changeBIndex: depIdx,
+              changeBIndex: idxB,
               reason:
                 "Function overloads ordered by argument count (fewer args first)",
             };
           }
-        } else {
-          // Same number of args -> sort alphabetically by argument type list
-          const aSig = a.argument_types?.join(",") ?? "";
-          const bSig = b.argument_types?.join(",") ?? "";
-          if (aSig !== bSig) {
-            if (aSig.localeCompare(bSig) < 0) {
-              return {
-                constraintStableId: `${dependentChange.stableId} alphabetical before ${referencedChange.stableId}`,
-                changeAIndex: depIdx,
-                type: "before",
-                changeBIndex: refIdx,
-                reason:
-                  "Function overloads ordered alphabetically when arg count equal",
-              };
-            } else {
-              return {
-                constraintStableId: `${referencedChange.stableId} alphabetical before ${dependentChange.stableId}`,
-                changeAIndex: refIdx,
-                type: "before",
-                changeBIndex: depIdx,
-                reason:
-                  "Function overloads ordered alphabetically when arg count equal",
-              };
-            }
+          return {
+            constraintStableId: `${changeB.stableId} overload before ${changeA.stableId}`,
+            changeAIndex: idxB,
+            type: "before",
+            changeBIndex: idxA,
+            reason:
+              "Function overloads ordered by argument count (fewer args first)",
+          };
+        }
+
+        // Same number of args -> sort alphabetically by argument type list
+        const aSig = procedureA.argument_types?.join(",") ?? "";
+        const bSig = procedureB.argument_types?.join(",") ?? "";
+        if (aSig !== bSig) {
+          if (aSig.localeCompare(bSig) < 0) {
+            return {
+              constraintStableId: `${changeA.stableId} alphabetical before ${changeB.stableId}`,
+              changeAIndex: idxA,
+              type: "before",
+              changeBIndex: idxB,
+              reason:
+                "Function overloads ordered alphabetically when arg count equal",
+            };
           }
+
+          return {
+            constraintStableId: `${changeB.stableId} alphabetical before ${changeA.stableId}`,
+            changeAIndex: idxB,
+            type: "before",
+            changeBIndex: idxA,
+            reason:
+              "Function overloads ordered alphabetically when arg count equal",
+          };
         }
       }
     }
+
     return null;
   }
 

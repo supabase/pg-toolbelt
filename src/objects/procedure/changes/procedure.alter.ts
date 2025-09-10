@@ -1,5 +1,6 @@
 import { AlterChange, ReplaceChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import { formatConfigValue } from "../utils.ts";
 import { CreateProcedure } from "./procedure.create.ts";
 
 /**
@@ -149,11 +150,12 @@ export class AlterProcedureSetConfig extends AlterChange {
       }
     }
 
-    // Added or changed keys -> SET key=value
+    // Added or changed keys -> SET key TO value
     for (const [key, newValue] of branchMap.entries()) {
       const oldValue = mainMap.get(key);
       if (oldValue !== newValue) {
-        statements.push(`${head} SET ${key}=${newValue}`);
+        const formatted = formatConfigValue(key, newValue);
+        statements.push(`${head} SET ${key} TO ${formatted}`);
       }
     }
 

@@ -1,6 +1,6 @@
 import { CreateChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
-import { formatFunctionArguments } from "../utils.ts";
+import { formatConfigValue, formatFunctionArguments } from "../utils.ts";
 
 /**
  * Create a procedure.
@@ -123,11 +123,41 @@ export class CreateProcedure extends CreateChange {
     }
     // PARALLEL UNSAFE is default, don't print it
 
+    // Add COST for functions (not procedures). Skip default values
+    if (this.procedure.kind !== "p") {
+      const languageLower = (this.procedure.language || "").toLowerCase();
+      // Defaults: 1 for C/internal functions; 100 for all other languages
+      const defaultCost =
+        languageLower === "c" || languageLower === "internal" ? 1 : 100;
+      if (
+        typeof this.procedure.execution_cost === "number" &&
+        this.procedure.execution_cost !== defaultCost
+      ) {
+        parts.push("COST", String(this.procedure.execution_cost));
+      }
+
+      // Add ROWS for set-returning functions when non-default
+      if (
+        this.procedure.returns_set &&
+        typeof this.procedure.result_rows === "number"
+      ) {
+        const defaultRows = 1000; // PostgreSQL default for set-returning functions
+        const rows = this.procedure.result_rows;
+        if (rows > 0 && rows !== defaultRows) {
+          parts.push("ROWS", String(rows));
+        }
+      }
+    }
+
     // Add SET configuration parameters (only non-defaults; default is no SET)
     if (this.procedure.config && this.procedure.config.length > 0) {
       for (const opt of this.procedure.config) {
-        // opt comes as "key=value" from proconfig; emit as-is
-        parts.push("SET", opt);
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex === -1) continue;
+        const key = opt.slice(0, eqIndex).trim();
+        const rawValue = opt.slice(eqIndex + 1).trim();
+        const formatted = formatConfigValue(key, rawValue);
+        parts.push("SET", `${key} TO ${formatted}`);
       }
     }
 
