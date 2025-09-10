@@ -22,6 +22,9 @@ export class PostgresAlpineContainer extends GenericContainer {
       ]),
     );
     this.withStartupTimeout(120_000);
+    this.withTmpFs({
+      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=655360k",
+    });
   }
 
   public withDatabase(database: string): this {
@@ -45,6 +48,55 @@ export class PostgresAlpineContainer extends GenericContainer {
       POSTGRES_USER: this.username,
       POSTGRES_PASSWORD: this.password,
     });
+    // this.withCommand([
+    //   "postgres",
+    //   "-c",
+    //   "shared_buffers=256MB",
+    //   "-c",
+    //   "effective_cache_size=512MB",
+    //   "-c",
+    //   "maintenance_work_mem=64MB",
+    //   "-c",
+    //   "checkpoint_completion_target=0.9",
+    //   "-c",
+    //   "wal_buffers=16MB",
+    //   "-c",
+    //   "default_statistics_target=100",
+    //   "-c",
+    //   "random_page_cost=1.1",
+    //   "-c",
+    //   "effective_io_concurrency=200",
+    //   "-c",
+    //   "work_mem=4MB",
+    //   "-c",
+    //   "min_wal_size=1GB",
+    //   "-c",
+    //   "max_wal_size=4GB",
+    //   "-c",
+    //   "fsync=off", // Safe for test databases in memory
+    //   "-c",
+    //   "synchronous_commit=off", // Safe for test databases
+    //   "-c",
+    //   "full_page_writes=off", // Safe for test databases in memory
+    //   "-c",
+    //   "log_statement=none", // Reduce logging overhead
+    //   "-c",
+    //   "log_min_duration_statement=-1", // Disable slow query logging
+    //   "-c",
+    //   "log_checkpoints=off",
+    //   "-c",
+    //   "log_connections=off",
+    //   "-c",
+    //   "log_disconnections=off",
+    //   "-c",
+    //   "log_lock_waits=off",
+    //   "-c",
+    //   "log_temp_files=-1",
+    //   "-c",
+    //   "checkpoint_timeout=1h", // Reduce checkpoint frequency
+    //   "-c",
+    //   "max_connections=100", // Limit connections for test environment
+    // ]);
     return new StartedPostgresAlpineContainer(
       await super.start(),
       this.database,
