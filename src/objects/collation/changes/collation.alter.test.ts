@@ -1,0 +1,108 @@
+import { describe, expect, test } from "vitest";
+import { Collation, type CollationProps } from "../collation.model.ts";
+import {
+  AlterCollationChangeOwner,
+  AlterCollationRefreshVersion,
+  ReplaceCollation,
+} from "./collation.alter.ts";
+
+describe.concurrent("collation", () => {
+  describe("alter", () => {
+    test("change owner", () => {
+      const base: Omit<CollationProps, "owner"> = {
+        schema: "public",
+        name: "test",
+        provider: "c",
+        is_deterministic: true,
+        encoding: 1,
+        collate: "en_US",
+        locale: "en_US",
+        version: "1.0",
+        ctype: "test",
+        icu_rules: "test",
+      };
+      const main = new Collation({
+        ...base,
+        owner: "old_owner",
+      });
+      const branch = new Collation({
+        ...base,
+        owner: "new_owner",
+      });
+
+      const change = new AlterCollationChangeOwner({
+        main,
+        branch,
+      });
+
+      expect(change.serialize()).toBe(
+        "ALTER COLLATION public.test OWNER TO new_owner",
+      );
+    });
+
+    test("refresh version", () => {
+      const base: Omit<CollationProps, "version"> = {
+        schema: "public",
+        name: "test",
+        provider: "c",
+        is_deterministic: true,
+        encoding: 1,
+        collate: "en_US",
+        locale: "en_US",
+        ctype: "test",
+        icu_rules: "test",
+        owner: "test",
+      };
+      const main = new Collation({
+        ...base,
+        version: "1.0",
+      });
+      const branch = new Collation({
+        ...base,
+        version: "2.0",
+      });
+
+      const change = new AlterCollationRefreshVersion({
+        main,
+        branch,
+      });
+
+      expect(change.serialize()).toBe(
+        "ALTER COLLATION public.test REFRESH VERSION",
+      );
+    });
+
+    test("replace collation (drop + create)", () => {
+      const base: Omit<CollationProps, "provider"> = {
+        schema: "public",
+        name: "test",
+        encoding: 1,
+        owner: "owner",
+        is_deterministic: true,
+        collate: "C",
+        ctype: "C",
+        locale: null,
+        version: null,
+        icu_rules: null,
+      };
+
+      const main = new Collation({
+        ...base,
+        provider: "c",
+      });
+      const branch = new Collation({
+        ...base,
+        provider: "b",
+      });
+
+      const change = new ReplaceCollation({ main, branch });
+
+      expect(change.serialize()).toBe(
+        [
+          "DROP COLLATION public.test",
+          "CREATE COLLATION public.test (LC_COLLATE = 'C', LC_CTYPE = 'C', PROVIDER = builtin)",
+        ].join(";\n"),
+      );
+    });
+  });
+});
