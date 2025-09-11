@@ -5793,7 +5793,7 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
     }
   ],
   "indexableObjects": {},
-  "version": 150013
+  "version": 150014
 }"
 `;
 
@@ -10971,6 +10971,6 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
     }
   ],
   "indexableObjects": {},
-  "version": 170005
+  "version": 170006
 }"
 `;
