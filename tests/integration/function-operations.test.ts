@@ -352,9 +352,27 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT '$' || price::text$function$;
 
           CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
-             FROM test_schema.products;
+          FROM test_schema.products;
         `,
         description: "function before view that uses it",
+        expectedSqlTerms: [
+          "CREATE TABLE test_schema.products (price numeric(10,2))",
+          dedent`
+          CREATE FUNCTION test_schema.format_price(price numeric)
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT '$' || price::text$function$`,
+          pgVersion === 15
+            ? dedent`
+              CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(products.price) AS formatted_price
+                 FROM test_schema.products
+              `
+            : dedent`
+              CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
+                 FROM test_schema.products
+              `,
+        ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -427,6 +445,51 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "Complex function scenario with multiple dependencies",
+        expectedSqlTerms: [
+          "CREATE TABLE test_schema.metrics (name text NOT NULL, total_value numeric DEFAULT 0, count_value integer DEFAULT 0)",
+          dedent`
+          CREATE FUNCTION test_schema.safe_divide(numerator numeric, denominator numeric)
+           RETURNS numeric
+           LANGUAGE sql
+           IMMUTABLE STRICT
+          AS $function$
+            SELECT CASE
+              WHEN denominator = 0 THEN NULL
+              ELSE numerator / denominator
+            END
+          $function$`,
+          pgVersion === 15
+            ? dedent`
+          CREATE VIEW test_schema.metric_averages AS SELECT metrics.name,
+              test_schema.safe_divide(metrics.total_value, (metrics.count_value)::numeric) AS average_value
+             FROM test_schema.metrics
+            WHERE (metrics.count_value > 0)
+          `
+            : dedent`
+          CREATE VIEW test_schema.metric_averages AS SELECT name,
+              test_schema.safe_divide(total_value, (count_value)::numeric) AS average_value
+             FROM test_schema.metrics
+            WHERE (count_value > 0)
+          `,
+          dedent`
+          CREATE FUNCTION test_schema.get_metric_summary(metric_id integer)
+           RETURNS text
+           LANGUAGE plpgsql
+           STABLE
+          AS $function$
+          DECLARE
+            metric_name text;
+            avg_val numeric;
+          BEGIN
+            SELECT m.name, test_schema.safe_divide(m.total_value, m.count_value::numeric)
+            INTO metric_name, avg_val
+            FROM test_schema.metrics m
+            WHERE m.id = metric_id;
+
+            RETURN metric_name || ': ' || COALESCE(avg_val::text, 'N/A');
+          END;
+          $function$`,
+        ],
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
