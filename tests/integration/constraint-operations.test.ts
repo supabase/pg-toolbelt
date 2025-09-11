@@ -119,7 +119,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add check constraint",
         expectedSqlTerms: [
-          `ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK ((price > (0)::numeric))`,
+          `ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0::numeric)`,
         ],
         expectedMainDependencies: [
           {
@@ -212,7 +212,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add foreign key constraint",
         expectedSqlTerms: [
-          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES test_schema.users (id) ON DELETE CASCADE",
+          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES test_schema.users(id) ON DELETE CASCADE",
         ],
         expectedMainDependencies: [
           {
@@ -475,7 +475,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "add multiple constraints to same table",
         expectedSqlTerms: [
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK ((age >= 0))",
+          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)",
           "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
         ],
@@ -539,7 +539,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "constraint with special characters in names",
         expectedSqlTerms: [
-          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK (("my-field" IS NOT NULL))',
+          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK ("my-field" IS NOT NULL)',
         ],
         expectedMainDependencies: [
           {

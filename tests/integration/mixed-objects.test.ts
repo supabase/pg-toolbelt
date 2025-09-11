@@ -206,7 +206,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "ALTER SEQUENCE ecommerce.customers_id_seq OWNED BY ecommerce.customers.id",
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_email_key UNIQUE (email)",
           "ALTER TABLE ecommerce.customers ADD CONSTRAINT customers_pkey PRIMARY KEY (id)",
-          "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers (id)",
+          "ALTER TABLE ecommerce.orders ADD CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES ecommerce.customers(id)",
           "CREATE INDEX idx_orders_customer_status ON ecommerce.orders (customer_id, status)",
           "CREATE INDEX idx_customers_email ON ecommerce.customers (email)",
         ],

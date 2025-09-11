@@ -357,84 +357,13 @@ export class AlterTableAddConstraint extends AlterChange {
   }
 
   serialize(): string {
-    const parts: string[] = [
+    return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
       "ADD CONSTRAINT",
       this.constraint.name,
-    ];
-    switch (this.constraint.constraint_type) {
-      case "p": {
-        parts.push("PRIMARY KEY");
-        // A primary key constraint is defined by the columns it references
-        parts.push(`(${this.getColumnNames().join(", ")})`);
-        break;
-      }
-      case "u":
-        parts.push("UNIQUE");
-        parts.push(`(${this.getColumnNames().join(", ")})`);
-        break;
-      case "f":
-        parts.push("FOREIGN KEY");
-        parts.push(`(${this.getColumnNames().join(", ")})`);
-        parts.push(
-          `REFERENCES ${this.constraint.foreign_key_schema}.${this.constraint.foreign_key_table}`,
-        );
-        parts.push(`(${this.getForeignKeyColumnNames().join(", ")})`);
-        break;
-      case "c":
-        parts.push("CHECK");
-        if (this.constraint.check_expression) {
-          parts.push(`(${this.constraint.check_expression})`);
-        }
-        break;
-      case "x":
-        parts.push("EXCLUDE");
-        break;
-    }
-    if (this.constraint.deferrable) {
-      parts.push("DEFERRABLE");
-      parts.push(
-        this.constraint.initially_deferred
-          ? "INITIALLY DEFERRED"
-          : "INITIALLY IMMEDIATE",
-      );
-    }
-    if (this.constraint.constraint_type === "f") {
-      switch (this.constraint.on_update) {
-        case "r":
-          parts.push("ON UPDATE RESTRICT");
-          break;
-        case "c":
-          parts.push("ON UPDATE CASCADE");
-          break;
-        case "n":
-          parts.push("ON UPDATE SET NULL");
-          break;
-        case "d":
-          parts.push("ON UPDATE SET DEFAULT");
-          break;
-        default:
-          break;
-      }
-      switch (this.constraint.on_delete) {
-        case "r":
-          parts.push("ON DELETE RESTRICT");
-          break;
-        case "c":
-          parts.push("ON DELETE CASCADE");
-          break;
-        case "n":
-          parts.push("ON DELETE SET NULL");
-          break;
-        case "d":
-          parts.push("ON DELETE SET DEFAULT");
-          break;
-        default:
-          break;
-      }
-    }
-    return parts.join(" ");
+      this.constraint.definition,
+    ].join(" ");
   }
 }
 
