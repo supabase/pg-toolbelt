@@ -20,7 +20,7 @@
     "test:unit": "vitest --project unit",
     "test:integration": "vitest --project integration",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage",
+    "coverage": "vitest run --coverage --project=integration",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

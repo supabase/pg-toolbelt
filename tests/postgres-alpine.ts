@@ -22,6 +22,9 @@ export class PostgresAlpineContainer extends GenericContainer {
       ]),
     );
     this.withStartupTimeout(120_000);
+    this.withTmpFs({
+      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
+    });
   }
 
   public withDatabase(database: string): this {
@@ -45,6 +48,7 @@ export class PostgresAlpineContainer extends GenericContainer {
       POSTGRES_USER: this.username,
       POSTGRES_PASSWORD: this.password,
     });
+
     return new StartedPostgresAlpineContainer(
       await super.start(),
       this.database,
