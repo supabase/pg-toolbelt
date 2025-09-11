@@ -26,5 +26,5 @@ export async function setup() {
     ),
   ]);
   // Container manager will be initialized lazily when first needed
-  // And auto cleaned up after all tests complete
+  // and auto cleaned up after all tests are completed.
 }
