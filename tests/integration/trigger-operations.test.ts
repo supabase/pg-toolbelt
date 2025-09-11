@@ -2,6 +2,7 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
+import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest } from "../utils.ts";
@@ -551,11 +552,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.validate_email();
         `,
-        testSql: `
+        testSql: dedent`
           CREATE OR REPLACE FUNCTION test_schema.validate_email()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             -- Updated validation logic
             IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
@@ -567,10 +568,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             END IF;
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Recreate trigger with updated timing
           DROP TRIGGER email_validation_trigger ON test_schema.users;
+
           CREATE TRIGGER email_validation_trigger
           BEFORE INSERT OR UPDATE ON test_schema.users
           FOR EACH ROW
@@ -578,19 +579,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         description: "trigger replacement (modification)",
         expectedSqlTerms: [
-          `CREATE OR REPLACE FUNCTION test_schema.validate_email() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            -- Updated validation logic
-            IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
-              RAISE EXCEPTION 'Invalid email format: %', NEW.email;
-            END IF;
-            -- Additional validation
-            IF length(NEW.email) > 255 THEN
-              RAISE EXCEPTION 'Email too long';
-            END IF;
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE OR REPLACE FUNCTION test_schema.validate_email()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              -- Updated validation logic
+              IF NEW.email !~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN
+                RAISE EXCEPTION 'Invalid email format: %', NEW.email;
+              END IF;
+              -- Additional validation
+              IF length(NEW.email) > 255 THEN
+                RAISE EXCEPTION 'Email too long';
+              END IF;
+              RETURN NEW;
+            END;
+            $function$`,
           `DROP TRIGGER email_validation_trigger ON test_schema.users;
 CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.users FOR EACH ROW EXECUTE FUNCTION test_schema.validate_email()`,
         ],
@@ -712,7 +717,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
+        testSql: dedent`
           CREATE TABLE test_schema.events (
             id serial PRIMARY KEY,
             event_type text,
@@ -720,14 +725,14 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           );
 
           CREATE FUNCTION test_schema.notify_event()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             PERFORM pg_notify('event_occurred', NEW.event_type);
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
           CREATE TRIGGER event_notification_trigger
           AFTER INSERT ON test_schema.events
@@ -740,12 +745,16 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           "CREATE TABLE test_schema.events (id integer DEFAULT nextval('test_schema.events_id_seq'::regclass) NOT NULL, event_type text, occurred_at timestamp without time zone DEFAULT now())",
           "ALTER SEQUENCE test_schema.events_id_seq OWNED BY test_schema.events.id",
           "ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id)",
-          `CREATE FUNCTION test_schema.notify_event() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            PERFORM pg_notify('event_occurred', NEW.event_type);
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.notify_event()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              PERFORM pg_notify('event_occurred', NEW.event_type);
+              RETURN NEW;
+            END;
+            $function$`,
           `CREATE TRIGGER event_notification_trigger AFTER INSERT ON test_schema.events FOR EACH ROW EXECUTE FUNCTION test_schema.notify_event()`,
         ],
         expectedMainDependencies: [],
@@ -824,8 +833,7 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
         mainSession: db.main,
         branchSession: db.branch,
         initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
-          -- Create base table
+        testSql: dedent`
           CREATE TABLE test_schema.orders (
             id serial PRIMARY KEY,
             customer_id integer NOT NULL,
@@ -835,7 +843,6 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             updated_at timestamp DEFAULT now()
           );
 
-          -- Create audit table
           CREATE TABLE test_schema.order_audit (
             id serial PRIMARY KEY,
             order_id integer,
@@ -844,11 +851,10 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             changed_at timestamp DEFAULT now()
           );
 
-          -- Create trigger function for status changes
           CREATE FUNCTION test_schema.audit_order_status()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             IF OLD.status IS DISTINCT FROM NEW.status THEN
               INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
@@ -856,20 +862,18 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
             END IF;
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Create trigger function for timestamp updates
           CREATE FUNCTION test_schema.update_order_timestamp()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
           BEGIN
             NEW.updated_at = now();
             RETURN NEW;
           END;
-          $$;
+          $function$;
 
-          -- Create triggers
           CREATE TRIGGER order_status_audit_trigger
           AFTER UPDATE ON test_schema.orders
           FOR EACH ROW
@@ -891,22 +895,30 @@ CREATE TRIGGER email_validation_trigger BEFORE INSERT OR UPDATE ON test_schema.u
           "CREATE TABLE test_schema.order_audit (id integer DEFAULT nextval('test_schema.order_audit_id_seq'::regclass) NOT NULL, order_id integer, old_status text, new_status text, changed_at timestamp without time zone DEFAULT now())",
           "ALTER SEQUENCE test_schema.order_audit_id_seq OWNED BY test_schema.order_audit.id",
           "ALTER TABLE test_schema.order_audit ADD CONSTRAINT order_audit_pkey PRIMARY KEY (id)",
-          `CREATE FUNCTION test_schema.update_order_timestamp() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            NEW.updated_at = now();
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.update_order_timestamp()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              NEW.updated_at = now();
+              RETURN NEW;
+            END;
+            $function$`,
           "CREATE TRIGGER order_timestamp_trigger BEFORE UPDATE ON test_schema.orders FOR EACH ROW EXECUTE FUNCTION test_schema.update_order_timestamp()",
-          `CREATE FUNCTION test_schema.audit_order_status() RETURNS trigger LANGUAGE plpgsql AS $$
-          BEGIN
-            IF OLD.status IS DISTINCT FROM NEW.status THEN
-              INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
-              VALUES (NEW.id, OLD.status, NEW.status);
-            END IF;
-            RETURN NEW;
-          END;
-          $$`,
+          dedent`
+            CREATE FUNCTION test_schema.audit_order_status()
+             RETURNS trigger
+             LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              IF OLD.status IS DISTINCT FROM NEW.status THEN
+                INSERT INTO test_schema.order_audit (order_id, old_status, new_status)
+                VALUES (NEW.id, OLD.status, NEW.status);
+              END IF;
+              RETURN NEW;
+            END;
+            $function$`,
           "CREATE TRIGGER order_status_audit_trigger AFTER UPDATE ON test_schema.orders FOR EACH ROW WHEN (old.status IS DISTINCT FROM new.status) EXECUTE FUNCTION test_schema.audit_order_status()",
         ],
         expectedMainDependencies: [],
