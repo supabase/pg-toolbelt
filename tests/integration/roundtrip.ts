@@ -19,8 +19,8 @@ interface RoundtripTestOptions {
   testSql?: string;
   description: string;
   expectedSqlTerms: string[] | false;
-  // List of dependencies that must be present in master catalog.
-  expectedMasterDependencies?: PgDepend[];
+  // List of dependencies that must be present in main catalog.
+  expectedMainDependencies?: PgDepend[];
   // List of dependencies that must be present in branch catalog.
   expectedBranchDependencies?: PgDepend[];
   // List of stable_ids in the order they should appear in the generated changes.
