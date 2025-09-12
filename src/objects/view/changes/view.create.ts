@@ -22,8 +22,8 @@ export class CreateView extends CreateChange {
     this.view = props.view;
   }
 
-  get stableId(): string {
-    return `${this.view.stableId}`;
+  get dependencies() {
+    return [`${this.view.stableId}`];
   }
 
   serialize(): string {

@@ -27,6 +27,9 @@ describe("DependencyResolver", () => {
       super();
       this.stableId = stableId;
     }
+    get dependencies() {
+      return [this.stableId];
+    }
     serialize() {
       return `CREATE ${this.stableId}`;
     }
@@ -37,6 +40,9 @@ describe("DependencyResolver", () => {
     constructor(stableId: string) {
       super();
       this.stableId = stableId;
+    }
+    get dependencies() {
+      return [this.stableId];
     }
     serialize() {
       return `DROP ${this.stableId}`;
@@ -49,6 +55,9 @@ describe("DependencyResolver", () => {
       super();
       this.stableId = stableId;
     }
+    get dependencies() {
+      return [this.stableId];
+    }
     serialize() {
       return `ALTER ${this.stableId}`;
     }
@@ -59,6 +68,9 @@ describe("DependencyResolver", () => {
     constructor(stableId: string) {
       super();
       this.stableId = stableId;
+    }
+    get dependencies() {
+      return [this.stableId];
     }
     serialize() {
       return `REPLACE ${this.stableId}`;
@@ -198,7 +210,7 @@ describe("DependencyResolver", () => {
 
       // Verify dependency-based ordering
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
       const tableIndex = stableIds.indexOf("table:test.users");
       const viewIndex = stableIds.indexOf("view:test.user_view");
 
@@ -229,7 +241,7 @@ describe("DependencyResolver", () => {
 
       // Verify dependency-based ordering for drops
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
       const tableIndex = stableIds.indexOf("table:test.users");
       const viewIndex = stableIds.indexOf("view:test.user_view");
 
@@ -334,7 +346,7 @@ describe("DependencyResolver", () => {
 
       // Verify correct dependency ordering
       expect(result.length).toBe(4);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const schemaIndex = stableIds.indexOf("schema:test");
       const tableIndex = stableIds.indexOf("table:test.users");
@@ -415,7 +427,7 @@ describe("DependencyResolver", () => {
 
       // Verify the special sequence-table rule: sequence should come BEFORE table for CREATE
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
       const sequenceIndex = stableIds.indexOf("sequence:test.user_id_seq");
       const tableIndex = stableIds.indexOf("table:test.users");
 
@@ -494,7 +506,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
       const tableIndex = stableIds.indexOf("table:test.base_table");
       const viewIndex = stableIds.indexOf("view:test.dependent_view");
 
@@ -564,7 +576,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(5);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       // Due to the max depth of 2 in findRelevantObjects, not all deep dependencies
       // are discovered and enforced. The algorithm only traverses 2 levels deep.
@@ -574,7 +586,7 @@ describe("DependencyResolver", () => {
       expect(result.length).toBe(5);
 
       // And all the original changes should be present
-      const originalStableIds = changes.map((c) => c.stableId);
+      const originalStableIds = changes.flatMap((c) => c.dependencies);
       for (const originalId of originalStableIds) {
         expect(stableIds).toContain(originalId);
       }
@@ -608,7 +620,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(3);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const tableIndex = stableIds.indexOf("table:test.base_table");
       const view1Index = stableIds.indexOf("view:test.view_level_1");
@@ -650,7 +662,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(3);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       // Based on the actual output: [ 'table:test.users', 'view:test.new_view', 'view:test.old_view' ]
       // The resolver is prioritizing:
@@ -713,7 +725,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       // Only the valid dependency should be considered
       const tableIndex = stableIds.indexOf("table:test.users");
@@ -879,7 +891,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const viewIndex = stableIds.indexOf("view:test.base_view");
       const matViewIndex = stableIds.indexOf("materializedView:test.summary");
@@ -949,7 +961,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(5);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const schemaAIndex = stableIds.indexOf("schema:schema_a");
       const schemaBIndex = stableIds.indexOf("schema:schema_b");
@@ -1050,7 +1062,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(5);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const baseIndex = stableIds.indexOf("table:test.base");
       const view1Index = stableIds.indexOf("view:test.view1");
@@ -1097,7 +1109,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(3);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const dropViewIndex = stableIds.indexOf("view:test.dependent");
       const dropTableIndex = stableIds.indexOf("table:test.base");
@@ -1194,7 +1206,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(3);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const schemaIndex = stableIds.indexOf("schema:test");
       const sequenceIndex = stableIds.indexOf("sequence:test.id_seq");
@@ -1276,7 +1288,7 @@ describe("DependencyResolver", () => {
       expect(result.length).toBe(3);
 
       // All original changes should be present
-      const resultIds = result.map((c) => c.stableId);
+      const resultIds = result.flatMap((c) => c.dependencies);
       expect(resultIds).toContain("table:test.a");
       expect(resultIds).toContain("table:test.b");
       expect(resultIds).toContain("table:test.c");
@@ -1321,7 +1333,7 @@ describe("DependencyResolver", () => {
 
       // Should only find the one change since max depth limits discovery
       expect(result.length).toBe(1);
-      expect(result[0].stableId).toBe("level5:test.obj");
+      expect(result[0].dependencies[0]).toBe("level5:test.obj");
     });
 
     test("dependency model addDependency and hasDependency methods", () => {
@@ -1385,7 +1397,7 @@ describe("DependencyResolver", () => {
 
       // Should filter out unknown dependencies but preserve valid ones
       expect(result.length).toBe(3);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       // Valid dependency should still be enforced
       const tableIndex = stableIds.indexOf("table:test.users");
@@ -1428,7 +1440,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
       expect(result.length).toBe(2);
-      const stableIds = result.map((change) => change.stableId);
+      const stableIds = result.flatMap((change) => change.dependencies);
 
       const obj1Index = stableIds.indexOf("relevant:test.obj1");
       const obj2Index = stableIds.indexOf("relevant:test.obj2");
@@ -1454,7 +1466,7 @@ describe("DependencyResolver", () => {
       // Should handle cases where no constraints are generated
       expect(result.length).toBe(3);
       // All changes should be preserved even without constraints
-      const resultIds = result.map((c) => c.stableId);
+      const resultIds = result.flatMap((c) => c.dependencies);
       expect(resultIds).toContain("table:test.a");
       expect(resultIds).toContain("table:test.b");
       expect(resultIds).toContain("table:test.c");
@@ -1541,7 +1553,7 @@ describe("DependencyResolver", () => {
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
         expect(result.value.length).toBe(2);
-        const stableIds = result.value.map((c) => c.stableId);
+        const stableIds = result.value.flatMap((c) => c.dependencies);
         const tableIndex = stableIds.indexOf("table:test.users");
         const viewIndex = stableIds.indexOf("view:test.user_view");
         expect(tableIndex).toBeLessThan(viewIndex);
@@ -1729,7 +1741,7 @@ describe("DependencyResolver", () => {
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
       expect(result.length).toBe(2);
 
-      const stableIds = result.map((c) => c.stableId);
+      const stableIds = result.flatMap((c) => c.dependencies);
       const refIndex = stableIds.indexOf("test:ref");
       const depIndex = stableIds.indexOf("test:dep");
 
@@ -1804,7 +1816,7 @@ describe("DependencyResolver", () => {
         const result = resolver.resolveDependencies(testCase)._unsafeUnwrap();
         expect(result.length).toBe(2);
 
-        const stableIds = result.map((c) => c.stableId);
+        const stableIds = result.flatMap((c) => c.dependencies);
         const refIndex = stableIds.indexOf("obj:referenced");
         const depIndex = stableIds.indexOf("obj:dependent");
 

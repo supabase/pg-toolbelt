@@ -29,8 +29,8 @@ export class CreateTrigger extends CreateChange {
     this.indexableObject = props.indexableObject;
   }
 
-  get stableId(): string {
-    return `${this.trigger.stableId}`;
+  get dependencies() {
+    return [`${this.trigger.stableId}`];
   }
 
   serialize(): string {

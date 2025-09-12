@@ -1,7 +1,12 @@
 type ChangeKind = "create" | "drop" | "alter" | "replace";
 export abstract class Change {
   abstract kind: ChangeKind;
-  abstract get stableId(): string;
+
+  get changeId(): string {
+    return `${this.kind}:${this.dependencies.join(",")}`;
+  }
+  // A list of stableIds that this change depends on
+  abstract get dependencies(): string[];
   abstract serialize(): string;
 }
 
