@@ -18,11 +18,9 @@ interface RoundtripTestOptions {
   initialSetup?: string;
   testSql?: string;
   description: string;
-  // List of terms that must appear in the generated SQL.
-  // If not provided, we expect the generated SQL to match the testSql.
-  expectedSqlTerms?: string[];
-  // List of dependencies that must be present in main catalog.
-  expectedMainDependencies?: PgDepend[];
+  expectedSqlTerms: string[] | false;
+  // List of dependencies that must be present in master catalog.
+  expectedMasterDependencies?: PgDepend[];
   // List of dependencies that must be present in branch catalog.
   expectedBranchDependencies?: PgDepend[];
   // List of stable_ids in the order they should appear in the generated changes.
@@ -99,6 +97,11 @@ export async function roundtripFidelityTest(
 
   // Generate SQL from changes
   const sqlStatements = sortedChanges.map((change) => change.serialize());
+
+  if (expectedSqlTerms !== false) {
+    // Verify expected terms are the same as the generated SQL
+    expect(sqlStatements).toStrictEqual(expectedSqlTerms);
+  }
 
   // Join SQL statements
   const diffScript =
