@@ -152,7 +152,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test.only("complex multi-dependency scenario with owner changes", async ({
+    test("complex multi-dependency scenario with owner changes", async ({
       db,
     }) => {
       await roundtripFidelityTest({
