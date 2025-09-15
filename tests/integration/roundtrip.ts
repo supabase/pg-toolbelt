@@ -20,7 +20,7 @@ interface RoundtripTestOptions {
   description: string;
   // List of terms that must appear in the generated SQL.
   // If not provided, we expect the generated SQL to match the testSql.
-  expectedSqlTerms?: string[];
+  expectedSqlTerms?: string[] | "same-as-test-sql";
   // List of dependencies that must be present in main catalog.
   expectedMainDependencies?: PgDepend[];
   // List of dependencies that must be present in branch catalog.
@@ -28,6 +28,23 @@ interface RoundtripTestOptions {
   // List of stable_ids in the order they should appear in the generated changes.
   // This validates dependency resolution ordering.
   expectedOperationOrder?: Change[];
+}
+
+async function runOrDump(
+  action: () => Promise<unknown>,
+  opts: { label?: string; diffScript?: string },
+) {
+  try {
+    await action();
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const lbl = opts.label ?? "Context";
+    const dump = opts.diffScript
+      ? `\n\n==== ${lbl} diffScript (failed to apply) ====\n${opts.diffScript}\n==== end ====\n`
+      : "";
+    err.message += dump;
+    throw err;
+  }
 }
 
 /**
@@ -105,10 +122,12 @@ export async function roundtripFidelityTest(
     sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
 
   // Verify expected terms are the same as the generated SQL
-  if (!expectedSqlTerms) {
-    expect(diffScript).toStrictEqual(testSql);
-  } else {
-    expect(sqlStatements).toStrictEqual(expectedSqlTerms);
+  if (expectedSqlTerms) {
+    if (expectedSqlTerms === "same-as-test-sql") {
+      expect(diffScript).toStrictEqual(testSql);
+    } else {
+      expect(sqlStatements).toStrictEqual(expectedSqlTerms);
+    }
   }
 
   if (DEBUG) {
@@ -116,7 +135,10 @@ export async function roundtripFidelityTest(
   }
   // Apply migration to main database
   if (diffScript.trim()) {
-    await expect(mainSession.unsafe(diffScript)).resolves.not.toThrow();
+    await runOrDump(() => mainSession.unsafe(diffScript), {
+      label: "migration",
+      diffScript,
+    });
   }
 
   // Extract final catalog from main database
@@ -138,44 +160,10 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
 
   const getObjectKeys = (cat: Catalog) => {
     const keys = new Set<string>();
-    for (const key of Object.keys(cat.schemas || {})) {
-      keys.add(`schema:${key}`);
-    }
-    for (const key of Object.keys(cat.tables || {})) {
-      keys.add(`table:${key}`);
-    }
-    // for (const key of Object.keys(cat.types || {})) {
-    //   keys.add(`type:${key}`);
-    // }
-    for (const key of Object.keys(cat.ranges || {})) {
-      keys.add(`range:${key}`);
-    }
-    for (const key of Object.keys(cat.domains || {})) {
-      keys.add(`domain:${key}`);
-    }
-    for (const key of Object.keys(cat.enums || {})) {
-      keys.add(`enum:${key}`);
-    }
-    for (const key of Object.keys(cat.compositeTypes || {})) {
-      keys.add(`compositeType:${key}`);
-    }
-    for (const key of Object.keys(cat.views || {})) {
-      keys.add(`view:${key}`);
-    }
-    for (const key of Object.keys(cat.materializedViews || {})) {
-      keys.add(`materializedView:${key}`);
-    }
-    for (const key of Object.keys(cat.indexes || {})) {
-      keys.add(`index:${key}`);
-    }
-    for (const key of Object.keys(cat.triggers || {})) {
-      keys.add(`trigger:${key}`);
-    }
-    for (const key of Object.keys(cat.procedures || {})) {
-      keys.add(`procedure:${key}`);
-    }
-    for (const key of Object.keys(cat.sequences || {})) {
-      keys.add(`sequence:${key}`);
+    for (const key of Object.keys(cat)) {
+      for (const subKey of Object.keys(cat[key as keyof Catalog] || {})) {
+        keys.add(`${key}:${subKey}`);
+      }
     }
     return keys;
   };

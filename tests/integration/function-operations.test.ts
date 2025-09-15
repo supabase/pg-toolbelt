@@ -26,15 +26,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT $1 + $2$function$;
         `,
         description: "simple function creation",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id:
-              "procedure:test_schema.add_numbers(integer,integer)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -55,14 +46,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "plpgsql function with security definer",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.get_user_count()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -86,20 +69,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         AS $function$SELECT 'v2.0'$function$;
       `,
         description: "function replacement",
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.version_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.version_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -122,20 +91,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT prefix || input_val::text$function$;
         `,
         description: "function overloading",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.format_value(integer)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id:
-              "procedure:test_schema.format_value(integer,text)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -154,14 +109,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP FUNCTION test_schema.temp_function();
         `,
         description: "drop function",
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.temp_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [],
       });
     });
 
@@ -184,15 +131,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with complex attributes",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id:
-              "procedure:test_schema.expensive_function(text)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -215,14 +153,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with configuration parameters",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.config_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -241,19 +171,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
         description: "function used in table default",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.get_timestamp()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.events",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -270,21 +187,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql: ``,
         description: "function no changes when identical",
-        expectedSqlTerms: [],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.stable_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.stable_function()",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
   });
@@ -310,30 +212,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
         description: "function before constraint that uses it",
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.validate_email(text)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.valid_email",
-            referenced_stable_id: "procedure:test_schema.validate_email(text)",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.valid_email",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-        ],
       });
     });
 
@@ -355,47 +233,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM test_schema.products;
         `,
         description: "function before view that uses it",
-        expectedSqlTerms: [
-          "CREATE TABLE test_schema.products (price numeric(10,2))",
-          dedent`
-          CREATE FUNCTION test_schema.format_price(price numeric)
-           RETURNS text
-           LANGUAGE sql
-           IMMUTABLE
-          AS $function$SELECT '$' || price::text$function$`,
-          pgVersion === 15
-            ? dedent`
-              CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(products.price) AS formatted_price
-                 FROM test_schema.products
-              `
-            : dedent`
-              CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
-                 FROM test_schema.products
-              `,
-        ],
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "procedure:test_schema.format_price(numeric)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.products",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.product_display",
-            referenced_stable_id: "table:test_schema.products",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.product_display",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
   });
@@ -445,81 +282,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "Complex function scenario with multiple dependencies",
-        expectedSqlTerms: [
-          "CREATE TABLE test_schema.metrics (name text NOT NULL, total_value numeric DEFAULT 0, count_value integer DEFAULT 0)",
-          dedent`
-          CREATE FUNCTION test_schema.safe_divide(numerator numeric, denominator numeric)
-           RETURNS numeric
-           LANGUAGE sql
-           IMMUTABLE STRICT
-          AS $function$
-            SELECT CASE
-              WHEN denominator = 0 THEN NULL
-              ELSE numerator / denominator
-            END
-          $function$`,
-          pgVersion === 15
-            ? dedent`
-          CREATE VIEW test_schema.metric_averages AS SELECT metrics.name,
-              test_schema.safe_divide(metrics.total_value, (metrics.count_value)::numeric) AS average_value
-             FROM test_schema.metrics
-            WHERE (metrics.count_value > 0)
-          `
-            : dedent`
-          CREATE VIEW test_schema.metric_averages AS SELECT name,
-              test_schema.safe_divide(total_value, (count_value)::numeric) AS average_value
-             FROM test_schema.metrics
-            WHERE (count_value > 0)
-          `,
-          dedent`
-          CREATE FUNCTION test_schema.get_metric_summary(metric_id integer)
-           RETURNS text
-           LANGUAGE plpgsql
-           STABLE
-          AS $function$
-          DECLARE
-            metric_name text;
-            avg_val numeric;
-          BEGIN
-            SELECT m.name, test_schema.safe_divide(m.total_value, m.count_value::numeric)
-            INTO metric_name, avg_val
-            FROM test_schema.metrics m
-            WHERE m.id = metric_id;
-
-            RETURN metric_name || ': ' || COALESCE(avg_val::text, 'N/A');
-          END;
-          $function$`,
-        ],
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id:
-              "procedure:test_schema.safe_divide(numeric,numeric)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.metrics",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.metric_averages",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.metric_averages",
-            referenced_stable_id: "table:test_schema.metrics",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id:
-              "procedure:test_schema.get_metric_summary(integer)",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
   });

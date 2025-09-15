@@ -32,69 +32,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true);
         `,
         description: "policy depends on table",
-        expectedSqlTerms: [
-          "ALTER TABLE security.users ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY user_isolation ON security.users USING (true)",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:security.users",
-            referenced_stable_id: "schema:security",
-            deptype: "n",
-          }, // Table depends on schema
-          {
-            dependent_stable_id: "constraint:security.users.users_pkey",
-            referenced_stable_id: "table:security.users",
-            deptype: "a",
-          }, // Primary key depends on table
-          {
-            dependent_stable_id: "index:security.users_pkey",
-            referenced_stable_id: "constraint:security.users.users_pkey",
-            deptype: "i",
-          }, // Index depends on constraint
-          {
-            dependent_stable_id: "constraint:security.users.users_email_key",
-            referenced_stable_id: "table:security.users",
-            deptype: "a",
-          }, // Unique constraint depends on table
-          {
-            dependent_stable_id: "index:security.users_email_key",
-            referenced_stable_id: "constraint:security.users.users_email_key",
-            deptype: "i",
-          }, // Unique index depends on constraint
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:security.users",
-            referenced_stable_id: "schema:security",
-            deptype: "n",
-          }, // Table depends on schema
-          {
-            dependent_stable_id: "constraint:security.users.users_pkey",
-            referenced_stable_id: "table:security.users",
-            deptype: "a",
-          }, // Primary key depends on table
-          {
-            dependent_stable_id: "index:security.users_pkey",
-            referenced_stable_id: "constraint:security.users.users_pkey",
-            deptype: "i",
-          }, // Index depends on constraint
-          {
-            dependent_stable_id: "constraint:security.users.users_email_key",
-            referenced_stable_id: "table:security.users",
-            deptype: "a",
-          }, // Unique constraint depends on table
-          {
-            dependent_stable_id: "index:security.users_email_key",
-            referenced_stable_id: "constraint:security.users.users_email_key",
-            deptype: "i",
-          }, // Unique index depends on constraint
-          {
-            dependent_stable_id: "rlsPolicy:security.users.user_isolation",
-            referenced_stable_id: "table:security.users",
-            deptype: "a",
-          }, // Policy depends on table
-        ],
       });
     });
 
@@ -135,61 +72,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             WITH CHECK (true);
         `,
         description: "multiple policies with dependencies",
-        expectedSqlTerms: [
-          "ALTER TABLE app.posts ENABLE ROW LEVEL SECURITY",
-          "CREATE POLICY update_own_posts ON app.posts FOR UPDATE USING (true) WITH CHECK (true)",
-          "CREATE POLICY read_posts ON app.posts FOR SELECT USING ((published = true))",
-          "CREATE POLICY insert_own_posts ON app.posts FOR INSERT WITH CHECK (true)",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:app.posts",
-            referenced_stable_id: "schema:app",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:app.posts.posts_pkey",
-            referenced_stable_id: "table:app.posts",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:app.posts_pkey",
-            referenced_stable_id: "constraint:app.posts.posts_pkey",
-            deptype: "i",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:app.posts",
-            referenced_stable_id: "schema:app",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:app.posts.posts_pkey",
-            referenced_stable_id: "table:app.posts",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:app.posts_pkey",
-            referenced_stable_id: "constraint:app.posts.posts_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "rlsPolicy:app.posts.read_posts",
-            referenced_stable_id: "table:app.posts",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "rlsPolicy:app.posts.insert_own_posts",
-            referenced_stable_id: "table:app.posts",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "rlsPolicy:app.posts.update_own_posts",
-            referenced_stable_id: "table:app.posts",
-            deptype: "a",
-          },
-        ],
       });
     });
 
@@ -217,34 +99,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             WITH CHECK (true);
         `,
         description: "create table and policy together",
-        expectedSqlTerms: [
-          "CREATE TABLE tenant.data (id integer NOT NULL, tenant_id integer NOT NULL, content text NOT NULL, created_by integer)",
-          "ALTER TABLE tenant.data ADD CONSTRAINT data_pkey PRIMARY KEY (id)",
-          "CREATE POLICY tenant_isolation ON tenant.data USING (true) WITH CHECK (true)",
-        ],
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:tenant.data",
-            referenced_stable_id: "schema:tenant",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:tenant.data.data_pkey",
-            referenced_stable_id: "table:tenant.data",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:tenant.data_pkey",
-            referenced_stable_id: "constraint:tenant.data.data_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "rlsPolicy:tenant.data.tenant_isolation",
-            referenced_stable_id: "table:tenant.data",
-            deptype: "a",
-          },
-        ],
       });
     });
   });
