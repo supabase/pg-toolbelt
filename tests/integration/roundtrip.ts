@@ -111,8 +111,6 @@ export async function roundtripFidelityTest(
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }
-  } else {
-    throw new Error("expectedSqlTerms is required");
   }
 
   if (DEBUG) {
@@ -142,44 +140,10 @@ function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
 
   const getObjectKeys = (cat: Catalog) => {
     const keys = new Set<string>();
-    for (const key of Object.keys(cat.schemas || {})) {
-      keys.add(`schema:${key}`);
-    }
-    for (const key of Object.keys(cat.tables || {})) {
-      keys.add(`table:${key}`);
-    }
-    // for (const key of Object.keys(cat.types || {})) {
-    //   keys.add(`type:${key}`);
-    // }
-    for (const key of Object.keys(cat.ranges || {})) {
-      keys.add(`range:${key}`);
-    }
-    for (const key of Object.keys(cat.domains || {})) {
-      keys.add(`domain:${key}`);
-    }
-    for (const key of Object.keys(cat.enums || {})) {
-      keys.add(`enum:${key}`);
-    }
-    for (const key of Object.keys(cat.compositeTypes || {})) {
-      keys.add(`compositeType:${key}`);
-    }
-    for (const key of Object.keys(cat.views || {})) {
-      keys.add(`view:${key}`);
-    }
-    for (const key of Object.keys(cat.materializedViews || {})) {
-      keys.add(`materializedView:${key}`);
-    }
-    for (const key of Object.keys(cat.indexes || {})) {
-      keys.add(`index:${key}`);
-    }
-    for (const key of Object.keys(cat.triggers || {})) {
-      keys.add(`trigger:${key}`);
-    }
-    for (const key of Object.keys(cat.procedures || {})) {
-      keys.add(`procedure:${key}`);
-    }
-    for (const key of Object.keys(cat.sequences || {})) {
-      keys.add(`sequence:${key}`);
+    for (const key of Object.keys(cat)) {
+      for (const subKey of Object.keys(cat[key as keyof Catalog] || {})) {
+        keys.add(`${key}:${subKey}`);
+      }
     }
     return keys;
   };

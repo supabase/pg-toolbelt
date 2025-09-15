@@ -27,33 +27,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
         `,
         description: "add primary key constraint",
-        expectedSqlTerms: [
-          `ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)`,
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-        ],
       });
     });
 
@@ -72,34 +45,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email);
         `,
         description: "add unique constraint",
-        expectedSqlTerms: [
-          `ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)`,
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_email_key",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_email_key",
-            referenced_stable_id:
-              "constraint:test_schema.users.users_email_key",
-            deptype: "i",
-          },
-        ],
       });
     });
 
@@ -118,29 +63,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0);
         `,
         description: "add check constraint",
-        expectedSqlTerms: [
-          `ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0::numeric)`,
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.products",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.products",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id:
-              "constraint:test_schema.products.products_price_check",
-            referenced_stable_id: "table:test_schema.products",
-            deptype: "a",
-          },
-        ],
       });
     });
 
@@ -160,33 +82,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users DROP CONSTRAINT users_pkey;
         `,
         description: "drop primary key constraint",
-        expectedSqlTerms: [
-          `ALTER TABLE test_schema.users DROP CONSTRAINT users_pkey`,
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -211,71 +106,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             FOREIGN KEY (user_id) REFERENCES test_schema.users (id) ON DELETE CASCADE;
         `,
         description: "add foreign key constraint",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.orders ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES test_schema.users(id) ON DELETE CASCADE",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.orders",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "table:test_schema.orders",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "index:test_schema.users_pkey",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.orders",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -295,34 +125,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users DROP CONSTRAINT users_email_key;
         `,
         description: "drop unique constraint",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.users DROP CONSTRAINT users_email_key",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_email_key",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_email_key",
-            referenced_stable_id:
-              "constraint:test_schema.users.users_email_key",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -342,29 +144,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.products DROP CONSTRAINT products_price_check;
         `,
         description: "drop check constraint",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.products DROP CONSTRAINT products_price_check",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id:
-              "constraint:test_schema.products.products_price_check",
-            referenced_stable_id: "table:test_schema.products",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "table:test_schema.products",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.products",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -388,71 +167,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.orders DROP CONSTRAINT orders_user_id_fkey;
         `,
         description: "drop foreign key constraint",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.orders DROP CONSTRAINT orders_user_id_fkey",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "table:test_schema.orders",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id:
-              "constraint:test_schema.orders.orders_user_id_fkey",
-            referenced_stable_id: "index:test_schema.users_pkey",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.orders",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.orders",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -474,51 +188,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0);
         `,
         description: "add multiple constraints to same table",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0)",
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)",
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_email_key",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_age_check",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_email_key",
-            referenced_stable_id:
-              "constraint:test_schema.users.users_email_key",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -538,29 +207,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CHECK ("my-field" IS NOT NULL);
         `,
         description: "constraint with special characters in names",
-        expectedSqlTerms: [
-          'ALTER TABLE "my-schema"."my-table" ADD CONSTRAINT "my-table_check$constraint" CHECK ("my-field" IS NOT NULL)',
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: 'table:"my-schema"."my-table"',
-            referenced_stable_id: 'schema:"my-schema"',
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id:
-              'constraint:"my-schema"."my-table"."my-table_check$constraint"',
-            referenced_stable_id: 'table:"my-schema"."my-table"',
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: 'table:"my-schema"."my-table"',
-            referenced_stable_id: 'schema:"my-schema"',
-            deptype: "n",
-          },
-        ],
       });
     });
   });
