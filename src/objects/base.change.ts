@@ -3,7 +3,7 @@ export abstract class Change {
   abstract kind: ChangeKind;
 
   get changeId(): string {
-    return `${this.kind}:${this.dependencies.join(",")}`;
+    return `${this.kind}:${this.serialize()}`;
   }
   // A list of stableIds that this change depends on
   abstract get dependencies(): string[];

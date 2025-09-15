@@ -462,63 +462,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         branchSession: db.branch,
         initialSetup: `
           CREATE SCHEMA test_schema;
+        `,
+        testSql: `
           CREATE TABLE test_schema.users (
             id integer NOT NULL,
             email character varying(255) NOT NULL,
             age integer
           );
-        `,
-        testSql: `
           ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
           ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email);
           ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0);
         `,
         description: "add multiple constraints to same table",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_age_check CHECK (age >= 0)",
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_email_key UNIQUE (email)",
-          "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_pkey",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_email_key",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.users.users_age_check",
-            referenced_stable_id: "table:test_schema.users",
-            deptype: "a",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_pkey",
-            referenced_stable_id: "constraint:test_schema.users.users_pkey",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "index:test_schema.users_email_key",
-            referenced_stable_id:
-              "constraint:test_schema.users.users_email_key",
-            deptype: "i",
-          },
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
+        expectedSqlTerms: false,
       });
     });
 

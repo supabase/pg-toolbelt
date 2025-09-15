@@ -37,6 +37,7 @@ interface ObjectDependency {
 }
 
 export class DependencyModel {
+  public readonly setPairOfObjects = new Set<string>();
   private readonly dependencies = new Map<string, ObjectDependency>();
   private readonly dependencyIndex = new Map<string, Set<string>>();
   private readonly reverseIndex = new Map<string, Set<string>>();
@@ -231,12 +232,23 @@ export class OperationSemantics {
     // Check for dependencies in appropriate states
     for (const stableIdA of stableIdsA) {
       for (const stableIdB of stableIdsB) {
+        if (model.setPairOfObjects.has(`${stableIdA} -> ${stableIdB}`)) {
+          console.log(`skipping ${stableIdA} -> ${stableIdB}`);
+          continue;
+        }
+        model.setPairOfObjects.add(`${stableIdA} -> ${stableIdB}`);
         const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
         const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
         const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);
         const bDependsOnAGeneral = model.hasDependency(stableIdB, stableIdA);
+
         // Apply semantic rules
         if (aDependsOnB || aDependsOnBGeneral) {
+          if (DEBUG) {
+            console.log(
+              `if: ${stableIdA} -> ${stableIdB} (aDependsOnB: ${aDependsOnB}, aDependsOnBGeneral: ${aDependsOnBGeneral}, bDependsOnA: ${bDependsOnA}, bDependsOnAGeneral: ${bDependsOnAGeneral})`,
+            );
+          }
           const constraint = this.dependencySemanticRule(
             i,
             changeA,
@@ -248,6 +260,11 @@ export class OperationSemantics {
             constraints.push(constraint);
           }
         } else if (bDependsOnA || bDependsOnAGeneral) {
+          if (DEBUG) {
+            console.log(
+              `else if: ${stableIdA} -> ${stableIdB} (aDependsOnB: ${aDependsOnB}, aDependsOnBGeneral: ${aDependsOnBGeneral}, bDependsOnA: ${bDependsOnA}, bDependsOnAGeneral: ${bDependsOnAGeneral})`,
+            );
+          }
           const constraint = this.dependencySemanticRule(
             j,
             changeB,
@@ -554,11 +571,10 @@ export class ConstraintSolver {
     const nodeIdToChange = new Map<string, Change>();
     const indexToNodeId = new Map<number, string>();
     // Helper to build unique node id per change instance (not per object)
-    const getNodeId = (index: number, change: Change) =>
-      `${change.changeId}#${index}`;
+    const getNodeId = (change: Change) => `${change.changeId}`;
     // Add all changes as nodes
     for (let i = 0; i < changes.length; i++) {
-      const nodeId = getNodeId(i, changes[i]);
+      const nodeId = getNodeId(changes[i]);
       nodeIdToChange.set(nodeId, changes[i]);
       indexToNodeId.set(i, nodeId);
       graph.addNode(nodeId);

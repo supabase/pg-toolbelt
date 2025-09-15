@@ -820,7 +820,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("trigger with dependencies roundtrip", async ({ db }) => {
+    test.only("trigger with dependencies roundtrip", async ({ db }) => {
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,

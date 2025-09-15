@@ -136,7 +136,7 @@ export class AlterDomainChangeOwner extends AlterChange {
   }
 
   get dependencies() {
-    return [`${this.main.stableId}`, `role:${this.branch.owner}`];
+    return [`${this.main.stableId}`];
   }
 
   serialize(): string {

@@ -326,11 +326,15 @@ export class AlterTableAddConstraint extends AlterChange {
   get dependencies() {
     // If the constraint is a foreign key constraint, use the foreign key table as the dependency
     // so the dependency resolution can ensure the foreign key table is created before the constraint is added
+    const baseDependencies = [
+      `constraint:${this.table.schema}.${this.table.name}.${this.constraint.name}`,
+      `${this.table.stableId}`,
+    ];
     // TODO: the dependencies should include both the table.stableId AND the constraint name
     if (this.foreignKeyTable) {
-      return [`${this.foreignKeyTable.stableId}`, `${this.table.stableId}`];
+      return [`${this.foreignKeyTable.stableId}`, ...baseDependencies];
     }
-    return [`${this.table.stableId}`];
+    return baseDependencies;
   }
 
   serialize(): string {
@@ -668,9 +672,9 @@ export class AlterTableAttachPartition extends AlterChange {
     this.partition = props.partition;
   }
 
-  get stableId(): string {
+  get dependencies() {
     // Depend on the partition child so that it is created before attach
-    return `${this.partition.stableId}`;
+    return [`${this.partition.stableId}`, `${this.parent.stableId}`];
   }
 
   serialize(): string {
@@ -698,9 +702,9 @@ export class AlterTableDetachPartition extends AlterChange {
     this.partition = props.partition;
   }
 
-  get stableId(): string {
+  get dependencies() {
     // Depend on the partition child for consistent ordering with potential drops
-    return `${this.partition.stableId}`;
+    return [`${this.parent.stableId}`, `${this.partition.stableId}`];
   }
 
   serialize(): string {
