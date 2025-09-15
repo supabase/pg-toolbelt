@@ -2,6 +2,7 @@ import { CycleError, Graph, topologicalSort } from "graph-data-structure";
 import { Err, Ok, type Result } from "neverthrow";
 import { DEBUG } from "../tests/constants.ts";
 import { type Catalog, emptyCatalog } from "./catalog.model.js";
+import { graphToMermaid } from "./dependency-utils.ts";
 import {
   AlterChange,
   type Change,
@@ -43,7 +44,7 @@ export class DependencyCycleError extends Error {
   constructor(message: string, cycle: string) {
     super(message);
     this.name = "DependencyCycleError";
-    this.message = message + "\n" + cycle;
+    this.message = `${message}\n${cycle}`;
   }
 }
 
@@ -543,38 +544,6 @@ export class OperationSemantics {
     if (change instanceof ReplaceChange) return 3;
     return 4;
   }
-}
-
-// utils functions to debug dependency resolution
-function graphToMermaid(graph: Graph<string, Constraint>): string {
-  const lines: string[] = ["flowchart TD"]; // Top-down layout
-  const idMap = new Map<string, string>();
-  let index = 0;
-
-  // Declare nodes with safe identifiers and human-readable labels
-  for (const nodeId of graph.nodes) {
-    const safeId = `N${index++}`;
-    idMap.set(nodeId, safeId);
-    const raw = String(nodeId);
-    const labelSource = raw.includes(":")
-      ? raw.split(":").slice(1).join(":")
-      : raw;
-    const label = labelSource.replace(/"/g, '\\"').trim();
-    lines.push(`  ${safeId}["${label}"]`);
-  }
-
-  // Declare edges with labels describing the constraint
-  for (const from of graph.nodes) {
-    const fromId = idMap.get(from);
-    if (!fromId) continue;
-    for (const to of graph.adjacent(from) ?? []) {
-      const toId = idMap.get(to);
-      if (!toId) continue;
-      lines.push(`  ${fromId} -->|depends on ${fromId}| ${toId}`);
-    }
-  }
-
-  return lines.join("\n");
 }
 
 export class ConstraintSolver {
