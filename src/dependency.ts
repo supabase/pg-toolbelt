@@ -18,7 +18,7 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
-import { UnexpectedError } from "./objects/utils.js";
+import { UnexpectedError } from "./objects/utils.ts";
 
 type ConstraintType = "before";
 
@@ -36,7 +36,19 @@ interface ObjectDependency {
   source?: "main" | "branch" | string;
 }
 
+/**
+ * DependencyCycleError that will also print the graph representation of the cycle
+ */
+export class DependencyCycleError extends Error {
+  constructor(message: string, cycle: string) {
+    super(message);
+    this.name = "DependencyCycleError";
+    this.message = message + "\n" + cycle;
+  }
+}
+
 export class DependencyModel {
+  public readonly setPairOfObjects = new Set<string>();
   private readonly dependencies = new Map<string, ObjectDependency>();
   private readonly dependencyIndex = new Map<string, Set<string>>();
   private readonly reverseIndex = new Map<string, Set<string>>();
@@ -101,7 +113,9 @@ export class DependencyExtractor {
     // TODO: ask Oli about why we want to dig deeper than level 0 in the dependencies
     maxDepth: number = 2,
   ): Set<string> {
-    const relevant = new Set<string>(changes.map((change) => change.stableId));
+    const relevant = new Set<string>(
+      changes.flatMap((change) => change.dependencies),
+    );
     // Add transitive dependencies up to max_depth
     for (let i = 0; i < maxDepth; i++) {
       const newObjects = new Set<string>();
@@ -193,15 +207,15 @@ export class OperationSemantics {
         if (i === j) continue;
 
         // Determine which catalog state to use for dependency analysis
-        const constraint = this.analyzeDependencyConstraint(
+        const depsConstraints = this.analyzeDependencyConstraint(
           i,
           changes[i],
           j,
           changes[j],
           model,
         );
-        if (constraint) {
-          constraints.push(constraint);
+        if (depsConstraints.length > 0) {
+          constraints.push(...depsConstraints);
         }
       }
     }
@@ -215,47 +229,69 @@ export class OperationSemantics {
     j: number,
     changeB: Change,
     model: DependencyModel,
-  ): Constraint | null {
-    const stableIdA = changeA.stableId;
-    const stableIdB = changeB.stableId;
+  ): Constraint[] {
+    const constraints: Constraint[] = [];
+    const stableIdsA = changeA.dependencies;
+    const stableIdsB = changeB.dependencies;
 
-    if (!stableIdA || !stableIdB) return null;
+    if (!stableIdsA.length || !stableIdsB.length) return [];
 
     // Choose appropriate catalog state for each operation
     const sourceA = changeA instanceof DropChange ? "main" : "branch";
     const sourceB = changeB instanceof DropChange ? "main" : "branch";
 
     // Check for dependencies in appropriate states
-    const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
-    const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
+    for (const stableIdA of stableIdsA) {
+      for (const stableIdB of stableIdsB) {
+        // if (model.setPairOfObjects.has(`${stableIdA} -> ${stableIdB}`)) {
+        //   continue;
+        // }
+        // model.setPairOfObjects.add(`${stableIdA} -> ${stableIdB}`);
+        const aDependsOnB = model.hasDependency(stableIdA, stableIdB, sourceA);
+        const bDependsOnA = model.hasDependency(stableIdB, stableIdA, sourceB);
+        const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);
+        const bDependsOnAGeneral = model.hasDependency(stableIdB, stableIdA);
 
-    // Also check without source filter for cross-catalog dependencies
-    const aDependsOnBGeneral = model.hasDependency(stableIdA, stableIdB);
-    const bDependsOnAGeneral = model.hasDependency(stableIdB, stableIdA);
-
-    // Apply semantic rules
-    if (aDependsOnB || aDependsOnBGeneral) {
-      return this.dependencySemanticRule(
-        i,
-        changeA,
-        j,
-        changeB,
-        "a_depends_on_b",
-      );
-    } else if (bDependsOnA || bDependsOnAGeneral) {
-      return this.dependencySemanticRule(
-        j,
-        changeB,
-        i,
-        changeA,
-        "b_depends_on_a",
-      );
+        // Apply semantic rules
+        if (aDependsOnB || aDependsOnBGeneral) {
+          const constraint = this.dependencySemanticRule(
+            i,
+            changeA,
+            j,
+            changeB,
+            "a_depends_on_b",
+          );
+          if (constraint) {
+            constraints.push(constraint);
+          }
+        } else if (bDependsOnA || bDependsOnAGeneral) {
+          const constraint = this.dependencySemanticRule(
+            j,
+            changeB,
+            i,
+            changeA,
+            "b_depends_on_a",
+          );
+          if (constraint) {
+            constraints.push(constraint);
+          }
+        }
+      }
     }
 
     // No dependency but we might want to order the operations for styling purposes
     // But they should never impact the correctness of the script, only the order in which
     // changes get processed (eg: for functions with override, start with the one with less arguments to the one with the most number of arguments)
-    return this.semanticRuleNoDependency(i, changeA, j, changeB);
+    const noDependencyConstraint = this.semanticRuleNoDependency(
+      i,
+      changeA,
+      j,
+      changeB,
+    );
+    if (noDependencyConstraint) {
+      constraints.push(noDependencyConstraint);
+    }
+    return constraints;
   }
 
   private dependencySemanticRule(
@@ -290,7 +326,7 @@ export class OperationSemantics {
         referencedChange instanceof CreateTable
       ) {
         return {
-          constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+          constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
           changeAIndex: refIdx, // Sequence owner should come after the table is created
           type: "before",
           changeBIndex: depIdx,
@@ -298,7 +334,7 @@ export class OperationSemantics {
         };
       }
       return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: depIdx, // Sequence should come first
         type: "before",
         changeBIndex: refIdx, // Before Table
@@ -312,7 +348,7 @@ export class OperationSemantics {
       referencedChange instanceof DropChange
     ) {
       return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: depIdx,
         type: "before",
         changeBIndex: refIdx,
@@ -326,7 +362,7 @@ export class OperationSemantics {
       referencedChange instanceof CreateChange
     ) {
       return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -344,7 +380,7 @@ export class OperationSemantics {
         referencedChange instanceof ReplaceChange)
     ) {
       return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -360,7 +396,7 @@ export class OperationSemantics {
         dependentChange instanceof ReplaceChange)
     ) {
       return {
-        constraintStableId: `${dependentChange.stableId} depends on ${referencedChange.stableId}`,
+        constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
@@ -378,7 +414,6 @@ export class OperationSemantics {
     changeB: Change,
   ): Constraint | null {
     // TODO: Investigate and eliminate all special cases
-
     // Rule: Sort function overloads by parameter types
     if (
       changeA instanceof CreateProcedure &&
@@ -399,7 +434,7 @@ export class OperationSemantics {
           // The overload with fewer arguments should come first
           if (argumentCountA < argumentCountB) {
             return {
-              constraintStableId: `${changeA.stableId} overload before ${changeB.stableId}`,
+              constraintStableId: `${changeA.changeId} overload before ${changeB.changeId}`,
               changeAIndex: idxA,
               type: "before",
               changeBIndex: idxB,
@@ -408,7 +443,7 @@ export class OperationSemantics {
             };
           }
           return {
-            constraintStableId: `${changeB.stableId} overload before ${changeA.stableId}`,
+            constraintStableId: `${changeB.changeId} overload before ${changeA.changeId}`,
             changeAIndex: idxB,
             type: "before",
             changeBIndex: idxA,
@@ -423,7 +458,7 @@ export class OperationSemantics {
         if (aSig !== bSig) {
           if (aSig.localeCompare(bSig) < 0) {
             return {
-              constraintStableId: `${changeA.stableId} alphabetical before ${changeB.stableId}`,
+              constraintStableId: `${changeA.changeId} alphabetical before ${changeB.changeId}`,
               changeAIndex: idxA,
               type: "before",
               changeBIndex: idxB,
@@ -433,7 +468,7 @@ export class OperationSemantics {
           }
 
           return {
-            constraintStableId: `${changeB.stableId} alphabetical before ${changeA.stableId}`,
+            constraintStableId: `${changeB.changeId} alphabetical before ${changeA.changeId}`,
             changeAIndex: idxB,
             type: "before",
             changeBIndex: idxA,
@@ -450,17 +485,21 @@ export class OperationSemantics {
   private generateSameObjectConstraints(changes: Change[]): Constraint[] {
     const constraints: Constraint[] = [];
 
-    // Group changes by object
+    // Group changes by their primary dependency (first stableId in the dependencies array)
+    // This ensures that changes with multiple dependencies don't get duplicated across groups
     const objectGroups = new Map<string, number[]>();
     for (let i = 0; i < changes.length; i++) {
-      const stableId = changes[i].stableId;
-      if (stableId) {
-        if (!objectGroups.has(stableId)) {
-          objectGroups.set(stableId, []);
-        }
-        const group = objectGroups.get(stableId);
-        if (group) {
-          group.push(i);
+      const dependencies = changes[i].dependencies;
+      if (dependencies.length > 0) {
+        const primaryStableId = dependencies[0]; // Use first dependency as primary for grouping
+        if (primaryStableId) {
+          if (!objectGroups.has(primaryStableId)) {
+            objectGroups.set(primaryStableId, []);
+          }
+          const group = objectGroups.get(primaryStableId);
+          if (group) {
+            group.push(i);
+          }
         }
       }
     }
@@ -468,18 +507,23 @@ export class OperationSemantics {
     // Add ordering constraints within each group
     for (const indices of objectGroups.values()) {
       if (indices.length > 1) {
-        // Sort by operation priority
+        // Sort by operation priority, but preserve original order when priorities are equal
         const sortedIndices = indices.slice().sort((a, b) => {
-          return (
-            this.getOperationPriority(changes[a]) -
-            this.getOperationPriority(changes[b])
-          );
+          const priorityA = this.getOperationPriority(changes[a]);
+          const priorityB = this.getOperationPriority(changes[b]);
+
+          // If priorities are equal, preserve original order (smaller index first)
+          if (priorityA === priorityB) {
+            return a - b;
+          }
+
+          return priorityA - priorityB;
         });
 
         // Add sequential constraints
         for (let k = 0; k < sortedIndices.length - 1; k++) {
           constraints.push({
-            constraintStableId: `${changes[sortedIndices[k]].stableId} -> ${changes[sortedIndices[k + 1]].stableId}`,
+            constraintStableId: `${changes[sortedIndices[k]].changeId} -> ${changes[sortedIndices[k + 1]].changeId}`,
             changeAIndex: sortedIndices[k],
             type: "before",
             changeBIndex: sortedIndices[k + 1],
@@ -502,19 +546,34 @@ export class OperationSemantics {
 }
 
 // utils functions to debug dependency resolution
-function graphToDot(graph: Graph<string, Constraint>): string {
-  const lines: string[] = ["digraph G {"];
+function graphToMermaid(graph: Graph<string, Constraint>): string {
+  const lines: string[] = ["flowchart TD"]; // Top-down layout
+  const idMap = new Map<string, string>();
+  let index = 0;
+
+  // Declare nodes with safe identifiers and human-readable labels
+  for (const nodeId of graph.nodes) {
+    const safeId = `N${index++}`;
+    idMap.set(nodeId, safeId);
+    const raw = String(nodeId);
+    const labelSource = raw.includes(":")
+      ? raw.split(":").slice(1).join(":")
+      : raw;
+    const label = labelSource.replace(/"/g, '\\"').trim();
+    lines.push(`  ${safeId}["${label}"]`);
+  }
+
+  // Declare edges with labels describing the constraint
   for (const from of graph.nodes) {
+    const fromId = idMap.get(from);
+    if (!fromId) continue;
     for (const to of graph.adjacent(from) ?? []) {
-      const constraint = graph.edgeProperties.get(from)?.get(to);
-      if (constraint) {
-        lines.push(
-          `  "${from}" -> "${to}" [constraint="${constraint.constraintStableId} :: ${constraint.reason}"];`,
-        );
-      }
+      const toId = idMap.get(to);
+      if (!toId) continue;
+      lines.push(`  ${fromId} -->|depends on ${fromId}| ${toId}`);
     }
   }
-  lines.push("}");
+
   return lines.join("\n");
 }
 
@@ -522,16 +581,15 @@ export class ConstraintSolver {
   solve(
     changes: Change[],
     constraints: Constraint[],
-  ): Result<Change[], CycleError | UnexpectedError> {
+  ): Result<Change[], DependencyCycleError | UnexpectedError> {
     const graph = new Graph<string, Constraint>();
     const nodeIdToChange = new Map<string, Change>();
     const indexToNodeId = new Map<number, string>();
     // Helper to build unique node id per change instance (not per object)
-    const getNodeId = (index: number, change: Change) =>
-      `${change.stableId}#${index}`;
+    const getNodeId = (change: Change) => `${change.changeId}`;
     // Add all changes as nodes
     for (let i = 0; i < changes.length; i++) {
-      const nodeId = getNodeId(i, changes[i]);
+      const nodeId = getNodeId(changes[i]);
       nodeIdToChange.set(nodeId, changes[i]);
       indexToNodeId.set(i, nodeId);
       graph.addNode(nodeId);
@@ -550,7 +608,7 @@ export class ConstraintSolver {
     try {
       const orderedNodeIds = topologicalSort(graph);
       if (DEBUG) {
-        console.log("graph", graphToDot(graph));
+        console.log("graph", graphToMermaid(graph));
         console.log("constraints", constraints);
       }
       return new Ok(
@@ -559,10 +617,9 @@ export class ConstraintSolver {
       );
     } catch (error) {
       if (error instanceof CycleError) {
-        if (DEBUG) {
-          console.log("graph", graphToDot(graph));
-        }
-        return new Err(error);
+        return new Err(
+          new DependencyCycleError(error.message, graphToMermaid(graph)),
+        );
       }
       return new Err(new UnexpectedError("Unknown error", error));
     }
@@ -582,7 +639,7 @@ export class DependencyResolver {
 
   resolveDependencies(
     changes: Change[],
-  ): Result<Change[], CycleError | UnexpectedError> {
+  ): Result<Change[], DependencyCycleError | UnexpectedError> {
     if (changes.length === 0) {
       return new Ok(changes);
     }
@@ -596,7 +653,7 @@ export function resolveDependencies(
   changes: Change[],
   mainCatalog: Catalog,
   branchCatalog: Catalog | null,
-): Result<Change[], CycleError | UnexpectedError> {
+): Result<Change[], DependencyCycleError | UnexpectedError> {
   if (branchCatalog === null) {
     branchCatalog = emptyCatalog();
   }
