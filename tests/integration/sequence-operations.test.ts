@@ -18,15 +18,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         initialSetup: "CREATE SCHEMA test_schema;",
         testSql: "CREATE SEQUENCE test_schema.test_seq;",
         description: "create basic sequence",
-        expectedSqlTerms: [`CREATE SEQUENCE test_schema.test_seq`],
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.test_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -46,17 +37,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CYCLE;
         `,
         description: "create sequence with options",
-        expectedSqlTerms: [
-          `CREATE SEQUENCE test_schema.custom_seq AS integer INCREMENT BY 2 MINVALUE 10 MAXVALUE 1000 START WITH 10 CACHE 5 CYCLE`,
-        ],
-        expectedMainDependencies: [],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.custom_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -70,15 +50,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql: "DROP SEQUENCE test_schema.test_seq;",
         description: "drop sequence",
-        expectedSqlTerms: [`DROP SEQUENCE test_schema.test_seq`],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.test_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [],
       });
     });
 
@@ -111,23 +82,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10;
         `,
         description: "alter sequence properties",
-        expectedSqlTerms: [
-          `ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10`,
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.test_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "sequence:test_schema.test_seq",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
   });

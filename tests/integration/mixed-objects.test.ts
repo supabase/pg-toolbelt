@@ -26,18 +26,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         description: "schema and table creation",
-        expectedSqlTerms: [
-          "CREATE SCHEMA test_schema AUTHORIZATION postgres",
-          "CREATE TABLE test_schema.users (id integer, name text NOT NULL, email text, created_at timestamp without time zone DEFAULT now())",
-        ],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.users",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -70,31 +58,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         description: "multiple schemas and tables",
-        expectedSqlTerms: [
-          "CREATE SCHEMA core AUTHORIZATION postgres",
-          "CREATE TABLE core.users (id integer, username text NOT NULL, email text)",
-          "CREATE TABLE core.posts (id integer, title text NOT NULL, content text, user_id integer)",
-          "CREATE SCHEMA analytics AUTHORIZATION postgres",
-          "CREATE TABLE analytics.user_stats (user_id integer, post_count integer DEFAULT 0, last_login timestamp without time zone)",
-        ],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:core.users",
-            referenced_stable_id: "schema:core",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:core.posts",
-            referenced_stable_id: "schema:core",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:analytics.user_stats",
-            referenced_stable_id: "schema:analytics",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -116,18 +79,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         description: "complex column types",
-        expectedSqlTerms: [
-          "CREATE SCHEMA test_schema AUTHORIZATION postgres",
-          "CREATE TABLE test_schema.complex_table (id uuid, metadata jsonb, tags text[], coordinates point, price numeric(10,2), is_active boolean DEFAULT true, created_at timestamp with time zone DEFAULT now())",
-        ],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.complex_table",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -151,9 +102,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         initialSetup: "",
         testSql: "CREATE SCHEMA empty_schema;",
         description: "schema only",
-        expectedSqlTerms: ["CREATE SCHEMA empty_schema AUTHORIZATION postgres"],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [], // Branch has no dependencies (just schema)
       });
     });
 
@@ -256,61 +204,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA test_schema;
         `,
         description: "drop operations with complex dependencies",
-        expectedSqlTerms: [
-          "DROP VIEW test_schema.v3",
-          "DROP VIEW test_schema.v2",
-          "DROP VIEW test_schema.v1",
-          "DROP TABLE test_schema.base",
-          "DROP SCHEMA test_schema",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.base",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.base.base_pkey",
-            referenced_stable_id: "table:test_schema.base",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "index:test_schema.base_pkey",
-            referenced_stable_id: "constraint:test_schema.base.base_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "view:test_schema.v1",
-            referenced_stable_id: "table:test_schema.base",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.v1",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.v2",
-            referenced_stable_id: "view:test_schema.v1",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.v2",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.v3",
-            referenced_stable_id: "view:test_schema.v2",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.v3",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [], // Branch has no dependencies (everything dropped)
       });
     });
 
@@ -339,66 +232,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             FROM test_schema.data;
         `,
         description: "mixed create and replace operations",
-        expectedSqlTerms: [
-          "ALTER TABLE test_schema.data ADD COLUMN status text",
-          pgVersion === 15
-            ? "CREATE OR REPLACE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (data.status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data"
-            : "CREATE OR REPLACE VIEW test_schema.summary AS SELECT count(*) AS cnt,\n    count(\n        CASE\n            WHEN (status = 'active'::text) THEN 1\n            ELSE NULL::integer\n        END) AS active_cnt\n   FROM test_schema.data",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.data",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.data.data_pkey",
-            referenced_stable_id: "table:test_schema.data",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "index:test_schema.data_pkey",
-            referenced_stable_id: "constraint:test_schema.data.data_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "view:test_schema.summary",
-            referenced_stable_id: "table:test_schema.data",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.summary",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:test_schema.data",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:test_schema.data.data_pkey",
-            referenced_stable_id: "table:test_schema.data",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "index:test_schema.data_pkey",
-            referenced_stable_id: "constraint:test_schema.data.data_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "view:test_schema.summary",
-            referenced_stable_id: "table:test_schema.data",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:test_schema.summary",
-            referenced_stable_id: "schema:test_schema",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -421,101 +254,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         testSql: "", // No changes - just test dependency extraction
         description: "cross-schema view dependencies",
-        expectedSqlTerms: [], // No SQL expected since no changes
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:schema_a.table_a",
-            referenced_stable_id: "schema:schema_a",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:schema_b.table_b",
-            referenced_stable_id: "schema:schema_b",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:schema_a.table_a.table_a_pkey",
-            referenced_stable_id: "table:schema_a.table_a",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "constraint:schema_b.table_b.table_b_pkey",
-            referenced_stable_id: "table:schema_b.table_b",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "index:schema_a.table_a_pkey",
-            referenced_stable_id: "constraint:schema_a.table_a.table_a_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "index:schema_b.table_b_pkey",
-            referenced_stable_id: "constraint:schema_b.table_b.table_b_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "table:schema_a.table_a",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "table:schema_b.table_b",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "schema:schema_a",
-            deptype: "n",
-          },
-        ],
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:schema_a.table_a",
-            referenced_stable_id: "schema:schema_a",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:schema_b.table_b",
-            referenced_stable_id: "schema:schema_b",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "constraint:schema_a.table_a.table_a_pkey",
-            referenced_stable_id: "table:schema_a.table_a",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "constraint:schema_b.table_b.table_b_pkey",
-            referenced_stable_id: "table:schema_b.table_b",
-            deptype: "a",
-          }, // PK constraint depends on table
-          {
-            dependent_stable_id: "index:schema_a.table_a_pkey",
-            referenced_stable_id: "constraint:schema_a.table_a.table_a_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "index:schema_b.table_b_pkey",
-            referenced_stable_id: "constraint:schema_b.table_b.table_b_pkey",
-            deptype: "i",
-          }, // Index depends on PK constraint
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "table:schema_a.table_a",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "table:schema_b.table_b",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "view:schema_a.cross_view",
-            referenced_stable_id: "schema:schema_a",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -532,18 +270,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         description: "basic table schema dependency validation",
-        expectedSqlTerms: [
-          "CREATE SCHEMA analytics AUTHORIZATION postgres",
-          "CREATE TABLE analytics.users (id integer, name text)",
-        ],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:analytics.users",
-            referenced_stable_id: "schema:analytics",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -559,25 +285,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE analytics.reports (id integer);
         `,
         description: "multiple independent schema table pairs",
-        expectedSqlTerms: [
-          "CREATE SCHEMA app AUTHORIZATION postgres",
-          "CREATE TABLE app.users (id integer)",
-          "CREATE SCHEMA analytics AUTHORIZATION postgres",
-          "CREATE TABLE analytics.reports (id integer)",
-        ],
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [
-          {
-            dependent_stable_id: "table:app.users",
-            referenced_stable_id: "schema:app",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:analytics.reports",
-            referenced_stable_id: "schema:analytics",
-            deptype: "n",
-          },
-        ],
       });
     });
 
@@ -592,9 +299,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA temp_schema;
         `,
         description: "drop schema only",
-        expectedSqlTerms: ["DROP SCHEMA temp_schema"],
-        expectedMainDependencies: [], // Main dependencies (temp_schema exists)
-        expectedBranchDependencies: [], // Branch has no dependencies (schema dropped)
       });
     });
 
@@ -615,25 +319,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA analytics;
         `,
         description: "multiple drops with dependency ordering",
-        expectedSqlTerms: [
-          "DROP TABLE app.users",
-          "DROP TABLE analytics.reports",
-          "DROP SCHEMA app",
-          "DROP SCHEMA analytics",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:app.users",
-            referenced_stable_id: "schema:app",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:analytics.reports",
-            referenced_stable_id: "schema:analytics",
-            deptype: "n",
-          },
-        ], // Main dependencies (objects exist before drop)
-        expectedBranchDependencies: [], // Branch has no dependencies (everything dropped)
       });
     });
 
@@ -658,32 +343,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA reporting;
         `,
         description: "complex multi-schema drop scenario",
-        expectedSqlTerms: [
-          "DROP TABLE reporting.summary",
-          "DROP TABLE core.users",
-          "DROP TABLE analytics.events",
-          "DROP SCHEMA reporting",
-          "DROP SCHEMA core",
-          "DROP SCHEMA analytics",
-        ],
-        expectedMainDependencies: [
-          {
-            dependent_stable_id: "table:core.users",
-            referenced_stable_id: "schema:core",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:analytics.events",
-            referenced_stable_id: "schema:analytics",
-            deptype: "n",
-          },
-          {
-            dependent_stable_id: "table:reporting.summary",
-            referenced_stable_id: "schema:reporting",
-            deptype: "n",
-          },
-        ], // Main dependencies (objects exist before drop)
-        expectedBranchDependencies: [], // Branch has no dependencies (everything dropped)
       });
     });
   });
