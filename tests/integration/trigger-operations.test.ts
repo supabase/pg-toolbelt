@@ -160,6 +160,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes();",
         description: "multi-event trigger",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.audit_changes()",

@@ -26,6 +26,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT $1 + $2$function$;
         `,
         description: "simple function creation",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -55,6 +56,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "plpgsql function with security definer",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -86,6 +88,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         AS $function$SELECT 'v2.0'$function$;
       `,
         description: "function replacement",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.version_function()",
@@ -122,6 +125,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           AS $function$SELECT prefix || input_val::text$function$;
         `,
         description: "function overloading",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -154,6 +158,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP FUNCTION test_schema.temp_function();
         `,
         description: "drop function",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "procedure:test_schema.temp_function()",
@@ -184,6 +189,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with complex attributes",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -215,6 +221,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           $function$;
         `,
         description: "function with configuration parameters",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -241,6 +248,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
         description: "function used in table default",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {
@@ -310,6 +318,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
         description: "function before constraint that uses it",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [],
         expectedBranchDependencies: [
           {

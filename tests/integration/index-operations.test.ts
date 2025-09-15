@@ -26,6 +26,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE INDEX idx_users_email ON test_schema.users USING btree (email);",
         description: "create btree index",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.users",
@@ -62,6 +63,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE UNIQUE INDEX idx_products_sku ON test_schema.products USING btree (sku);",
         description: "create unique index",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.products",
@@ -99,6 +101,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE INDEX idx_orders_pending ON test_schema.orders USING btree (created_at) WHERE status::text = 'pending'::text;",
         description: "create partial index",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.orders",
@@ -135,6 +138,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE INDEX idx_customers_email_lower ON test_schema.customers USING btree (lower(email::text));",
         description: "create functional index",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.customers",
@@ -173,6 +177,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql:
           "CREATE INDEX idx_sales_region_date ON test_schema.sales USING btree (region, sale_date);",
         description: "create multicolumn index",
+        expectedSqlTerms: "same-as-test-sql",
         expectedMainDependencies: [
           {
             dependent_stable_id: "table:test_schema.sales",
