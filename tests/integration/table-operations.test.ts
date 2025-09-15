@@ -222,5 +222,113 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         ],
       });
     });
+
+    test("partitioned table RANGE", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `CREATE SCHEMA test_schema;`,
+        testSql: `
+          CREATE TABLE test_schema.events (
+            created_at timestamp without time zone NOT NULL,
+            payload text
+          ) PARTITION BY RANGE (created_at);
+
+          CREATE TABLE test_schema.events_2024 PARTITION OF test_schema.events
+          FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+
+          CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events
+          FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+        `,
+        description: "partitioned table by RANGE",
+        expectedSqlTerms: [
+          `CREATE TABLE test_schema.events (created_at timestamp without time zone NOT NULL, payload text) PARTITION BY RANGE (created_at)`,
+          // TODO: sort PARTITION OF statements alphabetically
+          `CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events FOR VALUES FROM ('2025-01-01 00:00:00') TO ('2026-01-01 00:00:00')`,
+          `CREATE TABLE test_schema.events_2024 PARTITION OF test_schema.events FOR VALUES FROM ('2024-01-01 00:00:00') TO ('2025-01-01 00:00:00')`,
+        ],
+        expectedMainDependencies: [],
+        expectedBranchDependencies: [
+          {
+            dependent_stable_id: "table:test_schema.events",
+            referenced_stable_id: "schema:test_schema",
+            deptype: "n",
+          },
+          {
+            dependent_stable_id: "table:test_schema.events_2024",
+            referenced_stable_id: "schema:test_schema",
+            deptype: "n",
+          },
+          {
+            dependent_stable_id: "table:test_schema.events_2024",
+            referenced_stable_id: "table:test_schema.events",
+            deptype: "a",
+          },
+          {
+            dependent_stable_id: "table:test_schema.events_2025",
+            referenced_stable_id: "schema:test_schema",
+            deptype: "n",
+          },
+          {
+            dependent_stable_id: "table:test_schema.events_2025",
+            referenced_stable_id: "table:test_schema.events",
+            deptype: "a",
+          },
+        ],
+      });
+    });
+
+    test("attach partition", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.events (
+            created_at timestamp without time zone NOT NULL,
+            payload text
+          ) PARTITION BY RANGE (created_at);
+
+          CREATE TABLE test_schema.events_2025 (
+            created_at timestamp without time zone NOT NULL,
+            payload text
+          );
+        `,
+        testSql: `
+          ALTER TABLE test_schema.events
+          ATTACH PARTITION test_schema.events_2025
+          FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+        `,
+        description: "attach an existing table as partition",
+        expectedSqlTerms: [
+          `ALTER TABLE test_schema.events ATTACH PARTITION test_schema.events_2025 FOR VALUES FROM ('2025-01-01 00:00:00') TO ('2026-01-01 00:00:00')`,
+        ],
+      });
+    });
+
+    test("detach partition", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.events (
+            created_at timestamp without time zone NOT NULL,
+            payload text
+          ) PARTITION BY RANGE (created_at);
+
+          CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events
+          FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+        `,
+        testSql: `
+          ALTER TABLE test_schema.events
+          DETACH PARTITION test_schema.events_2025;
+        `,
+        description: "detach an existing partition",
+        expectedSqlTerms: [
+          `ALTER TABLE test_schema.events DETACH PARTITION test_schema.events_2025`,
+        ],
+      });
+    });
   });
 }
