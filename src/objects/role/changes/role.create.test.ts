@@ -15,6 +15,7 @@ describe("role", () => {
       connection_limit: null,
       can_bypass_rls: false,
       config: null,
+      comment: null,
     });
 
     const change = new CreateRole({
@@ -36,6 +37,7 @@ describe("role", () => {
       connection_limit: 5,
       can_bypass_rls: true,
       config: null,
+      comment: null,
     });
 
     const change = new CreateRole({ role });

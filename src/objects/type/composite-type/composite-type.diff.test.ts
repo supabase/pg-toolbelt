@@ -29,6 +29,7 @@ const base: CompositeTypeProps = {
   options: null,
   partition_bound: null,
   owner: "o1",
+  comment: null,
   columns: [],
 };
 

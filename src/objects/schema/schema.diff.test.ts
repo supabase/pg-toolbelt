@@ -11,6 +11,7 @@ import { Schema, type SchemaProps } from "./schema.model.ts";
 const base: SchemaProps = {
   schema: "utils",
   owner: "o1",
+  comment: null,
 };
 
 describe.concurrent("schema.diff", () => {

@@ -7,6 +7,10 @@ import {
   AlterRlsPolicySetWithCheckExpression,
   ReplaceRlsPolicy,
 } from "./changes/rls-policy.alter.ts";
+import {
+  CreateCommentOnRlsPolicy,
+  DropCommentOnRlsPolicy,
+} from "./changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./changes/rls-policy.drop.ts";
 import type { RlsPolicy } from "./rls-policy.model.ts";
@@ -27,7 +31,11 @@ export function diffRlsPolicies(
   const changes: Change[] = [];
 
   for (const rlsPolicyId of created) {
-    changes.push(new CreateRlsPolicy({ rlsPolicy: branch[rlsPolicyId] }));
+    const pol = branch[rlsPolicyId];
+    changes.push(new CreateRlsPolicy({ rlsPolicy: pol }));
+    if (pol.comment !== null) {
+      changes.push(new CreateCommentOnRlsPolicy({ rlsPolicy: pol }));
+    }
   }
 
   for (const rlsPolicyId of dropped) {
@@ -92,6 +100,19 @@ export function diffRlsPolicies(
             branch: branchRlsPolicy,
           }),
         );
+      }
+
+      // COMMENT
+      if (mainRlsPolicy.comment !== branchRlsPolicy.comment) {
+        if (branchRlsPolicy.comment === null) {
+          changes.push(
+            new DropCommentOnRlsPolicy({ rlsPolicy: mainRlsPolicy }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnRlsPolicy({ rlsPolicy: branchRlsPolicy }),
+          );
+        }
       }
 
       // Note: RLS policy renaming would require drop+create due to identity fields

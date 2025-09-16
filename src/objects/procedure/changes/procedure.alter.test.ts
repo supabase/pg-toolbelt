@@ -42,6 +42,7 @@ describe.concurrent("procedure", () => {
         config: null,
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({
         ...props,
@@ -91,6 +92,7 @@ describe.concurrent("procedure", () => {
         config: null,
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({
         ...props,
@@ -140,6 +142,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({
         ...props,
@@ -189,6 +192,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...props, security_definer: false });
       const branch = new Procedure({ ...props, security_definer: true });
@@ -228,6 +232,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...props, security_definer: true });
       const branch = new Procedure({ ...props, security_definer: false });
@@ -267,6 +272,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
       const branch = new Procedure({
@@ -313,6 +319,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, config: null });
       const branch = new Procedure({ ...base, config: ["search_path=public"] });
@@ -352,6 +359,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, volatility: "v" });
       const branch = new Procedure({ ...base, volatility: "i" });
@@ -390,6 +398,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, is_strict: false });
       const branch = new Procedure({ ...base, is_strict: true });
@@ -428,6 +437,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, is_strict: true });
       const branch = new Procedure({ ...base, is_strict: false });
@@ -466,6 +476,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, leakproof: false });
       const branch = new Procedure({ ...base, leakproof: true });
@@ -504,6 +515,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, leakproof: true });
       const branch = new Procedure({ ...base, leakproof: false });
@@ -542,6 +554,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, parallel_safety: "u" });
       const branch = new Procedure({ ...base, parallel_safety: "r" });
@@ -581,6 +594,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, security_definer: false });
       const branch = new Procedure({ ...base, security_definer: true });
@@ -619,6 +633,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, security_definer: true });
       const branch = new Procedure({ ...base, security_definer: false });
@@ -657,6 +672,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
       const branch = new Procedure({
@@ -702,6 +718,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({
         ...base,
@@ -747,6 +764,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, volatility: "v" });
       const branch = new Procedure({ ...base, volatility: "s" });
@@ -785,6 +803,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, is_strict: false });
       const branch = new Procedure({ ...base, is_strict: true });
@@ -823,6 +842,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, is_strict: true });
       const branch = new Procedure({ ...base, is_strict: false });
@@ -861,6 +881,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, leakproof: false });
       const branch = new Procedure({ ...base, leakproof: true });
@@ -899,6 +920,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, leakproof: true });
       const branch = new Procedure({ ...base, leakproof: false });
@@ -937,6 +959,7 @@ describe.concurrent("procedure", () => {
         owner: "test",
         execution_cost: 0,
         result_rows: 0,
+        comment: null,
       };
       const main = new Procedure({ ...base, parallel_safety: "u" });
       const branch = new Procedure({ ...base, parallel_safety: "s" });

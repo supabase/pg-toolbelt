@@ -2,6 +2,10 @@ import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterRoleSetOptions, ReplaceRole } from "./changes/role.alter.ts";
+import {
+  CreateCommentOnRole,
+  DropCommentOnRole,
+} from "./changes/role.comment.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
 import type { Role } from "./role.model.ts";
@@ -22,7 +26,11 @@ export function diffRoles(
   const changes: Change[] = [];
 
   for (const roleId of created) {
-    changes.push(new CreateRole({ role: branch[roleId] }));
+    const role = branch[roleId];
+    changes.push(new CreateRole({ role }));
+    if (role.comment !== null) {
+      changes.push(new CreateCommentOnRole({ role }));
+    }
   }
 
   for (const roleId of dropped) {
@@ -48,6 +56,15 @@ export function diffRoles(
       changes.push(
         new AlterRoleSetOptions({ main: mainRole, branch: branchRole }),
       );
+
+      // COMMENT
+      if (mainRole.comment !== branchRole.comment) {
+        if (branchRole.comment === null) {
+          changes.push(new DropCommentOnRole({ role: mainRole }));
+        } else {
+          changes.push(new CreateCommentOnRole({ role: branchRole }));
+        }
+      }
     }
   }
 

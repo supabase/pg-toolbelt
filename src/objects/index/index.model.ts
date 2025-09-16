@@ -31,6 +31,7 @@ const indexPropsSchema = z.object({
   is_constraint: z.boolean(),
   table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
   definition: z.string(),
+  comment: z.string().nullable(),
 });
 
 /**
@@ -72,6 +73,7 @@ export class Index extends BasePgModel {
   public readonly table_relkind: IndexProps["table_relkind"];
   public readonly is_constraint: IndexProps["is_constraint"];
   public readonly definition: IndexProps["definition"];
+  public readonly comment: IndexProps["comment"];
 
   constructor(props: IndexProps) {
     super();
@@ -102,6 +104,7 @@ export class Index extends BasePgModel {
     this.table_relkind = props.table_relkind;
     this.is_constraint = props.is_constraint;
     this.definition = props.definition;
+    this.comment = props.comment;
   }
 
   get stableId(): `index:${string}` {
@@ -206,6 +209,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
       pg_get_expr(i.indpred,  i.indrelid) as partial_predicate,
       pg_get_indexdef(i.indexrelid, 0, true) as definition
+      , obj_description(c.oid, 'pg_class') as comment
 
     from pg_index i
     join pg_class c  on c.oid  = i.indexrelid

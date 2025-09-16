@@ -12,7 +12,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "schema": "pg_catalog",
       "relocatable": false,
       "version": "1.0",
-      "owner": "postgres"
+      "owner": "postgres",
+      "comment": "PL/pgSQL procedural language"
     }
   },
   "procedures": {},
@@ -30,7 +31,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_database_owner": {
       "role_name": "pg_database_owner",
@@ -42,7 +44,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_read_all_data": {
       "role_name": "pg_read_all_data",
@@ -54,7 +57,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_write_all_data": {
       "role_name": "pg_write_all_data",
@@ -66,13 +70,15 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     }
   },
   "schemas": {
     "schema:public": {
       "schema": "public",
-      "owner": "pg_database_owner"
+      "owner": "pg_database_owner",
+      "comment": "standard public schema"
     }
   },
   "sequences": {},
@@ -81,6 +87,21 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "ranges": {},
   "views": {},
   "depends": [
+    {
+      "dependent_stable_id": "comment:plpgsql",
+      "referenced_stable_id": "extension:plpgsql",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "comment:plpgsql",
+      "referenced_stable_id": "language:plpgsql",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "comment:sql",
+      "referenced_stable_id": "language:sql",
+      "deptype": "n"
+    },
     {
       "dependent_stable_id": "compositeType:information_schema._pg_foreign_data_wrappers",
       "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",
@@ -5819,7 +5840,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "schema": "pg_catalog",
       "relocatable": false,
       "version": "1.0",
-      "owner": "postgres"
+      "owner": "postgres",
+      "comment": "PL/pgSQL procedural language"
     }
   },
   "procedures": {},
@@ -5837,7 +5859,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_create_subscription": {
       "role_name": "pg_create_subscription",
@@ -5849,7 +5872,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_database_owner": {
       "role_name": "pg_database_owner",
@@ -5861,7 +5885,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_maintain": {
       "role_name": "pg_maintain",
@@ -5873,7 +5898,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_read_all_data": {
       "role_name": "pg_read_all_data",
@@ -5885,7 +5911,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_use_reserved_connections": {
       "role_name": "pg_use_reserved_connections",
@@ -5897,7 +5924,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     },
     "role:pg_write_all_data": {
       "role_name": "pg_write_all_data",
@@ -5909,13 +5937,15 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_replicate": false,
       "connection_limit": -1,
       "can_bypass_rls": false,
-      "config": null
+      "config": null,
+      "comment": null
     }
   },
   "schemas": {
     "schema:public": {
       "schema": "public",
-      "owner": "pg_database_owner"
+      "owner": "pg_database_owner",
+      "comment": "standard public schema"
     }
   },
   "sequences": {},
@@ -5924,6 +5954,21 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "ranges": {},
   "views": {},
   "depends": [
+    {
+      "dependent_stable_id": "comment:plpgsql",
+      "referenced_stable_id": "extension:plpgsql",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "comment:plpgsql",
+      "referenced_stable_id": "language:plpgsql",
+      "deptype": "n"
+    },
+    {
+      "dependent_stable_id": "comment:sql",
+      "referenced_stable_id": "language:sql",
+      "deptype": "n"
+    },
     {
       "dependent_stable_id": "compositeType:information_schema._pg_foreign_data_wrappers",
       "referenced_stable_id": "view:information_schema._pg_foreign_data_wrappers",

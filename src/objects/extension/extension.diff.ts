@@ -6,6 +6,10 @@ import {
   AlterExtensionUpdateVersion,
   ReplaceExtension,
 } from "./changes/extension.alter.ts";
+import {
+  CreateCommentOnExtension,
+  DropCommentOnExtension,
+} from "./changes/extension.comment.ts";
 import { CreateExtension } from "./changes/extension.create.ts";
 import { DropExtension } from "./changes/extension.drop.ts";
 import type { Extension } from "./extension.model.ts";
@@ -26,7 +30,11 @@ export function diffExtensions(
   const changes: Change[] = [];
 
   for (const extensionId of created) {
-    changes.push(new CreateExtension({ extension: branch[extensionId] }));
+    const ext = branch[extensionId];
+    changes.push(new CreateExtension({ extension: ext }));
+    if (ext.comment !== null) {
+      changes.push(new CreateCommentOnExtension({ extension: ext }));
+    }
   }
 
   for (const extensionId of dropped) {
@@ -74,6 +82,17 @@ export function diffExtensions(
           branch: branchExtension,
         }),
       );
+    }
+
+    // COMMENT
+    if (mainExtension.comment !== branchExtension.comment) {
+      if (branchExtension.comment === null) {
+        changes.push(new DropCommentOnExtension({ extension: mainExtension }));
+      } else {
+        changes.push(
+          new CreateCommentOnExtension({ extension: branchExtension }),
+        );
+      }
     }
 
     // Note: Extension renaming would also use ALTER EXTENSION ... RENAME TO ...

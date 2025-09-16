@@ -15,6 +15,7 @@ describe.concurrent("extension", () => {
         schema: "public",
         relocatable: true,
         owner: "test",
+        comment: null,
       };
       const main = new Extension({
         ...props,
@@ -41,6 +42,7 @@ describe.concurrent("extension", () => {
         relocatable: true,
         version: "1.0",
         owner: "test",
+        comment: null,
       };
       const main = new Extension({
         ...props,
@@ -67,6 +69,7 @@ describe.concurrent("extension", () => {
         schema: "public",
         relocatable: true,
         version: "1.0",
+        comment: null,
       };
       const main = new Extension({
         ...props,
@@ -93,6 +96,7 @@ describe.concurrent("extension", () => {
         schema: "public",
         version: "1.0",
         owner: "test",
+        comment: null,
       };
       const main = new Extension({
         ...props,

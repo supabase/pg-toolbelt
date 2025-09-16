@@ -24,6 +24,7 @@ describe("trigger", () => {
       owner: "test",
       definition:
         "CREATE TRIGGER test_trigger BEFORE UPDATE ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.test_function()",
+      comment: null,
     });
 
     const change = new DropTrigger({

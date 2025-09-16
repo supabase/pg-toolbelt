@@ -58,6 +58,7 @@ const tableConstraintPropsSchema = z.object({
   check_expression: z.string().nullable(),
   owner: z.string(),
   definition: z.string(),
+  comment: z.string().nullable().optional(),
 });
 
 export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
@@ -79,6 +80,7 @@ const tablePropsSchema = z.object({
   partition_bound: z.string().nullable(),
   partition_by: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable().optional(),
   parent_schema: z.string().nullable(),
   parent_name: z.string().nullable(),
   columns: z.array(columnPropsSchema),
@@ -104,6 +106,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly partition_bound: TableProps["partition_bound"];
   public readonly partition_by: TableProps["partition_by"];
   public readonly owner: TableProps["owner"];
+  public readonly comment: TableProps["comment"];
   public readonly parent_schema: TableProps["parent_schema"];
   public readonly parent_name: TableProps["parent_name"];
   public readonly columns: TableProps["columns"];
@@ -131,6 +134,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.partition_bound = props.partition_bound;
     this.partition_by = props.partition_by;
     this.owner = props.owner;
+    this.comment = props.comment;
     this.parent_schema = props.parent_schema;
     this.parent_name = props.parent_name;
     this.columns = props.columns;
@@ -224,6 +228,7 @@ select
   t.partition_bound,
   t.partition_by,
   t.owner,
+  obj_description(t.oid, 'pg_class') as comment,
   t.parent_schema,
   t.parent_name,
   coalesce(
@@ -246,7 +251,8 @@ select
           'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
           'check_expression', pg_get_expr(c.conbin, c.conrelid),
           'owner', t.owner,
-          'definition', pg_get_constraintdef(c.oid, true)
+          'definition', pg_get_constraintdef(c.oid, true),
+          'comment', obj_description(c.oid, 'pg_constraint')
         )
         order by c.conname
       )

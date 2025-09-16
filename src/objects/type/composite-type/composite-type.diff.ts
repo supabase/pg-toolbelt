@@ -8,6 +8,12 @@ import {
   AlterCompositeTypeDropAttribute,
   ReplaceCompositeType,
 } from "./changes/composite-type.alter.ts";
+import {
+  CreateCommentOnCompositeType,
+  CreateCommentOnCompositeTypeAttribute,
+  DropCommentOnCompositeType,
+  DropCommentOnCompositeTypeAttribute,
+} from "./changes/composite-type.comment.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
 import { DropCompositeType } from "./changes/composite-type.drop.ts";
 import type { CompositeType } from "./composite-type.model.ts";
@@ -28,9 +34,23 @@ export function diffCompositeTypes(
   const changes: Change[] = [];
 
   for (const compositeTypeId of created) {
-    changes.push(
-      new CreateCompositeType({ compositeType: branch[compositeTypeId] }),
-    );
+    const ct = branch[compositeTypeId];
+    changes.push(new CreateCompositeType({ compositeType: ct }));
+    // Type comment on creation
+    if (ct.comment !== null) {
+      changes.push(new CreateCommentOnCompositeType({ compositeType: ct }));
+    }
+    // Attribute comments on creation
+    for (const attr of ct.columns) {
+      if (attr.comment !== null) {
+        changes.push(
+          new CreateCommentOnCompositeTypeAttribute({
+            compositeType: ct,
+            attribute: attr,
+          }),
+        );
+      }
+    }
   }
 
   for (const compositeTypeId of dropped) {
@@ -86,6 +106,23 @@ export function diffCompositeTypes(
         );
       }
 
+      // TYPE COMMENT (create/drop when comment changes)
+      if (mainCompositeType.comment !== branchCompositeType.comment) {
+        if (branchCompositeType.comment === null) {
+          changes.push(
+            new DropCommentOnCompositeType({
+              compositeType: mainCompositeType,
+            }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnCompositeType({
+              compositeType: branchCompositeType,
+            }),
+          );
+        }
+      }
+
       // ATTRIBUTE diffs
       const mainAttrs = new Map(
         mainCompositeType.columns.map((c) => [c.name, c]),
@@ -103,6 +140,14 @@ export function diffCompositeTypes(
               attribute: attr,
             }),
           );
+          if (attr.comment !== null) {
+            changes.push(
+              new CreateCommentOnCompositeTypeAttribute({
+                compositeType: branchCompositeType,
+                attribute: attr,
+              }),
+            );
+          }
         }
       }
 
@@ -132,6 +177,25 @@ export function diffCompositeTypes(
               attribute: branchAttr,
             }),
           );
+        }
+
+        // COMMENT change on attribute
+        if (mainAttr.comment !== branchAttr.comment) {
+          if (branchAttr.comment === null) {
+            changes.push(
+              new DropCommentOnCompositeTypeAttribute({
+                compositeType: mainCompositeType,
+                attribute: mainAttr,
+              }),
+            );
+          } else {
+            changes.push(
+              new CreateCommentOnCompositeTypeAttribute({
+                compositeType: branchCompositeType,
+                attribute: branchAttr,
+              }),
+            );
+          }
         }
       }
 

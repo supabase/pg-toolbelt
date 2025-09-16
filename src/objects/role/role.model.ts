@@ -13,6 +13,7 @@ const rolePropsSchema = z.object({
   connection_limit: z.number().nullable(),
   can_bypass_rls: z.boolean(),
   config: z.array(z.string()).nullable(),
+  comment: z.string().nullable(),
 });
 
 export type RoleProps = z.infer<typeof rolePropsSchema>;
@@ -28,6 +29,7 @@ export class Role extends BasePgModel {
   public readonly connection_limit: RoleProps["connection_limit"];
   public readonly can_bypass_rls: RoleProps["can_bypass_rls"];
   public readonly config: RoleProps["config"];
+  public readonly comment: RoleProps["comment"];
 
   constructor(props: RoleProps) {
     super();
@@ -45,6 +47,7 @@ export class Role extends BasePgModel {
     this.connection_limit = props.connection_limit;
     this.can_bypass_rls = props.can_bypass_rls;
     this.config = props.config;
+    this.comment = props.comment;
   }
 
   get stableId(): `role:${string}` {
@@ -86,7 +89,8 @@ select
   rolreplication as can_replicate,
   rolconnlimit as connection_limit,
   rolbypassrls as can_bypass_rls,
-  rolconfig as config
+  rolconfig as config,
+  obj_description(oid, 'pg_authid') as comment
 from
   pg_catalog.pg_roles
   where rolname not in ('postgres', 'pg_signal_backend', 'pg_read_all_settings', 'pg_read_all_stats', 'pg_stat_scan_tables', 'pg_monitor', 'pg_read_server_files', 'pg_write_server_files', 'pg_execute_server_program')

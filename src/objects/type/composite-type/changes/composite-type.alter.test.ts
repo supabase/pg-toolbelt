@@ -28,6 +28,7 @@ describe.concurrent("composite-type", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+        comment: null,
         columns: [],
       };
       const main = new CompositeType({
@@ -66,6 +67,7 @@ describe.concurrent("composite-type", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+        comment: null,
         columns: [],
       };
       const main = new CompositeType({
@@ -106,6 +108,7 @@ describe.concurrent("composite-type", () => {
       options: null,
       partition_bound: null,
       owner: "o1",
+      comment: null,
     } as const;
     const branch = new CompositeType({
       ...base,
@@ -155,6 +158,7 @@ describe.concurrent("composite-type", () => {
       options: null,
       partition_bound: null,
       owner: "o1",
+      comment: null,
     } as const;
     const main = new CompositeType({
       ...base,
@@ -202,6 +206,7 @@ describe.concurrent("composite-type", () => {
       options: null,
       partition_bound: null,
       owner: "o1",
+      comment: null,
     } as const;
     const branch = new CompositeType({
       ...base,

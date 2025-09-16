@@ -22,6 +22,7 @@ describe("materialized-view", () => {
       partition_bound: null,
       owner: "test",
       columns: [],
+      comment: null,
     });
 
     const change = new CreateMaterializedView({ materializedView: mv });
@@ -49,6 +50,7 @@ describe("materialized-view", () => {
       partition_bound: null,
       owner: "test",
       columns: [],
+      comment: null,
     });
 
     const change = new CreateMaterializedView({ materializedView: mv });

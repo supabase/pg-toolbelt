@@ -16,6 +16,7 @@ const base: ExtensionProps = {
   relocatable: true,
   version: "1.0",
   owner: "o1",
+  comment: null,
 };
 
 describe.concurrent("extension.diff", () => {

@@ -5,6 +5,10 @@ import {
   AlterLanguageChangeOwner,
   ReplaceLanguage,
 } from "./changes/language.alter.ts";
+import {
+  CreateCommentOnLanguage,
+  DropCommentOnLanguage,
+} from "./changes/language.comment.ts";
 import { CreateLanguage } from "./changes/language.create.ts";
 import { DropLanguage } from "./changes/language.drop.ts";
 import type { Language } from "./language.model.ts";
@@ -25,7 +29,11 @@ export function diffLanguages(
   const changes: Change[] = [];
 
   for (const languageId of created) {
-    changes.push(new CreateLanguage({ language: branch[languageId] }));
+    const lang = branch[languageId];
+    changes.push(new CreateLanguage({ language: lang }));
+    if (lang.comment !== null) {
+      changes.push(new CreateCommentOnLanguage({ language: lang }));
+    }
   }
 
   for (const languageId of dropped) {
@@ -67,6 +75,17 @@ export function diffLanguages(
             branch: branchLanguage,
           }),
         );
+      }
+
+      // COMMENT
+      if (mainLanguage.comment !== branchLanguage.comment) {
+        if (branchLanguage.comment === null) {
+          changes.push(new DropCommentOnLanguage({ language: mainLanguage }));
+        } else {
+          changes.push(
+            new CreateCommentOnLanguage({ language: branchLanguage }),
+          );
+        }
       }
 
       // Note: Language renaming would also use ALTER LANGUAGE ... RENAME TO ...

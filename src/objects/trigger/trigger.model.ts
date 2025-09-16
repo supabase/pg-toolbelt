@@ -28,6 +28,7 @@ const triggerPropsSchema = z.object({
   new_table: z.string().nullable(),
   owner: z.string(),
   definition: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type TriggerProps = z.infer<typeof triggerPropsSchema>;
@@ -51,6 +52,7 @@ export class Trigger extends BasePgModel {
   public readonly new_table: TriggerProps["new_table"];
   public readonly owner: TriggerProps["owner"];
   public readonly definition: TriggerProps["definition"];
+  public readonly comment: TriggerProps["comment"];
 
   constructor(props: TriggerProps) {
     super();
@@ -76,6 +78,7 @@ export class Trigger extends BasePgModel {
     this.new_table = props.new_table;
     this.owner = props.owner;
     this.definition = props.definition;
+    this.comment = props.comment;
   }
 
   get stableId(): `trigger:${string}` {
@@ -158,7 +161,8 @@ select
   t.tgoldtable as old_table,
   t.tgnewtable as new_table,
   tc.relowner::regrole::text as owner,
-  pg_get_triggerdef(t.oid, true) as definition
+  pg_get_triggerdef(t.oid, true) as definition,
+  obj_description(t.oid, 'pg_trigger') as comment
 from
   pg_catalog.pg_trigger t
   inner join pg_catalog.pg_class tc on tc.oid = t.tgrelid

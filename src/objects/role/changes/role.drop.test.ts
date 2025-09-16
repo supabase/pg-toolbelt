@@ -15,6 +15,7 @@ describe("role", () => {
       connection_limit: null,
       can_bypass_rls: false,
       config: null,
+      comment: null,
     });
 
     const change = new DropRole({

@@ -35,6 +35,7 @@ const collationPropsSchema = z.object({
   icu_rules: z.string().nullable(),
   version: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type CollationProps = z.infer<typeof collationPropsSchema>;
@@ -51,6 +52,7 @@ export class Collation extends BasePgModel {
   public readonly icu_rules: CollationProps["icu_rules"];
   public readonly version: CollationProps["version"];
   public readonly owner: CollationProps["owner"];
+  public readonly comment: CollationProps["comment"];
 
   constructor(props: CollationProps) {
     super();
@@ -69,6 +71,7 @@ export class Collation extends BasePgModel {
     this.icu_rules = props.icu_rules;
     this.version = props.version;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `collation:${string}` {
@@ -126,14 +129,13 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         c.colllocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole::text as owner
+        c.collowner::regrole::text as owner,
+        obj_description(c.oid, 'pg_collation') as comment
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
-        -- <EXCLUDE_INTERNAL>
-        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+        where not c.collnamespace::regnamespace::text like any(array['pg\_%', 'information\_schema'])
         and e.objid is null
-        -- </EXCLUDE_INTERNAL>
       order by
         1, 2;
   `;
@@ -160,7 +162,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         c.collicurules as icu_rules,
         c.collversion as version,
-        c.collowner::regrole::text as owner
+        c.collowner::regrole::text as owner,
+        obj_description(c.oid, 'pg_collation') as comment
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
@@ -194,7 +197,8 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         colliculocale as locale,
         null as icu_rules,
         c.collversion as version,
-        c.collowner::regrole::text as owner
+        c.collowner::regrole::text as owner,
+        obj_description(c.oid, 'pg_collation') as comment
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid

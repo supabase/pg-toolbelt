@@ -193,5 +193,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    test("table comments", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.events (
+            id integer,
+            created_at timestamp without time zone NOT NULL,
+            payload text
+          );
+        `,
+        testSql: `
+          ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id);
+          ALTER TABLE test_schema.events ADD COLUMN description text;
+          COMMENT ON TABLE test_schema.events IS 'This is a test table';
+          COMMENT ON COLUMN test_schema.events.created_at IS 'This is a created_at column';
+          COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint';
+          COMMENT ON COLUMN test_schema.events.description IS 'This is a description column';
+        `,
+      });
+    });
   });
 }

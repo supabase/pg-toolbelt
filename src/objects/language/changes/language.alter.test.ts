@@ -12,6 +12,7 @@ describe.concurrent("language", () => {
         call_handler: "plpgsql_call_handler",
         inline_handler: "plpgsql_inline_handler",
         validator: "plpgsql_validator",
+        comment: null,
       };
       const main = new Language({
         ...props,
@@ -40,6 +41,7 @@ describe.concurrent("language", () => {
         inline_handler: "plpgsql_inline_handler",
         validator: "plpgsql_validator",
         owner: "test",
+        comment: null,
       };
       const main = new Language({
         ...props,

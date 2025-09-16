@@ -12,6 +12,7 @@ import { BasePgModel } from "../base.model.ts";
 const schemaPropsSchema = z.object({
   schema: z.string(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type SchemaProps = z.infer<typeof schemaPropsSchema>;
@@ -19,6 +20,7 @@ export type SchemaProps = z.infer<typeof schemaPropsSchema>;
 export class Schema extends BasePgModel {
   public readonly schema: SchemaProps["schema"];
   public readonly owner: SchemaProps["owner"];
+  public readonly comment: SchemaProps["comment"];
 
   constructor(props: SchemaProps) {
     super();
@@ -28,6 +30,7 @@ export class Schema extends BasePgModel {
 
     // Data fields
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `schema:${string}` {
@@ -62,7 +65,8 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
     )
     select
       quote_ident(nspname) as schema,
-      nspowner::regrole::text as owner
+      nspowner::regrole::text as owner,
+      obj_description(oid, 'pg_namespace') as comment
     from
       pg_catalog.pg_namespace
       left outer join extension_oids e on e.objid = oid

@@ -26,6 +26,7 @@ const base: DomainProps = {
   default_bin: null,
   default_value: null,
   owner: "o1",
+  comment: null,
   constraints: [],
 };
 

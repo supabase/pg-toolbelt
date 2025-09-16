@@ -8,6 +8,10 @@ import {
   AlterIndexSetTablespace,
   ReplaceIndex,
 } from "./changes/index.alter.ts";
+import {
+  CreateCommentOnIndex,
+  DropCommentOnIndex,
+} from "./changes/index.comment.ts";
 import { CreateIndex } from "./changes/index.create.ts";
 import { DropIndex } from "./changes/index.drop.ts";
 import type { Index } from "./index.model.ts";
@@ -38,6 +42,9 @@ export function diffIndexes(
           indexableObject: branchIndexableObjects[index.tableStableId],
         }),
       );
+      if (index.comment !== null) {
+        changes.push(new CreateCommentOnIndex({ index }));
+      }
     }
   }
 
@@ -125,6 +132,15 @@ export function diffIndexes(
         changes.push(
           new AlterIndexSetTablespace({ main: mainIndex, branch: branchIndex }),
         );
+      }
+
+      // COMMENT
+      if (mainIndex.comment !== branchIndex.comment) {
+        if (branchIndex.comment === null) {
+          changes.push(new DropCommentOnIndex({ index: mainIndex }));
+        } else {
+          changes.push(new CreateCommentOnIndex({ index: branchIndex }));
+        }
       }
 
       // Note: Index renaming would also use ALTER INDEX ... RENAME TO ...

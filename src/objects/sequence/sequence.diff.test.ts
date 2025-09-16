@@ -23,6 +23,7 @@ const base: SequenceProps = {
   owned_by_schema: null,
   owned_by_table: null,
   owned_by_column: null,
+  comment: null,
 };
 
 describe.concurrent("sequence.diff", () => {

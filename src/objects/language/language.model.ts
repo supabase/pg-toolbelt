@@ -19,6 +19,7 @@ const languagePropsSchema = z.object({
   inline_handler: z.string().nullable(),
   validator: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type LanguageProps = z.infer<typeof languagePropsSchema>;
@@ -31,6 +32,7 @@ export class Language extends BasePgModel {
   public readonly inline_handler: LanguageProps["inline_handler"];
   public readonly validator: LanguageProps["validator"];
   public readonly owner: LanguageProps["owner"];
+  public readonly comment: LanguageProps["comment"];
 
   constructor(props: LanguageProps) {
     super();
@@ -45,6 +47,7 @@ export class Language extends BasePgModel {
     this.inline_handler = props.inline_handler;
     this.validator = props.validator;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `language:${string}` {
@@ -89,7 +92,8 @@ async function _extractLanguages(sql: Sql): Promise<Language[]> {
       lan.lanplcallfoid::regprocedure::text as call_handler,
       lan.laninline::regprocedure::text as inline_handler,
       lan.lanvalidator::regprocedure::text as validator,
-      lan.lanowner::regrole::text as owner
+      lan.lanowner::regrole::text as owner,
+      obj_description(lan.oid, 'pg_language') as comment
     from
       pg_catalog.pg_language lan
       left outer join extension_oids e on lan.oid = e.objid

@@ -23,6 +23,7 @@ describe.concurrent("sequence", () => {
         cycle_option: false,
         cache_size: 1,
         persistence: "p",
+        comment: null,
       };
       const main = new Sequence({
         ...props,
@@ -62,6 +63,7 @@ describe.concurrent("sequence", () => {
         owned_by_schema: "public",
         owned_by_table: "t",
         owned_by_column: "id",
+        comment: null,
       });
       const branch = new Sequence({
         ...main,
@@ -86,6 +88,7 @@ describe.concurrent("sequence", () => {
         owned_by_schema: null,
         owned_by_table: null,
         owned_by_column: null,
+        comment: null,
       };
       const main = new Sequence({
         ...props,
@@ -123,6 +126,7 @@ describe.concurrent("sequence", () => {
         owned_by_schema: null,
         owned_by_table: null,
         owned_by_column: null,
+        comment: null,
       });
       const branch = new Sequence({
         ...main,
@@ -155,6 +159,7 @@ describe.concurrent("sequence", () => {
         owned_by_schema: null,
         owned_by_table: null,
         owned_by_column: null,
+        comment: null,
       });
       const branch = new Sequence({
         ...main,

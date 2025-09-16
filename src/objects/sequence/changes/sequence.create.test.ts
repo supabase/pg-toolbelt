@@ -18,6 +18,7 @@ describe("sequence", () => {
       owned_by_schema: null,
       owned_by_table: null,
       owned_by_column: null,
+      comment: null,
     });
 
     const change = new CreateSequence({ sequence });
@@ -39,6 +40,7 @@ describe("sequence", () => {
       owned_by_schema: null,
       owned_by_table: null,
       owned_by_column: null,
+      comment: null,
     });
 
     const change = new CreateSequence({
@@ -65,6 +67,7 @@ describe("sequence", () => {
       owned_by_schema: null,
       owned_by_table: null,
       owned_by_column: null,
+      comment: null,
     });
 
     const change = new CreateSequence({ sequence });
