@@ -181,7 +181,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER VIEW ecommerce.product_sales OWNER TO analytics_user;
           ALTER MATERIALIZED VIEW ecommerce.daily_sales OWNER TO analytics_user;
         `,
-          description: "complete e-commerce scenario with all dependency types",
         });
       });
 
@@ -215,7 +214,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT table_b_a_fkey 
           FOREIGN KEY (a_id) REFERENCES test_schema.table_a(id);
         `,
-          description: "circular dependency scenario - should fail gracefully",
         });
       });
 
@@ -289,7 +287,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.new_table OWNER TO new_role;
           ALTER VIEW test_schema.combined_view OWNER TO new_role;
         `,
-          description: "mixed operation types with complex dependencies",
         });
       });
     },

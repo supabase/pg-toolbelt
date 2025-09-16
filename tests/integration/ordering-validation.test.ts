@@ -34,7 +34,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           -- Change table owner to the new role
           ALTER TABLE test_schema.users OWNER TO app_user;
         `,
-        description: "table owner change with role creation dependency",
       });
     });
 
@@ -113,7 +112,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT products_price_valid 
           CHECK (test_schema.validate_price(price));
         `,
-        description: "check constraint referencing non-existent objects",
       });
     });
 
@@ -144,7 +142,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT orders_customer_fkey 
           FOREIGN KEY (customer_id) REFERENCES test_schema.customers(id);
         `,
-        description: "foreign key constraint ordering with table creation",
       });
     });
 
@@ -202,7 +199,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE app_schema.order_items OWNER TO app_user;
           ALTER VIEW app_schema.user_order_summary OWNER TO app_admin;
         `,
-        description: "complex multi-dependency scenario with owner changes",
       });
     });
 
@@ -225,7 +221,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             value text
           );
         `,
-        description: "schema owner change with role dependency",
       });
     });
 
@@ -252,7 +247,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             status test_schema.status_enum DEFAULT 'pending'
           );
         `,
-        description: "type owner change with role dependency",
       });
     });
   });

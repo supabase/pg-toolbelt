@@ -104,7 +104,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT order_items_product_fkey 
           FOREIGN KEY (product_id) REFERENCES ecommerce.products(id);
         `,
-          description: "complex FK constraint chain with multiple references",
         });
       });
 
@@ -134,7 +133,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOREIGN KEY (parent_id) REFERENCES test_schema.parent(id)
           DEFERRABLE INITIALLY DEFERRED;
         `,
-          description: "FK constraint with deferred validation",
         });
       });
 
@@ -158,7 +156,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT categories_parent_fkey 
           FOREIGN KEY (parent_id) REFERENCES test_schema.categories(id);
         `,
-          description: "self-referencing FK constraint",
         });
       });
 
@@ -188,7 +185,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOREIGN KEY (user_id) REFERENCES test_schema.users(id)
           ON DELETE CASCADE ON UPDATE CASCADE;
         `,
-          description: "FK constraint with ON DELETE/UPDATE actions",
         });
       });
     },

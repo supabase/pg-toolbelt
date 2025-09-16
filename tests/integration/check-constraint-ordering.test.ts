@@ -60,7 +60,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT products_status_valid 
           CHECK (test_schema.validate_status(status));
         `,
-          description: "CHECK constraint referencing function created later",
         });
       });
 
@@ -94,7 +93,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT orders_priority_valid 
           CHECK (priority::test_schema.priority_level IS NOT NULL);
         `,
-          description: "CHECK constraint referencing custom type created later",
         });
       });
     },
