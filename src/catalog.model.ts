@@ -158,7 +158,7 @@ export async function extractCatalog(sql: Sql) {
 
   if (process.env.DEBUG) {
     console.log(
-      "depends catalog model: ",
+      "depends: ",
       JSON.stringify(
         depends.filter(
           (depend) =>
