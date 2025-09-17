@@ -545,6 +545,311 @@ WHERE NOT ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
 }
 
 /**
+ * Extract dependencies for privileges and memberships so that GRANT/REVOKE
+ * operations are properly ordered with respect to their target objects/roles.
+ *
+ * Encodes edges like:
+ *  - acl:<target>::grantee:<role> -> <target>
+ *  - acl:<target>::grantee:<role> -> role:<role>
+ *  - aclcol:table:<schema>.<name>::grantee:<role> -> table:<schema>.<name>
+ *  - aclcol:... -> role:<role>
+ *  - defacl:<grantor>:<objtype>:<scope>:grantee:<grantee> -> role:<grantor>
+ *  - defacl:... -> role:<grantee>
+ *  - defacl:... -> schema:<schema> (when scoped to a schema)
+ *  - membership:<role>-><member> -> role:<role>
+ *  - membership:<role>-><member> -> role:<member>
+ */
+async function extractPrivilegeAndMembershipDepends(
+  sql: Sql,
+): Promise<PgDepend[]> {
+  const rows = await sql<PgDepend[]>`
+with
+  -- OBJECT PRIVILEGES (relations)
+  extension_rel_oids as (
+    select objid from pg_depend d
+    where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_class'::regclass
+  ),
+  rel_acls as (
+    select
+      c.relkind,
+      c.relnamespace::regnamespace::text as schema,
+      quote_ident(c.relname) as name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_class c
+    join lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_rel_oids e on e.objid = c.oid
+    where c.relkind in ('r','p','v','m','S')
+      and not c.relnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
+      and e.objid is null
+  ),
+  rel_targets as (
+    select
+      (case
+        when relkind in ('r','p') then 'table:' || schema || '.' || name
+        when relkind = 'v' then 'view:' || schema || '.' || name
+        when relkind = 'm' then 'materializedView:' || schema || '.' || name
+        when relkind = 'S' then 'sequence:' || schema || '.' || name
+      end) as target_stable_id,
+      grantee
+    from rel_acls
+  ),
+
+  -- OBJECT PRIVILEGES (schemas)
+  extension_ns_oids as (
+    select objid from pg_depend d
+    where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_namespace'::regclass
+  ),
+  ns_acls as (
+    select
+      quote_ident(n.nspname) as name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_namespace n
+    join lateral aclexplode(n.nspacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_ns_oids e on e.objid = n.oid
+    where not n.nspname like any(array['pg\\_%','information\\_schema'])
+      and e.objid is null
+  ),
+
+  -- OBJECT PRIVILEGES (languages)
+  extension_lang_oids as (
+    select objid from pg_depend d
+    where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_language'::regclass
+  ),
+  lang_acls as (
+    select
+      quote_ident(l.lanname) as name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_language l
+    join lateral aclexplode(l.lanacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_lang_oids e on e.objid = l.oid
+    where l.lanname not in ('internal','c')
+  ),
+
+  -- OBJECT PRIVILEGES (routines)
+  extension_proc_oids as (
+    select objid from pg_depend d
+    where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_proc'::regclass
+  ),
+  proc_acls as (
+    select
+      p.pronamespace::regnamespace::text as schema,
+      quote_ident(p.proname) as name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee,
+      (select coalesce(string_agg(format_type(oid, null), ',' order by ord), '') from unnest(p.proargtypes) with ordinality as t(oid, ord)) as arg_types
+    from pg_catalog.pg_proc p
+    join lateral aclexplode(p.proacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_proc_oids e on e.objid = p.oid
+    join pg_language l on l.oid = p.prolang
+    where not p.pronamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
+      and e.objid is null
+      and l.lanname not in ('c','internal')
+  ),
+  proc_targets as (
+    select
+      ('procedure:' || schema || '.' || name || '(' || arg_types || ')') as target_stable_id,
+      grantee
+    from proc_acls
+  ),
+
+  -- OBJECT PRIVILEGES (types/domains)
+  extension_type_oids as (
+    select objid from pg_depend d
+    where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_type'::regclass
+  ),
+  type_acls as (
+    select
+      t.typtype,
+      t.typnamespace::regnamespace::text as schema,
+      quote_ident(t.typname) as name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_type t
+    join lateral aclexplode(t.typacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_type_oids e on e.objid = t.oid
+    where not t.typnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
+      and e.objid is null
+      and t.typtype in ('d','e','r','c')
+  ),
+  type_targets as (
+    select
+      (case
+        when typtype = 'd' then 'domain:' || schema || '.' || name
+        when typtype = 'e' then 'enum:' || schema || '.' || name
+        when typtype = 'r' then 'range:' || schema || '.' || name
+        when typtype = 'c' then 'compositeType:' || schema || '.' || name
+      end) as target_stable_id,
+      grantee
+    from type_acls
+  ),
+
+  -- COLUMN PRIVILEGES
+  rels as (
+    select c.oid,
+           c.relkind,
+           c.relnamespace::regnamespace::text as schema,
+           quote_ident(c.relname) as table_name
+    from pg_catalog.pg_class c
+    left join pg_depend de on de.classid='pg_class'::regclass and de.objid=c.oid and de.refclassid='pg_extension'::regclass
+    where c.relkind in ('r','p','v','m')
+      and not c.relnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
+      and de.objid is null
+  ),
+  col_acls as (
+    select
+      r.schema,
+      r.table_name,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from rels r
+    join pg_attribute a on a.attrelid = r.oid and a.attnum > 0 and not a.attisdropped
+    join lateral aclexplode(a.attacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+  ),
+
+  -- DEFAULT PRIVILEGES
+  defacls as (
+    select
+      d.defaclrole::regrole::text as grantor,
+      case when d.defaclnamespace = 0 then null else d.defaclnamespace::regnamespace::text end as in_schema,
+      d.defaclobjtype::text as objtype,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_default_acl d
+    cross join lateral aclexplode(coalesce(d.defaclacl, ARRAY[]::aclitem[])) as x(grantor, grantee, privilege_type, is_grantable)
+  ),
+
+  -- ROLE MEMBERSHIPS
+  memberships as (
+    select r.rolname as role_name, m.rolname as member_name
+    from pg_auth_members am
+    join pg_roles r on r.oid = am.roleid
+    join pg_roles m on m.oid = am.member
+  )
+
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  target_stable_id as referenced_stable_id,
+  'n'::char as deptype
+from rel_targets
+where target_stable_id is not null
+
+union all
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from rel_targets
+where target_stable_id is not null
+
+union all
+select distinct
+  'acl:' || 'schema:' || name || '::grantee:' || grantee as dependent_stable_id,
+  'schema:' || name as referenced_stable_id,
+  'n'::char as deptype
+from ns_acls
+
+union all
+select distinct
+  'acl:' || 'schema:' || name || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from ns_acls
+
+union all
+select distinct
+  'acl:' || 'language:' || name || '::grantee:' || grantee as dependent_stable_id,
+  'language:' || name as referenced_stable_id,
+  'n'::char as deptype
+from lang_acls
+
+union all
+select distinct
+  'acl:' || 'language:' || name || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from lang_acls
+
+union all
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  target_stable_id as referenced_stable_id,
+  'n'::char as deptype
+from proc_targets
+
+union all
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from proc_targets
+
+union all
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  target_stable_id as referenced_stable_id,
+  'n'::char as deptype
+from type_targets
+where target_stable_id is not null
+
+union all
+select distinct
+  'acl:' || target_stable_id || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from type_targets
+where target_stable_id is not null
+
+union all
+select distinct
+  'aclcol:' || 'table:' || schema || '.' || table_name || '::grantee:' || grantee as dependent_stable_id,
+  'table:' || schema || '.' || table_name as referenced_stable_id,
+  'n'::char as deptype
+from col_acls
+
+union all
+select distinct
+  'aclcol:' || 'table:' || schema || '.' || table_name || '::grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from col_acls
+
+union all
+select distinct
+  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
+  'role:' || grantor as referenced_stable_id,
+  'n'::char as deptype
+from defacls
+
+union all
+select distinct
+  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
+  'role:' || grantee as referenced_stable_id,
+  'n'::char as deptype
+from defacls
+
+union all
+select distinct
+  'defacl:' || grantor || ':' || objtype || ':' || coalesce('schema:' || in_schema, 'global') || ':grantee:' || grantee as dependent_stable_id,
+  'schema:' || in_schema as referenced_stable_id,
+  'n'::char as deptype
+from defacls
+where in_schema is not null
+
+union all
+select distinct
+  'membership:' || role_name || '->' || member_name as dependent_stable_id,
+  'role:' || quote_ident(role_name) as referenced_stable_id,
+  'n'::char as deptype
+from memberships
+
+union all
+select distinct
+  'membership:' || role_name || '->' || member_name as dependent_stable_id,
+  'role:' || quote_ident(member_name) as referenced_stable_id,
+  'n'::char as deptype
+from memberships
+  `;
+
+  return rows;
+}
+
+/**
  * Extract constraint-to-constraint dependencies between foreign key constraints
  * and their referenced unique/primary key constraints.
  */
@@ -1036,6 +1341,8 @@ where dependent_stable_id != referenced_stable_id
   const constraintDepends = await extractConstraintDepends(sql);
   // Extract comment dependencies (comments -> owning objects)
   const commentDepends = await extractCommentDepends(sql);
+  // Extract privilege and membership dependencies
+  const privilegeDepends = await extractPrivilegeAndMembershipDepends(sql);
 
   // Combine all dependency sources and remove duplicates
   const allDepends = new Set([
@@ -1045,6 +1352,7 @@ where dependent_stable_id != referenced_stable_id
     ...ownershipDepends,
     ...constraintDepends,
     ...commentDepends,
+    ...privilegeDepends,
   ]);
 
   return Array.from(allDepends).sort(

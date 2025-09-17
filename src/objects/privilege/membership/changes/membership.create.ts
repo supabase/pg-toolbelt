@@ -21,7 +21,8 @@ export class GrantRoleMembership extends CreateChange {
   }
 
   get dependencies() {
-    return [`role:${this.role}`, `role:${this.member}`];
+    const membershipStableId = `membership:${this.role}->${this.member}`;
+    return [`role:${this.role}`, `role:${this.member}`, membershipStableId];
   }
 
   serialize(): string {

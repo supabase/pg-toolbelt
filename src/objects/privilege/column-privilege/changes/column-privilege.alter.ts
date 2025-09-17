@@ -24,7 +24,8 @@ export class GrantColumnPrivileges extends AlterChange {
   }
 
   get dependencies() {
-    return [this.tableId, `role:${this.grantee}`];
+    const aclcolStableId = `aclcol:${this.tableId}::grantee:${this.grantee}`;
+    return [this.tableId, `role:${this.grantee}`, aclcolStableId];
   }
 
   serialize(): string {
@@ -75,7 +76,8 @@ export class RevokeColumnPrivileges extends AlterChange {
   }
 
   get dependencies() {
-    return [this.tableId, `role:${this.grantee}`];
+    const aclcolStableId = `aclcol:${this.tableId}::grantee:${this.grantee}`;
+    return [this.tableId, `role:${this.grantee}`, aclcolStableId];
   }
 
   serialize(): string {
@@ -116,7 +118,8 @@ export class RevokeGrantOptionColumnPrivileges extends AlterChange {
   }
 
   get dependencies() {
-    return [this.tableId, `role:${this.grantee}`];
+    const aclcolStableId = `aclcol:${this.tableId}::grantee:${this.grantee}`;
+    return [this.tableId, `role:${this.grantee}`, aclcolStableId];
   }
 
   serialize(): string {

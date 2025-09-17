@@ -11,7 +11,8 @@ export class RevokeRoleMembership extends DropChange {
   }
 
   get dependencies() {
-    return [`role:${this.role}`, `role:${this.member}`];
+    const membershipStableId = `membership:${this.role}->${this.member}`;
+    return [`role:${this.role}`, `role:${this.member}`, membershipStableId];
   }
 
   serialize(): string {
