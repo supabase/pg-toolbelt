@@ -23,10 +23,8 @@ export class GrantObjectPrivileges extends AlterChange {
   }
 
   get dependencies() {
-    // Include the privilege stableId so that model edges like
-    // acl:<target>::grantee:<role> -> <target>/<role> are considered
     const aclStableId = `acl:${this.objectId}::grantee:${this.grantee}`;
-    return [this.objectId, `role:${this.grantee}`, aclStableId];
+    return [aclStableId];
   }
 
   serialize(): string {
@@ -87,7 +85,7 @@ export class RevokeObjectPrivileges extends AlterChange {
 
   get dependencies() {
     const aclStableId = `acl:${this.objectId}::grantee:${this.grantee}`;
-    return [this.objectId, `role:${this.grantee}`, aclStableId];
+    return [aclStableId];
   }
 
   serialize(): string {
@@ -148,7 +146,7 @@ export class RevokeGrantOptionObjectPrivileges extends AlterChange {
 
   get dependencies() {
     const aclStableId = `acl:${this.objectId}::grantee:${this.grantee}`;
-    return [this.objectId, `role:${this.grantee}`, aclStableId];
+    return [aclStableId];
   }
 
   serialize(): string {

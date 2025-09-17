@@ -40,13 +40,9 @@ export class AlterDefaultPrivilegesGrant extends AlterChange {
   }
 
   get dependencies() {
-    const deps = [`role:${this.grantor}`, `role:${this.grantee}`];
-    if (this.inSchema) deps.push(`schema:${this.inSchema}`);
     const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
     const defaclStableId = `defacl:${this.grantor}:${this.objtype}:${scope}:grantee:${this.grantee}`;
-    // Ensure the defacl object is also part of dependency set
-    deps.push(defaclStableId);
-    return deps;
+    return [defaclStableId];
   }
 
   serialize(): string {
@@ -91,12 +87,9 @@ export class AlterDefaultPrivilegesRevoke extends AlterChange {
   }
 
   get dependencies() {
-    const deps = [`role:${this.grantor}`, `role:${this.grantee}`];
-    if (this.inSchema) deps.push(`schema:${this.inSchema}`);
     const scope = this.inSchema ? `schema:${this.inSchema}` : "global";
     const defaclStableId = `defacl:${this.grantor}:${this.objtype}:${scope}:grantee:${this.grantee}`;
-    deps.push(defaclStableId);
-    return deps;
+    return [defaclStableId];
   }
 
   serialize(): string {

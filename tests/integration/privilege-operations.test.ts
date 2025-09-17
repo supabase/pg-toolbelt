@@ -237,5 +237,81 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    // Dependency ordering tests mixing object creation with grants/revokes
+    test("object privileges with object creation (ordering)", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: dedent`
+          CREATE ROLE r_dep_g;
+          CREATE SCHEMA dep_s;
+          CREATE TABLE dep_s.dep_t(a int);
+          GRANT SELECT, UPDATE ON TABLE dep_s.dep_t TO r_dep_g;
+        `,
+      });
+    });
+
+    test("column privileges with object creation (ordering)", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: dedent`
+          CREATE ROLE r_dep_col;
+          CREATE SCHEMA dep_s2;
+          CREATE TABLE dep_s2.dep_tc(a int, b int);
+          GRANT UPDATE (b) ON TABLE dep_s2.dep_tc TO r_dep_col;
+        `,
+      });
+    });
+
+    test("default privileges with roles and schema creation (ordering)", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: dedent`
+          CREATE ROLE owner_dep;
+          CREATE ROLE grantee_dep;
+          CREATE SCHEMA dep_s3;
+          ALTER DEFAULT PRIVILEGES FOR ROLE owner_dep IN SCHEMA dep_s3 GRANT SELECT ON TABLES TO grantee_dep;
+        `,
+      });
+    });
+
+    test("role membership after role creation (ordering)", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: dedent`
+          CREATE ROLE parent_dep;
+          CREATE ROLE child_dep;
+          GRANT parent_dep TO child_dep WITH ADMIN OPTION;
+        `,
+      });
+    });
+
+    test("mixed: create + grant, and drop unrelated object", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: dedent`
+          CREATE SCHEMA drop_s;
+          CREATE TABLE drop_s.old_t(a int);
+        `,
+        testSql: dedent`
+          CREATE ROLE r_mix;
+          CREATE SCHEMA dep_mix;
+          CREATE TABLE dep_mix.t(a int);
+          GRANT SELECT ON TABLE dep_mix.t TO r_mix;
+          DROP TABLE drop_s.old_t;
+        `,
+      });
+    });
   });
 }

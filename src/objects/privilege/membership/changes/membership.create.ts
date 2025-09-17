@@ -22,7 +22,7 @@ export class GrantRoleMembership extends CreateChange {
 
   get dependencies() {
     const membershipStableId = `membership:${this.role}->${this.member}`;
-    return [`role:${this.role}`, `role:${this.member}`, membershipStableId];
+    return [membershipStableId];
   }
 
   serialize(): string {

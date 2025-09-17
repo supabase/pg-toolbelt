@@ -1,8 +1,10 @@
 import { diffObjects } from "../../objects/base.diff.ts";
 import type { Change } from "../base.change.ts";
 import { GrantRoleMembership } from "./membership/changes/membership.create.ts";
-import { RevokeRoleMembership } from "./membership/changes/membership.drop.ts";
-import { RevokeMembershipOptions } from "./membership/changes/membershit.drop.ts";
+import {
+  RevokeMembershipOptions,
+  RevokeRoleMembership,
+} from "./membership/changes/membership.drop.ts";
 import type { RoleMembership } from "./membership.model.ts";
 
 export function diffRoleMemberships(
