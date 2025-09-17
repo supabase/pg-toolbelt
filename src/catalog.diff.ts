@@ -6,6 +6,10 @@ import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
+import { diffColumnPrivileges } from "./objects/privilege/column-privilege/column-privilege.diff.ts";
+import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
+import { diffRoleMemberships } from "./objects/privilege/membership.diff.ts";
+import { diffObjectPrivileges } from "./objects/privilege/object-privilege/object-privilege.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
@@ -45,6 +49,20 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(...diffRanges(main.ranges, branch.ranges));
   changes.push(...diffViews(main.views, branch.views));
+
+  // Privileges depend on objects and roles
+  changes.push(
+    ...diffRoleMemberships(main.roleMemberships, branch.roleMemberships),
+  );
+  changes.push(
+    ...diffObjectPrivileges(main.objectPrivileges, branch.objectPrivileges),
+  );
+  changes.push(
+    ...diffColumnPrivileges(main.columnPrivileges, branch.columnPrivileges),
+  );
+  changes.push(
+    ...diffDefaultPrivileges(main.defaultPrivileges, branch.defaultPrivileges),
+  );
 
   if (DEBUG) {
     console.log("changes catalog diff: ", stringifyWithBigInt(changes, 2));
