@@ -19,6 +19,7 @@ describe.concurrent("rls-policy", () => {
         using_expression: "user_id = current_user_id()",
         with_check_expression: null,
         owner: "owner",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -49,6 +50,7 @@ describe.concurrent("rls-policy", () => {
         using_expression: "expr",
         with_check_expression: null,
         owner: "owner",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -79,6 +81,7 @@ describe.concurrent("rls-policy", () => {
         using_expression: "user_id = current_user_id()",
         with_check_expression: null,
         owner: "test",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -109,6 +112,7 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         with_check_expression: null,
         owner: "test",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -139,6 +143,7 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         with_check_expression: null,
         owner: "test",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -169,6 +174,7 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         using_expression: "expr",
         owner: "test",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,
@@ -199,6 +205,7 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
         using_expression: "expr",
         owner: "test",
+        comment: null,
       };
       const main = new RlsPolicy({
         ...props,

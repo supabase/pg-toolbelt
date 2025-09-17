@@ -14,6 +14,7 @@ describe("rls-policy", () => {
       using_expression: null,
       with_check_expression: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateRlsPolicy({
@@ -36,6 +37,7 @@ describe("rls-policy", () => {
       using_expression: "user_id = current_user_id()",
       with_check_expression: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateRlsPolicy({
@@ -58,6 +60,7 @@ describe("rls-policy", () => {
       using_expression: "expr1",
       with_check_expression: "expr2",
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateRlsPolicy({

@@ -20,6 +20,7 @@ describe("view", () => {
       options: null,
       partition_bound: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateView({
@@ -48,6 +49,7 @@ describe("view", () => {
       options: ["security_barrier=true", "check_option=local"],
       partition_bound: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateView({ view });

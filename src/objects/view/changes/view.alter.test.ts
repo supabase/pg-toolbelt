@@ -25,6 +25,7 @@ describe.concurrent("view", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+        comment: null,
       };
       const main = new View({
         ...props,
@@ -61,6 +62,7 @@ describe.concurrent("view", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+        comment: null,
       };
       const main = new View({
         ...props,
@@ -98,6 +100,7 @@ describe.concurrent("view", () => {
       is_partition: false,
       partition_bound: null,
       owner: "test",
+      comment: null,
     };
     const main = new View({ ...props, options: ["security_barrier=true"] });
     const branch = new View({ ...props, options: ["security_barrier=false"] });
@@ -125,6 +128,7 @@ describe.concurrent("view", () => {
       options: ["security_barrier=true", "check_option=local"],
       partition_bound: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new AlterViewResetOptions({

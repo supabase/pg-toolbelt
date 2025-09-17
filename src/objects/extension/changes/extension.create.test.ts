@@ -10,6 +10,7 @@ describe("extension", () => {
       relocatable: true,
       version: "1.0",
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateExtension({

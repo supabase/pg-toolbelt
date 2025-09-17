@@ -3,6 +3,10 @@ import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import { ReplaceTrigger } from "./changes/trigger.alter.ts";
+import {
+  CreateCommentOnTrigger,
+  DropCommentOnTrigger,
+} from "./changes/trigger.comment.ts";
 import { CreateTrigger } from "./changes/trigger.create.ts";
 import { DropTrigger } from "./changes/trigger.drop.ts";
 import type { Trigger } from "./trigger.model.ts";
@@ -32,6 +36,9 @@ export function diffTriggers(
         indexableObject: branchIndexableObjects?.[tableStableId],
       }),
     );
+    if (trg.comment !== null) {
+      changes.push(new CreateCommentOnTrigger({ trigger: trg }));
+    }
   }
 
   for (const triggerId of dropped) {
@@ -74,6 +81,15 @@ export function diffTriggers(
           indexableObject: branchIndexableObjects?.[tableStableId],
         }),
       );
+    } else {
+      // COMMENT
+      if (mainTrigger.comment !== branchTrigger.comment) {
+        if (branchTrigger.comment === null) {
+          changes.push(new DropCommentOnTrigger({ trigger: mainTrigger }));
+        } else {
+          changes.push(new CreateCommentOnTrigger({ trigger: branchTrigger }));
+        }
+      }
     }
   }
 

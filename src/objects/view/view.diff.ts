@@ -7,6 +7,10 @@ import {
   AlterViewSetOptions,
   ReplaceView,
 } from "./changes/view.alter.ts";
+import {
+  CreateCommentOnView,
+  DropCommentOnView,
+} from "./changes/view.comment.ts";
 import { CreateView } from "./changes/view.create.ts";
 import { DropView } from "./changes/view.drop.ts";
 import type { View } from "./view.model.ts";
@@ -27,7 +31,11 @@ export function diffViews(
   const changes: Change[] = [];
 
   for (const viewId of created) {
-    changes.push(new CreateView({ view: branch[viewId] }));
+    const v = branch[viewId];
+    changes.push(new CreateView({ view: v }));
+    if (v.comment !== null) {
+      changes.push(new CreateCommentOnView({ view: v }));
+    }
   }
 
   for (const viewId of dropped) {
@@ -103,6 +111,15 @@ export function diffViews(
               new AlterViewResetOptions({ view: mainView, params: removed }),
             );
           }
+        }
+      }
+
+      // COMMENT
+      if (mainView.comment !== branchView.comment) {
+        if (branchView.comment === null) {
+          changes.push(new DropCommentOnView({ view: mainView }));
+        } else {
+          changes.push(new CreateCommentOnView({ view: branchView }));
         }
       }
 

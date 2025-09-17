@@ -17,6 +17,7 @@ describe("domain", () => {
       default_bin: null,
       default_value: null,
       owner: "test",
+      comment: null,
       constraints: [],
     });
 
@@ -41,6 +42,7 @@ describe("domain", () => {
       default_bin: null,
       default_value: "'hello'",
       owner: "test",
+      comment: null,
       constraints: [
         {
           name: "c1",

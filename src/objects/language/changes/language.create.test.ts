@@ -12,6 +12,7 @@ describe("language", () => {
       inline_handler: "plpgsql_inline_handler",
       validator: "plpgsql_validator",
       owner: "test",
+      comment: null,
     });
 
     const change = new CreateLanguage({

@@ -6,6 +6,10 @@ import {
   AlterSequenceSetOwnedBy,
   ReplaceSequence,
 } from "./changes/sequence.alter.ts";
+import {
+  CreateCommentOnSequence,
+  DropCommentOnSequence,
+} from "./changes/sequence.comment.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
 import type { Sequence } from "./sequence.model.ts";
@@ -28,6 +32,9 @@ export function diffSequences(
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
     changes.push(new CreateSequence({ sequence: createdSeq }));
+    if (createdSeq.comment !== null) {
+      changes.push(new CreateCommentOnSequence({ sequence: createdSeq }));
+    }
     // If the created sequence is OWNED BY a column, emit an ALTER to set it
     if (
       createdSeq.owned_by_schema !== null &&
@@ -120,6 +127,17 @@ export function diffSequences(
             branch: branchSequence,
           }),
         );
+      }
+
+      // COMMENT
+      if (mainSequence.comment !== branchSequence.comment) {
+        if (branchSequence.comment === null) {
+          changes.push(new DropCommentOnSequence({ sequence: mainSequence }));
+        } else {
+          changes.push(
+            new CreateCommentOnSequence({ sequence: branchSequence }),
+          );
+        }
       }
 
       // Note: Sequence renaming would also use ALTER SEQUENCE ... RENAME TO ...

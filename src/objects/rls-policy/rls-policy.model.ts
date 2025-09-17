@@ -20,6 +20,7 @@ const rlsPolicyPropsSchema = z.object({
   using_expression: z.string().nullable(),
   with_check_expression: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
@@ -34,6 +35,7 @@ export class RlsPolicy extends BasePgModel {
   public readonly using_expression: RlsPolicyProps["using_expression"];
   public readonly with_check_expression: RlsPolicyProps["with_check_expression"];
   public readonly owner: RlsPolicyProps["owner"];
+  public readonly comment: RlsPolicyProps["comment"];
 
   constructor(props: RlsPolicyProps) {
     super();
@@ -50,6 +52,7 @@ export class RlsPolicy extends BasePgModel {
     this.using_expression = props.using_expression;
     this.with_check_expression = props.with_check_expression;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `rlsPolicy:${string}` {
@@ -72,6 +75,7 @@ export class RlsPolicy extends BasePgModel {
       using_expression: this.using_expression,
       with_check_expression: this.with_check_expression,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }
@@ -106,7 +110,8 @@ select
   end as roles,
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
-  tc.relowner::regrole::text as owner
+  tc.relowner::regrole::text as owner,
+  obj_description(p.oid, 'pg_policy') as comment
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid

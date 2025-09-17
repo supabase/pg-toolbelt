@@ -30,7 +30,7 @@ export interface PgDepend {
  * @param sql - The SQL client.
  * @returns Array of dependency objects for view dependencies.
  */
-async function extractViewAndMaterializedViewsDepends(
+async function extractViewAndMaterializedViewDepends(
   sql: Sql,
 ): Promise<PgDepend[]> {
   const dependsRows = await sql<PgDepend[]>`
@@ -313,6 +313,235 @@ WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
   `;
 
   return ownershipRows;
+}
+
+/**
+ * Extract dependencies between comments and the objects they describe.
+ * Produces edges like:
+ *  - comment:schema.table -> table:schema.table
+ *  - comment:schema.table.column -> table:schema.table
+ *  - comment:schema.table.constraint -> constraint:schema.table.constraint
+ */
+async function extractCommentDepends(sql: Sql): Promise<PgDepend[]> {
+  const rows = await sql<PgDepend[]>`
+-- COMMENT DEPENDENCIES: Comments depend on their owning objects
+
+-- Table comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS dependent_stable_id,
+  'table:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind IN ('r','p')
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Materialized view comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS dependent_stable_id,
+  'materializedView:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)           AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'm'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Composite type comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname)           AS dependent_stable_id,
+  'compositeType:'   || quote_ident(n.nspname) || '.' || quote_ident(t.relname)   AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type ty
+  ON d.classoid = 'pg_type'::regclass
+ AND d.objoid   = ty.oid
+ AND d.objsubid = 0
+JOIN pg_class t
+  ON t.reltype = ty.oid       -- composite's underlying rowtype
+JOIN pg_namespace n
+  ON n.oid = t.relnamespace
+WHERE t.relkind = 'c'
+  AND NOT n.nspname LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Domain comments
+SELECT DISTINCT
+  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
+  'domain:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'd' AND d.objsubid = 0
+WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Collation comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.collname) AS dependent_stable_id,
+  'collation:'   || quote_ident(n.nspname) || '.' || quote_ident(c.collname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_collation c ON d.classoid = 'pg_collation'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+JOIN pg_namespace n ON c.collnamespace = n.oid
+WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Enum type comments
+SELECT DISTINCT
+  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
+  'enum:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'e' AND d.objsubid = 0
+WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Range type comments
+SELECT DISTINCT
+  'comment:' || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS dependent_stable_id,
+  'range:'   || t.typnamespace::regnamespace::text || '.' || quote_ident(t.typname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_type t ON d.classoid = 'pg_type'::regclass AND d.objoid = t.oid AND t.typtype = 'r' AND d.objsubid = 0
+WHERE NOT t.typnamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Column comments (reference table as the owning object)
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
+  'table:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname)                                   AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind IN ('r','p')
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Index comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS dependent_stable_id,
+  'index:'   || quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'i'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Materialized view column comments (reference materialized view as the owning object)
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
+  'materializedView:' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)                                   AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid > 0
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+JOIN pg_namespace n ON c.relnamespace = n.oid
+WHERE c.relkind = 'm'
+  AND NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Composite type attribute comments
+SELECT DISTINCT
+  'comment:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname) || '.' || quote_ident(a.attname) AS dependent_stable_id,
+  'compositeType:' || quote_ident(n.nspname) || '.' || quote_ident(t.relname)                                   AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_class t ON d.classoid = 'pg_class'::regclass AND d.objoid = t.oid AND t.relkind = 'c'
+JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.objsubid AND a.attnum > 0 AND NOT a.attisdropped
+JOIN pg_namespace n ON t.relnamespace = n.oid
+WHERE NOT n.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Language comments
+SELECT DISTINCT
+  'comment:' || quote_ident(l.lanname) AS dependent_stable_id,
+  'language:' || quote_ident(l.lanname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_language l ON d.classoid = 'pg_language'::regclass AND d.objoid = l.oid AND d.objsubid = 0
+WHERE l.lanname NOT IN ('internal', 'c')
+
+UNION ALL
+
+-- Extension comments
+SELECT DISTINCT
+  'comment:' || quote_ident(e.extname) AS dependent_stable_id,
+  'extension:' || quote_ident(e.extname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_extension e ON d.classoid = 'pg_extension'::regclass AND d.objoid = e.oid AND d.objsubid = 0
+
+UNION ALL
+
+-- Procedure/function comments
+SELECT DISTINCT
+  'comment:' || p.pronamespace::regnamespace::text || '.' || quote_ident(p.proname) || '('
+    || coalesce((select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)), '') || ')'
+    AS dependent_stable_id,
+  'procedure:' || p.pronamespace::regnamespace::text || '.' || quote_ident(p.proname) || '('
+    || coalesce((select string_agg(format_type(oid, null), ',' order by ord) from unnest(p.proargtypes) with ordinality as t(oid, ord)), '') || ')'
+    AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_proc p ON d.classoid = 'pg_proc'::regclass AND d.objoid = p.oid AND d.objsubid = 0
+WHERE NOT p.pronamespace::regnamespace::text LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- RLS policy comments
+SELECT DISTINCT
+  'comment:' || quote_ident(ns.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) AS dependent_stable_id,
+  'rlsPolicy:' || quote_ident(ns.nspname) || '.' || quote_ident(tc.relname) || '.' || quote_ident(pol.polname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_policy pol ON d.classoid = 'pg_policy'::regclass AND d.objoid = pol.oid AND d.objsubid = 0
+JOIN pg_class tc ON pol.polrelid = tc.oid
+JOIN pg_namespace ns ON tc.relnamespace = ns.oid
+WHERE NOT ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+
+UNION ALL
+
+-- Role comments
+SELECT DISTINCT
+  'comment:' || quote_ident(r.rolname) AS dependent_stable_id,
+  'role:' || quote_ident(r.rolname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_roles r ON d.classoid = 'pg_authid'::regclass AND d.objoid = r.oid AND d.objsubid = 0
+
+UNION ALL
+
+-- Constraint comments
+SELECT DISTINCT
+  'comment:'    || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) || '.' || quote_ident(con.conname) AS dependent_stable_id,
+  'constraint:' || quote_ident(ns.nspname) || '.' || quote_ident(tbl.relname) || '.' || quote_ident(con.conname) AS referenced_stable_id,
+  'n'::char AS deptype
+FROM pg_description d
+JOIN pg_constraint con ON d.classoid = 'pg_constraint'::regclass AND d.objoid = con.oid
+JOIN pg_class tbl ON con.conrelid = tbl.oid
+JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
+WHERE NOT ns.nspname LIKE ANY(ARRAY['pg\\_%', 'information\\_schema'])
+  AND con.conrelid <> 0  -- only table constraints
+`;
+  return rows;
 }
 
 /**
@@ -798,13 +1027,15 @@ where dependent_stable_id != referenced_stable_id
   `;
 
   // Also extract view dependencies from pg_rewrite
-  const viewDepends = await extractViewAndMaterializedViewsDepends(sql);
+  const viewDepends = await extractViewAndMaterializedViewDepends(sql);
   // Also extract table -> function dependencies (defaults/constraints)
   const tableFuncDepends = await extractTableAndConstraintFunctionDepends(sql);
   // Extract ownership dependencies (all objects depend on their owner roles)
   const ownershipDepends = await extractOwnershipDepends(sql);
   // Extract constraint-to-constraint dependencies (foreign key -> unique/primary key)
   const constraintDepends = await extractConstraintDepends(sql);
+  // Extract comment dependencies (comments -> owning objects)
+  const commentDepends = await extractCommentDepends(sql);
 
   // Combine all dependency sources and remove duplicates
   const allDepends = new Set([
@@ -813,6 +1044,7 @@ where dependent_stable_id != referenced_stable_id
     ...tableFuncDepends,
     ...ownershipDepends,
     ...constraintDepends,
+    ...commentDepends,
   ]);
 
   return Array.from(allDepends).sort(

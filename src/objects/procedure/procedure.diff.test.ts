@@ -43,6 +43,7 @@ const base: ProcedureProps = {
   owner: "o1",
   execution_cost: 0,
   result_rows: 0,
+  comment: null,
 };
 
 describe.concurrent("procedure.diff", () => {

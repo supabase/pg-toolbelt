@@ -7,6 +7,7 @@ describe.concurrent("schema", () => {
     test("change owner", () => {
       const props: Omit<SchemaProps, "owner"> = {
         schema: "test_schema",
+        comment: null,
       };
       const main = new Schema({
         ...props,
@@ -31,6 +32,7 @@ describe.concurrent("schema", () => {
       const props: SchemaProps = {
         schema: "test_schema",
         owner: "test",
+        comment: null,
       };
       const main = new Schema(props);
       const branch = new Schema(props);

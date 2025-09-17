@@ -16,6 +16,7 @@ describe("collation", () => {
       ctype: "C",
       icu_rules: null,
       owner: "owner",
+      comment: null,
     });
 
     const change = new CreateCollation({ collation });
@@ -38,6 +39,7 @@ describe("collation", () => {
       ctype: "en_US",
       icu_rules: "& A < a <<< à",
       owner: "owner",
+      comment: null,
     });
 
     const change = new CreateCollation({ collation });

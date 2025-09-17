@@ -11,6 +11,10 @@ import {
   AlterProcedureSetVolatility,
   ReplaceProcedure,
 } from "./changes/procedure.alter.ts";
+import {
+  CreateCommentOnProcedure,
+  DropCommentOnProcedure,
+} from "./changes/procedure.comment.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
 import type { Procedure } from "./procedure.model.ts";
@@ -31,7 +35,11 @@ export function diffProcedures(
   const changes: Change[] = [];
 
   for (const procedureId of created) {
-    changes.push(new CreateProcedure({ procedure: branch[procedureId] }));
+    const proc = branch[procedureId];
+    changes.push(new CreateProcedure({ procedure: proc }));
+    if (proc.comment !== null) {
+      changes.push(new CreateCommentOnProcedure({ procedure: proc }));
+    }
   }
 
   for (const procedureId of dropped) {
@@ -100,6 +108,19 @@ export function diffProcedures(
             branch: branchProcedure,
           }),
         );
+      }
+
+      // COMMENT
+      if (mainProcedure.comment !== branchProcedure.comment) {
+        if (branchProcedure.comment === null) {
+          changes.push(
+            new DropCommentOnProcedure({ procedure: mainProcedure }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnProcedure({ procedure: branchProcedure }),
+          );
+        }
       }
 
       // SECURITY DEFINER/INVOKER

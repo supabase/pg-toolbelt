@@ -24,6 +24,7 @@ const extensionPropsSchema = z.object({
   relocatable: z.boolean(),
   version: z.string(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type ExtensionProps = z.infer<typeof extensionPropsSchema>;
@@ -34,6 +35,7 @@ export class Extension extends BasePgModel {
   public readonly relocatable: ExtensionProps["relocatable"];
   public readonly version: ExtensionProps["version"];
   public readonly owner: ExtensionProps["owner"];
+  public readonly comment: ExtensionProps["comment"];
 
   constructor(props: ExtensionProps) {
     super();
@@ -46,6 +48,7 @@ export class Extension extends BasePgModel {
     this.relocatable = props.relocatable;
     this.version = props.version;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `extension:${string}` {
@@ -65,6 +68,7 @@ export class Extension extends BasePgModel {
       relocatable: this.relocatable,
       version: this.version,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }
@@ -78,7 +82,8 @@ select
   extnamespace::regnamespace::text as schema,
   extrelocatable as relocatable,
   extversion as version,
-  extowner::regrole::text as owner
+  extowner::regrole::text as owner,
+  obj_description(e.oid, 'pg_extension') as comment
 from
   pg_catalog.pg_extension e
 order by

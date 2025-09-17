@@ -33,6 +33,7 @@ describe("procedure", () => {
       owner: "test",
       execution_cost: 0,
       result_rows: 0,
+      comment: null,
     });
 
     const change = new DropProcedure({
@@ -72,6 +73,7 @@ describe("procedure", () => {
       owner: "test",
       execution_cost: 0,
       result_rows: 0,
+      comment: null,
     });
 
     const change = new DropProcedure({ procedure: fn });

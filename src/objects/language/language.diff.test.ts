@@ -16,6 +16,7 @@ const base: LanguageProps = {
   inline_handler: null,
   validator: null,
   owner: "o1",
+  comment: null,
 };
 
 describe.concurrent("language.diff", () => {

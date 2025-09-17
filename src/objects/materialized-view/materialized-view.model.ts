@@ -23,6 +23,7 @@ const materializedViewPropsSchema = z.object({
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
 });
 
@@ -44,6 +45,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly options: MaterializedViewProps["options"];
   public readonly partition_bound: MaterializedViewProps["partition_bound"];
   public readonly owner: MaterializedViewProps["owner"];
+  public readonly comment: MaterializedViewProps["comment"];
   public readonly columns: MaterializedViewProps["columns"];
 
   constructor(props: MaterializedViewProps) {
@@ -67,6 +69,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
     this.options = props.options;
     this.partition_bound = props.partition_bound;
     this.owner = props.owner;
+    this.comment = props.comment;
     this.columns = props.columns;
   }
 
@@ -96,6 +99,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
       columns: this.columns,
     };
   }
@@ -133,6 +137,7 @@ select
   c.reloptions as options,
   pg_get_expr(c.relpartbound, c.oid) as partition_bound,
   c.relowner::regrole::text as owner,
+  obj_description(c.oid, 'pg_class') as comment,
   coalesce(json_agg(
     case when a.attname is not null then
       json_build_object(
@@ -172,7 +177,7 @@ where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'informati
   and e.objid is null
   and c.relkind = 'm'
 group by
-  c.relnamespace, c.relname, pg_get_viewdef(c.oid), c.relrowsecurity, c.relforcerowsecurity, c.relhasindex, c.relhasrules, c.relhastriggers, c.relhassubclass, c.relispopulated, c.relreplident, c.relispartition, c.reloptions, pg_get_expr(c.relpartbound, c.oid), c.relowner
+  c.oid, c.relnamespace, c.relname, pg_get_viewdef(c.oid), c.relrowsecurity, c.relforcerowsecurity, c.relhasindex, c.relhasrules, c.relhastriggers, c.relhassubclass, c.relispopulated, c.relreplident, c.relispartition, c.reloptions, pg_get_expr(c.relpartbound, c.oid), c.relowner
 order by
   c.relnamespace::regnamespace, c.relname;
     `;

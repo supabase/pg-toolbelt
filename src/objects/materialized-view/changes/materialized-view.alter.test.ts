@@ -27,6 +27,7 @@ describe.concurrent("materialized-view", () => {
         is_partition: false,
         options: null,
         partition_bound: null,
+        comment: null,
         columns: [],
       };
       const main = new MaterializedView({
@@ -64,6 +65,7 @@ describe.concurrent("materialized-view", () => {
         options: null,
         partition_bound: null,
         owner: "test",
+        comment: null,
         columns: [],
       };
       const main = new MaterializedView({
@@ -101,6 +103,7 @@ describe.concurrent("materialized-view", () => {
         is_partition: false,
         partition_bound: null,
         owner: "test",
+        comment: null,
         columns: [],
       };
       const main = new MaterializedView({
@@ -138,6 +141,7 @@ describe.concurrent("materialized-view", () => {
         is_partition: false,
         partition_bound: null,
         owner: "test",
+        comment: null,
         columns: [],
       };
       const main = new MaterializedView({

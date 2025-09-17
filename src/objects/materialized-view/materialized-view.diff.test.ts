@@ -28,6 +28,7 @@ const base: MaterializedViewProps = {
   options: null,
   partition_bound: null,
   owner: "o1",
+  comment: null,
   columns: [],
 };
 

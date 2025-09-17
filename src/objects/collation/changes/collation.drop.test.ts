@@ -16,6 +16,7 @@ describe("collation", () => {
       ctype: "test",
       icu_rules: "test",
       owner: "test",
+      comment: null,
     });
 
     const change = new DropCollation({

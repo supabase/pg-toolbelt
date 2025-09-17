@@ -1,6 +1,10 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
+import {
+  CreateCommentOnSchema,
+  DropCommentOnSchema,
+} from "./changes/schema.comment.ts";
 import { CreateSchema } from "./changes/schema.create.ts";
 import { DropSchema } from "./changes/schema.drop.ts";
 import type { Schema } from "./schema.model.ts";
@@ -21,7 +25,11 @@ export function diffSchemas(
   const changes: Change[] = [];
 
   for (const schemaId of created) {
-    changes.push(new CreateSchema({ schema: branch[schemaId] }));
+    const sc = branch[schemaId];
+    changes.push(new CreateSchema({ schema: sc }));
+    if (sc.comment !== null) {
+      changes.push(new CreateCommentOnSchema({ schemaObj: sc }));
+    }
   }
 
   for (const schemaId of dropped) {
@@ -40,6 +48,15 @@ export function diffSchemas(
           branch: branchSchema,
         }),
       );
+    }
+
+    // COMMENT
+    if (mainSchema.comment !== branchSchema.comment) {
+      if (branchSchema.comment === null) {
+        changes.push(new DropCommentOnSchema({ schemaObj: mainSchema }));
+      } else {
+        changes.push(new CreateCommentOnSchema({ schemaObj: branchSchema }));
+      }
     }
 
     // Note: Schema renaming would also use ALTER SCHEMA ... RENAME TO ...

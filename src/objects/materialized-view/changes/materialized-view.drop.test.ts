@@ -20,6 +20,7 @@ describe("materialized-view", () => {
       options: null,
       partition_bound: null,
       owner: "test",
+      comment: null,
       columns: [],
     });
 

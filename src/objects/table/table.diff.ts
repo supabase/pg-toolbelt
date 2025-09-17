@@ -25,6 +25,14 @@ import {
   AlterTableSetUnlogged,
   AlterTableValidateConstraint,
 } from "./changes/table.alter.ts";
+import {
+  CreateCommentOnColumn,
+  CreateCommentOnConstraint,
+  CreateCommentOnTable,
+  DropCommentOnColumn,
+  DropCommentOnConstraint,
+  DropCommentOnTable,
+} from "./changes/table.comment.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
 import { Table } from "./table.model.js";
@@ -66,6 +74,15 @@ function createAlterConstraintChange(
       if (!c.validated) {
         changes.push(
           new AlterTableValidateConstraint({
+            table: branchTable,
+            constraint: c,
+          }),
+        );
+      }
+      // Add comment for newly created constraint
+      if (c.comment !== null) {
+        changes.push(
+          new CreateCommentOnConstraint({
             table: branchTable,
             constraint: c,
           }),
@@ -132,6 +149,34 @@ function createAlterConstraintChange(
           }),
         );
       }
+      // Ensure constraint comment is applied after re-creation
+      if (branchC.comment !== null) {
+        changes.push(
+          new CreateCommentOnConstraint({
+            table: branchTable,
+            constraint: branchC,
+          }),
+        );
+      }
+    } else {
+      // Comment-only change on constraint
+      if (mainC.comment !== branchC.comment) {
+        if (branchC.comment === null) {
+          changes.push(
+            new DropCommentOnConstraint({
+              table: mainTable,
+              constraint: mainC,
+            }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnConstraint({
+              table: branchTable,
+              constraint: branchC,
+            }),
+          );
+        }
+      }
     }
   }
 
@@ -168,6 +213,20 @@ export function diffTables(
         branch,
       ),
     );
+
+    // Table comment on creation
+    if (branchTable.comment !== null && branchTable.comment !== undefined) {
+      changes.push(new CreateCommentOnTable({ table: branchTable }));
+    }
+
+    // Column comments on creation
+    for (const col of branchTable.columns) {
+      if (col.comment !== null && col.comment !== undefined) {
+        changes.push(
+          new CreateCommentOnColumn({ table: branchTable, column: col }),
+        );
+      }
+    }
   }
 
   for (const tableId of dropped) {
@@ -293,6 +352,15 @@ export function diffTables(
       );
     }
 
+    // TABLE COMMENT (create/drop when comment changes)
+    if (mainTable.comment !== branchTable.comment) {
+      if (branchTable.comment === null) {
+        changes.push(new DropCommentOnTable({ table: mainTable }));
+      } else {
+        changes.push(new CreateCommentOnTable({ table: branchTable }));
+      }
+    }
+
     // PARTITION ATTACH/DETACH
     const mainIsPartition = Boolean(
       mainTable.parent_schema && mainTable.parent_name,
@@ -380,6 +448,11 @@ export function diffTables(
         changes.push(
           new AlterTableAddColumn({ table: branchTable, column: col }),
         );
+        if (col.comment !== null && col.comment !== undefined) {
+          changes.push(
+            new CreateCommentOnColumn({ table: branchTable, column: col }),
+          );
+        }
       }
     }
 
@@ -467,6 +540,22 @@ export function diffTables(
         } else {
           changes.push(
             new AlterTableAlterColumnDropNotNull({
+              table: branchTable,
+              column: branchCol,
+            }),
+          );
+        }
+      }
+
+      // COMMENT change on column
+      if (mainCol.comment !== branchCol.comment) {
+        if (branchCol.comment === null) {
+          changes.push(
+            new DropCommentOnColumn({ table: mainTable, column: mainCol }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnColumn({
               table: branchTable,
               column: branchCol,
             }),

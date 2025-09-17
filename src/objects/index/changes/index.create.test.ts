@@ -29,6 +29,7 @@ describe("index", () => {
       partial_predicate: null,
       table_relkind: "r",
       definition: "CREATE INDEX test_index ON public.test_table (id)",
+      comment: null,
     });
 
     const columns: ColumnProps[] = [

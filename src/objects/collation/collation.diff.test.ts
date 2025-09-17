@@ -23,6 +23,7 @@ describe.concurrent("collation.diff", () => {
       icu_rules: null,
       version: "1.0",
       owner: "owner1",
+      comment: null,
     };
     const c = new Collation(props);
 
@@ -46,6 +47,7 @@ describe.concurrent("collation.diff", () => {
       ctype: "en_US",
       locale: "en_US",
       icu_rules: null,
+      comment: null,
     };
     const main = new Collation({ ...base, version: "1.0", owner: "o1" });
     const branch = new Collation({ ...base, version: "2.0", owner: "o2" });
@@ -72,6 +74,7 @@ describe.concurrent("collation.diff", () => {
       ctype: "en_US",
       locale: "en_US",
       icu_rules: null,
+      comment: null,
       version: "1.0",
       owner: "o1",
     };

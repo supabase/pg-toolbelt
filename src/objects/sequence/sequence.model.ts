@@ -16,6 +16,7 @@ const sequencePropsSchema = z.object({
   owned_by_schema: z.string().nullable(),
   owned_by_table: z.string().nullable(),
   owned_by_column: z.string().nullable(),
+  comment: z.string().nullable(),
 });
 
 export type SequenceProps = z.infer<typeof sequencePropsSchema>;
@@ -34,6 +35,7 @@ export class Sequence extends BasePgModel {
   public readonly owned_by_schema: SequenceProps["owned_by_schema"];
   public readonly owned_by_table: SequenceProps["owned_by_table"];
   public readonly owned_by_column: SequenceProps["owned_by_column"];
+  public readonly comment: SequenceProps["comment"];
 
   constructor(props: SequenceProps) {
     super();
@@ -54,6 +56,7 @@ export class Sequence extends BasePgModel {
     this.owned_by_schema = props.owned_by_schema;
     this.owned_by_table = props.owned_by_table;
     this.owned_by_column = props.owned_by_column;
+    this.comment = props.comment;
   }
 
   get stableId(): `sequence:${string}` {
@@ -80,6 +83,7 @@ export class Sequence extends BasePgModel {
       owned_by_schema: this.owned_by_schema,
       owned_by_table: this.owned_by_table,
       owned_by_column: this.owned_by_column,
+      comment: this.comment,
     };
   }
 }
@@ -110,7 +114,8 @@ select
   c.relpersistence as persistence,
   quote_ident(t_ns.nspname) as owned_by_schema,
   case when t.relname is not null then quote_ident(t.relname) else null end as owned_by_table,
-  case when att.attname is not null then quote_ident(att.attname) else null end as owned_by_column
+  case when att.attname is not null then quote_ident(att.attname) else null end as owned_by_column,
+  obj_description(c.oid, 'pg_class') as comment
 from
   pg_catalog.pg_class c
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid

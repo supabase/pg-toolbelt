@@ -22,6 +22,7 @@ const compositeTypePropsSchema = z.object({
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
 });
 
@@ -42,6 +43,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly options: CompositeTypeProps["options"];
   public readonly partition_bound: CompositeTypeProps["partition_bound"];
   public readonly owner: CompositeTypeProps["owner"];
+  public readonly comment: CompositeTypeProps["comment"];
   public readonly columns: CompositeTypeProps["columns"];
 
   constructor(props: CompositeTypeProps) {
@@ -64,6 +66,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
     this.options = props.options;
     this.partition_bound = props.partition_bound;
     this.owner = props.owner;
+    this.comment = props.comment;
     this.columns = props.columns;
   }
 
@@ -92,6 +95,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
       columns: this.columns,
     };
   }
@@ -128,6 +132,7 @@ export async function extractCompositeTypes(
           c.reloptions as options,
           pg_get_expr(c.relpartbound, c.oid) as partition_bound,
           c.relowner::regrole::text as owner,
+          obj_description(c.reltype, 'pg_type') as comment,
           c.oid as oid
         from
           pg_catalog.pg_class c
@@ -151,6 +156,7 @@ export async function extractCompositeTypes(
         ct.options,
         ct.partition_bound,
         ct.owner,
+        ct.comment,
         coalesce(json_agg(
           case when a.attname is not null then
             json_build_object(
@@ -184,11 +190,9 @@ export async function extractCompositeTypes(
         composite_types ct
         left join pg_attribute a on a.attrelid = ct.oid and a.attnum > 0 and not a.attisdropped
         left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
-        left join pg_type ty on ty.oid = a.atttypid
-        -- use regnamespace instead of joining pg_namespace
-        
+        left join pg_type ty on ty.oid = a.atttypid       -- use regnamespace instead of joining pg_namespace
       group by
-        ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner, ct.oid
+        ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner, ct.comment, ct.oid
       order by
         ct.schema, ct.name;
     `;

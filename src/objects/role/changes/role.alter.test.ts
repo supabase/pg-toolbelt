@@ -16,6 +16,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, is_superuser: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -34,6 +35,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, is_superuser: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -52,6 +54,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_create_databases: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -70,6 +73,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_create_roles: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -88,6 +92,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_inherit: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -106,6 +111,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_login: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -124,6 +130,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_replicate: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -142,6 +149,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: true,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_bypass_rls: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -160,6 +168,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_create_roles: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -178,6 +187,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_inherit: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -196,6 +206,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_login: false });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -214,6 +225,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_replicate: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -232,6 +244,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({ ...main, can_bypass_rls: true });
       const change = new AlterRoleSetOptions({ main, branch });
@@ -250,6 +263,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       });
       const branch = new Role({
         ...main,
@@ -280,6 +294,7 @@ describe.concurrent("role", () => {
         can_replicate: false,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       };
       const main = new Role({
         ...props,
@@ -308,6 +323,7 @@ describe.concurrent("role", () => {
         connection_limit: null,
         can_bypass_rls: false,
         config: null,
+        comment: null,
       };
       const main = new Role({
         ...props,

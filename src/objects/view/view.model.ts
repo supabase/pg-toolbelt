@@ -19,6 +19,7 @@ const viewPropsSchema = z.object({
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type ViewProps = z.infer<typeof viewPropsSchema>;
@@ -39,6 +40,7 @@ export class View extends BasePgModel {
   public readonly options: ViewProps["options"];
   public readonly partition_bound: ViewProps["partition_bound"];
   public readonly owner: ViewProps["owner"];
+  public readonly comment: ViewProps["comment"];
 
   constructor(props: ViewProps) {
     super();
@@ -61,6 +63,7 @@ export class View extends BasePgModel {
     this.options = props.options;
     this.partition_bound = props.partition_bound;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `view:${string}` {
@@ -89,6 +92,7 @@ export class View extends BasePgModel {
       options: this.options,
       partition_bound: this.partition_bound,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }
@@ -122,6 +126,7 @@ with extension_oids as (
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
     c.relowner::regrole::text as owner,
+    obj_description(c.oid, 'pg_class') as comment,
     c.oid as oid
   from
     pg_catalog.pg_class c
@@ -145,7 +150,8 @@ select
   v.is_partition,
   v.options,
   v.partition_bound,
-  v.owner
+  v.owner,
+  v.comment
 from
   views v
 order by

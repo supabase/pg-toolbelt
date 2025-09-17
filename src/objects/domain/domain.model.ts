@@ -23,6 +23,7 @@ const domainPropsSchema = z.object({
   default_bin: z.string().nullable(),
   default_value: z.string().nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
   constraints: z.array(domainConstraintPropsSchema),
 });
 
@@ -47,6 +48,7 @@ export class Domain extends BasePgModel {
   public readonly default_bin: DomainProps["default_bin"];
   public readonly default_value: DomainProps["default_value"];
   public readonly owner: DomainProps["owner"];
+  public readonly comment: DomainProps["comment"];
   public readonly constraints: DomainConstraintProps[];
 
   constructor(props: DomainProps) {
@@ -67,6 +69,7 @@ export class Domain extends BasePgModel {
     this.default_bin = props.default_bin;
     this.default_value = props.default_value;
     this.owner = props.owner;
+    this.comment = props.comment;
     this.constraints = props.constraints;
   }
 
@@ -92,6 +95,7 @@ export class Domain extends BasePgModel {
       default_bin: this.default_bin,
       default_value: this.default_value,
       owner: this.owner,
+      comment: this.comment,
       constraints: this.constraints,
     };
   }
@@ -129,6 +133,7 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         pg_get_expr(t.typdefaultbin, 0) as default_bin,
         t.typdefault as default_value,
         t.typowner::regrole::text as owner,
+        obj_description(t.oid, 'pg_type') as comment,
         coalesce(
           (
             select json_agg(

@@ -20,6 +20,7 @@ describe.concurrent("collation", () => {
         version: "1.0",
         ctype: "test",
         icu_rules: "test",
+        comment: null,
       };
       const main = new Collation({
         ...base,
@@ -51,6 +52,7 @@ describe.concurrent("collation", () => {
         locale: "en_US",
         ctype: "test",
         icu_rules: "test",
+        comment: null,
         owner: "test",
       };
       const main = new Collation({
@@ -84,6 +86,7 @@ describe.concurrent("collation", () => {
         locale: null,
         version: null,
         icu_rules: null,
+        comment: null,
       };
 
       const main = new Collation({

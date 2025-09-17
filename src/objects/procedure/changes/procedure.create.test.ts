@@ -33,6 +33,7 @@ describe("procedure", () => {
       owner: "test",
       execution_cost: 0,
       result_rows: 0,
+      comment: null,
     });
 
     const change = new CreateProcedure({

@@ -6,6 +6,10 @@ import {
   AlterCollationRefreshVersion,
   ReplaceCollation,
 } from "./changes/collation.alter.ts";
+import {
+  CreateCommentOnCollation,
+  DropCommentOnCollation,
+} from "./changes/collation.comment.ts";
 import { CreateCollation } from "./changes/collation.create.ts";
 import { DropCollation } from "./changes/collation.drop.ts";
 import type { Collation } from "./collation.model.ts";
@@ -26,7 +30,11 @@ export function diffCollations(
   const changes: Change[] = [];
 
   for (const collationId of created) {
-    changes.push(new CreateCollation({ collation: branch[collationId] }));
+    const coll = branch[collationId];
+    changes.push(new CreateCollation({ collation: coll }));
+    if (coll.comment !== null) {
+      changes.push(new CreateCommentOnCollation({ collation: coll }));
+    }
   }
 
   for (const collationId of dropped) {
@@ -80,6 +88,19 @@ export function diffCollations(
             branch: branchCollation,
           }),
         );
+      }
+
+      // COMMENT
+      if (mainCollation.comment !== branchCollation.comment) {
+        if (branchCollation.comment === null) {
+          changes.push(
+            new DropCommentOnCollation({ collation: mainCollation }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnCollation({ collation: branchCollation }),
+          );
+        }
       }
 
       // Note: Collation renaming would also use ALTER COLLATION ... RENAME TO ...

@@ -10,6 +10,10 @@ import {
   AlterDomainSetNotNull,
   AlterDomainValidateConstraint,
 } from "./changes/domain.alter.ts";
+import {
+  CreateCommentOnDomain,
+  DropCommentOnDomain,
+} from "./changes/domain.comment.ts";
 import { CreateDomain } from "./changes/domain.create.ts";
 import { DropDomain } from "./changes/domain.drop.ts";
 import type { Domain } from "./domain.model.ts";
@@ -32,6 +36,9 @@ export function diffDomains(
   for (const domainId of created) {
     const newDomain = branch[domainId];
     changes.push(new CreateDomain({ domain: newDomain }));
+    if (newDomain.comment !== null) {
+      changes.push(new CreateCommentOnDomain({ domain: newDomain }));
+    }
     // For unvalidated constraints, CREATE DOMAIN cannot specify NOT VALID.
     // Add them after creation and validate to match branch state semantics.
     // For already validated constraints, they are emitted inline in CREATE DOMAIN.
@@ -171,6 +178,15 @@ export function diffDomains(
       changes.push(
         new AlterDomainChangeOwner({ main: mainDomain, branch: branchDomain }),
       );
+    }
+
+    // COMMENT
+    if (mainDomain.comment !== branchDomain.comment) {
+      if (branchDomain.comment === null) {
+        changes.push(new DropCommentOnDomain({ domain: mainDomain }));
+      } else {
+        changes.push(new CreateCommentOnDomain({ domain: branchDomain }));
+      }
     }
   }
 

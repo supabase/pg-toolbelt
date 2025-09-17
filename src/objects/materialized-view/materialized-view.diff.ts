@@ -6,6 +6,12 @@ import {
   AlterMaterializedViewSetStorageParams,
   ReplaceMaterializedView,
 } from "./changes/materialized-view.alter.ts";
+import {
+  CreateCommentOnMaterializedView,
+  CreateCommentOnMaterializedViewColumn,
+  DropCommentOnMaterializedView,
+  DropCommentOnMaterializedViewColumn,
+} from "./changes/materialized-view.comment.ts";
 import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./changes/materialized-view.drop.ts";
 import type { MaterializedView } from "./materialized-view.model.ts";
@@ -31,6 +37,25 @@ export function diffMaterializedViews(
         materializedView: branch[materializedViewId],
       }),
     );
+    // Materialized view comment on creation
+    if (branch[materializedViewId].comment !== null) {
+      changes.push(
+        new CreateCommentOnMaterializedView({
+          materializedView: branch[materializedViewId],
+        }),
+      );
+    }
+    // Column comments on creation
+    for (const col of branch[materializedViewId].columns) {
+      if (col.comment !== null) {
+        changes.push(
+          new CreateCommentOnMaterializedViewColumn({
+            materializedView: branch[materializedViewId],
+            column: col,
+          }),
+        );
+      }
+    }
   }
 
   for (const materializedViewId of dropped) {
@@ -102,6 +127,50 @@ export function diffMaterializedViews(
       // Note: Materialized view renaming would also use ALTER MATERIALIZED VIEW ... RENAME TO ...
       // But since our MaterializedView model uses 'name' as the identity field,
       // a name change would be handled as drop + create by diffObjects()
+      // MATERIALIZED VIEW COMMENT (create/drop when comment changes)
+      if (mainMaterializedView.comment !== branchMaterializedView.comment) {
+        if (branchMaterializedView.comment === null) {
+          changes.push(
+            new DropCommentOnMaterializedView({
+              materializedView: mainMaterializedView,
+            }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnMaterializedView({
+              materializedView: branchMaterializedView,
+            }),
+          );
+        }
+      }
+      // COMMENT changes on columns
+      const mainCols = new Map(
+        mainMaterializedView.columns.map((c) => [c.name, c]),
+      );
+      const branchCols = new Map(
+        branchMaterializedView.columns.map((c) => [c.name, c]),
+      );
+      for (const [name, branchCol] of branchCols) {
+        const mainCol = mainCols.get(name);
+        if (!mainCol) continue;
+        if (mainCol.comment !== branchCol.comment) {
+          if (branchCol.comment === null) {
+            changes.push(
+              new DropCommentOnMaterializedViewColumn({
+                materializedView: mainMaterializedView,
+                column: mainCol,
+              }),
+            );
+          } else {
+            changes.push(
+              new CreateCommentOnMaterializedViewColumn({
+                materializedView: branchMaterializedView,
+                column: branchCol,
+              }),
+            );
+          }
+        }
+      }
     }
   }
 

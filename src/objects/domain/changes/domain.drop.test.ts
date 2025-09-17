@@ -16,6 +16,7 @@ describe("domain", () => {
       default_bin: null,
       default_value: null,
       owner: "test",
+      comment: null,
       constraints: [],
     });
 

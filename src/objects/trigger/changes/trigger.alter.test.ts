@@ -24,6 +24,7 @@ describe.concurrent("trigger", () => {
         owner: "test",
         definition:
           "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
+        comment: null,
       };
       const main = new Trigger({
         ...props,

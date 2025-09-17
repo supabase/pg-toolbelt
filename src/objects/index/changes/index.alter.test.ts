@@ -35,6 +35,7 @@ describe.concurrent("index", () => {
         table_relkind: "r",
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
+        comment: null,
       };
       const main = new Index({
         ...props,
@@ -80,6 +81,7 @@ describe.concurrent("index", () => {
         table_relkind: "r",
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
+        comment: null,
       };
       const main = new Index({
         ...props,
@@ -128,6 +130,7 @@ describe.concurrent("index", () => {
         table_relkind: "r",
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
+        comment: null,
       };
       const main = new Index({
         ...props,
@@ -173,6 +176,7 @@ describe.concurrent("index", () => {
         table_relkind: "r",
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
+        comment: null,
       };
       const main = new Index({
         ...props,
@@ -218,6 +222,7 @@ describe.concurrent("index", () => {
         table_relkind: "r",
         definition:
           "CREATE INDEX test_index ON public.test_table USING hash (id)",
+        comment: null,
       };
       const main = new Index({
         ...props,

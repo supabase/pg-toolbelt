@@ -14,6 +14,7 @@ describe("rls-policy", () => {
       using_expression: "user_id = current_user_id()",
       with_check_expression: null,
       owner: "test",
+      comment: null,
     });
 
     const change = new DropRlsPolicy({

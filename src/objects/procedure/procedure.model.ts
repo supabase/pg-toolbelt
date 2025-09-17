@@ -57,6 +57,7 @@ const procedurePropsSchema = z.object({
   definition: z.string(),
   config: z.array(z.string()).nullable(),
   owner: z.string(),
+  comment: z.string().nullable(),
 });
 
 export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
@@ -89,6 +90,7 @@ export class Procedure extends BasePgModel {
   public readonly definition: ProcedureProps["definition"];
   public readonly config: ProcedureProps["config"];
   public readonly owner: ProcedureProps["owner"];
+  public readonly comment: ProcedureProps["comment"];
 
   constructor(props: ProcedureProps) {
     super();
@@ -123,6 +125,7 @@ export class Procedure extends BasePgModel {
     this.definition = props.definition;
     this.config = props.config;
     this.owner = props.owner;
+    this.comment = props.comment;
   }
 
   get stableId(): `procedure:${string}` {
@@ -165,6 +168,7 @@ export class Procedure extends BasePgModel {
       definition: this.definition,
       config: this.config,
       owner: this.owner,
+      comment: this.comment,
     };
   }
 }
@@ -218,7 +222,8 @@ select
   pg_get_function_sqlbody(p.oid) as sql_body,
   pg_get_functiondef(p.oid) as definition,
   p.proconfig as config,
-  p.proowner::regrole::text as owner
+  p.proowner::regrole::text as owner,
+  obj_description(p.oid, 'pg_proc') as comment
 from
   pg_catalog.pg_proc p
   inner join pg_catalog.pg_language l on l.oid = p.prolang

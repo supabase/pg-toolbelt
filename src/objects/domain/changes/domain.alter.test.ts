@@ -25,6 +25,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const main = new Domain({
@@ -58,6 +59,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const main = new Domain({
@@ -91,6 +93,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const main = new Domain({
@@ -124,6 +127,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const main = new Domain({
@@ -157,6 +161,7 @@ describe.concurrent("domain", () => {
         collation: null,
         default_bin: null,
         default_value: null,
+        comment: null,
         constraints: [],
       };
       const main = new Domain({
@@ -191,6 +196,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const domain = new Domain(props);
@@ -224,6 +230,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const domain = new Domain(props);
@@ -257,6 +264,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const domain = new Domain(props);
@@ -290,6 +298,7 @@ describe.concurrent("domain", () => {
         default_bin: null,
         default_value: null,
         owner: "test",
+        comment: null,
         constraints: [],
       };
       const domain = new Domain(props);

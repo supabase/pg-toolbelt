@@ -26,6 +26,7 @@ const base: ViewProps = {
   options: null,
   partition_bound: null,
   owner: "o1",
+  comment: null,
 };
 
 describe.concurrent("view.diff", () => {

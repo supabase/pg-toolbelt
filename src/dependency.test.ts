@@ -417,6 +417,7 @@ describe("DependencyResolver", () => {
         owned_by_schema: "test",
         owned_by_table: "users",
         owned_by_column: "id",
+        comment: null,
       });
 
       const changes = [
@@ -1158,6 +1159,7 @@ describe("DependencyResolver", () => {
             owned_by_schema: "test",
             owned_by_table: "users",
             owned_by_column: "id",
+            comment: null,
           }),
         }),
         new DummyCreate("schema:test"),
