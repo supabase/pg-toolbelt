@@ -23,9 +23,7 @@ const defaultPrivilegeSetSchema = z.object({
   ),
 });
 
-type DefaultPrivilegeSetProps = z.infer<
-  typeof defaultPrivilegeSetSchema
->;
+type DefaultPrivilegeSetProps = z.infer<typeof defaultPrivilegeSetSchema>;
 
 export class DefaultPrivilegeSet extends BasePgModel {
   public readonly grantor: DefaultPrivilegeSetProps["grantor"];
