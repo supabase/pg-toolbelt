@@ -98,6 +98,10 @@ describe("DependencyResolver", () => {
       views: {},
       depends: dependencies,
       indexableObjects: {},
+      columnPrivileges: {},
+      defaultPrivileges: {},
+      objectPrivileges: {},
+      roleMemberships: {},
       version: 150014, // Default to PostgreSQL 15
     });
   }
@@ -1689,6 +1693,10 @@ describe("DependencyResolver", () => {
           },
         ],
         indexableObjects: {},
+        objectPrivileges: {},
+        columnPrivileges: {},
+        defaultPrivileges: {},
+        roleMemberships: {},
         version: 150014, // Default to PostgreSQL 15
       });
 
