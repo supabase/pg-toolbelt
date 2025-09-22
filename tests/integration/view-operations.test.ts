@@ -4,11 +4,12 @@
 
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { getTest, getTestIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
+  const isolatedTest = getTestIsolated(pgVersion);
 
   describe.concurrent(`view operations (pg${pgVersion})`, () => {
     test("simple view creation", async ({ db }) => {
@@ -257,6 +258,27 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.create_with_options WITH (security_invoker = TRUE) AS SELECT id, name FROM test_schema.users;
           ALTER VIEW test_schema.reset_options RESET (security_invoker);
           `,
+      });
+    });
+
+    isolatedTest("view owner change", async ({ db }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          CREATE ROLE view_previous_owner WITH LOGIN;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.users (
+            id integer,
+            name text
+          );
+          CREATE VIEW test_schema.owned_view AS SELECT id, name FROM test_schema.users;
+          ALTER VIEW test_schema.owned_view OWNER TO view_previous_owner;
+        `,
+        testSql: `
+          CREATE ROLE view_new_owner WITH LOGIN;
+          ALTER VIEW test_schema.owned_view OWNER TO view_new_owner;
+        `,
       });
     });
   });
