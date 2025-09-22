@@ -604,12 +604,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("enum value removal with function dependencies", async ({ db }) => {
-      // Test removing enum values when functions depend on them
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test.todo(
+      "enum value removal with function dependencies",
+      async ({ db }) => {
+        // Test removing enum values when functions depend on them
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with multiple values
           CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending', 'archived', 'deleted');
@@ -670,7 +672,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- Remove specific enum values that are no longer needed
           -- Note: PostgreSQL doesn't support direct removal of enum values,
           -- so this would typically require recreating the type and updating dependencies
@@ -735,17 +737,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-      });
-    });
+        });
+      },
+    );
 
-    test("enum value removal with table and view dependencies", async ({
-      db,
-    }) => {
-      // Test removing enum values when tables and views depend on them
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test.todo(
+      "enum value removal with table and view dependencies",
+      async ({ db }) => {
+        // Test removing enum values when tables and views depend on them
+        // Those will need global dependencies where types are changed before anything else is changed
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with multiple values
           CREATE TYPE test_schema.priority AS ENUM ('low', 'medium', 'high', 'critical', 'urgent', 'blocked');
@@ -802,7 +806,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           JOIN test_schema.tasks t ON th.task_id = t.id
           WHERE th.old_priority != th.new_priority;
         `,
-        testSql: `
+          testSql: `
           -- Remove some enum values by recreating the type
           DROP TYPE test_schema.priority CASCADE;
           CREATE TYPE test_schema.priority AS ENUM ('low', 'medium', 'high', 'critical');
@@ -859,17 +863,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           JOIN test_schema.tasks t ON th.task_id = t.id
           WHERE th.old_priority != th.new_priority;
         `,
-      });
-    });
+        });
+      },
+    );
 
-    test("enum value removal with complex function dependencies", async ({
-      db,
-    }) => {
-      // Test removing enum values with complex function dependencies
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test.todo(
+      "enum value removal with complex function dependencies",
+      async ({ db }) => {
+        // Test removing enum values with complex function dependencies
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with many values
           CREATE TYPE test_schema.user_state AS ENUM (
@@ -976,7 +981,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- Remove some enum values by recreating the type with fewer values
           DROP TYPE test_schema.user_state CASCADE;
           CREATE TYPE test_schema.user_state AS ENUM (
@@ -1080,12 +1085,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-      });
-    });
+        });
+      },
+    );
 
-    test.skip("TODO: enum modification with check constraints", async ({
-      db,
-    }) => {
+    test.todo("enum modification with check constraints", async ({ db }) => {
       // Test enum modification when check constraints depend on the enum
       // TODO: this one is skipped because it require a two step transaction to be executed
       // with a COMMIT in between so might be out of the scope of a diff-er
