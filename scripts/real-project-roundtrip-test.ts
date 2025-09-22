@@ -1,6 +1,4 @@
-#!/usr/bin/env tsx
-
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import postgres from "postgres";
 import { diffCatalogs } from "../src/catalog.diff.ts";
@@ -88,7 +86,7 @@ class RealProjectRoundtripTester {
         }
 
         console.log(
-          `  ✅ Project ${project.ref}: ${result.success ? "PASSED" : "FAILED"} (${result.issues.length} issues)`,
+          `  ${result.success ? "✅" : "❌"} Project ${project.ref}: ${result.success ? "PASSED" : "FAILED"} (${result.issues.length} issues)`,
         );
       } catch (error) {
         const errorMessage =
@@ -671,25 +669,12 @@ ${change}
 // Main execution
 async function main() {
   try {
-    // const projectsData = JSON.parse(
-    //   await readFile("database-extraction-results.json", "utf-8"),
-    // ) as ProjectData[];
-
-    const projectsData = [
-      {
-        ref: "nbdempqvzblcekohnjnp",
-        connection_string:
-          "postgresql://supabase_admin:<password>@db.nbdempqvzblcekohnjnp.supabase.red:5432/postgres",
-        connection_valid: true,
-        postgres_version: 15,
-        migrations_schema_exists: false,
-        migrations_table_exists: false,
-        migrations: [],
-      },
-    ];
+    const projectsData = JSON.parse(
+      await readFile("database-extraction-results.json", "utf-8"),
+    ) as ProjectData[];
 
     const tester = new RealProjectRoundtripTester();
-    const results = await tester.runTests(projectsData, 10);
+    const results = await tester.runTests(projectsData, 1);
 
     // Print summary
     console.log("\n" + "=".repeat(50));
