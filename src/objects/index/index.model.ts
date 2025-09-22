@@ -5,6 +5,7 @@ import { BasePgModel } from "../base.model.ts";
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
   "m", // materialized view
+  "p", // partitioned table
 ]);
 
 const indexPropsSchema = z.object({
