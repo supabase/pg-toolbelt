@@ -1,36 +1,43 @@
-import type { ExtensionChange } from "./extension/changes/extension.base.ts";
+type ChangeOperation = "create" | "alter" | "drop";
 
-type ChangeKind = "create" | "drop" | "alter" | "replace";
+export type ChangeObjectType =
+  | "extension"
+  | "collation"
+  | "domain"
+  | "index"
+  | "language"
+  | "materialized_view"
+  | "procedure"
+  | "rls_policy"
+  | "role"
+  | "schema"
+  | "sequence"
+  | "table"
+  | "trigger"
+  | "enum"
+  | "range"
+  | "composite_type"
+  | "view";
 
-export type ChangeCategory = "generic" | ExtensionChange["category"];
+export type ChangeScope =
+  | "comment" // Comment on an object
+  | "object" // Core DDL for the object itself
+  | "privilege" // Privilege on an object
+  | "default_privilege" // Default privilege for a role
+  | "membership" // Membership of a role
+  | "owner"; // Owner of an object
 
 export abstract class Change {
-  abstract kind: ChangeKind;
-  // High-level category used for global ordering rules
-  readonly category: ChangeCategory = "generic";
+  abstract readonly operation: ChangeOperation;
+  abstract readonly objectType: ChangeObjectType;
+  abstract readonly scope: ChangeScope;
 
   get changeId(): string {
-    return `${this.kind}:${this.serialize()}`;
+    return `${this.operation}:${this.scope}:${this.objectType}:${this.serialize()}`;
   }
   // A list of stableIds that this change depends on
   abstract get dependencies(): string[];
   abstract serialize(): string;
-}
-
-export abstract class CreateChange extends Change {
-  kind = "create" as const;
-}
-
-export abstract class DropChange extends Change {
-  kind = "drop" as const;
-}
-
-export abstract class AlterChange extends Change {
-  kind = "alter" as const;
-}
-
-export abstract class ReplaceChange extends Change {
-  kind = "replace" as const;
 }
 
 // Port of string literal quoting: doubles single quotes inside and wraps with single quotes

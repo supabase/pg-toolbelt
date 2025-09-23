@@ -1,7 +1,7 @@
 import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
-import { AlterRoleSetOptions, ReplaceRole } from "./changes/role.alter.ts";
+import { AlterRoleSetOptions } from "./changes/role.alter.ts";
 import {
   CreateCommentOnRole,
   DropCommentOnRole,
@@ -50,7 +50,10 @@ export function diffRoles(
     );
 
     if (shouldReplace) {
-      changes.push(new ReplaceRole({ main: mainRole, branch: branchRole }));
+      changes.push(
+        new DropRole({ role: mainRole }),
+        new CreateRole({ role: branchRole }),
+      );
     } else {
       // Use ALTER for flag and connection limit changes
       changes.push(

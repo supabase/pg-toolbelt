@@ -1,4 +1,4 @@
-import { AlterChange } from "../../../base.change.ts";
+import { Change } from "../../../base.change.ts";
 
 function objtypeToKeyword(objtype: string): string {
   switch (objtype) {
@@ -17,12 +17,15 @@ function objtypeToKeyword(objtype: string): string {
   }
 }
 
-export class AlterDefaultPrivilegesGrant extends AlterChange {
+export class AlterDefaultPrivilegesGrant extends Change {
   public readonly grantor: string;
   public readonly inSchema: string | null;
   public readonly objtype: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly operation = "create" as const;
+  public readonly scope = "default_privilege" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: {
     grantor: string;
@@ -64,12 +67,15 @@ export class AlterDefaultPrivilegesGrant extends AlterChange {
   }
 }
 
-export class AlterDefaultPrivilegesRevoke extends AlterChange {
+export class AlterDefaultPrivilegesRevoke extends Change {
   public readonly grantor: string;
   public readonly inSchema: string | null;
   public readonly objtype: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly operation = "drop" as const;
+  public readonly scope = "default_privilege" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: {
     grantor: string;

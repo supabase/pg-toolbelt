@@ -3,13 +3,7 @@ import { Err, Ok, type Result } from "neverthrow";
 import { DEBUG } from "../tests/constants.ts";
 import { type Catalog, emptyCatalog } from "./catalog.model.js";
 import { graphToMermaid } from "./dependency-utils.ts";
-import {
-  AlterChange,
-  type Change,
-  CreateChange,
-  DropChange,
-  ReplaceChange,
-} from "./objects/base.change.ts";
+import type { Change } from "./objects/base.change.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import {
   AlterSequenceSetOptions,
@@ -241,8 +235,8 @@ export class OperationSemantics {
     if (!stableIdsA.length || !stableIdsB.length) return [];
 
     // Choose appropriate catalog state for each operation
-    const sourceA = changeA instanceof DropChange ? "main" : "branch";
-    const sourceB = changeB instanceof DropChange ? "main" : "branch";
+    const sourceA = changeA.operation === "drop" ? "main" : "branch";
+    const sourceB = changeB.operation === "drop" ? "main" : "branch";
 
     // Check for dependencies in appropriate states
     for (const stableIdA of stableIdsA) {
@@ -315,8 +309,8 @@ export class OperationSemantics {
         dependentChange instanceof DropSequence ||
         dependentChange instanceof DropSequence) &&
       (referencedChange instanceof CreateTable ||
-        referencedChange instanceof AlterChange ||
-        referencedChange instanceof DropChange ||
+        referencedChange.operation === "alter" ||
+        referencedChange.operation === "drop" ||
         referencedChange instanceof DropTable)
     ) {
       // Special rule for AlterSequenceSetOwnedBy and CreateTable if the table uses the sequence
@@ -346,8 +340,8 @@ export class OperationSemantics {
 
     // Rule: For DROP operations, drop dependents before dependencies
     if (
-      dependentChange instanceof DropChange &&
-      referencedChange instanceof DropChange
+      dependentChange.operation === "drop" &&
+      referencedChange.operation === "drop"
     ) {
       return {
         constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
@@ -360,8 +354,8 @@ export class OperationSemantics {
 
     // Rule: For CREATE operations, create dependencies before dependents
     if (
-      dependentChange instanceof CreateChange &&
-      referencedChange instanceof CreateChange
+      dependentChange.operation === "create" &&
+      referencedChange.operation === "create"
     ) {
       return {
         constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
@@ -374,29 +368,26 @@ export class OperationSemantics {
 
     // Rule: For mixed CREATE/ALTER/REPLACE, create dependencies first
     if (
-      dependentChange.kind !== referencedChange.kind &&
-      (dependentChange instanceof CreateChange ||
-        dependentChange instanceof AlterChange ||
-        dependentChange instanceof ReplaceChange) &&
-      (referencedChange instanceof CreateChange ||
-        referencedChange instanceof AlterChange ||
-        referencedChange instanceof ReplaceChange)
+      dependentChange.operation !== referencedChange.operation &&
+      (dependentChange.operation === "create" ||
+        dependentChange.operation === "alter") &&
+      (referencedChange.operation === "create" ||
+        referencedChange.operation === "alter")
     ) {
       return {
         constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
         changeAIndex: refIdx,
         type: "before",
         changeBIndex: depIdx,
-        reason: `${referencedChange.kind}/${dependentChange.kind} dependency before dependent (${reason})`,
+        reason: `${referencedChange.operation}/${dependentChange.operation} dependency before dependent (${reason})`,
       };
     }
 
     // Rule: DROP before CREATE/ALTER/REPLACE
     if (
-      referencedChange instanceof DropChange &&
-      (dependentChange instanceof CreateChange ||
-        dependentChange instanceof AlterChange ||
-        dependentChange instanceof ReplaceChange)
+      referencedChange.operation === "drop" &&
+      (dependentChange.operation === "create" ||
+        dependentChange.operation === "alter")
     ) {
       return {
         constraintStableId: `${dependentChange.changeId} depends on ${referencedChange.changeId}`,
@@ -597,16 +588,15 @@ export class OperationSemantics {
   }
 
   private getOperationPriority(change: Change): number {
-    if (change instanceof DropChange) return 0;
-    if (change instanceof CreateChange) return 1; // CREATE should come before ALTER for same object
-    if (change instanceof AlterChange) return 2; // ALTER should come after CREATE for same object
-    if (change instanceof ReplaceChange) return 3;
-    return 4;
+    if (change.operation === "drop") return 0;
+    if (change.operation === "create") return 1; // CREATE should come before ALTER for same object
+    if (change.operation === "alter") return 2; // ALTER should come after CREATE for same object
+    return 3;
   }
 
   private getCategoryPriority(change: Change): number {
     // Lower numbers run earlier
-    switch (change.category) {
+    switch (change.objectType) {
       case "extension":
         return 0;
       default:

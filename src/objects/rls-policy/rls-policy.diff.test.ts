@@ -3,7 +3,6 @@ import {
   AlterRlsPolicySetRoles,
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
-  ReplaceRlsPolicy,
 } from "./changes/rls-policy.alter.ts";
 import { CreateRlsPolicy } from "./changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./changes/rls-policy.drop.ts";
@@ -60,15 +59,5 @@ describe.concurrent("rls-policy.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(AlterRlsPolicySetWithCheckExpression);
-  });
-
-  test("replace on non-alterable change", () => {
-    const main = new RlsPolicy(base);
-    const branch = new RlsPolicy({ ...base, command: "w" });
-    const changes = diffRlsPolicies(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceRlsPolicy);
   });
 });

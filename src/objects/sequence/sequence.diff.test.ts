@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
-  ReplaceSequence,
 } from "./changes/sequence.alter.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
@@ -68,15 +67,5 @@ describe.concurrent("sequence.diff", () => {
     expect(changes.some((c) => c instanceof AlterSequenceSetOptions)).toBe(
       true,
     );
-  });
-
-  test("replace on non-alterable change", () => {
-    const main = new Sequence(base);
-    const branch = new Sequence({ ...base, data_type: "integer" });
-    const changes = diffSequences(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes[0]).toBeInstanceOf(ReplaceSequence);
   });
 });

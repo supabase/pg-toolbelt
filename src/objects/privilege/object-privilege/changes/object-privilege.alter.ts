@@ -1,11 +1,37 @@
-import { AlterChange } from "../../../base.change.ts";
+import { Change, type ChangeObjectType } from "../../../base.change.ts";
 
-export class GrantObjectPrivileges extends AlterChange {
+export class GrantObjectPrivileges extends Change {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly operation = "create" as const;
+  public readonly scope = "privilege" as const;
+  public get objectType(): ChangeObjectType {
+    switch (this.objectKind) {
+      case "ROUTINE":
+        return "procedure";
+      case "LANGUAGE":
+        return "language";
+      case "SCHEMA":
+        return "schema";
+      case "SEQUENCE":
+        return "sequence";
+      case "DOMAIN":
+        return "domain";
+      case "TYPE":
+        return "composite_type";
+      case "TABLE":
+        return "table";
+      case "VIEW":
+        return "view";
+      case "MATERIALIZED VIEW":
+        return "materialized_view";
+      default:
+        throw new Error(`Unknown object kind: ${this.objectKind}`);
+    }
+  }
 
   constructor(props: {
     objectId: string;
@@ -59,12 +85,38 @@ export class GrantObjectPrivileges extends AlterChange {
   }
 }
 
-export class RevokeObjectPrivileges extends AlterChange {
+export class RevokeObjectPrivileges extends Change {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public get objectType(): ChangeObjectType {
+    switch (this.objectKind) {
+      case "ROUTINE":
+        return "procedure";
+      case "LANGUAGE":
+        return "language";
+      case "SCHEMA":
+        return "schema";
+      case "SEQUENCE":
+        return "sequence";
+      case "DOMAIN":
+        return "domain";
+      case "TYPE":
+        return "composite_type";
+      case "TABLE":
+        return "table";
+      case "VIEW":
+        return "view";
+      case "MATERIALIZED VIEW":
+        return "materialized_view";
+      default:
+        throw new Error(`Unknown object kind: ${this.objectKind}`);
+    }
+  }
 
   constructor(props: {
     objectId: string;
@@ -118,12 +170,38 @@ export class RevokeObjectPrivileges extends AlterChange {
   }
 }
 
-export class RevokeGrantOptionObjectPrivileges extends AlterChange {
+export class RevokeGrantOptionObjectPrivileges extends Change {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public get objectType(): ChangeObjectType {
+    switch (this.objectKind) {
+      case "ROUTINE":
+        return "procedure";
+      case "LANGUAGE":
+        return "language";
+      case "SCHEMA":
+        return "schema";
+      case "SEQUENCE":
+        return "sequence";
+      case "DOMAIN":
+        return "domain";
+      case "TYPE":
+        return "composite_type";
+      case "TABLE":
+        return "table";
+      case "VIEW":
+        return "view";
+      case "MATERIALIZED VIEW":
+        return "materialized_view";
+      default:
+        throw new Error(`Unknown object kind: ${this.objectKind}`);
+    }
+  }
 
   constructor(props: {
     objectId: string;

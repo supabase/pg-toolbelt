@@ -1,6 +1,5 @@
-import { DropChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
-import type { ExtensionChange } from "./extension.base.ts";
 
 /**
  * Drop an extension.
@@ -12,9 +11,11 @@ import type { ExtensionChange } from "./extension.base.ts";
  * DROP EXTENSION [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropExtension extends DropChange implements ExtensionChange {
+export class DropExtension extends Change {
   public readonly extension: Extension;
-  public readonly category = "extension" as const;
+  public readonly operation = "drop" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension }) {
     super();

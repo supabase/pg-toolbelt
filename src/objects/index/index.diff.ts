@@ -7,7 +7,6 @@ import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
-  ReplaceIndex,
 } from "./changes/index.alter.ts";
 import {
   CreateCommentOnIndex,
@@ -100,9 +99,9 @@ export function diffIndexes(
     if (nonAlterablePropsChanged) {
       // Replace the entire index (drop + create)
       changes.push(
-        new ReplaceIndex({
-          main: mainIndex,
-          branch: branchIndex,
+        new DropIndex({ index: mainIndex }),
+        new CreateIndex({
+          index: branchIndex,
           indexableObject: branchIndexableObjects[branchIndex.tableStableId],
         }),
       );

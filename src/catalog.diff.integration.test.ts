@@ -859,7 +859,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Check that we have alter operations for different entity types
       const alterChanges = changes.filter(
-        (change) => change.kind === "alter" || change.kind === "replace",
+        (change) => change.operation === "alter",
       );
       expect(alterChanges.length).toBeGreaterThan(0);
 

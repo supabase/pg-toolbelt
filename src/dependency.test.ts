@@ -8,12 +8,7 @@ import {
   DependencyResolver,
   resolveDependencies,
 } from "./dependency.ts";
-import {
-  AlterChange,
-  CreateChange,
-  DropChange,
-  ReplaceChange,
-} from "./objects/base.change.ts";
+import { Change } from "./objects/base.change.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
@@ -21,7 +16,10 @@ import { Table } from "./objects/table/table.model.ts";
 
 describe("DependencyResolver", () => {
   // Helper classes for testing
-  class DummyCreate extends CreateChange {
+  class DummyCreate extends Change {
+    readonly operation = "create" as const;
+    readonly objectType = "table" as const;
+    readonly scope = "object" as const;
     readonly stableId: string;
     constructor(stableId: string) {
       super();
@@ -35,7 +33,10 @@ describe("DependencyResolver", () => {
     }
   }
 
-  class DummyDrop extends DropChange {
+  class DummyDrop extends Change {
+    readonly operation = "drop" as const;
+    readonly objectType = "table" as const;
+    readonly scope = "object" as const;
     readonly stableId: string;
     constructor(stableId: string) {
       super();
@@ -49,7 +50,10 @@ describe("DependencyResolver", () => {
     }
   }
 
-  class DummyAlter extends AlterChange {
+  class DummyAlter extends Change {
+    readonly operation = "alter" as const;
+    readonly objectType = "table" as const;
+    readonly scope = "object" as const;
     readonly stableId: string;
     constructor(stableId: string) {
       super();
@@ -60,20 +64,6 @@ describe("DependencyResolver", () => {
     }
     serialize() {
       return `ALTER ${this.stableId}`;
-    }
-  }
-
-  class DummyReplace extends ReplaceChange {
-    readonly stableId: string;
-    constructor(stableId: string) {
-      super();
-      this.stableId = stableId;
-    }
-    get dependencies() {
-      return [this.stableId];
-    }
-    serialize() {
-      return `REPLACE ${this.stableId}`;
     }
   }
 
@@ -270,7 +260,7 @@ describe("DependencyResolver", () => {
       expect(result.length).toBe(3);
 
       // Operations should be preserved (order may vary due to dependencies)
-      const operations = result.map((change) => change.kind);
+      const operations = result.map((change) => change.operation);
       expect(operations).toContain("drop");
       expect(operations).toContain("create");
       expect(operations).toContain("alter");
@@ -463,7 +453,7 @@ describe("DependencyResolver", () => {
 
       // Mix of different operation types with dependencies
       const changes = [
-        new DummyReplace("view:test.dependent_view"), // Depends on table
+        new DummyAlter("view:test.dependent_view"), // Depends on table
         new DummyAlter("table:test.base_table"), // Referenced by view
       ];
 
@@ -828,42 +818,6 @@ describe("DependencyResolver", () => {
       }
     });
 
-    test("replace operations with dependency constraints", () => {
-      const mainCatalog = createCatalogWithDependencies([
-        {
-          dependent_stable_id: "materializedView:test.summary",
-          referenced_stable_id: "view:test.base_view",
-          deptype: "n",
-        },
-      ]);
-
-      const branchCatalog = createCatalogWithDependencies([
-        {
-          dependent_stable_id: "materializedView:test.summary",
-          referenced_stable_id: "view:test.base_view",
-          deptype: "n",
-        },
-      ]);
-
-      const resolver = new DependencyResolver(mainCatalog, branchCatalog);
-
-      const changes = [
-        new DummyReplace("materializedView:test.summary"),
-        new DummyReplace("view:test.base_view"),
-      ];
-
-      const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
-
-      expect(result.length).toBe(2);
-      const stableIds = result.flatMap((change) => change.dependencies);
-
-      const viewIndex = stableIds.indexOf("view:test.base_view");
-      const matViewIndex = stableIds.indexOf("materializedView:test.summary");
-
-      // Base view REPLACE should come before dependent materialized view REPLACE
-      expect(viewIndex).toBeLessThan(matViewIndex);
-    });
-
     test("multi-schema dependency resolution", () => {
       // Complex scenario with objects across multiple schemas
       const mainCatalog = createCatalogWithDependencies([
@@ -1222,7 +1176,6 @@ describe("DependencyResolver", () => {
         new DummyDrop("materializedView:test.old_matview"),
         new DummyDrop("view:test.old_view"),
         new DummyAlter("table:test.base"),
-        new DummyReplace("table:test.replacement"),
       ];
 
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
@@ -1230,11 +1183,10 @@ describe("DependencyResolver", () => {
       expect(result.length).toBe(6);
 
       // All operations should be preserved
-      const operations = result.map((change) => change.kind);
+      const operations = result.map((change) => change.operation);
       expect(operations).toContain("create");
       expect(operations).toContain("drop");
       expect(operations).toContain("alter");
-      expect(operations).toContain("replace");
     });
 
     test("constraint generation with no dependencies", () => {
@@ -1604,7 +1556,7 @@ describe("DependencyResolver", () => {
       const resolver4 = new DependencyResolver(mixedCatalog, mixedCatalog);
       const mixedChanges = [
         new DummyAlter("view:test.user_view"),
-        new DummyReplace("table:test.users"),
+        new DummyAlter("table:test.users"),
       ];
 
       const mixedResult = resolver4
@@ -1774,12 +1726,6 @@ describe("DependencyResolver", () => {
       const testCases = [
         // CREATE dependent, ALTER referenced
         [new DummyCreate("obj:dependent"), new DummyAlter("obj:referenced")],
-
-        // REPLACE dependent, CREATE referenced
-        [new DummyReplace("obj:dependent"), new DummyCreate("obj:referenced")],
-
-        // ALTER dependent, REPLACE referenced
-        [new DummyAlter("obj:dependent"), new DummyReplace("obj:referenced")],
       ];
 
       for (const testCase of testCases) {

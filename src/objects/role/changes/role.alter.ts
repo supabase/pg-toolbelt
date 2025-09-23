@@ -1,7 +1,5 @@
-import { AlterChange, ReplaceChange } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
-import { CreateRole } from "./role.create.ts";
-import { DropRole } from "./role.drop.ts";
 
 /**
  * Alter a role.
@@ -35,9 +33,12 @@ import { DropRole } from "./role.drop.ts";
  * ALTER ROLE ... WITH option [...]
  * Emits only options that differ between main and branch.
  */
-export class AlterRoleSetOptions extends AlterChange {
+export class AlterRoleSetOptions extends Change {
   public readonly main: Role;
   public readonly branch: Role;
+  public readonly operation = "alter" as const;
+  public readonly scope = "object" as const;
+  public readonly objectType = "role" as const;
 
   constructor(props: { main: Role; branch: Role }) {
     super();
@@ -105,24 +106,4 @@ export class AlterRoleSetOptions extends AlterChange {
  * Replace a role by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER ROLE change.
  */
-export class ReplaceRole extends ReplaceChange {
-  public readonly main: Role;
-  public readonly branch: Role;
-
-  constructor(props: { main: Role; branch: Role }) {
-    super();
-    this.main = props.main;
-    this.branch = props.branch;
-  }
-
-  get dependencies() {
-    return [this.main.stableId];
-  }
-
-  serialize(): string {
-    const dropChange = new DropRole({ role: this.main });
-    const createChange = new CreateRole({ role: this.branch });
-
-    return [dropChange.serialize(), createChange.serialize()].join(";\n");
-  }
-}
+// NOTE: ReplaceRole removed. Non-alterable changes are emitted as Drop + Create in role.diff.ts.

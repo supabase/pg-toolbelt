@@ -7,7 +7,6 @@ import {
   AlterProcedureSetSecurity,
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
-  ReplaceProcedure,
 } from "./changes/procedure.alter.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
@@ -65,24 +64,28 @@ describe.concurrent("procedure.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterProcedureChangeOwner);
   });
 
-  test("replace on non-alterable change", () => {
+  test("drop + create on non-alterable change", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, language: "plpgsql" });
     const changes = diffProcedures(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceProcedure);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropProcedure);
+    expect(changes[1]).toBeInstanceOf(CreateProcedure);
   });
 
-  test("replace when returns_set changes", () => {
+  test("drop + create when returns_set changes", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, returns_set: true });
     const changes = diffProcedures(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes[0]).toBeInstanceOf(ReplaceProcedure);
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropProcedure);
+    expect(changes[1]).toBeInstanceOf(CreateProcedure);
   });
 
   test("diff emits alter security when security_definer changes", () => {
