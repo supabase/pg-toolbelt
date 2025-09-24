@@ -77,9 +77,12 @@ export async function main(mainDatabaseUrl: string, branchDatabaseUrl: string) {
     globallySortedChanges,
   );
 
-  const migrationScript = refinedChanges
-    .map((change) => change.serialize())
-    .join("\n\n");
+  const sessionConfig = ["SET check_function_bodies = false"];
+
+  const migrationScript = [
+    ...sessionConfig,
+    ...refinedChanges.map((change) => change.serialize()),
+  ].join(";\n\n");
 
   console.log(migrationScript);
 

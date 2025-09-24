@@ -55,14 +55,15 @@ export function diffExtensions(
     }
 
     // VERSION
-    if (mainExtension.version !== branchExtension.version) {
-      changes.push(
-        new AlterExtensionUpdateVersion({
-          main: mainExtension,
-          branch: branchExtension,
-        }),
-      );
-    }
+    // TODO: Omit version for now as versions can differ between main and branch
+    // if (mainExtension.version !== branchExtension.version) {
+    //   changes.push(
+    //     new AlterExtensionUpdateVersion({
+    //       main: mainExtension,
+    //       branch: branchExtension,
+    //     }),
+    //   );
+    // }
 
     // SCHEMA (only if relocatable)
     if (schemaChanged && mainExtension.relocatable) {

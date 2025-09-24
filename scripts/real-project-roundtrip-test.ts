@@ -208,11 +208,12 @@ class RealProjectRoundtripTester {
           );
 
           // Generate migration SQL
-          const sqlStatements = sortedChanges.map((change) =>
-            change.serialize(),
-          );
-          const migrationScript =
-            sqlStatements.join(";\n\n") + (sqlStatements.length > 0 ? ";" : "");
+          const sessionConfig = ["SET check_function_bodies = false"];
+
+          const migrationScript = [
+            ...sessionConfig,
+            ...sortedChanges.map((change) => change.serialize()),
+          ].join(";\n\n");
 
           // Apply migration to local database
           try {

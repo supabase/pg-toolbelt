@@ -3,6 +3,7 @@ import type { Change } from "../objects/base.change.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableDropColumn,
 } from "../objects/table/changes/table.alter.ts";
 import {
   refineByTopologicalWindows,
@@ -56,26 +57,61 @@ export function applyRefinements(
 ): Change[] {
   const specs: TopoWindowSpec<Change>[] = [
     {
-      // ALTER TABLE: columns before constraints, per table
-      filter: { operation: "alter", objectType: "table" },
-      pairwise: (a, b) =>
-        a instanceof AlterTableAddColumn && b instanceof AlterTableAddConstraint
-          ? "a_before_b"
-          : undefined,
-    },
-    {
-      // ALTER TABLE: within constraints, PRIMARY KEY before FOREIGN KEY, per table
+      // ALTER TABLE (single pass):
+      // - per table: DROP COLUMN before ADD COLUMN
+      // - per table: ADD COLUMN before ADD CONSTRAINT
+      // - per table: ADD COLUMN producing generated/default expression after its input columns
+      // - cross table: PK/UNIQUE before FK that references the key's table
       filter: { operation: "alter", objectType: "table" },
       pairwise: (a, b) => {
+        // 1) Per-table: DROP COLUMN before ADD COLUMN
+        if (
+          a instanceof AlterTableDropColumn &&
+          b instanceof AlterTableAddColumn &&
+          a.table.stableId === b.table.stableId
+        )
+          return "a_before_b";
+
+        // 2) Per-table: ADD COLUMN before ADD CONSTRAINT
+        if (
+          a instanceof AlterTableAddColumn &&
+          b instanceof AlterTableAddConstraint &&
+          a.table.stableId === b.table.stableId
+        )
+          return "a_before_b";
+
+        // 3) Per-table: ADD COLUMN dependency between columns via default/generated expression
+        if (
+          a instanceof AlterTableAddColumn &&
+          b instanceof AlterTableAddColumn &&
+          a.table.stableId === b.table.stableId
+        ) {
+          const aName = a.column.name;
+          const bExpr = b.column.default ?? "";
+          // naive substring check is sufficient for common cases; we avoid heavy parsing
+          // ensure whole-word-ish match (boundaries by non-word chars)
+          const pattern = new RegExp(
+            `(^|[^a-zA-Z0-9_])${aName}([^a-zA-Z0-9_]|$)`,
+          );
+          if (bExpr && pattern.test(bExpr)) {
+            return "a_before_b"; // a provides input to b's expression
+          }
+        }
+
+        // 4) Cross-table: key before FK
         if (
           a instanceof AlterTableAddConstraint &&
           b instanceof AlterTableAddConstraint
         ) {
-          const aType = a.constraint.constraint_type;
-          const bType = b.constraint.constraint_type;
-          if (aType === "p" && bType === "f") return "a_before_b";
-          if (aType === "f" && bType === "p") return "b_before_a";
+          const aIsKey =
+            a.constraint.constraint_type === "p" ||
+            a.constraint.constraint_type === "u";
+          const bIsFk = b.constraint.constraint_type === "f";
+          const bRefs = b.foreignKeyTable?.stableId;
+          if (aIsKey && bIsFk && bRefs === a.table.stableId)
+            return "a_before_b";
         }
+
         return undefined;
       },
     },

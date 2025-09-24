@@ -39,9 +39,10 @@ export class CreateExtension extends Change {
     parts.push("WITH SCHEMA", this.extension.schema);
 
     // Add version
-    if (this.extension.version) {
-      parts.push("VERSION", quoteLiteral(this.extension.version));
-    }
+    // TODO: Omit version for now as versions can differ between main and branch
+    // if (this.extension.version) {
+    //   parts.push("VERSION", quoteLiteral(this.extension.version));
+    // }
 
     return parts.join(" ");
   }
