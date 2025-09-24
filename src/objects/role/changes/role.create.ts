@@ -88,7 +88,10 @@ export class CreateRole extends Change {
     }
 
     // CONNECTION LIMIT
-    if (this.role.connection_limit !== null) {
+    if (
+      this.role.connection_limit !== null &&
+      this.role.connection_limit !== -1
+    ) {
       options.push(`CONNECTION LIMIT ${this.role.connection_limit}`);
     }
 
