@@ -46,6 +46,22 @@ function makePairwiseFromDepends(
   };
 }
 
+export function hasEdge(
+  depends: PgDependRow[],
+  dependentStableId: string,
+  referencedStableId: string,
+): boolean {
+  for (const row of depends) {
+    if (
+      row.dependent_stable_id === dependentStableId &&
+      row.referenced_stable_id === referencedStableId
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface RefinementContext {
   mainCatalog: Catalog;
   branchCatalog: Catalog;
@@ -55,6 +71,8 @@ export function applyRefinements(
   ctx: RefinementContext,
   list: Change[],
 ): Change[] {
+  // no pre-indexing; use hasEdge on ctx.branchCatalog.depends directly for reuse
+
   const specs: TopoWindowSpec<Change>[] = [
     {
       // ALTER TABLE (single pass):
@@ -80,22 +98,20 @@ export function applyRefinements(
         )
           return "a_before_b";
 
-        // 3) Per-table: ADD COLUMN dependency between columns via default/generated expression
+        // 3) Per-table: ADD COLUMN dependency via catalog depends (column -> column)
         if (
           a instanceof AlterTableAddColumn &&
           b instanceof AlterTableAddColumn &&
           a.table.stableId === b.table.stableId
         ) {
-          const aName = a.column.name;
-          const bExpr = b.column.default ?? "";
-          // naive substring check is sufficient for common cases; we avoid heavy parsing
-          // ensure whole-word-ish match (boundaries by non-word chars)
-          const pattern = new RegExp(
-            `(^|[^a-zA-Z0-9_])${aName}([^a-zA-Z0-9_]|$)`,
-          );
-          if (bExpr && pattern.test(bExpr)) {
-            return "a_before_b"; // a provides input to b's expression
-          }
+          const schema = a.table.schema; // already normalized from extraction
+          const table = a.table.name; // quote_ident-ed
+          const aColId = `column:${schema}.${table}.${a.column.name}`;
+          const bColId = `column:${schema}.${table}.${b.column.name}`;
+          if (hasEdge(ctx.branchCatalog.depends, aColId, bColId))
+            return "b_before_a"; // a depends on b
+          if (hasEdge(ctx.branchCatalog.depends, bColId, aColId))
+            return "a_before_b"; // b depends on a
         }
 
         // 4) Cross-table: key before FK
