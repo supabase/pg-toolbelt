@@ -59,10 +59,6 @@ export const pgDumpSort: Rule[] = [
   { operation: "create", objectType: "materialized_view", scope: "object" },
   { operation: "alter", objectType: "materialized_view", scope: "object" },
 
-  // COMMENT/OWNER — metadata that doesn’t affect dependencies (applies to any object)
-  { scope: "comment" },
-  { scope: "owner" },
-
   // POST_CREATE — build secondary structures and policies
   // Non-FK constraints would be ordered here (ALTER TABLE ... ADD CONSTRAINT) — add scope: "constraint" to target precisely
   { operation: "create", objectType: "index", scope: "object" },
@@ -73,10 +69,16 @@ export const pgDumpSort: Rule[] = [
   { operation: "create", objectType: "rls_policy", scope: "object" },
   { operation: "alter", objectType: "rls_policy", scope: "object" },
 
+  // OWNER — requires object to exist
+  { scope: "owner" },
+
   // PRIVILEGES near the end
   { scope: "default_privilege" },
   { scope: "privilege" },
   { scope: "membership" },
+
+  // COMMENT — metadata that doesn’t affect dependencies (applies to any object)
+  { scope: "comment" },
 ];
 
 // Suggestions for future precision (not enforced here):
