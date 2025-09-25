@@ -6,9 +6,14 @@ import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
+import { RevokeColumnPrivileges } from "./objects/privilege/column-privilege/changes/column-privilege.alter.ts";
 import { diffColumnPrivileges } from "./objects/privilege/column-privilege/column-privilege.diff.ts";
 import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
 import { diffRoleMemberships } from "./objects/privilege/membership/membership.diff.ts";
+import {
+  RevokeGrantOptionObjectPrivileges,
+  RevokeObjectPrivileges,
+} from "./objects/privilege/object-privilege/changes/object-privilege.alter.ts";
 import { diffObjectPrivileges } from "./objects/privilege/object-privilege/object-privilege.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
@@ -64,9 +69,27 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     ...diffDefaultPrivileges(main.defaultPrivileges, branch.defaultPrivileges),
   );
 
+  // Filter privilege REVOKEs for objects that are being dropped
+  // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
+  const droppedObjectStableIds = new Set<string>();
+  for (const ch of changes) {
+    if (ch.operation === "drop" && ch.scope === "object") {
+      for (const dep of ch.dependencies) droppedObjectStableIds.add(dep);
+    }
+  }
+  const filtered = changes.filter((ch) => {
+    if (ch instanceof RevokeObjectPrivileges)
+      return !droppedObjectStableIds.has(ch.objectId);
+    if (ch instanceof RevokeGrantOptionObjectPrivileges)
+      return !droppedObjectStableIds.has(ch.objectId);
+    if (ch instanceof RevokeColumnPrivileges)
+      return !droppedObjectStableIds.has(ch.tableId);
+    return true;
+  });
+
   if (DEBUG) {
-    console.log("changes catalog diff: ", stringifyWithBigInt(changes, 2));
+    console.log("changes catalog diff: ", stringifyWithBigInt(filtered, 2));
   }
 
-  return changes;
+  return filtered;
 }
