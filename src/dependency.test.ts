@@ -93,6 +93,7 @@ describe("DependencyResolver", () => {
       objectPrivileges: {},
       roleMemberships: {},
       version: 150014, // Default to PostgreSQL 15
+      currentUser: "postgres", // Default to postgres
     });
   }
 
@@ -1650,6 +1651,7 @@ describe("DependencyResolver", () => {
         defaultPrivileges: {},
         roleMemberships: {},
         version: 150014, // Default to PostgreSQL 15
+        currentUser: "postgres", // Default to postgres
       });
 
       const resolver = new DependencyResolver(minimalCatalog, minimalCatalog);
