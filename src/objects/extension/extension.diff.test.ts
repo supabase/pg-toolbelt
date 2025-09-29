@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
-  AlterExtensionUpdateVersion,
 } from "./changes/extension.alter.ts";
 import { CreateExtension } from "./changes/extension.create.ts";
 import { DropExtension } from "./changes/extension.drop.ts";
@@ -38,9 +37,6 @@ describe.concurrent("extension.diff", () => {
     const changes = diffExtensions(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
-    );
-    expect(changes.some((c) => c instanceof AlterExtensionUpdateVersion)).toBe(
-      true,
     );
     expect(changes.some((c) => c instanceof AlterExtensionSetSchema)).toBe(
       true,

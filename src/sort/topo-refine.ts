@@ -1,13 +1,13 @@
 import { Graph, topologicalSort } from "graph-data-structure";
 import type { Change } from "../objects/base.change.ts";
 
-export type ChangeFilter =
+type ChangeFilter =
   | Partial<Pick<Change, "operation" | "objectType" | "scope">>
   | ((c: Change) => boolean);
 
-export type EdgeIndices = [number, number]; // from -> to (local indices in window)
-export type EdgeObjects<T> = { from: T; to: T };
-export type Edge<T> = EdgeIndices | EdgeObjects<T>;
+type EdgeIndices = [number, number]; // from -> to (local indices in window)
+type EdgeObjects<T> = { from: T; to: T };
+type Edge<T> = EdgeIndices | EdgeObjects<T>;
 
 export interface TopoWindowSpec<T extends Change> {
   filter: ChangeFilter; // selects consecutive windows to refine
@@ -16,7 +16,7 @@ export interface TopoWindowSpec<T extends Change> {
   groupBy?: (item: T) => string | null | undefined; // optional: further split window by key (e.g., per-table)
 }
 
-export type PairwiseOrder = "a_before_b" | "b_before_a";
+type PairwiseOrder = "a_before_b" | "b_before_a";
 
 export function refineByTopologicalWindows<T extends Change>(
   changes: T[],

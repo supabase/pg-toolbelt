@@ -2,7 +2,7 @@ import type { Change } from "../objects/base.change.ts";
 
 export type Rule = Partial<Pick<Change, "operation" | "objectType" | "scope">>;
 
-export function createComparatorFromRules(rules: Rule[]) {
+function createComparatorFromRules(rules: Rule[]) {
   const matchIndex = (change: Change): number => {
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i];

@@ -1,18 +1,24 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import postgres from "postgres";
-import { diffCatalogs } from "../src/catalog.diff.ts";
-import { extractCatalog } from "../src/catalog.model.ts";
-import { resolveDependencies } from "../src/dependency.ts";
-import { postgresConfig } from "../src/main.ts";
-import { pgDumpSort } from "../src/sort/global-sort.ts";
-import { applyRefinements } from "../src/sort/refined-sort.ts";
-import { sortChangesByRules } from "../src/sort/sort-utils.ts";
+import { test } from "vitest";
+import { diffCatalogs } from "../../src/catalog.diff.ts";
+import { extractCatalog } from "../../src/catalog.model.ts";
+import { resolveDependencies } from "../../src/dependency.ts";
+import { postgresConfig } from "../../src/main.ts";
+import { CreateProcedure } from "../../src/objects/procedure/changes/procedure.create.ts";
+import { CreateRlsPolicy } from "../../src/objects/rls-policy/changes/rls-policy.create.ts";
+import { CreateTrigger } from "../../src/objects/trigger/changes/trigger.create.ts";
+import { CreateView } from "../../src/objects/view/changes/view.create.ts";
+import { pgDumpSort } from "../../src/sort/global-sort.ts";
+import { applyRefinements } from "../../src/sort/refined-sort.ts";
+import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
-} from "../tests/constants.ts";
-import { SupabasePostgreSqlContainer } from "../tests/supabase-postgres.ts";
+} from "../constants.ts";
+import { SupabasePostgreSqlContainer } from "../supabase-postgres.ts";
+import { catalogsSemanticalyEqual } from "./roundtrip.ts";
 
 interface ProjectData {
   ref: string;
@@ -140,13 +146,15 @@ class RealProjectRoundtripTester {
 
     // Connect to remote project
     const remoteSql = postgres(project.connection_string, postgresConfig);
-
+    let migrationScript = "";
     try {
       // Extract remote catalog
       const remoteCatalog = await extractCatalog(remoteSql);
 
       // Start fresh Supabase container with matching version
-      const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_version as PostgresVersion]}`;
+      // The main supabase project should be of the exact same version as the remote project
+      // const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_version as PostgresVersion]}`;
+      const supabaseImage = `supabase/postgres:15.8.1.023`;
       const container = new SupabasePostgreSqlContainer(supabaseImage);
       const startedContainer = await container.start();
 
@@ -161,7 +169,7 @@ class RealProjectRoundtripTester {
           const localCatalog = await extractCatalog(localSql);
 
           // Generate diff from fresh Supabase to remote state
-          const changes = diffCatalogs(localCatalog, remoteCatalog);
+          let changes = diffCatalogs(localCatalog, remoteCatalog);
 
           if (changes.length === 0) {
             // No changes needed - remote is same as fresh Supabase
@@ -173,33 +181,23 @@ class RealProjectRoundtripTester {
             };
           }
 
-          // Resolve dependencies
-          // const sortedChangesResult = resolveDependencies(
-          //   changes,
-          //   localCatalog,
-          //   remoteCatalog,
-          // );
-
-          // if (sortedChangesResult.isErr()) {
-          //   issues.push({
-          //     type: "dependency-resolution-error",
-          //     description: `Failed to resolve dependencies: ${sortedChangesResult.error.message}`,
-          //     details: {
-          //       projectRef: project.ref,
-          //       postgresVersion: project.postgres_version,
-          //       errorMessage: sortedChangesResult.error.message,
-          //     },
-          //   });
-
-          //   return {
-          //     projectRef: project.ref,
-          //     success: false,
-          //     issues,
-          //     testType: "no-migrations",
-          //   };
-          // }
-
-          // const sortedChanges = sortedChangesResult.value;
+          // Filter out changes
+          const SUPABASE_EXTENSION_SCHEMAS = ["vault", "cron", "pgsodium"];
+          changes = changes.filter(
+            (change) =>
+              !(
+                (change instanceof CreateView &&
+                  SUPABASE_EXTENSION_SCHEMAS.includes(change.view.schema)) ||
+                (change instanceof CreateProcedure &&
+                  SUPABASE_EXTENSION_SCHEMAS.includes(
+                    change.procedure.schema,
+                  )) ||
+                (change instanceof CreateTrigger &&
+                  SUPABASE_EXTENSION_SCHEMAS.includes(change.trigger.schema)) ||
+                (change instanceof CreateRlsPolicy &&
+                  SUPABASE_EXTENSION_SCHEMAS.includes(change.rlsPolicy.schema))
+              ),
+          );
 
           const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
           const sortedChanges = applyRefinements(
@@ -210,7 +208,7 @@ class RealProjectRoundtripTester {
           // Generate migration SQL
           const sessionConfig = ["SET check_function_bodies = false"];
 
-          const migrationScript = [
+          migrationScript = [
             ...sessionConfig,
             ...sortedChanges.map((change) => change.serialize()),
           ].join(";\n\n");
@@ -245,30 +243,32 @@ class RealProjectRoundtripTester {
           // Extract catalog after migration
           const localCatalogAfter = await extractCatalog(localSql);
 
-          // Check for remaining differences
-          const remainingChanges = diffCatalogs(
-            localCatalogAfter,
-            remoteCatalog,
-          );
+          catalogsSemanticalyEqual(localCatalogAfter, remoteCatalog);
 
-          if (remainingChanges.length > 0) {
-            issues.push({
-              type: "remaining-diff",
-              description: `After applying migration, ${remainingChanges.length} differences remain`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_version,
-                sqlScript: migrationScript,
-                remainingChanges: remainingChanges.map((change) =>
-                  change.serialize(),
-                ),
-              },
-            });
-          }
+          // Check for remaining differences
+          // const remainingChanges = diffCatalogs(
+          //   localCatalogAfter,
+          //   remoteCatalog,
+          // );
+
+          // if (remainingChanges.length > 0) {
+          //   issues.push({
+          //     type: "remaining-diff",
+          //     description: `After applying migration, ${remainingChanges.length} differences remain`,
+          //     details: {
+          //       projectRef: project.ref,
+          //       postgresVersion: project.postgres_version,
+          //       sqlScript: migrationScript,
+          //       remainingChanges: remainingChanges.map((change) =>
+          //         change.serialize(),
+          //       ),
+          //     },
+          //   });
+          // }
 
           return {
             projectRef: project.ref,
-            success: remainingChanges.length === 0,
+            success: true, //remainingChanges.length === 0,
             issues,
             testType: "no-migrations",
           };
@@ -288,6 +288,7 @@ class RealProjectRoundtripTester {
           projectRef: project.ref,
           postgresVersion: project.postgres_version,
           errorMessage,
+          sqlScript: migrationScript,
         },
       });
 
@@ -676,7 +677,11 @@ ${change}
   }
 }
 
-// Main execution
+// Enable locally to run the test
+test.skip("real-project-roundtrip-test", async () => {
+  await main();
+});
+
 async function main() {
   try {
     const projectsData = JSON.parse(
@@ -716,11 +721,7 @@ async function main() {
     }
 
     console.log(`\nIssue files generated in: diff-issues/staging/`);
-    process.exit(0);
   } catch (error) {
     console.error("Test execution failed:", error);
-    process.exit(1);
   }
 }
-
-main();

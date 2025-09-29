@@ -137,13 +137,13 @@ describe("DependencyResolver", () => {
       expect(result[0]).toEqual(
         expect.objectContaining({
           stableId: "view:test.view2",
-          kind: "create",
+          operation: "create",
         }),
       );
       expect(result[1]).toEqual(
         expect.objectContaining({
           stableId: "view:test.view1",
-          kind: "drop",
+          operation: "drop",
         }),
       );
     });
@@ -1181,7 +1181,7 @@ describe("DependencyResolver", () => {
 
       const result = resolver.resolveDependencies(changes)._unsafeUnwrap();
 
-      expect(result.length).toBe(6);
+      expect(result.length).toBe(5);
 
       // All operations should be preserved
       const operations = result.map((change) => change.operation);

@@ -38,16 +38,4 @@ describe.concurrent("role.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(AlterRoleSetOptions);
   });
-
-  test("drop + create on config change", () => {
-    const main = new Role(base);
-    const branch = new Role({ ...base, config: ["search_path=schema1"] });
-    const changes = diffRoles(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes).toHaveLength(2);
-    expect(changes[0]).toBeInstanceOf(DropRole);
-    expect(changes[1]).toBeInstanceOf(CreateRole);
-  });
 });

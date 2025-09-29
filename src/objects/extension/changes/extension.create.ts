@@ -1,4 +1,4 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { Change } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**

@@ -46,7 +46,7 @@ function makePairwiseFromDepends(
   };
 }
 
-export function hasEdge(
+function hasEdge(
   depends: PgDependRow[],
   dependentStableId: string,
   referencedStableId: string,
@@ -62,7 +62,7 @@ export function hasEdge(
   return false;
 }
 
-export interface RefinementContext {
+interface RefinementContext {
   mainCatalog: Catalog;
   branchCatalog: Catalog;
 }

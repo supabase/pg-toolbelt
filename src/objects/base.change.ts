@@ -19,7 +19,7 @@ export type ChangeObjectType =
   | "composite_type"
   | "view";
 
-export type ChangeScope =
+type ChangeScope =
   | "comment" // Comment on an object
   | "object" // Core DDL for the object itself
   | "privilege" // Privilege on an object

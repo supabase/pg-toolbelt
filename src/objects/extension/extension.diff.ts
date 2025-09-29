@@ -3,7 +3,6 @@ import { diffObjects } from "../base.diff.ts";
 import {
   AlterExtensionChangeOwner,
   AlterExtensionSetSchema,
-  AlterExtensionUpdateVersion,
 } from "./changes/extension.alter.ts";
 import {
   CreateCommentOnExtension,

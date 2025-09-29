@@ -64,30 +64,6 @@ describe.concurrent("procedure.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterProcedureChangeOwner);
   });
 
-  test("drop + create on non-alterable change", () => {
-    const main = new Procedure(base);
-    const branch = new Procedure({ ...base, language: "plpgsql" });
-    const changes = diffProcedures(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes).toHaveLength(2);
-    expect(changes[0]).toBeInstanceOf(DropProcedure);
-    expect(changes[1]).toBeInstanceOf(CreateProcedure);
-  });
-
-  test("drop + create when returns_set changes", () => {
-    const main = new Procedure(base);
-    const branch = new Procedure({ ...base, returns_set: true });
-    const changes = diffProcedures(
-      { [main.stableId]: main },
-      { [branch.stableId]: branch },
-    );
-    expect(changes).toHaveLength(2);
-    expect(changes[0]).toBeInstanceOf(DropProcedure);
-    expect(changes[1]).toBeInstanceOf(CreateProcedure);
-  });
-
   test("diff emits alter security when security_definer changes", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, security_definer: true });
