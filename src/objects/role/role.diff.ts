@@ -52,10 +52,22 @@ export function diffRoles(
     const mainRole = main[roleId];
     const branchRole = branch[roleId];
 
-    // Use ALTER for flag and connection limit changes
-    changes.push(
-      new AlterRoleSetOptions({ main: mainRole, branch: branchRole }),
-    );
+    // Use ALTER for flag and connection limit changes, only if any option changed
+    const optionsChanged =
+      mainRole.is_superuser !== branchRole.is_superuser ||
+      mainRole.can_create_databases !== branchRole.can_create_databases ||
+      mainRole.can_create_roles !== branchRole.can_create_roles ||
+      mainRole.can_inherit !== branchRole.can_inherit ||
+      mainRole.can_login !== branchRole.can_login ||
+      mainRole.can_replicate !== branchRole.can_replicate ||
+      mainRole.can_bypass_rls !== branchRole.can_bypass_rls ||
+      mainRole.connection_limit !== branchRole.connection_limit;
+
+    if (optionsChanged) {
+      changes.push(
+        new AlterRoleSetOptions({ main: mainRole, branch: branchRole }),
+      );
+    }
 
     // CONFIG SET/RESET (emit single-statement changes)
     const parseOptions = (options: string[] | null | undefined) => {
