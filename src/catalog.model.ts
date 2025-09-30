@@ -246,7 +246,7 @@ function listToRecord<T extends BasePgModel>(list: T[]) {
   return Object.fromEntries(list.map((item) => [item.stableId, item]));
 }
 
-export function emptyCatalog() {
+function emptyCatalog() {
   return new Catalog({
     collations: {},
     compositeTypes: {},

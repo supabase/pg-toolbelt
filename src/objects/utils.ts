@@ -2,7 +2,7 @@ type Comparator<T> = (a: T, b: T) => boolean;
 
 type Indexable<T> = { [P in keyof T]: unknown };
 
-export class UnexpectedError extends Error {
+class UnexpectedError extends Error {
   constructor(message: string, cause?: unknown) {
     super(message, { cause });
     this.name = "UnexpectedError";
