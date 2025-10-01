@@ -73,8 +73,8 @@ export function diffRlsPolicies(
       if (!rolesEqual) {
         changes.push(
           new AlterRlsPolicySetRoles({
-            main: mainRlsPolicy,
-            branch: branchRlsPolicy,
+            policy: mainRlsPolicy,
+            roles: branchRlsPolicy.roles,
           }),
         );
       }
@@ -83,8 +83,8 @@ export function diffRlsPolicies(
       if (mainRlsPolicy.using_expression !== branchRlsPolicy.using_expression) {
         changes.push(
           new AlterRlsPolicySetUsingExpression({
-            main: mainRlsPolicy,
-            branch: branchRlsPolicy,
+            policy: mainRlsPolicy,
+            usingExpression: branchRlsPolicy.using_expression,
           }),
         );
       }
@@ -96,8 +96,8 @@ export function diffRlsPolicies(
       ) {
         changes.push(
           new AlterRlsPolicySetWithCheckExpression({
-            main: mainRlsPolicy,
-            branch: branchRlsPolicy,
+            policy: mainRlsPolicy,
+            withCheckExpression: branchRlsPolicy.with_check_expression,
           }),
         );
       }

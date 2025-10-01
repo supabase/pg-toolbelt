@@ -28,18 +28,14 @@ describe.concurrent("domain", () => {
         comment: null,
         constraints: [],
       };
-      const main = new Domain({
+      const domain = new Domain({
         ...props,
         default_value: null,
       });
-      const branch = new Domain({
-        ...props,
-        default_value: "42",
-      });
 
       const change = new AlterDomainSetDefault({
-        main,
-        branch,
+        domain,
+        defaultValue: "42",
       });
 
       expect(change.serialize()).toBe(
@@ -62,18 +58,13 @@ describe.concurrent("domain", () => {
         comment: null,
         constraints: [],
       };
-      const main = new Domain({
+      const domain = new Domain({
         ...props,
         default_value: "42",
       });
-      const branch = new Domain({
-        ...props,
-        default_value: null,
-      });
 
       const change = new AlterDomainDropDefault({
-        main,
-        branch,
+        domain,
       });
 
       expect(change.serialize()).toBe(
@@ -96,18 +87,13 @@ describe.concurrent("domain", () => {
         comment: null,
         constraints: [],
       };
-      const main = new Domain({
+      const domain = new Domain({
         ...props,
         not_null: false,
       });
-      const branch = new Domain({
-        ...props,
-        not_null: true,
-      });
 
       const change = new AlterDomainSetNotNull({
-        main,
-        branch,
+        domain,
       });
 
       expect(change.serialize()).toBe(
@@ -130,18 +116,13 @@ describe.concurrent("domain", () => {
         comment: null,
         constraints: [],
       };
-      const main = new Domain({
+      const domain = new Domain({
         ...props,
         not_null: true,
       });
-      const branch = new Domain({
-        ...props,
-        not_null: false,
-      });
 
       const change = new AlterDomainDropNotNull({
-        main,
-        branch,
+        domain,
       });
 
       expect(change.serialize()).toBe(
@@ -164,18 +145,14 @@ describe.concurrent("domain", () => {
         comment: null,
         constraints: [],
       };
-      const main = new Domain({
+      const domain = new Domain({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Domain({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterDomainChangeOwner({
-        main,
-        branch,
+        domain,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

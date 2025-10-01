@@ -103,8 +103,8 @@ export function diffProcedures(
       if (mainProcedure.owner !== branchProcedure.owner) {
         changes.push(
           new AlterProcedureChangeOwner({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            owner: branchProcedure.owner,
           }),
         );
       }
@@ -126,35 +126,69 @@ export function diffProcedures(
       if (mainProcedure.security_definer !== branchProcedure.security_definer) {
         changes.push(
           new AlterProcedureSetSecurity({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            securityDefiner: branchProcedure.security_definer,
           }),
         );
       }
 
       // CONFIG SET/RESET
-      const serializeConfig = (cfg?: string[] | null) =>
-        (cfg ?? []).slice().sort();
-      const mainCfg = serializeConfig(mainProcedure.config);
-      const branchCfg = serializeConfig(branchProcedure.config);
-      const configChanged =
-        mainCfg.length !== branchCfg.length ||
-        mainCfg.some((val, idx) => val !== branchCfg[idx]);
-      if (configChanged) {
+      const toMap = (opts?: string[] | null) => {
+        const map = new Map<string, string>();
+        for (const opt of opts ?? []) {
+          const eq = opt.indexOf("=");
+          const key = opt.slice(0, eq).trim();
+          const value = opt.slice(eq + 1).trim();
+          map.set(key, value);
+        }
+        return map;
+      };
+      const mainCfg = toMap(mainProcedure.config);
+      const branchCfg = toMap(branchProcedure.config);
+      if (branchCfg.size === 0 && mainCfg.size > 0) {
+        // Branch has no config at all -> prefer a single RESET ALL
         changes.push(
           new AlterProcedureSetConfig({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            action: "reset_all",
           }),
         );
+      } else {
+        for (const [key, oldValue] of mainCfg.entries()) {
+          const hasInBranch = branchCfg.has(key);
+          const newValue = branchCfg.get(key);
+          const changed = hasInBranch ? oldValue !== newValue : true;
+          if (changed) {
+            changes.push(
+              new AlterProcedureSetConfig({
+                procedure: mainProcedure,
+                action: "reset",
+                key,
+              }),
+            );
+          }
+        }
+        for (const [key, newValue] of branchCfg.entries()) {
+          const oldValue = mainCfg.get(key);
+          if (oldValue !== newValue) {
+            changes.push(
+              new AlterProcedureSetConfig({
+                procedure: mainProcedure,
+                action: "set",
+                key,
+                value: newValue,
+              }),
+            );
+          }
+        }
       }
 
       // VOLATILITY
       if (mainProcedure.volatility !== branchProcedure.volatility) {
         changes.push(
           new AlterProcedureSetVolatility({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            volatility: branchProcedure.volatility,
           }),
         );
       }
@@ -163,8 +197,8 @@ export function diffProcedures(
       if (mainProcedure.is_strict !== branchProcedure.is_strict) {
         changes.push(
           new AlterProcedureSetStrictness({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            isStrict: branchProcedure.is_strict,
           }),
         );
       }
@@ -173,8 +207,8 @@ export function diffProcedures(
       if (mainProcedure.leakproof !== branchProcedure.leakproof) {
         changes.push(
           new AlterProcedureSetLeakproof({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            leakproof: branchProcedure.leakproof,
           }),
         );
       }
@@ -183,8 +217,8 @@ export function diffProcedures(
       if (mainProcedure.parallel_safety !== branchProcedure.parallel_safety) {
         changes.push(
           new AlterProcedureSetParallel({
-            main: mainProcedure,
-            branch: branchProcedure,
+            procedure: mainProcedure,
+            parallelSafety: branchProcedure.parallel_safety,
           }),
         );
       }

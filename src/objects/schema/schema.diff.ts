@@ -44,8 +44,8 @@ export function diffSchemas(
     if (mainSchema.owner !== branchSchema.owner) {
       changes.push(
         new AlterSchemaChangeOwner({
-          main: mainSchema,
-          branch: branchSchema,
+          schemaObj: mainSchema,
+          owner: branchSchema.owner,
         }),
       );
     }

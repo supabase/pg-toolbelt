@@ -64,9 +64,38 @@ export function diffRoles(
       mainRole.connection_limit !== branchRole.connection_limit;
 
     if (optionsChanged) {
-      changes.push(
-        new AlterRoleSetOptions({ main: mainRole, branch: branchRole }),
-      );
+      const options: string[] = [];
+      if (mainRole.is_superuser !== branchRole.is_superuser) {
+        options.push(branchRole.is_superuser ? "SUPERUSER" : "NOSUPERUSER");
+      }
+      if (mainRole.can_create_databases !== branchRole.can_create_databases) {
+        options.push(
+          branchRole.can_create_databases ? "CREATEDB" : "NOCREATEDB",
+        );
+      }
+      if (mainRole.can_create_roles !== branchRole.can_create_roles) {
+        options.push(
+          branchRole.can_create_roles ? "CREATEROLE" : "NOCREATEROLE",
+        );
+      }
+      if (mainRole.can_inherit !== branchRole.can_inherit) {
+        options.push(branchRole.can_inherit ? "INHERIT" : "NOINHERIT");
+      }
+      if (mainRole.can_login !== branchRole.can_login) {
+        options.push(branchRole.can_login ? "LOGIN" : "NOLOGIN");
+      }
+      if (mainRole.can_replicate !== branchRole.can_replicate) {
+        options.push(
+          branchRole.can_replicate ? "REPLICATION" : "NOREPLICATION",
+        );
+      }
+      if (mainRole.can_bypass_rls !== branchRole.can_bypass_rls) {
+        options.push(branchRole.can_bypass_rls ? "BYPASSRLS" : "NOBYPASSRLS");
+      }
+      if (mainRole.connection_limit !== branchRole.connection_limit) {
+        options.push(`CONNECTION LIMIT ${branchRole.connection_limit}`);
+      }
+      changes.push(new AlterRoleSetOptions({ role: mainRole, options }));
     }
 
     // CONFIG SET/RESET (emit single-statement changes)

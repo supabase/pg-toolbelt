@@ -73,12 +73,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
           expect.objectContaining({
@@ -178,12 +180,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -382,12 +386,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -468,12 +474,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -541,12 +549,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -878,11 +888,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "alter",
-          main: expect.objectContaining({
-            name: "user_role",
-            schema: "test_schema",
-          }),
-          branch: expect.objectContaining({
+          enum: expect.objectContaining({
             name: "user_role",
             schema: "test_schema",
           }),
@@ -899,14 +905,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "alter",
-          main: expect.objectContaining({
+          sequence: expect.objectContaining({
             name: "global_id_seq",
             schema: "test_schema",
           }),
-          branch: expect.objectContaining({
-            name: "global_id_seq",
-            schema: "test_schema",
-          }),
+          options: ["START WITH", "10000"],
         }),
         expect.objectContaining({
           operation: "alter",

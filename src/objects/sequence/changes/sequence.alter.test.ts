@@ -24,22 +24,16 @@ describe.concurrent("sequence", () => {
         persistence: "p",
         comment: null,
       };
-      const main = new Sequence({
+      const sequence = new Sequence({
         ...props,
         owned_by_schema: null,
         owned_by_table: null,
         owned_by_column: null,
       });
-      const branch = new Sequence({
-        ...props,
-        owned_by_schema: "public",
-        owned_by_table: "t",
-        owned_by_column: "id",
-      });
 
       const change = new AlterSequenceSetOwnedBy({
-        main,
-        branch,
+        sequence,
+        ownedBy: { schema: "public", table: "t", column: "id" },
       });
 
       expect(change.serialize()).toBe(
@@ -48,7 +42,7 @@ describe.concurrent("sequence", () => {
     });
 
     test("owned by none", () => {
-      const main = new Sequence({
+      const sequence = new Sequence({
         schema: "public",
         name: "s",
         data_type: "bigint",
@@ -64,13 +58,7 @@ describe.concurrent("sequence", () => {
         owned_by_column: "id",
         comment: null,
       });
-      const branch = new Sequence({
-        ...main,
-        owned_by_schema: null,
-        owned_by_table: null,
-        owned_by_column: null,
-      });
-      const change = new AlterSequenceSetOwnedBy({ main, branch });
+      const change = new AlterSequenceSetOwnedBy({ sequence, ownedBy: null });
       expect(change.serialize()).toBe("ALTER SEQUENCE public.s OWNED BY NONE");
     });
 
@@ -79,7 +67,7 @@ describe.concurrent("sequence", () => {
     });
 
     test("alter options: increment, min/max, start, cache, cycle", () => {
-      const main = new Sequence({
+      const sequence = new Sequence({
         schema: "public",
         name: "s",
         data_type: "bigint",
@@ -95,23 +83,29 @@ describe.concurrent("sequence", () => {
         owned_by_column: null,
         comment: null,
       });
-      const branch = new Sequence({
-        ...main,
-        increment: 2,
-        minimum_value: 5n,
-        maximum_value: 100n,
-        start_value: 10,
-        cache_size: 3,
-        cycle_option: true,
+      const change = new AlterSequenceSetOptions({
+        sequence,
+        options: [
+          "INCREMENT BY",
+          "2",
+          "MINVALUE",
+          "5",
+          "MAXVALUE",
+          "100",
+          "START WITH",
+          "10",
+          "CACHE",
+          "3",
+          "CYCLE",
+        ],
       });
-      const change = new AlterSequenceSetOptions({ main, branch });
       expect(change.serialize()).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
       );
     });
 
     test("alter options: reset to defaults uses NO MINVALUE/NO MAXVALUE", () => {
-      const main = new Sequence({
+      const sequence = new Sequence({
         schema: "public",
         name: "s",
         data_type: "integer",
@@ -127,16 +121,20 @@ describe.concurrent("sequence", () => {
         owned_by_column: null,
         comment: null,
       });
-      const branch = new Sequence({
-        ...main,
-        start_value: 1,
-        minimum_value: 1n,
-        maximum_value: 2147483647n,
-        increment: 1,
-        cycle_option: false,
-        cache_size: 1,
+      const change = new AlterSequenceSetOptions({
+        sequence,
+        options: [
+          "INCREMENT BY",
+          "1",
+          "NO MINVALUE",
+          "NO MAXVALUE",
+          "START WITH",
+          "1",
+          "CACHE",
+          "1",
+          "NO CYCLE",
+        ],
       });
-      const change = new AlterSequenceSetOptions({ main, branch });
       expect(change.serialize()).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 1 NO MINVALUE NO MAXVALUE START WITH 1 CACHE 1 NO CYCLE",
       );

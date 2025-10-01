@@ -68,7 +68,10 @@ export function diffRanges(
     } else {
       if (mainRange.owner !== branchRange.owner) {
         changes.push(
-          new AlterRangeChangeOwner({ main: mainRange, branch: branchRange }),
+          new AlterRangeChangeOwner({
+            range: mainRange,
+            owner: branchRange.owner,
+          }),
         );
       }
 

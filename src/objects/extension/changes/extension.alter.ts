@@ -19,28 +19,28 @@ import type { Extension } from "../extension.model.ts";
  * ALTER EXTENSION ... UPDATE TO ...
  */
 export class AlterExtensionUpdateVersion extends Change {
-  public readonly main: Extension;
-  public readonly branch: Extension;
+  public readonly extension: Extension;
+  public readonly version: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "extension" as const;
 
-  constructor(props: { main: Extension; branch: Extension }) {
+  constructor(props: { extension: Extension; version: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.extension = props.extension;
+    this.version = props.version;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.extension.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      this.main.name,
+      this.extension.name,
       "UPDATE TO",
-      quoteLiteral(this.branch.version),
+      quoteLiteral(this.version),
     ].join(" ");
   }
 }
@@ -49,28 +49,28 @@ export class AlterExtensionUpdateVersion extends Change {
  * ALTER EXTENSION ... SET SCHEMA ...
  */
 export class AlterExtensionSetSchema extends Change {
-  public readonly main: Extension;
-  public readonly branch: Extension;
+  public readonly extension: Extension;
+  public readonly schema: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "extension" as const;
 
-  constructor(props: { main: Extension; branch: Extension }) {
+  constructor(props: { extension: Extension; schema: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.extension = props.extension;
+    this.schema = props.schema;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.extension.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      this.main.name,
+      this.extension.name,
       "SET SCHEMA",
-      this.branch.schema,
+      this.schema,
     ].join(" ");
   }
 }
@@ -79,28 +79,28 @@ export class AlterExtensionSetSchema extends Change {
  * ALTER EXTENSION ... OWNER TO ...
  */
 export class AlterExtensionChangeOwner extends Change {
-  public readonly main: Extension;
-  public readonly branch: Extension;
+  public readonly extension: Extension;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "extension" as const;
 
-  constructor(props: { main: Extension; branch: Extension }) {
+  constructor(props: { extension: Extension; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.extension = props.extension;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.extension.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER EXTENSION",
-      this.main.name,
+      this.extension.name,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }

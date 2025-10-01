@@ -94,8 +94,8 @@ export function diffCompositeTypes(
       if (mainCompositeType.owner !== branchCompositeType.owner) {
         changes.push(
           new AlterCompositeTypeChangeOwner({
-            main: mainCompositeType,
-            branch: branchCompositeType,
+            compositeType: mainCompositeType,
+            owner: branchCompositeType.owner,
           }),
         );
       }

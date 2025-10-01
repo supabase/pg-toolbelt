@@ -4,11 +4,9 @@ export class GrantColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
-  public readonly items: {
-    privilege: string;
-    grantable: boolean;
-    columns: string[];
-  }[];
+  public readonly privilege: string;
+  public readonly columns: string[];
+  public readonly grantable: boolean;
   public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
   public readonly objectType = "table" as const;
@@ -17,13 +15,17 @@ export class GrantColumnPrivileges extends Change {
     tableId: string;
     tableNameSql: string;
     grantee: string;
-    items: { privilege: string; grantable: boolean; columns: string[] }[];
+    privilege: string;
+    columns: string[];
+    grantable: boolean;
   }) {
     super();
     this.tableId = props.tableId;
     this.tableNameSql = props.tableNameSql;
     this.grantee = props.grantee;
-    this.items = props.items;
+    this.privilege = props.privilege;
+    this.columns = [...new Set(props.columns)].sort();
+    this.grantable = props.grantable;
   }
 
   get dependencies() {
@@ -32,26 +34,8 @@ export class GrantColumnPrivileges extends Change {
   }
 
   serialize(): string {
-    const stmts: string[] = [];
-    const groups = new Map<boolean, Map<string, string[]>>();
-    for (const item of this.items) {
-      if (!groups.has(item.grantable)) groups.set(item.grantable, new Map());
-      const g = groups.get(item.grantable);
-      if (!g) continue;
-      if (!g.has(item.privilege)) g.set(item.privilege, []);
-      const arr = g.get(item.privilege);
-      if (arr) arr.push(...item.columns);
-    }
-    for (const [grantable, byPriv] of groups) {
-      const withGrant = grantable ? " WITH GRANT OPTION" : "";
-      for (const [priv, cols] of byPriv) {
-        const uniqueCols = [...new Set(cols)].sort();
-        stmts.push(
-          `GRANT ${priv} (${uniqueCols.join(", ")}) ON TABLE ${this.tableNameSql} TO ${this.grantee}${withGrant}`,
-        );
-      }
-    }
-    return stmts.join("; ");
+    const withGrant = this.grantable ? " WITH GRANT OPTION" : "";
+    return `GRANT ${this.privilege} (${this.columns.join(", ")}) ON TABLE ${this.tableNameSql} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -59,11 +43,8 @@ export class RevokeColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
-  public readonly items: {
-    privilege: string;
-    grantable: boolean;
-    columns: string[];
-  }[];
+  public readonly privilege: string;
+  public readonly columns: string[];
   public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
   public readonly objectType = "table" as const;
@@ -72,13 +53,15 @@ export class RevokeColumnPrivileges extends Change {
     tableId: string;
     tableNameSql: string;
     grantee: string;
-    items: { privilege: string; grantable: boolean; columns: string[] }[];
+    privilege: string;
+    columns: string[];
   }) {
     super();
     this.tableId = props.tableId;
     this.tableNameSql = props.tableNameSql;
     this.grantee = props.grantee;
-    this.items = props.items;
+    this.privilege = props.privilege;
+    this.columns = [...new Set(props.columns)].sort();
   }
 
   get dependencies() {
@@ -87,20 +70,7 @@ export class RevokeColumnPrivileges extends Change {
   }
 
   serialize(): string {
-    const stmts: string[] = [];
-    const byPriv = new Map<string, string[]>();
-    for (const item of this.items) {
-      if (!byPriv.has(item.privilege)) byPriv.set(item.privilege, []);
-      const arr = byPriv.get(item.privilege);
-      if (arr) arr.push(...item.columns);
-    }
-    for (const [priv, cols] of byPriv) {
-      const uniqueCols = [...new Set(cols)].sort();
-      stmts.push(
-        `REVOKE ${priv} (${uniqueCols.join(", ")}) ON TABLE ${this.tableNameSql} FROM ${this.grantee}`,
-      );
-    }
-    return stmts.join("; ");
+    return `REVOKE ${this.privilege} (${this.columns.join(", ")}) ON TABLE ${this.tableNameSql} FROM ${this.grantee}`;
   }
 }
 
@@ -108,7 +78,8 @@ export class RevokeGrantOptionColumnPrivileges extends Change {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
-  public readonly items: { privilege: string; columns: string[] }[];
+  public readonly privilege: string;
+  public readonly columns: string[];
   public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
   public readonly objectType = "table" as const;
@@ -117,13 +88,15 @@ export class RevokeGrantOptionColumnPrivileges extends Change {
     tableId: string;
     tableNameSql: string;
     grantee: string;
-    items: { privilege: string; columns: string[] }[];
+    privilege: string;
+    columns: string[];
   }) {
     super();
     this.tableId = props.tableId;
     this.tableNameSql = props.tableNameSql;
     this.grantee = props.grantee;
-    this.items = props.items;
+    this.privilege = props.privilege;
+    this.columns = [...new Set(props.columns)].sort();
   }
 
   get dependencies() {
@@ -132,13 +105,6 @@ export class RevokeGrantOptionColumnPrivileges extends Change {
   }
 
   serialize(): string {
-    const stmts: string[] = [];
-    for (const item of this.items) {
-      const cols = [...new Set(item.columns)].sort();
-      stmts.push(
-        `REVOKE GRANT OPTION FOR ${item.privilege} (${cols.join(", ")}) ON TABLE ${this.tableNameSql} FROM ${this.grantee}`,
-      );
-    }
-    return stmts.join("; ");
+    return `REVOKE GRANT OPTION FOR ${this.privilege} (${this.columns.join(", ")}) ON TABLE ${this.tableNameSql} FROM ${this.grantee}`;
   }
 }

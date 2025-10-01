@@ -277,16 +277,12 @@ export function diffTables(
     // PERSISTENCE (LOGGED/UNLOGGED)
     if (mainTable.persistence !== branchTable.persistence) {
       if (branchTable.persistence === "u" && mainTable.persistence === "p") {
-        changes.push(
-          new AlterTableSetUnlogged({ main: mainTable, branch: branchTable }),
-        );
+        changes.push(new AlterTableSetUnlogged({ table: mainTable }));
       } else if (
         branchTable.persistence === "p" &&
         mainTable.persistence === "u"
       ) {
-        changes.push(
-          new AlterTableSetLogged({ main: mainTable, branch: branchTable }),
-        );
+        changes.push(new AlterTableSetLogged({ table: mainTable }));
       }
     }
 
@@ -294,17 +290,11 @@ export function diffTables(
     if (mainTable.row_security !== branchTable.row_security) {
       if (branchTable.row_security) {
         changes.push(
-          new AlterTableEnableRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableEnableRowLevelSecurity({ table: mainTable }),
         );
       } else {
         changes.push(
-          new AlterTableDisableRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableDisableRowLevelSecurity({ table: mainTable }),
         );
       }
     }
@@ -312,18 +302,10 @@ export function diffTables(
     // FORCE ROW LEVEL SECURITY
     if (mainTable.force_row_security !== branchTable.force_row_security) {
       if (branchTable.force_row_security) {
-        changes.push(
-          new AlterTableForceRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
-        );
+        changes.push(new AlterTableForceRowLevelSecurity({ table: mainTable }));
       } else {
         changes.push(
-          new AlterTableNoForceRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableNoForceRowLevelSecurity({ table: mainTable }),
         );
       }
     }
@@ -337,8 +319,8 @@ export function diffTables(
       if (branchOpts.length > 0) {
         changes.push(
           new AlterTableSetStorageParams({
-            main: mainTable,
-            branch: branchTable,
+            table: mainTable,
+            options: branchOpts,
           }),
         );
       }
@@ -368,8 +350,8 @@ export function diffTables(
       if (branchTable.replica_identity !== "i") {
         changes.push(
           new AlterTableSetReplicaIdentity({
-            main: mainTable,
-            branch: branchTable,
+            table: mainTable,
+            mode: branchTable.replica_identity,
           }),
         );
       }
@@ -379,8 +361,8 @@ export function diffTables(
     if (mainTable.owner !== branchTable.owner) {
       changes.push(
         new AlterTableChangeOwner({
-          main: mainTable,
-          branch: branchTable,
+          table: mainTable,
+          owner: branchTable.owner,
         }),
       );
     }

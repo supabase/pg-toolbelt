@@ -46,10 +46,7 @@ export function diffEnums(
     // OWNER
     if (mainEnum.owner !== branchEnum.owner) {
       changes.push(
-        new AlterEnumChangeOwner({
-          main: mainEnum,
-          branch: branchEnum,
-        }),
+        new AlterEnumChangeOwner({ enum: mainEnum, owner: branchEnum.owner }),
       );
     }
 
@@ -106,14 +103,7 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
     // Find the correct position for the new value
     const position = findEnumValuePosition(mainEnum.labels, newValueSortOrder);
 
-    changes.push(
-      new AlterEnumAddValue({
-        main: mainEnum,
-        branch: branchEnum,
-        newValue,
-        position,
-      }),
-    );
+    changes.push(new AlterEnumAddValue({ enum: mainEnum, newValue, position }));
   }
 
   // Complex changes (removals, resorting) are currently not auto-handled.

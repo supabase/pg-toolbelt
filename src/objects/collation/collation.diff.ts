@@ -74,8 +74,7 @@ export function diffCollations(
       if (mainCollation.version !== branchCollation.version) {
         changes.push(
           new AlterCollationRefreshVersion({
-            main: mainCollation,
-            branch: branchCollation,
+            collation: mainCollation,
           }),
         );
       }
@@ -84,8 +83,8 @@ export function diffCollations(
       if (mainCollation.owner !== branchCollation.owner) {
         changes.push(
           new AlterCollationChangeOwner({
-            main: mainCollation,
-            branch: branchCollation,
+            collation: mainCollation,
+            owner: branchCollation.owner,
           }),
         );
       }

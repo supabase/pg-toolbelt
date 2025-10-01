@@ -49,19 +49,12 @@ describe.concurrent("table", () => {
         parent_name: null,
         columns: [],
       };
-      const main = new Table({
+      const table = new Table({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Table({
-        ...props,
-        owner: "new_owner",
-      });
 
-      const change = new AlterTableChangeOwner({
-        main,
-        branch,
-      });
+      const change = new AlterTableChangeOwner({ table, owner: "new_owner" });
 
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table OWNER TO new_owner",
@@ -88,15 +81,9 @@ describe.concurrent("table", () => {
         parent_name: null,
         columns: [],
       };
-      const main = new Table({ ...props, owner: "o1", options: null });
-      const branch = new Table({
-        ...props,
-        owner: "o1",
-        options: null,
-        persistence: "u",
-      });
+      const table = new Table({ ...props, owner: "o1", options: null });
 
-      const change = new AlterTableSetUnlogged({ main, branch });
+      const change = new AlterTableSetUnlogged({ table });
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET UNLOGGED",
       );
@@ -122,15 +109,9 @@ describe.concurrent("table", () => {
         parent_name: null,
         columns: [],
       };
-      const main = new Table({ ...props, owner: "o1", options: null });
-      const branch = new Table({
-        ...props,
-        owner: "o1",
-        options: null,
-        persistence: "p",
-      });
+      const table = new Table({ ...props, owner: "o1", options: null });
 
-      const change = new AlterTableSetLogged({ main, branch });
+      const change = new AlterTableSetLogged({ table });
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET LOGGED",
       );
@@ -156,34 +137,22 @@ describe.concurrent("table", () => {
         columns: [],
       };
       const enable = new AlterTableEnableRowLevelSecurity({
-        main: new Table({
+        table: new Table({
           ...base,
           owner: "o1",
           options: null,
           row_security: false,
-        }),
-        branch: new Table({
-          ...base,
-          owner: "o1",
-          options: null,
-          row_security: true,
         }),
       });
       expect(enable.serialize()).toBe(
         "ALTER TABLE public.test_table ENABLE ROW LEVEL SECURITY",
       );
       const disable = new AlterTableDisableRowLevelSecurity({
-        main: new Table({
+        table: new Table({
           ...base,
           owner: "o1",
           options: null,
           row_security: true,
-        }),
-        branch: new Table({
-          ...base,
-          owner: "o1",
-          options: null,
-          row_security: false,
         }),
       });
       expect(disable.serialize()).toBe(
@@ -212,34 +181,22 @@ describe.concurrent("table", () => {
           columns: [],
         };
       const force = new AlterTableForceRowLevelSecurity({
-        main: new Table({
+        table: new Table({
           ...base,
           owner: "o1",
           options: null,
           force_row_security: false,
-        }),
-        branch: new Table({
-          ...base,
-          owner: "o1",
-          options: null,
-          force_row_security: true,
         }),
       });
       expect(force.serialize()).toBe(
         "ALTER TABLE public.test_table FORCE ROW LEVEL SECURITY",
       );
       const noforce = new AlterTableNoForceRowLevelSecurity({
-        main: new Table({
+        table: new Table({
           ...base,
           owner: "o1",
           options: null,
           force_row_security: true,
-        }),
-        branch: new Table({
-          ...base,
-          owner: "o1",
-          options: null,
-          force_row_security: false,
         }),
       });
       expect(noforce.serialize()).toBe(
@@ -268,8 +225,8 @@ describe.concurrent("table", () => {
         columns: [],
       };
       const change = new AlterTableSetStorageParams({
-        main: new Table({ ...base, owner: "o1", options: null }),
-        branch: new Table({ ...base, owner: "o1", options: ["fillfactor=90"] }),
+        table: new Table({ ...base, owner: "o1", options: null }),
+        options: ["fillfactor=90"],
       });
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET (fillfactor=90)",
@@ -332,7 +289,7 @@ describe.concurrent("table", () => {
         parent_name: null,
         columns: [],
       };
-      const main = new Table({
+      const table = new Table({
         ...baseProps,
         owner: "o1",
         options: null,
@@ -352,12 +309,15 @@ describe.concurrent("table", () => {
       });
       expect(
         new AlterTableSetReplicaIdentity({
-          main,
-          branch: toNothing,
+          table,
+          mode: toNothing.replica_identity,
         }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY NOTHING");
       expect(
-        new AlterTableSetReplicaIdentity({ main, branch: toFull }).serialize(),
+        new AlterTableSetReplicaIdentity({
+          table,
+          mode: toFull.replica_identity,
+        }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
     });
 
@@ -383,7 +343,7 @@ describe.concurrent("table", () => {
         parent_name: null,
         columns: [],
       };
-      const main = new Table({
+      const table = new Table({
         ...baseProps,
         owner: "o1",
         options: null,
@@ -403,13 +363,16 @@ describe.concurrent("table", () => {
       });
       expect(
         new AlterTableSetReplicaIdentity({
-          main,
-          branch: toDefault,
+          table,
+          mode: toDefault.replica_identity,
         }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
       // AlterTableSetReplicaIdentity of type "i" will not be emitted in diff, it is handled by index changes, we fallback to DEFAULT here
       expect(
-        new AlterTableSetReplicaIdentity({ main, branch: toIndex }).serialize(),
+        new AlterTableSetReplicaIdentity({
+          table,
+          mode: toIndex.replica_identity,
+        }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
     });
 

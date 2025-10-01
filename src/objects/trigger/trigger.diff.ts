@@ -76,8 +76,7 @@ export function diffTriggers(
         `table:${branchTrigger.schema}.${branchTrigger.table_name}` as const;
       changes.push(
         new ReplaceTrigger({
-          main: mainTrigger,
-          branch: branchTrigger,
+          trigger: branchTrigger,
           indexableObject: branchIndexableObjects?.[tableStableId],
         }),
       );

@@ -16,18 +16,14 @@ describe.concurrent("extension", () => {
         owner: "test",
         comment: null,
       };
-      const main = new Extension({
+      const extension = new Extension({
         ...props,
         version: "1.0",
       });
-      const branch = new Extension({
-        ...props,
-        version: "2.0",
-      });
 
       const change = new AlterExtensionUpdateVersion({
-        main,
-        branch,
+        extension,
+        version: "2.0",
       });
 
       expect(change.serialize()).toBe(
@@ -43,18 +39,14 @@ describe.concurrent("extension", () => {
         owner: "test",
         comment: null,
       };
-      const main = new Extension({
+      const extension = new Extension({
         ...props,
         schema: "public",
       });
-      const branch = new Extension({
-        ...props,
-        schema: "extensions",
-      });
 
       const change = new AlterExtensionSetSchema({
-        main,
-        branch,
+        extension,
+        schema: "extensions",
       });
 
       expect(change.serialize()).toBe(
@@ -70,18 +62,14 @@ describe.concurrent("extension", () => {
         version: "1.0",
         comment: null,
       };
-      const main = new Extension({
+      const extension = new Extension({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Extension({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterExtensionChangeOwner({
-        main,
-        branch,
+        extension,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

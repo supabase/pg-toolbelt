@@ -19,28 +19,28 @@ import type { Enum } from "../enum.model.ts";
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterEnumChangeOwner extends Change {
-  public readonly main: Enum;
-  public readonly branch: Enum;
+  public readonly enum: Enum;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "enum" as const;
 
-  constructor(props: { main: Enum; branch: Enum }) {
+  constructor(props: { enum: Enum; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.enum = props.enum;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.enum.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.enum.schema}.${this.enum.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -49,8 +49,7 @@ export class AlterEnumChangeOwner extends Change {
  * ALTER TYPE ... ADD VALUE ...
  */
 export class AlterEnumAddValue extends Change {
-  public readonly main: Enum;
-  public readonly branch: Enum;
+  public readonly enum: Enum;
   public readonly newValue: string;
   public readonly position?: { before?: string; after?: string };
   public readonly operation = "alter" as const;
@@ -58,26 +57,24 @@ export class AlterEnumAddValue extends Change {
   public readonly objectType = "enum" as const;
 
   constructor(props: {
-    main: Enum;
-    branch: Enum;
+    enum: Enum;
     newValue: string;
     position?: { before?: string; after?: string };
   }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.enum = props.enum;
     this.newValue = props.newValue;
     this.position = props.position;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.enum.stableId];
   }
 
   serialize(): string {
     const parts = [
       "ALTER TYPE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.enum.schema}.${this.enum.name}`,
       "ADD VALUE",
       quoteLiteral(this.newValue),
     ];

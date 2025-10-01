@@ -22,28 +22,28 @@ import type { CompositeType } from "../composite-type.model.ts";
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterCompositeTypeChangeOwner extends Change {
-  public readonly main: CompositeType;
-  public readonly branch: CompositeType;
+  public readonly compositeType: CompositeType;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "composite_type" as const;
 
-  constructor(props: { main: CompositeType; branch: CompositeType }) {
+  constructor(props: { compositeType: CompositeType; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.compositeType = props.compositeType;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.compositeType.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.compositeType.schema}.${this.compositeType.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }

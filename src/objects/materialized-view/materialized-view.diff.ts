@@ -104,8 +104,8 @@ export function diffMaterializedViews(
       if (mainMaterializedView.owner !== branchMaterializedView.owner) {
         changes.push(
           new AlterMaterializedViewChangeOwner({
-            main: mainMaterializedView,
-            branch: branchMaterializedView,
+            materializedView: mainMaterializedView,
+            owner: branchMaterializedView.owner,
           }),
         );
       }
@@ -115,10 +115,38 @@ export function diffMaterializedViews(
       if (
         !deepEqual(mainMaterializedView.options, branchMaterializedView.options)
       ) {
+        const parseOptions = (options: string[] | null | undefined) => {
+          const map = new Map<string, string>();
+          if (!options) return map;
+          for (const opt of options) {
+            const eqIndex = opt.indexOf("=");
+            const key = opt.slice(0, eqIndex).trim();
+            const value = opt.slice(eqIndex + 1).trim();
+            map.set(key, value);
+          }
+          return map;
+        };
+        const mainMap = parseOptions(mainMaterializedView.options);
+        const branchMap = parseOptions(branchMaterializedView.options);
+        const keysToReset: string[] = [];
+        for (const key of mainMap.keys()) {
+          if (!branchMap.has(key)) keysToReset.push(key);
+        }
+        const paramsToSet: string[] = [];
+        for (const [key, newValue] of branchMap.entries()) {
+          const oldValue = mainMap.get(key);
+          const changed = oldValue !== newValue;
+          if (changed) {
+            paramsToSet.push(
+              newValue === undefined ? key : `${key}=${newValue}`,
+            );
+          }
+        }
         changes.push(
           new AlterMaterializedViewSetStorageParams({
-            main: mainMaterializedView,
-            branch: branchMaterializedView,
+            materializedView: mainMaterializedView,
+            paramsToSet,
+            keysToReset,
           }),
         );
       }

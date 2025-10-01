@@ -18,28 +18,28 @@ import type { Range } from "../range.model.ts";
  * ALTER TYPE ... OWNER TO ...
  */
 export class AlterRangeChangeOwner extends Change {
-  public readonly main: Range;
-  public readonly branch: Range;
+  public readonly range: Range;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "range" as const;
 
-  constructor(props: { main: Range; branch: Range }) {
+  constructor(props: { range: Range; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.range = props.range;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.range.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TYPE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.range.schema}.${this.range.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }

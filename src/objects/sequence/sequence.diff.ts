@@ -41,7 +41,14 @@ export function diffSequences(
       createdSeq.owned_by_column !== null
     ) {
       changes.push(
-        new AlterSequenceSetOwnedBy({ main: createdSeq, branch: createdSeq }),
+        new AlterSequenceSetOwnedBy({
+          sequence: createdSeq,
+          ownedBy: {
+            schema: createdSeq.owned_by_schema,
+            table: createdSeq.owned_by_table,
+            column: createdSeq.owned_by_column,
+          } as { schema: string; table: string; column: string },
+        }),
       );
     }
   }
@@ -80,8 +87,12 @@ export function diffSequences(
       ) {
         changes.push(
           new AlterSequenceSetOwnedBy({
-            main: branchSequence,
-            branch: branchSequence,
+            sequence: branchSequence,
+            ownedBy: {
+              schema: branchSequence.owned_by_schema,
+              table: branchSequence.owned_by_table,
+              column: branchSequence.owned_by_column,
+            } as { schema: string; table: string; column: string },
           }),
         );
       } else if (
@@ -92,8 +103,8 @@ export function diffSequences(
         // If main had ownership but branch removed it, emit OWNED BY NONE
         changes.push(
           new AlterSequenceSetOwnedBy({
-            main: mainSequence,
-            branch: branchSequence,
+            sequence: mainSequence,
+            ownedBy: null,
           }),
         );
       }
@@ -108,11 +119,41 @@ export function diffSequences(
         mainSequence.cycle_option !== branchSequence.cycle_option;
 
       if (optionsChanged) {
-        const alterOptions = new AlterSequenceSetOptions({
-          main: mainSequence,
-          branch: branchSequence,
-        });
-        changes.push(alterOptions);
+        const options: string[] = [];
+        if (mainSequence.increment !== branchSequence.increment) {
+          options.push("INCREMENT BY", String(branchSequence.increment));
+        }
+        if (mainSequence.minimum_value !== branchSequence.minimum_value) {
+          const defaultMin = BigInt(1);
+          if (branchSequence.minimum_value === defaultMin) {
+            options.push("NO MINVALUE");
+          } else {
+            options.push("MINVALUE", branchSequence.minimum_value.toString());
+          }
+        }
+        if (mainSequence.maximum_value !== branchSequence.maximum_value) {
+          const defaultMax =
+            branchSequence.data_type === "integer"
+              ? BigInt("2147483647")
+              : BigInt("9223372036854775807");
+          if (branchSequence.maximum_value === defaultMax) {
+            options.push("NO MAXVALUE");
+          } else {
+            options.push("MAXVALUE", branchSequence.maximum_value.toString());
+          }
+        }
+        if (mainSequence.start_value !== branchSequence.start_value) {
+          options.push("START WITH", String(branchSequence.start_value));
+        }
+        if (mainSequence.cache_size !== branchSequence.cache_size) {
+          options.push("CACHE", String(branchSequence.cache_size));
+        }
+        if (mainSequence.cycle_option !== branchSequence.cycle_option) {
+          options.push(branchSequence.cycle_option ? "CYCLE" : "NO CYCLE");
+        }
+        changes.push(
+          new AlterSequenceSetOptions({ sequence: mainSequence, options }),
+        );
       }
 
       const ownedByChanged =
@@ -121,11 +162,18 @@ export function diffSequences(
         mainSequence.owned_by_column !== branchSequence.owned_by_column;
 
       if (ownedByChanged) {
+        const ownedBy =
+          branchSequence.owned_by_schema &&
+          branchSequence.owned_by_table &&
+          branchSequence.owned_by_column
+            ? {
+                schema: branchSequence.owned_by_schema,
+                table: branchSequence.owned_by_table,
+                column: branchSequence.owned_by_column,
+              }
+            : null;
         changes.push(
-          new AlterSequenceSetOwnedBy({
-            main: mainSequence,
-            branch: branchSequence,
-          }),
+          new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
         );
       }
 

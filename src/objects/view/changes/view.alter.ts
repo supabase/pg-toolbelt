@@ -23,28 +23,28 @@ import type { View } from "../view.model.ts";
  * ALTER VIEW ... OWNER TO ...
  */
 export class AlterViewChangeOwner extends Change {
-  public readonly main: View;
-  public readonly branch: View;
+  public readonly view: View;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "view" as const;
 
-  constructor(props: { main: View; branch: View }) {
+  constructor(props: { view: View; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.view = props.view;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.view.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER VIEW",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.view.schema}.${this.view.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -55,27 +55,27 @@ export class AlterViewChangeOwner extends Change {
  * ALTER VIEW ... SET ( ... )
  */
 export class AlterViewSetOptions extends Change {
-  public readonly main: View;
-  public readonly branch: View;
+  public readonly view: View;
+  public readonly options: string[];
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "view" as const;
 
-  constructor(props: { main: View; branch: View }) {
+  constructor(props: { view: View; options: string[] }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.view = props.view;
+    this.options = props.options;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.view.stableId];
   }
 
   serialize(): string {
-    const opts = (this.branch.options ?? []).join(", ");
+    const opts = this.options.join(", ");
     return [
       "ALTER VIEW",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.view.schema}.${this.view.name}`,
       "SET",
       `(${opts})`,
     ].join(" ");

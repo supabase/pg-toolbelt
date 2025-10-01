@@ -76,10 +76,7 @@ export function diffViews(
       // OWNER
       if (mainView.owner !== branchView.owner) {
         changes.push(
-          new AlterViewChangeOwner({
-            main: mainView,
-            branch: branchView,
-          }),
+          new AlterViewChangeOwner({ view: mainView, owner: branchView.owner }),
         );
       }
 
@@ -91,7 +88,7 @@ export function diffViews(
         // Always set branch options when provided
         if (branchOpts.length > 0) {
           changes.push(
-            new AlterViewSetOptions({ main: mainView, branch: branchView }),
+            new AlterViewSetOptions({ view: mainView, options: branchOpts }),
           );
         }
 

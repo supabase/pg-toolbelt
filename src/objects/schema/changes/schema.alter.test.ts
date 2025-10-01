@@ -9,18 +9,14 @@ describe.concurrent("schema", () => {
         schema: "test_schema",
         comment: null,
       };
-      const main = new Schema({
+      const schemaObj = new Schema({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Schema({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterSchemaChangeOwner({
-        main,
-        branch,
+        schemaObj,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

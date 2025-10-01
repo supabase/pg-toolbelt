@@ -38,24 +38,24 @@ import type { Domain, DomainConstraintProps } from "../domain.model.ts";
  * ALTER DOMAIN ... SET DEFAULT ...
  */
 export class AlterDomainSetDefault extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
+  public readonly domain: Domain;
+  public readonly defaultValue: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain; defaultValue: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
+    this.defaultValue = props.defaultValue;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET DEFAULT ${this.branch.default_value}`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`;
   }
 }
 
@@ -63,24 +63,22 @@ export class AlterDomainSetDefault extends Change {
  * ALTER DOMAIN ... DROP DEFAULT
  */
 export class AlterDomainDropDefault extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
+  public readonly domain: Domain;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP DEFAULT`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`;
   }
 }
 
@@ -88,24 +86,22 @@ export class AlterDomainDropDefault extends Change {
  * ALTER DOMAIN ... SET NOT NULL
  */
 export class AlterDomainSetNotNull extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
+  public readonly domain: Domain;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET NOT NULL`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`;
   }
 }
 
@@ -113,24 +109,22 @@ export class AlterDomainSetNotNull extends Change {
  * ALTER DOMAIN ... DROP NOT NULL
  */
 export class AlterDomainDropNotNull extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
+  public readonly domain: Domain;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP NOT NULL`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`;
   }
 }
 
@@ -138,24 +132,24 @@ export class AlterDomainDropNotNull extends Change {
  * ALTER DOMAIN ... OWNER TO ...
  */
 export class AlterDomainChangeOwner extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
+  public readonly domain: Domain;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} OWNER TO ${this.branch.owner}`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`;
   }
 }
 

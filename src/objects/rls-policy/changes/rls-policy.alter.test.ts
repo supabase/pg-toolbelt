@@ -23,18 +23,14 @@ describe.concurrent("rls-policy", () => {
         owner: "owner",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         roles: ["public"],
       });
-      const branch = new RlsPolicy({
-        ...props,
-        roles: ["role1", "role2"],
-      });
 
       const change = new AlterRlsPolicySetRoles({
-        main,
-        branch,
+        policy,
+        roles: ["role1", "role2"],
       });
 
       expect(change.serialize()).toBe(
@@ -54,18 +50,14 @@ describe.concurrent("rls-policy", () => {
         owner: "owner",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         roles: ["role1"],
       });
-      const branch = new RlsPolicy({
-        ...props,
-        roles: ["public"],
-      });
 
       const change = new AlterRlsPolicySetRoles({
-        main,
-        branch,
+        policy,
+        roles: ["public"],
       });
 
       expect(change.serialize()).toBe(
@@ -159,18 +151,14 @@ describe.concurrent("rls-policy", () => {
         owner: "test",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         using_expression: "old_expr",
       });
-      const branch = new RlsPolicy({
-        ...props,
-        using_expression: "new_expr",
-      });
 
       const change = new AlterRlsPolicySetUsingExpression({
-        main,
-        branch,
+        policy,
+        usingExpression: "new_expr",
       });
 
       expect(change.serialize()).toBe(
@@ -190,18 +178,14 @@ describe.concurrent("rls-policy", () => {
         owner: "test",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         using_expression: "old_expr",
       });
-      const branch = new RlsPolicy({
-        ...props,
-        using_expression: null,
-      });
 
       const change = new AlterRlsPolicySetUsingExpression({
-        main,
-        branch,
+        policy,
+        usingExpression: null,
       });
 
       expect(change.serialize()).toBe(
@@ -221,18 +205,14 @@ describe.concurrent("rls-policy", () => {
         owner: "test",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         with_check_expression: "old_check",
       });
-      const branch = new RlsPolicy({
-        ...props,
-        with_check_expression: "new_check",
-      });
 
       const change = new AlterRlsPolicySetWithCheckExpression({
-        main,
-        branch,
+        policy,
+        withCheckExpression: "new_check",
       });
 
       expect(change.serialize()).toBe(
@@ -252,18 +232,14 @@ describe.concurrent("rls-policy", () => {
         owner: "test",
         comment: null,
       };
-      const main = new RlsPolicy({
+      const policy = new RlsPolicy({
         ...props,
         with_check_expression: "old_check",
       });
-      const branch = new RlsPolicy({
-        ...props,
-        with_check_expression: null,
-      });
 
       const change = new AlterRlsPolicySetWithCheckExpression({
-        main,
-        branch,
+        policy,
+        withCheckExpression: null,
       });
 
       expect(change.serialize()).toBe(

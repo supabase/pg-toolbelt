@@ -31,31 +31,31 @@ import { formatConfigValue } from "../utils.ts";
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
  */
 export class AlterProcedureChangeOwner extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
+      `${this.procedure.schema}.${this.procedure.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -64,32 +64,32 @@ export class AlterProcedureChangeOwner extends Change {
  * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
  */
 export class AlterProcedureSetSecurity extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly securityDefiner: boolean;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; securityDefiner: boolean }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.securityDefiner = props.securityDefiner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const security = this.branch.security_definer
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const security = this.securityDefiner
       ? "SECURITY DEFINER"
       : "SECURITY INVOKER"; // INVOKER is default; only emitted when changed via diff
 
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
+      `${this.procedure.schema}.${this.procedure.name}`,
       security,
     ].join(" ");
   }
@@ -100,66 +100,52 @@ export class AlterProcedureSetSecurity extends Change {
  * Emits individual RESET for removed keys and SET for added/changed keys.
  */
 export class AlterProcedureSetConfig extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly action: "set" | "reset" | "reset_all";
+  public readonly key?: string;
+  public readonly value?: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: {
+    procedure: Procedure;
+    action: "set";
+    key: string;
+    value: string;
+  });
+  constructor(props: { procedure: Procedure; action: "reset"; key: string });
+  constructor(props: { procedure: Procedure; action: "reset_all" });
+  constructor(props: {
+    procedure: Procedure;
+    action: "set" | "reset" | "reset_all";
+    key?: string;
+    value?: string;
+  }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.action = props.action;
+    this.key = props.key;
+    this.value = props.value;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const parseOptions = (options: string[] | null | undefined) => {
-      const map = new Map<string, string>();
-      if (!options) return map;
-      for (const opt of options) {
-        const eqIndex = opt.indexOf("=");
-        const key = opt.slice(0, eqIndex).trim();
-        const value = opt.slice(eqIndex + 1).trim();
-        map.set(key, value);
-      }
-      return map;
-    };
-
-    const mainMap = parseOptions(this.main.config);
-    const branchMap = parseOptions(this.branch.config);
-
     const head = [
       "ALTER",
-      this.main.kind === "p" ? "PROCEDURE" : "FUNCTION",
-      `${this.main.schema}.${this.main.name}`,
+      this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
+      `${this.procedure.schema}.${this.procedure.name}`,
     ].join(" ");
-
-    const statements: string[] = [];
-
-    // Removed or changed keys -> RESET key
-    for (const [key, oldValue] of mainMap.entries()) {
-      const hasInBranch = branchMap.has(key);
-      const newValue = branchMap.get(key);
-      const changed = hasInBranch ? oldValue !== newValue : true;
-      if (changed) {
-        statements.push(`${head} RESET ${key}`);
-      }
-    }
-
-    // Added or changed keys -> SET key TO value
-    for (const [key, newValue] of branchMap.entries()) {
-      const oldValue = mainMap.get(key);
-      if (oldValue !== newValue) {
-        const formatted = formatConfigValue(key, newValue);
-        statements.push(`${head} SET ${key} TO ${formatted}`);
-      }
-    }
-
-    return statements.join(";\n");
+    if (this.action === "reset_all") return `${head} RESET ALL`;
+    if (this.action === "reset") return `${head} RESET ${this.key}`;
+    const formatted = formatConfigValue(
+      this.key as string,
+      this.value as string,
+    );
+    return `${head} SET ${this.key} TO ${formatted}`;
   }
 }
 
@@ -167,24 +153,24 @@ export class AlterProcedureSetConfig extends Change {
  * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
  */
 export class AlterProcedureSetVolatility extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly volatility: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; volatility: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.volatility = props.volatility;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const volMap: Record<string, string> = {
       i: "IMMUTABLE",
       s: "STABLE",
@@ -193,8 +179,8 @@ export class AlterProcedureSetVolatility extends Change {
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
-      volMap[this.branch.volatility],
+      `${this.procedure.schema}.${this.procedure.name}`,
+      volMap[this.volatility],
     ].join(" ");
   }
 }
@@ -203,31 +189,29 @@ export class AlterProcedureSetVolatility extends Change {
  * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
  */
 export class AlterProcedureSetStrictness extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly isStrict: boolean;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; isStrict: boolean }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.isStrict = props.isStrict;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const strictness = this.branch.is_strict
-      ? "STRICT"
-      : "CALLED ON NULL INPUT";
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const strictness = this.isStrict ? "STRICT" : "CALLED ON NULL INPUT";
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
+      `${this.procedure.schema}.${this.procedure.name}`,
       strictness,
     ].join(" ");
   }
@@ -237,29 +221,29 @@ export class AlterProcedureSetStrictness extends Change {
  * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
  */
 export class AlterProcedureSetLeakproof extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly leakproof: boolean;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; leakproof: boolean }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.leakproof = props.leakproof;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const leak = this.branch.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const leak = this.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
+      `${this.procedure.schema}.${this.procedure.name}`,
       leak,
     ].join(" ");
   }
@@ -269,24 +253,24 @@ export class AlterProcedureSetLeakproof extends Change {
  * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
  */
 export class AlterProcedureSetParallel extends Change {
-  public readonly main: Procedure;
-  public readonly branch: Procedure;
+  public readonly procedure: Procedure;
+  public readonly parallelSafety: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "procedure" as const;
 
-  constructor(props: { main: Procedure; branch: Procedure }) {
+  constructor(props: { procedure: Procedure; parallelSafety: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.procedure = props.procedure;
+    this.parallelSafety = props.parallelSafety;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.procedure.stableId];
   }
 
   serialize(): string {
-    const objectType = this.main.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const parallelMap: Record<string, string> = {
       u: "PARALLEL UNSAFE",
       s: "PARALLEL SAFE",
@@ -295,8 +279,8 @@ export class AlterProcedureSetParallel extends Change {
     return [
       "ALTER",
       objectType,
-      `${this.main.schema}.${this.main.name}`,
-      parallelMap[this.branch.parallel_safety],
+      `${this.procedure.schema}.${this.procedure.name}`,
+      parallelMap[this.parallelSafety],
     ].join(" ");
   }
 }

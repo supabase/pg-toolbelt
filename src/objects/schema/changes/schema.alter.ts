@@ -17,29 +17,26 @@ import type { Schema } from "../schema.model.ts";
  * ALTER SCHEMA ... OWNER TO ...
  */
 export class AlterSchemaChangeOwner extends Change {
-  public readonly main: Schema;
-  public readonly branch: Schema;
+  public readonly schemaObj: Schema;
+  public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "schema" as const;
 
-  constructor(props: { main: Schema; branch: Schema }) {
+  constructor(props: { schemaObj: Schema; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.schemaObj = props.schemaObj;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.schemaObj.stableId];
   }
 
   serialize(): string {
-    return [
-      "ALTER SCHEMA",
-      this.main.schema,
-      "OWNER TO",
-      this.branch.owner,
-    ].join(" ");
+    return ["ALTER SCHEMA", this.schemaObj.schema, "OWNER TO", this.owner].join(
+      " ",
+    );
   }
 }
 

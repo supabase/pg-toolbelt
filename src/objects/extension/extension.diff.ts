@@ -58,8 +58,8 @@ export function diffExtensions(
     // if (mainExtension.version !== branchExtension.version) {
     //   changes.push(
     //     new AlterExtensionUpdateVersion({
-    //       main: mainExtension,
-    //       branch: branchExtension,
+    //       extension: mainExtension,
+    //       version: branchExtension.version,
     //     }),
     //   );
     // }
@@ -68,8 +68,8 @@ export function diffExtensions(
     if (schemaChanged && mainExtension.relocatable) {
       changes.push(
         new AlterExtensionSetSchema({
-          main: mainExtension,
-          branch: branchExtension,
+          extension: mainExtension,
+          schema: branchExtension.schema,
         }),
       );
     }
@@ -78,8 +78,8 @@ export function diffExtensions(
     if (mainExtension.owner !== branchExtension.owner) {
       changes.push(
         new AlterExtensionChangeOwner({
-          main: mainExtension,
-          branch: branchExtension,
+          extension: mainExtension,
+          owner: branchExtension.owner,
         }),
       );
     }

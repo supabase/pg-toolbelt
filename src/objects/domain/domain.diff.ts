@@ -70,15 +70,13 @@ export function diffDomains(
     // DEFAULT
     if (mainDomain.default_value !== branchDomain.default_value) {
       if (branchDomain.default_value === null) {
-        changes.push(
-          new AlterDomainDropDefault({
-            main: mainDomain,
-            branch: branchDomain,
-          }),
-        );
+        changes.push(new AlterDomainDropDefault({ domain: mainDomain }));
       } else {
         changes.push(
-          new AlterDomainSetDefault({ main: mainDomain, branch: branchDomain }),
+          new AlterDomainSetDefault({
+            domain: mainDomain,
+            defaultValue: branchDomain.default_value,
+          }),
         );
       }
     }
@@ -86,16 +84,9 @@ export function diffDomains(
     // NOT NULL
     if (mainDomain.not_null !== branchDomain.not_null) {
       if (branchDomain.not_null) {
-        changes.push(
-          new AlterDomainSetNotNull({ main: mainDomain, branch: branchDomain }),
-        );
+        changes.push(new AlterDomainSetNotNull({ domain: mainDomain }));
       } else {
-        changes.push(
-          new AlterDomainDropNotNull({
-            main: mainDomain,
-            branch: branchDomain,
-          }),
-        );
+        changes.push(new AlterDomainDropNotNull({ domain: mainDomain }));
       }
     }
 
@@ -176,7 +167,10 @@ export function diffDomains(
     // OWNER
     if (mainDomain.owner !== branchDomain.owner) {
       changes.push(
-        new AlterDomainChangeOwner({ main: mainDomain, branch: branchDomain }),
+        new AlterDomainChangeOwner({
+          domain: mainDomain,
+          owner: branchDomain.owner,
+        }),
       );
     }
 

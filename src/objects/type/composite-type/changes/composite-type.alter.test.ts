@@ -34,14 +34,9 @@ describe.concurrent("composite-type", () => {
         ...props,
         owner: "old_owner",
       });
-      const branch = new CompositeType({
-        ...props,
-        owner: "new_owner",
-      });
-
       const change = new AlterCompositeTypeChangeOwner({
-        main,
-        branch,
+        compositeType: main,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

@@ -17,27 +17,62 @@ export function diffColumnPrivileges(
   for (const id of created) {
     const s = branch[id];
     if (s.items.length === 0) continue;
-    changes.push(
-      new GrantColumnPrivileges({
-        tableId: s.table_stable_id,
-        tableNameSql: `${s.schema}.${s.table_name}`,
-        grantee: s.grantee,
-        items: s.items,
-      }),
-    );
+    const byPrivGrantable = new Map<string, Map<boolean, Set<string>>>();
+    for (const i of s.items) {
+      if (!byPrivGrantable.has(i.privilege)) {
+        byPrivGrantable.set(i.privilege, new Map());
+      }
+      const byGrantMaybe = byPrivGrantable.get(i.privilege);
+      const byGrant = byGrantMaybe ?? new Map<boolean, Set<string>>();
+      if (!byPrivGrantable.has(i.privilege)) {
+        byPrivGrantable.set(i.privilege, byGrant);
+      }
+      if (!byGrant.has(i.grantable)) byGrant.set(i.grantable, new Set());
+      const setMaybe = byGrant.get(i.grantable);
+      const set = setMaybe ?? new Set<string>();
+      if (!byGrant.has(i.grantable)) byGrant.set(i.grantable, set);
+      for (const c of i.columns) set.add(c);
+    }
+    for (const [priv, byGrant] of byPrivGrantable) {
+      for (const [grantable, colsSet] of byGrant) {
+        const cols = [...colsSet].sort();
+        changes.push(
+          new GrantColumnPrivileges({
+            tableId: s.table_stable_id,
+            tableNameSql: `${s.schema}.${s.table_name}`,
+            grantee: s.grantee,
+            privilege: priv,
+            columns: cols,
+            grantable,
+          }),
+        );
+      }
+    }
   }
 
   for (const id of dropped) {
     const s = main[id];
     if (s.items.length === 0) continue;
-    changes.push(
-      new RevokeColumnPrivileges({
-        tableId: s.table_stable_id,
-        tableNameSql: `${s.schema}.${s.table_name}`,
-        grantee: s.grantee,
-        items: s.items,
-      }),
-    );
+    const byPriv = new Map<string, Set<string>>();
+    for (const i of s.items) {
+      if (!byPriv.has(i.privilege)) byPriv.set(i.privilege, new Set());
+      const setMaybe = byPriv.get(i.privilege);
+      const set = setMaybe ?? new Set<string>();
+      if (!byPriv.has(i.privilege)) byPriv.set(i.privilege, set);
+      for (const c of i.columns) set.add(c);
+    }
+    for (const [priv, colsSet] of byPriv) {
+      const cols = [...colsSet].sort();
+      changes.push(
+        new RevokeColumnPrivileges({
+          tableId: s.table_stable_id,
+          tableNameSql: `${s.schema}.${s.table_name}`,
+          grantee: s.grantee,
+          privilege: priv,
+          columns: cols,
+        }),
+      );
+    }
   }
 
   for (const id of altered) {
@@ -96,38 +131,70 @@ export function diffColumnPrivileges(
     }
 
     if (grants.length > 0) {
-      changes.push(
-        new GrantColumnPrivileges({
-          tableId: b.table_stable_id,
-          tableNameSql: `${b.schema}.${b.table_name}`,
-          grantee: b.grantee,
-          items: grants,
-        }),
-      );
+      // Emit one change per privilege+grantable group
+      const group = new Map<string, Map<boolean, Set<string>>>();
+      for (const g of grants) {
+        if (!group.has(g.privilege)) group.set(g.privilege, new Map());
+        const byGrantMaybe = group.get(g.privilege);
+        const byGrant = byGrantMaybe ?? new Map<boolean, Set<string>>();
+        if (!group.has(g.privilege)) group.set(g.privilege, byGrant);
+        if (!byGrant.has(g.grantable)) byGrant.set(g.grantable, new Set());
+        const setMaybe = byGrant.get(g.grantable);
+        const set = setMaybe ?? new Set<string>();
+        if (!byGrant.has(g.grantable)) byGrant.set(g.grantable, set);
+        for (const c of g.columns) set.add(c);
+      }
+      for (const [priv, byGrant] of group) {
+        for (const [grantable, colsSet] of byGrant) {
+          const cols = [...colsSet].sort();
+          changes.push(
+            new GrantColumnPrivileges({
+              tableId: b.table_stable_id,
+              tableNameSql: `${b.schema}.${b.table_name}`,
+              grantee: b.grantee,
+              privilege: priv,
+              columns: cols,
+              grantable,
+            }),
+          );
+        }
+      }
     }
     if (revokes.length > 0) {
-      changes.push(
-        new RevokeColumnPrivileges({
-          tableId: a.table_stable_id,
-          tableNameSql: `${a.schema}.${a.table_name}`,
-          grantee: a.grantee,
-          items: revokes,
-        }),
-      );
+      // Emit one change per privilege group
+      const group = new Map<string, Set<string>>();
+      for (const r of revokes) {
+        if (!group.has(r.privilege)) group.set(r.privilege, new Set());
+        const setMaybe = group.get(r.privilege);
+        const set = setMaybe ?? new Set<string>();
+        if (!group.has(r.privilege)) group.set(r.privilege, set);
+        for (const c of r.columns) set.add(c);
+      }
+      for (const [priv, colsSet] of group) {
+        const cols = [...colsSet].sort();
+        changes.push(
+          new RevokeColumnPrivileges({
+            tableId: a.table_stable_id,
+            tableNameSql: `${a.schema}.${a.table_name}`,
+            grantee: a.grantee,
+            privilege: priv,
+            columns: cols,
+          }),
+        );
+      }
     }
     if (revokeGrantOption.size > 0) {
-      const items = [...revokeGrantOption.entries()].map(([priv, cols]) => ({
-        privilege: priv,
-        columns: cols,
-      }));
-      changes.push(
-        new RevokeGrantOptionColumnPrivileges({
-          tableId: a.table_stable_id,
-          tableNameSql: `${a.schema}.${a.table_name}`,
-          grantee: a.grantee,
-          items,
-        }),
-      );
+      for (const [priv, cols] of revokeGrantOption.entries()) {
+        changes.push(
+          new RevokeGrantOptionColumnPrivileges({
+            tableId: a.table_stable_id,
+            tableNameSql: `${a.schema}.${a.table_name}`,
+            grantee: a.grantee,
+            privilege: priv,
+            columns: cols,
+          }),
+        );
+      }
     }
   }
 

@@ -69,8 +69,8 @@ export function diffLanguages(
       if (mainLanguage.owner !== branchLanguage.owner) {
         changes.push(
           new AlterLanguageChangeOwner({
-            main: mainLanguage,
-            branch: branchLanguage,
+            language: mainLanguage,
+            owner: branchLanguage.owner,
           }),
         );
       }
