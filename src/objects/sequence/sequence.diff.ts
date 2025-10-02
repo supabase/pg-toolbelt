@@ -1,5 +1,9 @@
 import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceSetOptions,
@@ -11,6 +15,11 @@ import {
 } from "./changes/sequence.comment.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
+import {
+  GrantSequencePrivileges,
+  RevokeGrantOptionSequencePrivileges,
+  RevokeSequencePrivileges,
+} from "./changes/sequence.privilege.ts";
 import type { Sequence } from "./sequence.model.ts";
 
 /**
@@ -21,6 +30,7 @@ import type { Sequence } from "./sequence.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
+  ctx: { version: number },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
 ): BaseChange[] {
@@ -184,6 +194,58 @@ export function diffSequences(
         } else {
           changes.push(
             new CreateCommentOnSequence({ sequence: branchSequence }),
+          );
+        }
+      }
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainSequence.privileges,
+        branchSequence.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantSequencePrivileges({
+                sequence: branchSequence,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeSequencePrivileges({
+                sequence: mainSequence,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionSequencePrivileges({
+              sequence: mainSequence,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
           );
         }
       }

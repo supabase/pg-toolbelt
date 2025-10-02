@@ -46,9 +46,7 @@ export class GrantTablePrivileges extends BaseChange {
     this.table = props.table;
     this.grantee = props.grantee;
     this.privileges = props.privileges;
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -70,11 +68,11 @@ export class GrantTablePrivileges extends BaseChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
     const tableName = `${this.table.schema}.${this.table.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `GRANT ${privSql}${columnClause} ${kindPrefix} ${tableName} TO ${this.grantee}${withGrant}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `GRANT ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -116,9 +114,7 @@ export class RevokeTablePrivileges extends BaseChange {
     this.table = props.table;
     this.grantee = props.grantee;
     this.privileges = props.privileges;
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -132,11 +128,11 @@ export class RevokeTablePrivileges extends BaseChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
     const tableName = `${this.table.schema}.${this.table.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `REVOKE ${privSql}${columnClause} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `REVOKE ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} FROM ${this.grantee}`;
   }
 }
 
@@ -168,9 +164,7 @@ export class RevokeGrantOptionTablePrivileges extends BaseChange {
     this.table = props.table;
     this.grantee = props.grantee;
     this.privilegeNames = [...new Set(props.privilegeNames)].sort();
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -187,10 +181,10 @@ export class RevokeGrantOptionTablePrivileges extends BaseChange {
       this.version,
     );
     const tableName = `${this.table.schema}.${this.table.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} FROM ${this.grantee}`;
   }
 }

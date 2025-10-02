@@ -60,11 +60,13 @@ export class GrantProcedurePrivileges extends BaseChange {
       );
     }
     const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("ROUTINE");
+    const kindPrefix = getObjectKindPrefix("FUNCTION");
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("ROUTINE", list, this.version);
+    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${procedureName} TO ${this.grantee}${withGrant}`;
+    const args = this.procedure.argument_types?.join(", ") ?? "";
+    const signature = args ? `${procedureName}(${args})` : procedureName;
+    return `GRANT ${privSql} ${kindPrefix} ${signature} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -76,9 +78,8 @@ export class GrantProcedurePrivileges extends BaseChange {
  * Synopsis
  * ```sql
  * REVOKE [ GRANT OPTION FOR ]
- *     { EXECUTE | ALL [ PRIVILEGES ] }
- *     ON { { FUNCTION | PROCEDURE | ROUTINE } function_name [ ( [ [ argmode ] [ arg_name ] arg_type [, ...] ] ) ] [, ...]
- *          | ALL { FUNCTIONS | PROCEDURES | ROUTINES } IN SCHEMA schema_name [, ...] }
+ *     { { EXECUTE | ALL [ PRIVILEGES ] } }
+ *     ON { FUNCTION | PROCEDURE | ROUTINE } routine_name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ] [, ...]
  *     FROM role_specification [, ...]
  *     [ GRANTED BY role_specification ]
  *     [ CASCADE | RESTRICT ]
@@ -112,11 +113,13 @@ export class RevokeProcedurePrivileges extends BaseChange {
   }
 
   serialize(): string {
-    const kindPrefix = getObjectKindPrefix("ROUTINE");
+    const kindPrefix = getObjectKindPrefix("FUNCTION");
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("ROUTINE", list, this.version);
+    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${procedureName} FROM ${this.grantee}`;
+    const args = this.procedure.argument_types?.join(", ") ?? "";
+    const signature = args ? `${procedureName}(${args})` : procedureName;
+    return `REVOKE ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
   }
 }
 
@@ -155,13 +158,15 @@ export class RevokeGrantOptionProcedurePrivileges extends BaseChange {
   }
 
   serialize(): string {
-    const kindPrefix = getObjectKindPrefix("ROUTINE");
+    const kindPrefix = getObjectKindPrefix("FUNCTION");
     const privSql = formatObjectPrivilegeList(
-      "ROUTINE",
+      "FUNCTION",
       this.privilegeNames,
       this.version,
     );
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${procedureName} FROM ${this.grantee}`;
+    const args = this.procedure.argument_types?.join(", ") ?? "";
+    const signature = args ? `${procedureName}(${args})` : procedureName;
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
   }
 }

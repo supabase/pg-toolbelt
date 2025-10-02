@@ -46,9 +46,7 @@ export class GrantViewPrivileges extends BaseChange {
     this.view = props.view;
     this.grantee = props.grantee;
     this.privileges = props.privileges;
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -70,11 +68,11 @@ export class GrantViewPrivileges extends BaseChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("VIEW", list, this.version);
     const viewName = `${this.view.schema}.${this.view.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `GRANT ${privSql}${columnClause} ${kindPrefix} ${viewName} TO ${this.grantee}${withGrant}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `GRANT ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -116,9 +114,7 @@ export class RevokeViewPrivileges extends BaseChange {
     this.view = props.view;
     this.grantee = props.grantee;
     this.privileges = props.privileges;
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -132,11 +128,11 @@ export class RevokeViewPrivileges extends BaseChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("VIEW", list, this.version);
     const viewName = `${this.view.schema}.${this.view.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `REVOKE ${privSql}${columnClause} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `REVOKE ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} FROM ${this.grantee}`;
   }
 }
 
@@ -168,9 +164,7 @@ export class RevokeGrantOptionViewPrivileges extends BaseChange {
     this.view = props.view;
     this.grantee = props.grantee;
     this.privilegeNames = [...new Set(props.privilegeNames)].sort();
-    this.columns = props.columns
-      ? [...new Set(props.columns)].sort()
-      : undefined;
+    this.columns = props.columns;
     this.version = props.version;
   }
 
@@ -187,10 +181,10 @@ export class RevokeGrantOptionViewPrivileges extends BaseChange {
       this.version,
     );
     const viewName = `${this.view.schema}.${this.view.name}`;
-
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
-
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
+    const columnSpec =
+      this.columns && this.columns.length > 0
+        ? ` (${this.columns.join(", ")})`
+        : "";
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} FROM ${this.grantee}`;
   }
 }

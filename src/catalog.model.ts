@@ -30,10 +30,6 @@ import {
   type RoleMembership,
 } from "./objects/privilege/membership/membership.model.ts";
 import {
-  extractObjectPrivileges,
-  type ObjectPrivilegeSet,
-} from "./objects/privilege/object-privilege/object-privilege.model.ts";
-import {
   extractProcedures,
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
@@ -69,8 +65,6 @@ interface CatalogProps {
   procedures: Record<string, Procedure>;
   indexes: Record<string, Index>;
   materializedViews: Record<string, MaterializedView>;
-  objectPrivileges: Record<string, ObjectPrivilegeSet>;
-  columnPrivileges: Record<string, ColumnPrivilegeSet>;
   defaultPrivileges: Record<string, DefaultPrivilegeSet>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
@@ -96,8 +90,6 @@ export class Catalog {
   public readonly procedures: CatalogProps["procedures"];
   public readonly indexes: CatalogProps["indexes"];
   public readonly materializedViews: CatalogProps["materializedViews"];
-  public readonly objectPrivileges: CatalogProps["objectPrivileges"];
-  public readonly columnPrivileges: CatalogProps["columnPrivileges"];
   public readonly defaultPrivileges: CatalogProps["defaultPrivileges"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
@@ -122,8 +114,6 @@ export class Catalog {
     this.procedures = props.procedures;
     this.indexes = props.indexes;
     this.materializedViews = props.materializedViews;
-    this.objectPrivileges = props.objectPrivileges;
-    this.columnPrivileges = props.columnPrivileges;
     this.defaultPrivileges = props.defaultPrivileges;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
@@ -150,8 +140,6 @@ export async function extractCatalog(sql: Sql) {
     extensions,
     indexes,
     materializedViews,
-    objectPrivileges,
-    columnPrivileges,
     defaultPrivileges,
     procedures,
     rlsPolicies,
@@ -174,8 +162,6 @@ export async function extractCatalog(sql: Sql) {
     extractExtensions(sql).then(listToRecord),
     extractIndexes(sql).then(listToRecord),
     extractMaterializedViews(sql).then(listToRecord),
-    extractObjectPrivileges(sql).then(listToRecord),
-    extractColumnPrivileges(sql).then(listToRecord),
     extractDefaultPrivileges(sql).then(listToRecord),
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
@@ -223,8 +209,6 @@ export async function extractCatalog(sql: Sql) {
     procedures,
     indexes,
     materializedViews,
-    objectPrivileges,
-    columnPrivileges,
     defaultPrivileges,
     rlsPolicies,
     roles,

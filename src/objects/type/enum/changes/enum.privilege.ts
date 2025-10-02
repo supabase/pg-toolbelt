@@ -62,8 +62,8 @@ export class GrantEnumPrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const enumName = `${this.enum.schema}.${this.enum.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${enumName} TO ${this.grantee}${withGrant}`;
+    const typeName = `${this.enum.schema}.${this.enum.name}`;
+    return `GRANT ${privSql} ${kindPrefix} ${typeName} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -113,8 +113,8 @@ export class RevokeEnumPrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const enumName = `${this.enum.schema}.${this.enum.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${enumName} FROM ${this.grantee}`;
+    const typeName = `${this.enum.schema}.${this.enum.name}`;
+    return `REVOKE ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }
 
@@ -159,7 +159,7 @@ export class RevokeGrantOptionEnumPrivileges extends BaseChange {
       this.privilegeNames,
       this.version,
     );
-    const enumName = `${this.enum.schema}.${this.enum.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${enumName} FROM ${this.grantee}`;
+    const typeName = `${this.enum.schema}.${this.enum.name}`;
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }

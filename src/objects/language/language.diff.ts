@@ -1,5 +1,9 @@
 import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
@@ -8,16 +12,23 @@ import {
 } from "./changes/language.comment.ts";
 import { CreateLanguage } from "./changes/language.create.ts";
 import { DropLanguage } from "./changes/language.drop.ts";
+import {
+  GrantLanguagePrivileges,
+  RevokeGrantOptionLanguagePrivileges,
+  RevokeLanguagePrivileges,
+} from "./changes/language.privilege.ts";
 import type { Language } from "./language.model.ts";
 
 /**
  * Diff two sets of languages from main and branch catalogs.
  *
+ * @param ctx - Context containing version information.
  * @param main - The languages in the main catalog.
  * @param branch - The languages in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffLanguages(
+  ctx: { version: number },
   main: Record<string, Language>,
   branch: Record<string, Language>,
 ): BaseChange[] {
@@ -89,6 +100,58 @@ export function diffLanguages(
       // Note: Language renaming would also use ALTER LANGUAGE ... RENAME TO ...
       // But since our Language model uses 'name' as the identity field,
       // a name change would be handled as drop + create by diffObjects()
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainLanguage.privileges,
+        branchLanguage.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantLanguagePrivileges({
+                language: branchLanguage,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeLanguagePrivileges({
+                language: mainLanguage,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionLanguagePrivileges({
+              language: mainLanguage,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
     }
   }
 

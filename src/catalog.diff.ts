@@ -7,14 +7,12 @@ import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { RevokeColumnPrivileges } from "./objects/privilege/column-privilege/changes/column-privilege.alter.ts";
-import { diffColumnPrivileges } from "./objects/privilege/column-privilege/column-privilege.diff.ts";
 import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
 import { diffRoleMemberships } from "./objects/privilege/membership/membership.diff.ts";
 import {
   RevokeGrantOptionObjectPrivileges,
   RevokeObjectPrivileges,
 } from "./objects/privilege/object-privilege/changes/object-privilege.alter.ts";
-import { diffObjectPrivileges } from "./objects/privilege/object-privilege/object-privilege.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
@@ -32,48 +30,68 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: BaseChange[] = [];
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
-    ...diffCompositeTypes(main.compositeTypes, branch.compositeTypes),
+    ...diffCompositeTypes(
+      { version: main.version },
+      main.compositeTypes,
+      branch.compositeTypes,
+    ),
   );
-  changes.push(...diffDomains(main.domains, branch.domains));
-  changes.push(...diffEnums(main.enums, branch.enums));
+  changes.push(
+    ...diffDomains({ version: main.version }, main.domains, branch.domains),
+  );
+  changes.push(
+    ...diffEnums({ version: main.version }, main.enums, branch.enums),
+  );
   changes.push(...diffExtensions(main.extensions, branch.extensions));
   changes.push(
     ...diffIndexes(main.indexes, branch.indexes, branch.indexableObjects),
   );
   changes.push(
-    ...diffMaterializedViews(main.materializedViews, branch.materializedViews),
+    ...diffMaterializedViews(
+      { version: main.version },
+      main.materializedViews,
+      branch.materializedViews,
+    ),
   );
-  changes.push(...diffProcedures(main.procedures, branch.procedures));
+  changes.push(
+    ...diffProcedures(
+      { version: main.version },
+      main.procedures,
+      branch.procedures,
+    ),
+  );
   changes.push(...diffRlsPolicies(main.rlsPolicies, branch.rlsPolicies));
   changes.push(...diffRoles(main.roles, branch.roles));
-  changes.push(...diffSchemas(main.schemas, branch.schemas));
-  changes.push(...diffSequences(main.sequences, branch.sequences));
   changes.push(
-    ...diffTables({ version: branch.version }, main.tables, branch.tables),
+    ...diffSchemas({ version: main.version }, main.schemas, branch.schemas),
+  );
+  changes.push(
+    ...diffSequences(
+      { version: main.version },
+      main.sequences,
+      branch.sequences,
+    ),
+  );
+  changes.push(
+    ...diffTables({ version: main.version }, main.tables, branch.tables),
   );
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
-  changes.push(...diffRanges(main.ranges, branch.ranges));
-  changes.push(...diffViews(main.views, branch.views));
+  changes.push(
+    ...diffRanges({ version: main.version }, main.ranges, branch.ranges),
+  );
+  changes.push(
+    ...diffViews({ version: main.version }, main.views, branch.views),
+  );
 
   // Privileges depend on objects and roles
   changes.push(
     ...diffRoleMemberships(main.roleMemberships, branch.roleMemberships),
   );
   changes.push(
-    ...diffObjectPrivileges(
-      { version: branch.version },
-      main.objectPrivileges,
-      branch.objectPrivileges,
-    ),
-  );
-  changes.push(
-    ...diffColumnPrivileges(main.columnPrivileges, branch.columnPrivileges),
-  );
-  changes.push(
     ...diffDefaultPrivileges(
-      { version: branch.version },
+      { version: main.version },
       main.defaultPrivileges,
       branch.defaultPrivileges,
     ),

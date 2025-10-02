@@ -1,6 +1,10 @@
 import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../../base.privilege-diff.ts";
+import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
 } from "./changes/enum.alter.ts";
@@ -10,6 +14,11 @@ import {
 } from "./changes/enum.comment.ts";
 import { CreateEnum } from "./changes/enum.create.ts";
 import { DropEnum } from "./changes/enum.drop.ts";
+import {
+  GrantEnumPrivileges,
+  RevokeEnumPrivileges,
+  RevokeGrantOptionEnumPrivileges,
+} from "./changes/enum.privilege.ts";
 import type { Enum } from "./enum.model.ts";
 
 /**
@@ -20,6 +29,7 @@ import type { Enum } from "./enum.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffEnums(
+  ctx: { version: number },
   main: Record<string, Enum>,
   branch: Record<string, Enum>,
 ): BaseChange[] {
@@ -62,6 +72,58 @@ export function diffEnums(
         changes.push(new DropCommentOnEnum({ enum: mainEnum }));
       } else {
         changes.push(new CreateCommentOnEnum({ enum: branchEnum }));
+      }
+    }
+
+    // PRIVILEGES
+    const privilegeResults = diffPrivileges(
+      mainEnum.privileges,
+      branchEnum.privileges,
+    );
+
+    for (const [grantee, result] of privilegeResults) {
+      // Generate grant changes
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantEnumPrivileges({
+              enum: branchEnum,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeEnumPrivileges({
+              enum: mainEnum,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionEnumPrivileges({
+            enum: mainEnum,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
       }
     }
 

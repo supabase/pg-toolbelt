@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 
 const sequencePropsSchema = z.object({
   schema: z.string(),
@@ -17,8 +21,10 @@ const sequencePropsSchema = z.object({
   owned_by_table: z.string().nullable(),
   owned_by_column: z.string().nullable(),
   comment: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type SequencePrivilegeProps = PrivilegeProps;
 export type SequenceProps = z.infer<typeof sequencePropsSchema>;
 
 export class Sequence extends BasePgModel {
@@ -36,6 +42,7 @@ export class Sequence extends BasePgModel {
   public readonly owned_by_table: SequenceProps["owned_by_table"];
   public readonly owned_by_column: SequenceProps["owned_by_column"];
   public readonly comment: SequenceProps["comment"];
+  public readonly privileges: SequencePrivilegeProps[];
 
   constructor(props: SequenceProps) {
     super();
@@ -57,6 +64,7 @@ export class Sequence extends BasePgModel {
     this.owned_by_table = props.owned_by_table;
     this.owned_by_column = props.owned_by_column;
     this.comment = props.comment;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `sequence:${string}` {
@@ -84,6 +92,7 @@ export class Sequence extends BasePgModel {
       owned_by_table: this.owned_by_table,
       owned_by_column: this.owned_by_column,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -115,7 +124,20 @@ select
   quote_ident(t_ns.nspname) as owned_by_schema,
   case when t.relname is not null then quote_ident(t.relname) else null end as owned_by_table,
   case when att.attname is not null then quote_ident(att.attname) else null end as owned_by_column,
-  obj_description(c.oid, 'pg_class') as comment
+  obj_description(c.oid, 'pg_class') as comment,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+          'privilege', x.privilege_type,
+          'grantable', x.is_grantable
+        )
+        order by x.grantee, x.privilege_type
+      )
+      from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
+    ), '[]'
+  ) as privileges
 from
   pg_catalog.pg_class c
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid

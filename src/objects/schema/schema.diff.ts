@@ -1,5 +1,9 @@
 import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import {
   CreateCommentOnSchema,
@@ -7,6 +11,11 @@ import {
 } from "./changes/schema.comment.ts";
 import { CreateSchema } from "./changes/schema.create.ts";
 import { DropSchema } from "./changes/schema.drop.ts";
+import {
+  GrantSchemaPrivileges,
+  RevokeGrantOptionSchemaPrivileges,
+  RevokeSchemaPrivileges,
+} from "./changes/schema.privilege.ts";
 import type { Schema } from "./schema.model.ts";
 
 /**
@@ -17,6 +26,7 @@ import type { Schema } from "./schema.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSchemas(
+  ctx: { version: number },
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
 ): BaseChange[] {
@@ -56,6 +66,58 @@ export function diffSchemas(
         changes.push(new DropCommentOnSchema({ schemaObj: mainSchema }));
       } else {
         changes.push(new CreateCommentOnSchema({ schemaObj: branchSchema }));
+      }
+    }
+
+    // PRIVILEGES
+    const privilegeResults = diffPrivileges(
+      mainSchema.privileges,
+      branchSchema.privileges,
+    );
+
+    for (const [grantee, result] of privilegeResults) {
+      // Generate grant changes
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantSchemaPrivileges({
+              schema: branchSchema,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeSchemaPrivileges({
+              schema: mainSchema,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionSchemaPrivileges({
+            schema: mainSchema,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
       }
     }
 

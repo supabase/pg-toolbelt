@@ -62,8 +62,8 @@ export class GrantCompositeTypePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const compositeTypeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${compositeTypeName} TO ${this.grantee}${withGrant}`;
+    const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
+    return `GRANT ${privSql} ${kindPrefix} ${typeName} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -113,8 +113,8 @@ export class RevokeCompositeTypePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const compositeTypeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${compositeTypeName} FROM ${this.grantee}`;
+    const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
+    return `REVOKE ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }
 
@@ -159,7 +159,7 @@ export class RevokeGrantOptionCompositeTypePrivileges extends BaseChange {
       this.privilegeNames,
       this.version,
     );
-    const compositeTypeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${compositeTypeName} FROM ${this.grantee}`;
+    const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }

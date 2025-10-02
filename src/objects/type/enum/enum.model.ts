@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../../base.privilege-diff.ts";
 
 const enumLabelSchema = z.object({
   sort_order: z.number(),
@@ -27,8 +31,10 @@ const enumPropsSchema = z.object({
   owner: z.string(),
   labels: z.array(enumLabelSchema),
   comment: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type EnumPrivilegeProps = PrivilegeProps;
 export type EnumProps = z.infer<typeof enumPropsSchema>;
 
 export class Enum extends BasePgModel {
@@ -37,6 +43,7 @@ export class Enum extends BasePgModel {
   public readonly owner: EnumProps["owner"];
   public readonly labels: EnumProps["labels"];
   public readonly comment: EnumProps["comment"];
+  public readonly privileges: EnumPrivilegeProps[];
 
   constructor(props: EnumProps) {
     super();
@@ -49,6 +56,7 @@ export class Enum extends BasePgModel {
     this.owner = props.owner;
     this.labels = props.labels;
     this.comment = props.comment;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `enum:${string}` {
@@ -67,6 +75,7 @@ export class Enum extends BasePgModel {
       owner: this.owner,
       labels: this.labels,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -90,7 +99,20 @@ select
   e.enumsortorder as sort_order,
   e.enumlabel as label,
   t.typowner::regrole::text as owner,
-  obj_description(t.oid, 'pg_type') as comment
+  obj_description(t.oid, 'pg_type') as comment,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+          'privilege', x.privilege_type,
+          'grantable', x.is_grantable
+        )
+        order by x.grantee, x.privilege_type
+      )
+      from lateral aclexplode(t.typacl) as x(grantor, grantee, privilege_type, is_grantable)
+    ), '[]'
+  ) as privileges
 from
   pg_catalog.pg_enum e
   inner join pg_catalog.pg_type t on t.oid = e.enumtypid
@@ -108,6 +130,11 @@ order by
         owner: string;
         labels: { sort_order: number; label: string }[];
         comment: string | null;
+        privileges: {
+          grantee: string;
+          privilege: string;
+          grantable: boolean;
+        }[];
       }
     > = {};
     for (const e of enumRows) {
@@ -119,6 +146,7 @@ order by
           owner: e.owner,
           labels: [],
           comment: e.comment,
+          privileges: e.privileges,
         };
       }
       grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });

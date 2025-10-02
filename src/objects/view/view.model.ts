@@ -5,6 +5,10 @@ import {
   columnPropsSchema,
   type TableLikeObject,
 } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const viewPropsSchema = z.object({
@@ -25,8 +29,10 @@ const viewPropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type ViewPrivilegeProps = PrivilegeProps;
 export type ViewProps = z.infer<typeof viewPropsSchema>;
 
 export class View extends BasePgModel implements TableLikeObject {
@@ -47,6 +53,7 @@ export class View extends BasePgModel implements TableLikeObject {
   public readonly owner: ViewProps["owner"];
   public readonly comment: ViewProps["comment"];
   public readonly columns: ViewProps["columns"];
+  public readonly privileges: ViewPrivilegeProps[];
 
   constructor(props: ViewProps) {
     super();
@@ -71,6 +78,7 @@ export class View extends BasePgModel implements TableLikeObject {
     this.owner = props.owner;
     this.comment = props.comment;
     this.columns = props.columns;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `view:${string}` {
@@ -101,6 +109,7 @@ export class View extends BasePgModel implements TableLikeObject {
       owner: this.owner,
       comment: this.comment,
       columns: this.columns,
+      privileges: this.privileges,
     };
   }
 }
@@ -188,7 +197,43 @@ select
       )
     end
     order by a.attnum
-  ) filter (where a.attname is not null), '[]') as columns
+  ) filter (where a.attname is not null), '[]') as columns,
+  coalesce((
+    select json_agg(
+            json_build_object(
+              'grantee', case when grp.grantee = 0 then 'PUBLIC' else grp.grantee::regrole::text end,
+              'privilege', grp.privilege_type,
+              'grantable', grp.is_grantable,
+              'columns', case when grp.cols is not null and array_length(grp.cols,1) > 0
+                              then grp.cols
+                              else null end
+            )
+            order by grp.grantee, grp.privilege_type
+          )
+    from (
+      select
+        x.grantee,
+        x.privilege_type,
+        bool_or(x.is_grantable) as is_grantable,
+        array_agg(quote_ident(src.attname) order by src.attname)
+          filter (where src.attname is not null) as cols
+      from (
+        -- one row for object ACL + one row per column ACL
+        select null::name as attname, v.oid as relacl_oid, (
+          select c_rel.relacl from pg_class c_rel where c_rel.oid = v.oid
+        ) as acl
+        union all
+        select a2.attname, v.oid as relacl_oid, a2.attacl
+        from pg_attribute a2
+        where a2.attrelid = v.oid
+          and a2.attnum > 0
+          and not a2.attisdropped
+          and a2.attacl is not null
+      ) as src
+      join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
+      group by x.grantee, x.privilege_type
+    ) as grp
+  ), '[]') as privileges
 from
   views v
   left join pg_attribute a on a.attrelid = v.oid and a.attnum > 0 and not a.attisdropped

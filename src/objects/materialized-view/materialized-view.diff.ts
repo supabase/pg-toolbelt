@@ -1,5 +1,9 @@
 import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByColumns,
+} from "../base.privilege-diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
@@ -13,16 +17,23 @@ import {
 } from "./changes/materialized-view.comment.ts";
 import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./changes/materialized-view.drop.ts";
+import {
+  GrantMaterializedViewPrivileges,
+  RevokeGrantOptionMaterializedViewPrivileges,
+  RevokeMaterializedViewPrivileges,
+} from "./changes/materialized-view.privilege.ts";
 import type { MaterializedView } from "./materialized-view.model.ts";
 
 /**
  * Diff two sets of materialized views from main and branch catalogs.
  *
+ * @param ctx - Context containing version information.
  * @param main - The materialized views in the main catalog.
  * @param branch - The materialized views in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffMaterializedViews(
+  ctx: { version: number },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
 ): BaseChange[] {
@@ -193,6 +204,103 @@ export function diffMaterializedViews(
               new CreateCommentOnMaterializedViewColumn({
                 materializedView: branchMaterializedView,
                 column: branchCol,
+              }),
+            );
+          }
+        }
+      }
+
+      // PRIVILEGES (unified object and column privileges)
+      const privilegeResults = diffPrivileges(
+        mainMaterializedView.privileges,
+        branchMaterializedView.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByColumns(result.grants);
+          for (const [, group] of grantGroups) {
+            for (const [grantable, privSet] of group.byGrant) {
+              const privileges = Array.from(privSet).map((priv) => ({
+                privilege: priv,
+                grantable,
+              }));
+              changes.push(
+                new GrantMaterializedViewPrivileges({
+                  materializedView: branchMaterializedView,
+                  grantee,
+                  privileges,
+                  columns: group.columns,
+                  version: ctx.version,
+                }),
+              );
+            }
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByColumns(result.revokes);
+          for (const [, group] of revokeGroups) {
+            // Collapse all grantable groups into a single revoke (grantable: false)
+            const allPrivileges = new Set<string>();
+            for (const [, privSet] of group.byGrant) {
+              for (const priv of privSet) {
+                allPrivileges.add(priv);
+              }
+            }
+            const privileges = Array.from(allPrivileges).map((priv) => ({
+              privilege: priv,
+              grantable: false,
+            }));
+            changes.push(
+              new RevokeMaterializedViewPrivileges({
+                materializedView: mainMaterializedView,
+                grantee,
+                privileges,
+                columns: group.columns,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          const revokeGrantGroups = new Map<
+            string,
+            { columns?: string[]; privileges: Set<string> }
+          >();
+          for (const r of result.revokeGrantOption) {
+            // For revoke grant option, we need to find the columns from the original privilege
+            const originalPriv = mainMaterializedView.privileges.find(
+              (p) => p.grantee === grantee && p.privilege === r,
+            );
+            const key = originalPriv?.columns
+              ? originalPriv.columns.sort().join(",")
+              : "";
+            if (!revokeGrantGroups.has(key)) {
+              revokeGrantGroups.set(key, {
+                columns: originalPriv?.columns
+                  ? [...originalPriv.columns]
+                  : undefined,
+                privileges: new Set(),
+              });
+            }
+            const group = revokeGrantGroups.get(key);
+            if (!group) continue;
+            group.privileges.add(r);
+          }
+          for (const [, group] of revokeGrantGroups) {
+            const privilegeNames = Array.from(group.privileges);
+            changes.push(
+              new RevokeGrantOptionMaterializedViewPrivileges({
+                materializedView: mainMaterializedView,
+                grantee,
+                privilegeNames,
+                columns: group.columns,
+                version: ctx.version,
               }),
             );
           }

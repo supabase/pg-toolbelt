@@ -17,9 +17,9 @@ export type MaterializedViewPrivilege =
  *
  * Synopsis
  * ```sql
- * GRANT { { SELECT | MAINTAIN } [, ...] | ALL [ PRIVILEGES ] }
- *     ON { [ TABLE ] materialized_view_name [, ...]
- *          | ALL TABLES IN SCHEMA schema_name [, ...] }
+ * GRANT { { SELECT | INSERT | UPDATE | DELETE | TRUNCATE | REFERENCES | TRIGGER }
+ *     [, ...] | ALL [ PRIVILEGES ] }
+ *     ON { [ TABLE ] table_name [, ...] }
  *     TO role_specification [, ...] [ WITH GRANT OPTION ]
  *     [ GRANTED BY role_specification ]
  * ```
@@ -89,9 +89,9 @@ export class GrantMaterializedViewPrivileges extends BaseChange {
  * Synopsis
  * ```sql
  * REVOKE [ GRANT OPTION FOR ]
- *     { { SELECT | MAINTAIN } [, ...] | ALL [ PRIVILEGES ] }
- *     ON { [ TABLE ] materialized_view_name [, ...]
- *          | ALL TABLES IN SCHEMA schema_name [, ...] }
+ *     { { SELECT | INSERT | UPDATE | DELETE | TRUNCATE | REFERENCES | TRIGGER }
+ *     [, ...] | ALL [ PRIVILEGES ] }
+ *     ON { [ TABLE ] table_name [, ...] }
  *     FROM role_specification [, ...]
  *     [ GRANTED BY role_specification ]
  *     [ CASCADE | RESTRICT ]

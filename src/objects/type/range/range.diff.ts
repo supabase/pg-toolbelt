@@ -1,5 +1,9 @@
 import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../../base.privilege-diff.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import {
@@ -8,6 +12,11 @@ import {
 } from "./changes/range.comment.ts";
 import { CreateRange } from "./changes/range.create.ts";
 import { DropRange } from "./changes/range.drop.ts";
+import {
+  GrantRangePrivileges,
+  RevokeGrantOptionRangePrivileges,
+  RevokeRangePrivileges,
+} from "./changes/range.privilege.ts";
 import type { Range } from "./range.model.ts";
 
 /**
@@ -18,6 +27,7 @@ import type { Range } from "./range.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffRanges(
+  ctx: { version: number },
   main: Record<string, Range>,
   branch: Record<string, Range>,
 ): BaseChange[] {
@@ -81,6 +91,58 @@ export function diffRanges(
           changes.push(new DropCommentOnRange({ range: mainRange }));
         } else {
           changes.push(new CreateCommentOnRange({ range: branchRange }));
+        }
+      }
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainRange.privileges,
+        branchRange.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantRangePrivileges({
+                range: branchRange,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeRangePrivileges({
+                range: mainRange,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionRangePrivileges({
+              range: mainRange,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
+          );
         }
       }
     }

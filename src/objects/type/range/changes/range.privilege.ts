@@ -62,8 +62,8 @@ export class GrantRangePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const rangeName = `${this.range.schema}.${this.range.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${rangeName} TO ${this.grantee}${withGrant}`;
+    const typeName = `${this.range.schema}.${this.range.name}`;
+    return `GRANT ${privSql} ${kindPrefix} ${typeName} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -113,8 +113,8 @@ export class RevokeRangePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const rangeName = `${this.range.schema}.${this.range.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${rangeName} FROM ${this.grantee}`;
+    const typeName = `${this.range.schema}.${this.range.name}`;
+    return `REVOKE ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }
 
@@ -159,7 +159,7 @@ export class RevokeGrantOptionRangePrivileges extends BaseChange {
       this.privilegeNames,
       this.version,
     );
-    const rangeName = `${this.range.schema}.${this.range.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${rangeName} FROM ${this.grantee}`;
+    const typeName = `${this.range.schema}.${this.range.name}`;
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
   }
 }

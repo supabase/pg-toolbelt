@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 
 /**
  * All properties exposed by CREATE SCHEMA statement are included in diff output.
@@ -13,14 +17,17 @@ const schemaPropsSchema = z.object({
   schema: z.string(),
   owner: z.string(),
   comment: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type SchemaPrivilegeProps = PrivilegeProps;
 export type SchemaProps = z.infer<typeof schemaPropsSchema>;
 
 export class Schema extends BasePgModel {
   public readonly schema: SchemaProps["schema"];
   public readonly owner: SchemaProps["owner"];
   public readonly comment: SchemaProps["comment"];
+  public readonly privileges: SchemaPrivilegeProps[];
 
   constructor(props: SchemaProps) {
     super();
@@ -31,6 +38,7 @@ export class Schema extends BasePgModel {
     // Data fields
     this.owner = props.owner;
     this.comment = props.comment;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `schema:${string}` {
@@ -47,6 +55,7 @@ export class Schema extends BasePgModel {
     return {
       owner: this.owner,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -67,7 +76,20 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
     select
       quote_ident(nspname) as schema,
       nspowner::regrole::text as owner,
-      obj_description(oid, 'pg_namespace') as comment
+      obj_description(oid, 'pg_namespace') as comment,
+      coalesce(
+        (
+          select json_agg(
+            json_build_object(
+              'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+              'privilege', x.privilege_type,
+              'grantable', x.is_grantable
+            )
+            order by x.grantee, x.privilege_type
+          )
+          from lateral aclexplode(nspacl) as x(grantor, grantee, privilege_type, is_grantable)
+        ), '[]'
+      ) as privileges
     from
       pg_catalog.pg_namespace
       left outer join extension_oids e on e.objid = oid

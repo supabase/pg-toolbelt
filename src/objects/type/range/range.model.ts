@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../../base.privilege-diff.ts";
 
 const rangePropsSchema = z.object({
   schema: z.string(),
@@ -24,8 +28,10 @@ const rangePropsSchema = z.object({
   // Optional: print only when non-default (see extractor logic)
   subtype_opclass_schema: z.string().nullable(),
   subtype_opclass_name: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type RangePrivilegeProps = PrivilegeProps;
 export type RangeProps = z.infer<typeof rangePropsSchema>;
 
 export class Range extends BasePgModel {
@@ -46,6 +52,7 @@ export class Range extends BasePgModel {
 
   public readonly subtype_opclass_schema: RangeProps["subtype_opclass_schema"];
   public readonly subtype_opclass_name: RangeProps["subtype_opclass_name"];
+  public readonly privileges: RangePrivilegeProps[];
 
   constructor(props: RangeProps) {
     super();
@@ -66,6 +73,7 @@ export class Range extends BasePgModel {
     this.subtype_diff_name = props.subtype_diff_name;
     this.subtype_opclass_schema = props.subtype_opclass_schema;
     this.subtype_opclass_name = props.subtype_opclass_name;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `range:${string}` {
@@ -92,6 +100,7 @@ export class Range extends BasePgModel {
       subtype_opclass_schema: this.subtype_opclass_schema,
       subtype_opclass_name: this.subtype_opclass_name,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -143,7 +152,22 @@ select
 
   -- include opclass only when not default for btree
   case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then opc.opcnamespace::regnamespace::text else null end as subtype_opclass_schema,
-  case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then quote_ident(opc.opcname) else null end as subtype_opclass_name
+  case when r.rngsubopc is not null and r.rngsubopc <> 0 and r.rngsubopc <> dbo.opclass_oid then quote_ident(opc.opcname) else null end as subtype_opclass_name,
+
+  -- privileges
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+          'privilege', x.privilege_type,
+          'grantable', x.is_grantable
+        )
+        order by x.grantee, x.privilege_type
+      )
+      from lateral aclexplode(t.typacl) as x(grantor, grantee, privilege_type, is_grantable)
+    ), '[]'
+  ) as privileges
 from pg_catalog.pg_range r
 join pg_catalog.pg_type t on t.oid = r.rngtypid
 join pg_catalog.pg_type subt on subt.oid = r.rngsubtype

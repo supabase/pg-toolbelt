@@ -18,7 +18,7 @@ export type LanguagePrivilege =
  * Synopsis
  * ```sql
  * GRANT { USAGE | ALL [ PRIVILEGES ] }
- *    ON LANGUAGE lang_name [, ...]
+ *    ON LANGUAGE language_name [, ...]
  *    TO role_specification [, ...] [ WITH GRANT OPTION ]
  *    [ GRANTED BY role_specification ]
  * ```
@@ -62,8 +62,7 @@ export class GrantLanguagePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    const languageName = this.language.name;
-    return `GRANT ${privSql} ${kindPrefix} ${languageName} TO ${this.grantee}${withGrant}`;
+    return `GRANT ${privSql} ${kindPrefix} ${this.language.name} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -76,7 +75,7 @@ export class GrantLanguagePrivileges extends BaseChange {
  * ```sql
  * REVOKE [ GRANT OPTION FOR ]
  *     { USAGE | ALL [ PRIVILEGES ] }
- *     ON LANGUAGE lang_name [, ...]
+ *     ON LANGUAGE language_name [, ...]
  *     FROM role_specification [, ...]
  *     [ GRANTED BY role_specification ]
  *     [ CASCADE | RESTRICT ]
@@ -113,8 +112,7 @@ export class RevokeLanguagePrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    const languageName = this.language.name;
-    return `REVOKE ${privSql} ${kindPrefix} ${languageName} FROM ${this.grantee}`;
+    return `REVOKE ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
   }
 }
 
@@ -159,7 +157,6 @@ export class RevokeGrantOptionLanguagePrivileges extends BaseChange {
       this.privilegeNames,
       this.version,
     );
-    const languageName = this.language.name;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${languageName} FROM ${this.grantee}`;
+    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
   }
 }

@@ -1,5 +1,9 @@
 import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -16,16 +20,23 @@ import {
 } from "./changes/procedure.comment.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
+import {
+  GrantProcedurePrivileges,
+  RevokeGrantOptionProcedurePrivileges,
+  RevokeProcedurePrivileges,
+} from "./changes/procedure.privilege.ts";
 import type { Procedure } from "./procedure.model.ts";
 
 /**
  * Diff two sets of procedures from main and branch catalogs.
  *
+ * @param ctx - Context containing version information.
  * @param main - The procedures in the main catalog.
  * @param branch - The procedures in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffProcedures(
+  ctx: { version: number },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
 ): BaseChange[] {
@@ -226,6 +237,58 @@ export function diffProcedures(
       // Note: Procedure renaming would also use ALTER FUNCTION/PROCEDURE ... RENAME TO ...
       // But since our Procedure model uses 'name' as the identity field,
       // a name change would be handled as drop + create by diffObjects()
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainProcedure.privileges,
+        branchProcedure.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantProcedurePrivileges({
+                procedure: branchProcedure,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeProcedurePrivileges({
+                procedure: mainProcedure,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionProcedurePrivileges({
+              procedure: mainProcedure,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
     }
   }
 

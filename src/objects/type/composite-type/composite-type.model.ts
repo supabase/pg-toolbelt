@@ -5,6 +5,10 @@ import {
   columnPropsSchema,
   type TableLikeObject,
 } from "../../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../../base.privilege-diff.ts";
 import { ReplicaIdentitySchema } from "../../table/table.model.ts";
 
 const compositeTypePropsSchema = z.object({
@@ -24,8 +28,10 @@ const compositeTypePropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
+  privileges: z.array(privilegePropsSchema),
 });
 
+export type CompositeTypePrivilegeProps = PrivilegeProps;
 export type CompositeTypeProps = z.infer<typeof compositeTypePropsSchema>;
 
 export class CompositeType extends BasePgModel implements TableLikeObject {
@@ -45,6 +51,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly owner: CompositeTypeProps["owner"];
   public readonly comment: CompositeTypeProps["comment"];
   public readonly columns: CompositeTypeProps["columns"];
+  public readonly privileges: CompositeTypePrivilegeProps[];
 
   constructor(props: CompositeTypeProps) {
     super();
@@ -68,6 +75,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
     this.owner = props.owner;
     this.comment = props.comment;
     this.columns = props.columns;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `compositeType:${string}` {
@@ -97,6 +105,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       owner: this.owner,
       comment: this.comment,
       columns: this.columns,
+      privileges: this.privileges,
     };
   }
 }
@@ -157,6 +166,19 @@ export async function extractCompositeTypes(
         ct.partition_bound,
         ct.owner,
         ct.comment,
+        coalesce(
+            (
+              select json_agg(
+                json_build_object(
+                  'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+                  'privilege', x.privilege_type,
+                  'grantable', x.is_grantable
+                )
+                order by x.grantee, x.privilege_type
+              )
+              from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
+            ), '[]'
+          ) as privileges,
         coalesce(json_agg(
           case when a.attname is not null then
             json_build_object(
