@@ -1,4 +1,4 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
 
 /**
@@ -20,7 +20,7 @@ import type { Range } from "../range.model.ts";
  * Notes
  * - Only non-default options are emitted in the generated SQL.
  */
-export class CreateRange extends Change {
+export class CreateRange extends BaseChange {
   public readonly range: Range;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

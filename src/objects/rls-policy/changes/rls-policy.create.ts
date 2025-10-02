@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
 /**
@@ -16,7 +16,7 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  *     [ WITH CHECK ( with_check_expression ) ]
  * ```
  */
-export class CreateRlsPolicy extends Change {
+export class CreateRlsPolicy extends BaseChange {
   public readonly rlsPolicy: RlsPolicy;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

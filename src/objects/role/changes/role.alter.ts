@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
 
@@ -35,11 +35,13 @@ import type { Role } from "../role.model.ts";
  * ```
  */
 
+export type AlterRole = AlterRoleSetConfig | AlterRoleSetOptions;
+
 /**
  * ALTER ROLE ... WITH option [...]
  * Emits only options that differ between main and branch.
  */
-export class AlterRoleSetOptions extends Change {
+export class AlterRoleSetOptions extends BaseChange {
   public readonly role: Role;
   public readonly options: string[];
   public readonly operation = "alter" as const;
@@ -66,7 +68,7 @@ export class AlterRoleSetOptions extends Change {
  * ALTER ROLE ... SET/RESET configuration_parameter (single statement)
  * Represents one action: SET key TO value, RESET key, or RESET ALL.
  */
-export class AlterRoleSetConfig extends Change {
+export class AlterRoleSetConfig extends BaseChange {
   public readonly role: Role;
   public readonly action: "set" | "reset" | "reset_all";
   public readonly key?: string;

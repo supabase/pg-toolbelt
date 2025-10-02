@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -25,10 +25,10 @@ import type { MaterializedView } from "./materialized-view.model.ts";
 export function diffMaterializedViews(
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const materializedViewId of created) {
     changes.push(

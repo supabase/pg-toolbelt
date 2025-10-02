@@ -1,6 +1,6 @@
 import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
-import type { Change } from "./objects/base.change.ts";
+import type { BaseChange } from "./objects/base.change.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
@@ -29,7 +29,7 @@ import { stringifyWithBigInt } from "./objects/utils.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
     ...diffCompositeTypes(main.compositeTypes, branch.compositeTypes),

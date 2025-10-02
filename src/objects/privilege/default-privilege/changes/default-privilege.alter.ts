@@ -1,4 +1,8 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
+
+export type AlterDefaultPrivilege =
+  | AlterDefaultPrivilegesGrant
+  | AlterDefaultPrivilegesRevoke;
 
 /**
  * Alter a default privilege.
@@ -164,7 +168,7 @@ function formatPrivilegeList(
     : uniqSorted.join(", ");
 }
 
-export class AlterDefaultPrivilegesGrant extends Change {
+export class AlterDefaultPrivilegesGrant extends BaseChange {
   public readonly grantor: string;
   public readonly inSchema: string | null;
   public readonly objtype: string;
@@ -217,7 +221,7 @@ export class AlterDefaultPrivilegesGrant extends Change {
   }
 }
 
-export class AlterDefaultPrivilegesRevoke extends Change {
+export class AlterDefaultPrivilegesRevoke extends BaseChange {
   public readonly grantor: string;
   public readonly inSchema: string | null;
   public readonly objtype: string;

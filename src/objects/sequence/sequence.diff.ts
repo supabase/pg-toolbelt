@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -23,10 +23,10 @@ import type { Sequence } from "./sequence.model.ts";
 export function diffSequences(
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];

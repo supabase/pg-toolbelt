@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
 
 /**
@@ -14,10 +14,14 @@ import type { Collation } from "../collation.model.ts";
  * ```
  */
 
+export type AlterCollation =
+  | AlterCollationChangeOwner
+  | AlterCollationRefreshVersion;
+
 /**
  * ALTER COLLATION ... OWNER TO ...
  */
-export class AlterCollationChangeOwner extends Change {
+export class AlterCollationChangeOwner extends BaseChange {
   public readonly collation: Collation;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -47,7 +51,7 @@ export class AlterCollationChangeOwner extends Change {
 /**
  * ALTER COLLATION ... REFRESH VERSION
  */
-export class AlterCollationRefreshVersion extends Change {
+export class AlterCollationRefreshVersion extends BaseChange {
   public readonly collation: Collation;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;

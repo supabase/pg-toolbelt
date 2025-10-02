@@ -1,4 +1,4 @@
-import { Change, quoteLiteral } from "../../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
@@ -8,7 +8,13 @@ import type { CompositeType } from "../composite-type.model.ts";
  * @see https://www.postgresql.org/docs/17/sql-comment.html
  */
 
-export class CreateCommentOnCompositeType extends Change {
+export type CommentCompositeType =
+  | CreateCommentOnCompositeType
+  | CreateCommentOnCompositeTypeAttribute
+  | DropCommentOnCompositeType
+  | DropCommentOnCompositeTypeAttribute;
+
+export class CreateCommentOnCompositeType extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -34,7 +40,7 @@ export class CreateCommentOnCompositeType extends Change {
   }
 }
 
-export class DropCommentOnCompositeType extends Change {
+export class DropCommentOnCompositeType extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
@@ -58,7 +64,7 @@ export class DropCommentOnCompositeType extends Change {
   }
 }
 
-export class CreateCommentOnCompositeTypeAttribute extends Change {
+export class CreateCommentOnCompositeTypeAttribute extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
   public readonly operation = "create" as const;
@@ -88,7 +94,7 @@ export class CreateCommentOnCompositeTypeAttribute extends Change {
   }
 }
 
-export class DropCommentOnCompositeTypeAttribute extends Change {
+export class DropCommentOnCompositeTypeAttribute extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
   public readonly operation = "drop" as const;

@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -26,10 +26,10 @@ export function diffIndexes(
   main: Record<string, Index>,
   branch: Record<string, Index>,
   branchIndexableObjects: Record<string, TableLikeObject>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const indexId of created) {
     const index = branch[indexId];

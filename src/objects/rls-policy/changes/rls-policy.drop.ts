@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * DROP POLICY [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropRlsPolicy extends Change {
+export class DropRlsPolicy extends BaseChange {
   public readonly rlsPolicy: RlsPolicy;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

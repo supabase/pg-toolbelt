@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
 /**
@@ -19,10 +19,15 @@ import type { View } from "../view.model.ts";
  * ```
  */
 
+export type AlterView =
+  | AlterViewChangeOwner
+  | AlterViewResetOptions
+  | AlterViewSetOptions;
+
 /**
  * ALTER VIEW ... OWNER TO ...
  */
-export class AlterViewChangeOwner extends Change {
+export class AlterViewChangeOwner extends BaseChange {
   public readonly view: View;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -54,7 +59,7 @@ export class AlterViewChangeOwner extends Change {
 /**
  * ALTER VIEW ... SET ( ... )
  */
-export class AlterViewSetOptions extends Change {
+export class AlterViewSetOptions extends BaseChange {
   public readonly view: View;
   public readonly options: string[];
   public readonly operation = "alter" as const;
@@ -85,7 +90,7 @@ export class AlterViewSetOptions extends Change {
 /**
  * ALTER VIEW ... RESET ( ... )
  */
-export class AlterViewResetOptions extends Change {
+export class AlterViewResetOptions extends BaseChange {
   public readonly view: View;
   public readonly params: string[];
   public readonly operation = "alter" as const;

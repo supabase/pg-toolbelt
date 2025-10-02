@@ -1,4 +1,4 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
 
 /**
@@ -14,10 +14,12 @@ import type { Range } from "../range.model.ts";
  * ```
  */
 
+export type AlterRange = AlterRangeChangeOwner;
+
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterRangeChangeOwner extends Change {
+export class AlterRangeChangeOwner extends BaseChange {
   public readonly range: Range;
   public readonly owner: string;
   public readonly operation = "alter" as const;

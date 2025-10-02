@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -24,10 +24,10 @@ import type { RlsPolicy } from "./rls-policy.model.ts";
 export function diffRlsPolicies(
   main: Record<string, RlsPolicy>,
   branch: Record<string, RlsPolicy>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const rlsPolicyId of created) {
     const pol = branch[rlsPolicyId];

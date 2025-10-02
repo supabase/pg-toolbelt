@@ -1,4 +1,4 @@
-import type { Change } from "../../base.change.ts";
+import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
@@ -20,10 +20,10 @@ import type { Range } from "./range.model.ts";
 export function diffRanges(
   main: Record<string, Range>,
   branch: Record<string, Range>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const id of created) {
     const createdRange = branch[id];

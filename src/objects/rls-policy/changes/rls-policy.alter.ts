@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 
 /**
@@ -15,10 +15,15 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * ```
  */
 
+export type AlterRlsPolicy =
+  | AlterRlsPolicySetRoles
+  | AlterRlsPolicySetUsingExpression
+  | AlterRlsPolicySetWithCheckExpression;
+
 /**
  * ALTER POLICY ... TO roles ...
  */
-export class AlterRlsPolicySetRoles extends Change {
+export class AlterRlsPolicySetRoles extends BaseChange {
   public readonly policy: RlsPolicy;
   public readonly roles: string[];
   public readonly operation = "alter" as const;
@@ -56,7 +61,7 @@ export class AlterRlsPolicySetRoles extends Change {
 /**
  * ALTER POLICY ... USING (...)
  */
-export class AlterRlsPolicySetUsingExpression extends Change {
+export class AlterRlsPolicySetUsingExpression extends BaseChange {
   public readonly policy: RlsPolicy;
   public readonly usingExpression: string | null;
   public readonly operation = "alter" as const;
@@ -89,7 +94,7 @@ export class AlterRlsPolicySetUsingExpression extends Change {
 /**
  * ALTER POLICY ... WITH CHECK (...)
  */
-export class AlterRlsPolicySetWithCheckExpression extends Change {
+export class AlterRlsPolicySetWithCheckExpression extends BaseChange {
   public readonly policy: RlsPolicy;
   public readonly withCheckExpression: string | null;
   public readonly operation = "alter" as const;

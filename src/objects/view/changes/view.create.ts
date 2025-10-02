@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
 
 /**
@@ -14,7 +14,7 @@ import type { View } from "../view.model.ts";
  *     [ WITH [ CASCADE | LOCAL ] CHECK OPTION ]
  * ```
  */
-export class CreateView extends Change {
+export class CreateView extends BaseChange {
   public readonly view: View;
   public readonly orReplace?: boolean;
   public readonly operation = "create" as const;

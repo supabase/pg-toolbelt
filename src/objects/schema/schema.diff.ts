@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import {
@@ -19,10 +19,10 @@ import type { Schema } from "./schema.model.ts";
 export function diffSchemas(
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const schemaId of created) {
     const sc = branch[schemaId];

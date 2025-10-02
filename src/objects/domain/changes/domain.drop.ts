@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { Domain } from "../domain.model.ts";
  * DROP DOMAIN [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropDomain extends Change {
+export class DropDomain extends BaseChange {
   public readonly domain: Domain;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

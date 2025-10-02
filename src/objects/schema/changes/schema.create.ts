@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
 /**
@@ -13,7 +13,7 @@ import type { Schema } from "../schema.model.ts";
  * CREATE SCHEMA [ IF NOT EXISTS ] schema_name AUTHORIZATION role_specification [ schema_element [ ... ] ]
  * ```
  */
-export class CreateSchema extends Change {
+export class CreateSchema extends BaseChange {
   public readonly schema: Schema;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

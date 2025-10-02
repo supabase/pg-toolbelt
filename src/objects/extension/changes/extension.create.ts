@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -14,7 +14,7 @@ import type { Extension } from "../extension.model.ts";
  *     [ FROM old_version ]
  * ```
  */
-export class CreateExtension extends Change {
+export class CreateExtension extends BaseChange {
   public readonly extension: Extension;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

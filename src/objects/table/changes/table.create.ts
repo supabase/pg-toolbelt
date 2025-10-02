@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
 
 /**
@@ -22,7 +22,7 @@ import type { Table } from "../table.model.ts";
  * [ TABLESPACE tablespace_name ]
  * ```
  */
-export class CreateTable extends Change {
+export class CreateTable extends BaseChange {
   public readonly table: Table;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
 
@@ -27,10 +27,19 @@ import { formatConfigValue } from "../utils.ts";
  * ```
  */
 
+export type AlterProcedure =
+  | AlterProcedureChangeOwner
+  | AlterProcedureSetConfig
+  | AlterProcedureSetLeakproof
+  | AlterProcedureSetParallel
+  | AlterProcedureSetSecurity
+  | AlterProcedureSetStrictness
+  | AlterProcedureSetVolatility;
+
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
  */
-export class AlterProcedureChangeOwner extends Change {
+export class AlterProcedureChangeOwner extends BaseChange {
   public readonly procedure: Procedure;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -63,7 +72,7 @@ export class AlterProcedureChangeOwner extends Change {
 /**
  * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
  */
-export class AlterProcedureSetSecurity extends Change {
+export class AlterProcedureSetSecurity extends BaseChange {
   public readonly procedure: Procedure;
   public readonly securityDefiner: boolean;
   public readonly operation = "alter" as const;
@@ -99,7 +108,7 @@ export class AlterProcedureSetSecurity extends Change {
  * ALTER FUNCTION/PROCEDURE ... SET/RESET configuration_parameter
  * Emits individual RESET for removed keys and SET for added/changed keys.
  */
-export class AlterProcedureSetConfig extends Change {
+export class AlterProcedureSetConfig extends BaseChange {
   public readonly procedure: Procedure;
   public readonly action: "set" | "reset" | "reset_all";
   public readonly key?: string;
@@ -152,7 +161,7 @@ export class AlterProcedureSetConfig extends Change {
 /**
  * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
  */
-export class AlterProcedureSetVolatility extends Change {
+export class AlterProcedureSetVolatility extends BaseChange {
   public readonly procedure: Procedure;
   public readonly volatility: string;
   public readonly operation = "alter" as const;
@@ -188,7 +197,7 @@ export class AlterProcedureSetVolatility extends Change {
 /**
  * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
  */
-export class AlterProcedureSetStrictness extends Change {
+export class AlterProcedureSetStrictness extends BaseChange {
   public readonly procedure: Procedure;
   public readonly isStrict: boolean;
   public readonly operation = "alter" as const;
@@ -220,7 +229,7 @@ export class AlterProcedureSetStrictness extends Change {
 /**
  * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
  */
-export class AlterProcedureSetLeakproof extends Change {
+export class AlterProcedureSetLeakproof extends BaseChange {
   public readonly procedure: Procedure;
   public readonly leakproof: boolean;
   public readonly operation = "alter" as const;
@@ -252,7 +261,7 @@ export class AlterProcedureSetLeakproof extends Change {
 /**
  * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
  */
-export class AlterProcedureSetParallel extends Change {
+export class AlterProcedureSetParallel extends BaseChange {
   public readonly procedure: Procedure;
   public readonly parallelSafety: string;
   public readonly operation = "alter" as const;

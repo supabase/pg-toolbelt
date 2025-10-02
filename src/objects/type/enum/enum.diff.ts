@@ -1,4 +1,4 @@
-import type { Change } from "../../base.change.ts";
+import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   AlterEnumAddValue,
@@ -22,10 +22,10 @@ import type { Enum } from "./enum.model.ts";
 export function diffEnums(
   main: Record<string, Enum>,
   branch: Record<string, Enum>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const enumId of created) {
     const createdEnum = branch[enumId];
@@ -78,8 +78,8 @@ export function diffEnums(
  * This implementation properly handles enum value positioning using sort_order.
  * Note: We cannot reliably detect renames, so we only handle additions.
  */
-function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
-  const changes: Change[] = [];
+function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): BaseChange[] {
+  const changes: BaseChange[] = [];
 
   // Create maps for efficient lookup
   const mainLabelMap = new Map(

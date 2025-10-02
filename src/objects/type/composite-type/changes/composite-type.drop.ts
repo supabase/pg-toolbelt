@@ -1,4 +1,4 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { CompositeType } from "../composite-type.model.ts";
  * DROP TYPE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropCompositeType extends Change {
+export class DropCompositeType extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

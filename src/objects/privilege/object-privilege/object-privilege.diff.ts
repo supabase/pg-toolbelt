@@ -1,4 +1,4 @@
-import type { Change } from "../../base.change.ts";
+import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   GrantObjectPrivileges,
@@ -27,9 +27,9 @@ export function diffObjectPrivileges(
   ctx: { version: number },
   main: Record<string, ObjectPrivilegeSet>,
   branch: Record<string, ObjectPrivilegeSet>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const id of created) {
     const s = branch[id];

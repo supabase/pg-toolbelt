@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   AlterExtensionChangeOwner,
@@ -22,10 +22,10 @@ import type { Extension } from "./extension.model.ts";
 export function diffExtensions(
   main: Record<string, Extension>,
   branch: Record<string, Extension>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const extensionId of created) {
     const ext = branch[extensionId];

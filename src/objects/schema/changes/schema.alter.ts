@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
 
 /**
@@ -13,10 +13,12 @@ import type { Schema } from "../schema.model.ts";
  * ```
  */
 
+export type AlterSchema = AlterSchemaChangeOwner;
+
 /**
  * ALTER SCHEMA ... OWNER TO ...
  */
-export class AlterSchemaChangeOwner extends Change {
+export class AlterSchemaChangeOwner extends BaseChange {
   public readonly schemaObj: Schema;
   public readonly owner: string;
   public readonly operation = "alter" as const;

@@ -1,0 +1,202 @@
+import { BaseChange } from "../../base.change.ts";
+import {
+  formatObjectPrivilegeList,
+  getObjectKindPrefix,
+} from "../../base.privilege.ts";
+import type { MaterializedView } from "../materialized-view.model.ts";
+
+export type MaterializedViewPrivilege =
+  | GrantMaterializedViewPrivileges
+  | RevokeMaterializedViewPrivileges
+  | RevokeGrantOptionMaterializedViewPrivileges;
+
+/**
+ * Grant privileges on a materialized view.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-grant.html
+ *
+ * Synopsis
+ * ```sql
+ * GRANT { { SELECT | MAINTAIN } [, ...] | ALL [ PRIVILEGES ] }
+ *     ON { [ TABLE ] materialized_view_name [, ...]
+ *          | ALL TABLES IN SCHEMA schema_name [, ...] }
+ *     TO role_specification [, ...] [ WITH GRANT OPTION ]
+ *     [ GRANTED BY role_specification ]
+ * ```
+ */
+export class GrantMaterializedViewPrivileges extends BaseChange {
+  public readonly materializedView: MaterializedView;
+  public readonly grantee: string;
+  public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly columns?: string[];
+  public readonly version: number | undefined;
+  public readonly operation = "create" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "materialized_view" as const;
+
+  constructor(props: {
+    materializedView: MaterializedView;
+    grantee: string;
+    privileges: { privilege: string; grantable: boolean }[];
+    columns?: string[];
+    version?: number;
+  }) {
+    super();
+    this.materializedView = props.materializedView;
+    this.grantee = props.grantee;
+    this.privileges = props.privileges;
+    this.columns = props.columns
+      ? [...new Set(props.columns)].sort()
+      : undefined;
+    this.version = props.version;
+  }
+
+  get dependencies() {
+    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
+    return [aclStableId];
+  }
+
+  serialize(): string {
+    const hasGrantable = this.privileges.some((p) => p.grantable);
+    const hasBase = this.privileges.some((p) => !p.grantable);
+    if (hasGrantable && hasBase) {
+      throw new Error(
+        "GrantMaterializedViewPrivileges expects privileges with uniform grantable flag",
+      );
+    }
+    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+    const list = this.privileges.map((p) => p.privilege);
+    const privSql = formatObjectPrivilegeList(
+      "MATERIALIZED VIEW",
+      list,
+      this.version,
+    );
+    const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
+
+    // Add column list if present
+    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
+
+    return `GRANT ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} TO ${this.grantee}${withGrant}`;
+  }
+}
+
+/**
+ * Revoke privileges on a materialized view.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-revoke.html
+ *
+ * Synopsis
+ * ```sql
+ * REVOKE [ GRANT OPTION FOR ]
+ *     { { SELECT | MAINTAIN } [, ...] | ALL [ PRIVILEGES ] }
+ *     ON { [ TABLE ] materialized_view_name [, ...]
+ *          | ALL TABLES IN SCHEMA schema_name [, ...] }
+ *     FROM role_specification [, ...]
+ *     [ GRANTED BY role_specification ]
+ *     [ CASCADE | RESTRICT ]
+ * ```
+ */
+export class RevokeMaterializedViewPrivileges extends BaseChange {
+  public readonly materializedView: MaterializedView;
+  public readonly grantee: string;
+  public readonly privileges: { privilege: string; grantable: boolean }[];
+  public readonly columns?: string[];
+  public readonly version: number | undefined;
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "materialized_view" as const;
+
+  constructor(props: {
+    materializedView: MaterializedView;
+    grantee: string;
+    privileges: { privilege: string; grantable: boolean }[];
+    columns?: string[];
+    version?: number;
+  }) {
+    super();
+    this.materializedView = props.materializedView;
+    this.grantee = props.grantee;
+    this.privileges = props.privileges;
+    this.columns = props.columns
+      ? [...new Set(props.columns)].sort()
+      : undefined;
+    this.version = props.version;
+  }
+
+  get dependencies() {
+    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
+    return [aclStableId];
+  }
+
+  serialize(): string {
+    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+    const list = this.privileges.map((p) => p.privilege);
+    const privSql = formatObjectPrivilegeList(
+      "MATERIALIZED VIEW",
+      list,
+      this.version,
+    );
+    const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
+
+    // Add column list if present
+    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
+
+    return `REVOKE ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+  }
+}
+
+/**
+ * Revoke grant option for privileges on a materialized view.
+ *
+ * This removes the ability to grant the privilege to others, but keeps the privilege itself.
+ *
+ * @see https://www.postgresql.org/docs/17/sql-revoke.html
+ */
+export class RevokeGrantOptionMaterializedViewPrivileges extends BaseChange {
+  public readonly materializedView: MaterializedView;
+  public readonly grantee: string;
+  public readonly privilegeNames: string[];
+  public readonly columns?: string[];
+  public readonly version: number | undefined;
+  public readonly operation = "drop" as const;
+  public readonly scope = "privilege" as const;
+  public readonly objectType = "materialized_view" as const;
+
+  constructor(props: {
+    materializedView: MaterializedView;
+    grantee: string;
+    privilegeNames: string[];
+    columns?: string[];
+    version?: number;
+  }) {
+    super();
+    this.materializedView = props.materializedView;
+    this.grantee = props.grantee;
+    this.privilegeNames = [...new Set(props.privilegeNames)].sort();
+    this.columns = props.columns
+      ? [...new Set(props.columns)].sort()
+      : undefined;
+    this.version = props.version;
+  }
+
+  get dependencies() {
+    const aclStableId = `acl:${this.materializedView.stableId}::grantee:${this.grantee}`;
+    return [aclStableId];
+  }
+
+  serialize(): string {
+    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+    const privSql = formatObjectPrivilegeList(
+      "MATERIALIZED VIEW",
+      this.privilegeNames,
+      this.version,
+    );
+    const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
+
+    // Add column list if present
+    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
+
+    return `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+  }
+}

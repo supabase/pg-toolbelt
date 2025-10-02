@@ -1,4 +1,4 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 
 /**
@@ -18,10 +18,16 @@ import type { CompositeType } from "../composite-type.model.ts";
  * ```
  */
 
+export type AlterCompositeType =
+  | AlterCompositeTypeAddAttribute
+  | AlterCompositeTypeAlterAttributeType
+  | AlterCompositeTypeChangeOwner
+  | AlterCompositeTypeDropAttribute;
+
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterCompositeTypeChangeOwner extends Change {
+export class AlterCompositeTypeChangeOwner extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -51,7 +57,7 @@ export class AlterCompositeTypeChangeOwner extends Change {
 /**
  * ALTER TYPE ... ADD ATTRIBUTE ...
  */
-export class AlterCompositeTypeAddAttribute extends Change {
+export class AlterCompositeTypeAddAttribute extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
   public readonly operation = "alter" as const;
@@ -89,7 +95,7 @@ export class AlterCompositeTypeAddAttribute extends Change {
 /**
  * ALTER TYPE ... DROP ATTRIBUTE ...
  */
-export class AlterCompositeTypeDropAttribute extends Change {
+export class AlterCompositeTypeDropAttribute extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
   public readonly operation = "alter" as const;
@@ -122,7 +128,7 @@ export class AlterCompositeTypeDropAttribute extends Change {
 /**
  * ALTER TYPE ... ALTER ATTRIBUTE ... TYPE ... [ COLLATE ... ]
  */
-export class AlterCompositeTypeAlterAttributeType extends Change {
+export class AlterCompositeTypeAlterAttributeType extends BaseChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
   public readonly operation = "alter" as const;

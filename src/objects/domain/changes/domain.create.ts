@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
 
 /**
@@ -19,7 +19,7 @@ import type { Domain } from "../domain.model.ts";
  * { NOT NULL | NULL | CHECK (expression) }
  * ```
  */
-export class CreateDomain extends Change {
+export class CreateDomain extends BaseChange {
   public readonly domain: Domain;
   public readonly operation = "create" as const;
   public readonly scope = "object" as const;

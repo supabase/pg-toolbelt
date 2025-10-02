@@ -1,7 +1,9 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
-export class CreateCommentOnRole extends Change {
+export type CommentRole = CreateCommentOnRole | DropCommentOnRole;
+
+export class CreateCommentOnRole extends BaseChange {
   public readonly role: Role;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -26,7 +28,7 @@ export class CreateCommentOnRole extends Change {
   }
 }
 
-export class DropCommentOnRole extends Change {
+export class DropCommentOnRole extends BaseChange {
   public readonly role: Role;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;

@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
 
@@ -58,10 +58,34 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  * ```
  */
 
+export type AlterTable =
+  | AlterTableAddColumn
+  | AlterTableAddConstraint
+  | AlterTableAlterColumnDropDefault
+  | AlterTableAlterColumnDropNotNull
+  | AlterTableAlterColumnSetDefault
+  | AlterTableAlterColumnSetNotNull
+  | AlterTableAlterColumnType
+  | AlterTableAttachPartition
+  | AlterTableChangeOwner
+  | AlterTableDetachPartition
+  | AlterTableDisableRowLevelSecurity
+  | AlterTableDropColumn
+  | AlterTableDropConstraint
+  | AlterTableEnableRowLevelSecurity
+  | AlterTableForceRowLevelSecurity
+  | AlterTableNoForceRowLevelSecurity
+  | AlterTableResetStorageParams
+  | AlterTableSetLogged
+  | AlterTableSetReplicaIdentity
+  | AlterTableSetStorageParams
+  | AlterTableSetUnlogged
+  | AlterTableValidateConstraint;
+
 /**
  * ALTER TABLE ... OWNER TO ...
  */
-export class AlterTableChangeOwner extends Change {
+export class AlterTableChangeOwner extends BaseChange {
   public readonly table: Table;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -91,7 +115,7 @@ export class AlterTableChangeOwner extends Change {
 /**
  * ALTER TABLE ... SET LOGGED
  */
-export class AlterTableSetLogged extends Change {
+export class AlterTableSetLogged extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -118,7 +142,7 @@ export class AlterTableSetLogged extends Change {
 /**
  * ALTER TABLE ... SET UNLOGGED
  */
-export class AlterTableSetUnlogged extends Change {
+export class AlterTableSetUnlogged extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -145,7 +169,7 @@ export class AlterTableSetUnlogged extends Change {
 /**
  * ALTER TABLE ... ENABLE ROW LEVEL SECURITY
  */
-export class AlterTableEnableRowLevelSecurity extends Change {
+export class AlterTableEnableRowLevelSecurity extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -172,7 +196,7 @@ export class AlterTableEnableRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... DISABLE ROW LEVEL SECURITY
  */
-export class AlterTableDisableRowLevelSecurity extends Change {
+export class AlterTableDisableRowLevelSecurity extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -199,7 +223,7 @@ export class AlterTableDisableRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... FORCE ROW LEVEL SECURITY
  */
-export class AlterTableForceRowLevelSecurity extends Change {
+export class AlterTableForceRowLevelSecurity extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -226,7 +250,7 @@ export class AlterTableForceRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... NO FORCE ROW LEVEL SECURITY
  */
-export class AlterTableNoForceRowLevelSecurity extends Change {
+export class AlterTableNoForceRowLevelSecurity extends BaseChange {
   public readonly table: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
@@ -253,7 +277,7 @@ export class AlterTableNoForceRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterTableSetStorageParams extends Change {
+export class AlterTableSetStorageParams extends BaseChange {
   public readonly table: Table;
   public readonly options: string[];
   public readonly operation = "alter" as const;
@@ -283,7 +307,7 @@ export class AlterTableSetStorageParams extends Change {
 /**
  * ALTER TABLE ... RESET ( storage_parameter [, ... ] )
  */
-export class AlterTableResetStorageParams extends Change {
+export class AlterTableResetStorageParams extends BaseChange {
   public readonly table: Table;
   public readonly params: string[];
   public readonly operation = "alter" as const;
@@ -315,7 +339,7 @@ export class AlterTableResetStorageParams extends Change {
 /**
  * ALTER TABLE ... ADD CONSTRAINT ...
  */
-export class AlterTableAddConstraint extends Change {
+export class AlterTableAddConstraint extends BaseChange {
   public readonly table: Table;
   public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
@@ -362,7 +386,7 @@ export class AlterTableAddConstraint extends Change {
 /**
  * ALTER TABLE ... DROP CONSTRAINT ...
  */
-export class AlterTableDropConstraint extends Change {
+export class AlterTableDropConstraint extends BaseChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
   public readonly operation = "alter" as const;
@@ -392,7 +416,7 @@ export class AlterTableDropConstraint extends Change {
 /**
  * ALTER TABLE ... VALIDATE CONSTRAINT ...
  */
-export class AlterTableValidateConstraint extends Change {
+export class AlterTableValidateConstraint extends BaseChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
   public readonly operation = "alter" as const;
@@ -422,7 +446,7 @@ export class AlterTableValidateConstraint extends Change {
 /**
  * ALTER TABLE ... REPLICA IDENTITY ...
  */
-export class AlterTableSetReplicaIdentity extends Change {
+export class AlterTableSetReplicaIdentity extends BaseChange {
   public readonly table: Table;
   public readonly mode: "d" | "n" | "f" | "i";
   public readonly operation = "alter" as const;
@@ -460,7 +484,7 @@ export class AlterTableSetReplicaIdentity extends Change {
 /**
  * ALTER TABLE ... ADD COLUMN ...
  */
-export class AlterTableAddColumn extends Change {
+export class AlterTableAddColumn extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -509,7 +533,7 @@ export class AlterTableAddColumn extends Change {
 /**
  * ALTER TABLE ... DROP COLUMN ...
  */
-export class AlterTableDropColumn extends Change {
+export class AlterTableDropColumn extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -539,7 +563,7 @@ export class AlterTableDropColumn extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... TYPE ...
  */
-export class AlterTableAlterColumnType extends Change {
+export class AlterTableAlterColumnType extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -575,7 +599,7 @@ export class AlterTableAlterColumnType extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...
  */
-export class AlterTableAlterColumnSetDefault extends Change {
+export class AlterTableAlterColumnSetDefault extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -609,7 +633,7 @@ export class AlterTableAlterColumnSetDefault extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT
  */
-export class AlterTableAlterColumnDropDefault extends Change {
+export class AlterTableAlterColumnDropDefault extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -640,7 +664,7 @@ export class AlterTableAlterColumnDropDefault extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET NOT NULL
  */
-export class AlterTableAlterColumnSetNotNull extends Change {
+export class AlterTableAlterColumnSetNotNull extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -671,7 +695,7 @@ export class AlterTableAlterColumnSetNotNull extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL
  */
-export class AlterTableAlterColumnDropNotNull extends Change {
+export class AlterTableAlterColumnDropNotNull extends BaseChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly operation = "alter" as const;
@@ -702,7 +726,7 @@ export class AlterTableAlterColumnDropNotNull extends Change {
 /**
  * ALTER TABLE ... ATTACH PARTITION ...
  */
-export class AlterTableAttachPartition extends Change {
+export class AlterTableAttachPartition extends BaseChange {
   public readonly parent: Table;
   public readonly partition: Table;
   public readonly operation = "alter" as const;
@@ -735,7 +759,7 @@ export class AlterTableAttachPartition extends Change {
 /**
  * ALTER TABLE ... DETACH PARTITION ...
  */
-export class AlterTableDetachPartition extends Change {
+export class AlterTableDetachPartition extends BaseChange {
   public readonly parent: Table;
   public readonly partition: Table;
   public readonly operation = "alter" as const;

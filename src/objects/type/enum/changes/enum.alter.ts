@@ -1,4 +1,4 @@
-import { Change, quoteLiteral } from "../../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 
 /**
@@ -15,10 +15,12 @@ import type { Enum } from "../enum.model.ts";
  * ```
  */
 
+export type AlterEnum = AlterEnumAddValue | AlterEnumChangeOwner;
+
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterEnumChangeOwner extends Change {
+export class AlterEnumChangeOwner extends BaseChange {
   public readonly enum: Enum;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -48,7 +50,7 @@ export class AlterEnumChangeOwner extends Change {
 /**
  * ALTER TYPE ... ADD VALUE ...
  */
-export class AlterEnumAddValue extends Change {
+export class AlterEnumAddValue extends BaseChange {
   public readonly enum: Enum;
   public readonly newValue: string;
   public readonly position?: { before?: string; after?: string };

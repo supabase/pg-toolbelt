@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -23,10 +23,10 @@ import type { Collation } from "./collation.model.ts";
 export function diffCollations(
   main: Record<string, Collation>,
   branch: Record<string, Collation>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const collationId of created) {
     const coll = branch[collationId];

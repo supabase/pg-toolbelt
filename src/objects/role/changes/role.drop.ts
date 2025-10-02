@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { Role } from "../role.model.ts";
  * DROP ROLE [ IF EXISTS ] name [, ...]
  * ```
  */
-export class DropRole extends Change {
+export class DropRole extends BaseChange {
   public readonly role: Role;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

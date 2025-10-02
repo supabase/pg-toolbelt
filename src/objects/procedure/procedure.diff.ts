@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -28,10 +28,10 @@ import type { Procedure } from "./procedure.model.ts";
 export function diffProcedures(
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const procedureId of created) {
     const proc = branch[procedureId];

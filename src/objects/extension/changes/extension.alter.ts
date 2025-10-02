@@ -1,4 +1,4 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -15,10 +15,15 @@ import type { Extension } from "../extension.model.ts";
  * ```
  */
 
+export type AlterExtension =
+  | AlterExtensionChangeOwner
+  | AlterExtensionSetSchema
+  | AlterExtensionUpdateVersion;
+
 /**
  * ALTER EXTENSION ... UPDATE TO ...
  */
-export class AlterExtensionUpdateVersion extends Change {
+export class AlterExtensionUpdateVersion extends BaseChange {
   public readonly extension: Extension;
   public readonly version: string;
   public readonly operation = "alter" as const;
@@ -48,7 +53,7 @@ export class AlterExtensionUpdateVersion extends Change {
 /**
  * ALTER EXTENSION ... SET SCHEMA ...
  */
-export class AlterExtensionSetSchema extends Change {
+export class AlterExtensionSetSchema extends BaseChange {
   public readonly extension: Extension;
   public readonly schema: string;
   public readonly operation = "alter" as const;
@@ -78,7 +83,7 @@ export class AlterExtensionSetSchema extends Change {
 /**
  * ALTER EXTENSION ... OWNER TO ...
  */
-export class AlterExtensionChangeOwner extends Change {
+export class AlterExtensionChangeOwner extends BaseChange {
   public readonly extension: Extension;
   public readonly owner: string;
   public readonly operation = "alter" as const;

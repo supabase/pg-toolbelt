@@ -1,13 +1,13 @@
 import { Graph, topologicalSort } from "graph-data-structure";
-import type { Change } from "../objects/base.change.ts";
+import type { BaseChange } from "../objects/base.change.ts";
 
 /**
  * A filter that selects which changes belong to a window for refinement.
  * Can be either an object matching change attributes or a custom predicate function.
  */
 type ChangeFilter =
-  | Partial<Pick<Change, "operation" | "objectType" | "scope">>
-  | ((c: Change) => boolean);
+  | Partial<Pick<BaseChange, "operation" | "objectType" | "scope">>
+  | ((c: BaseChange) => boolean);
 
 /**
  * An edge represented as local indices within a window: [from_index, to_index].
@@ -32,7 +32,7 @@ type Edge<T> = EdgeIndices | EdgeObjects<T>;
  * - How to determine ordering constraints within a window (via buildEdges or pairwise)
  * - How to optionally subdivide windows into smaller groups (via groupBy)
  */
-export interface TopoWindowSpec<T extends Change> {
+export interface TopoWindowSpec<T extends BaseChange> {
   /** Selects which consecutive changes form a window to be refined */
   filter: ChangeFilter;
 
@@ -100,7 +100,7 @@ type PairwiseOrder = "a_before_b" | "b_before_a";
  * });
  * ```
  */
-export function refineByTopologicalWindows<T extends Change>(
+export function refineByTopologicalWindows<T extends BaseChange>(
   changes: T[],
   spec: TopoWindowSpec<T>,
 ): T[] {
@@ -157,7 +157,7 @@ export function refineByTopologicalWindows<T extends Change>(
  * @param to - End index of the window (exclusive)
  * @param spec - Specification defining how to order items in the window
  */
-function refineSlice<T extends Change>(
+function refineSlice<T extends BaseChange>(
   arr: T[],
   from: number,
   to: number,
@@ -219,7 +219,7 @@ function refineSlice<T extends Change>(
  * @param filter - The filter to match against
  * @returns true if the change matches the filter
  */
-function matchesFilter(change: Change, filter: ChangeFilter): boolean {
+function matchesFilter(change: BaseChange, filter: ChangeFilter): boolean {
   if (typeof filter === "function") return filter(change);
   if (filter.operation !== undefined && change.operation !== filter.operation)
     return false;

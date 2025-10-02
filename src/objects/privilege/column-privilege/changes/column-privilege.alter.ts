@@ -1,6 +1,11 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 
-export class GrantColumnPrivileges extends Change {
+export type AlterColumnPrivilege =
+  | GrantColumnPrivileges
+  | RevokeColumnPrivileges
+  | RevokeGrantOptionColumnPrivileges;
+
+export class GrantColumnPrivileges extends BaseChange {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
@@ -39,7 +44,7 @@ export class GrantColumnPrivileges extends Change {
   }
 }
 
-export class RevokeColumnPrivileges extends Change {
+export class RevokeColumnPrivileges extends BaseChange {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;
@@ -74,7 +79,7 @@ export class RevokeColumnPrivileges extends Change {
   }
 }
 
-export class RevokeGrantOptionColumnPrivileges extends Change {
+export class RevokeGrantOptionColumnPrivileges extends BaseChange {
   public readonly tableId: string;
   public readonly tableNameSql: string;
   public readonly grantee: string;

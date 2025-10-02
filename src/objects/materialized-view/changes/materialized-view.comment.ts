@@ -1,6 +1,12 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
+
+export type CommentMaterializedView =
+  | CreateCommentOnMaterializedView
+  | CreateCommentOnMaterializedViewColumn
+  | DropCommentOnMaterializedView
+  | DropCommentOnMaterializedViewColumn;
 
 /**
  * Create/drop comments on materialized view columns.
@@ -8,7 +14,7 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * @see https://www.postgresql.org/docs/17/sql-comment.html
  */
 
-export class CreateCommentOnMaterializedView extends Change {
+export class CreateCommentOnMaterializedView extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -36,7 +42,7 @@ export class CreateCommentOnMaterializedView extends Change {
   }
 }
 
-export class DropCommentOnMaterializedView extends Change {
+export class DropCommentOnMaterializedView extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
@@ -62,7 +68,7 @@ export class DropCommentOnMaterializedView extends Change {
   }
 }
 
-export class CreateCommentOnMaterializedViewColumn extends Change {
+export class CreateCommentOnMaterializedViewColumn extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly column: ColumnProps;
   public readonly operation = "create" as const;
@@ -95,7 +101,7 @@ export class CreateCommentOnMaterializedViewColumn extends Change {
   }
 }
 
-export class DropCommentOnMaterializedViewColumn extends Change {
+export class DropCommentOnMaterializedViewColumn extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly column: ColumnProps;
   public readonly operation = "drop" as const;

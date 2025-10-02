@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Index } from "../index.model.ts";
 import { checkIsSerializable } from "./utils.ts";
@@ -19,7 +19,7 @@ import { checkIsSerializable } from "./utils.ts";
  * ```
  */
 
-export class CreateIndex extends Change {
+export class CreateIndex extends BaseChange {
   public readonly index: Index;
   public readonly indexableObject?: TableLikeObject;
   public readonly operation = "create" as const;

@@ -1,11 +1,13 @@
-import type { Change } from "../objects/base.change.ts";
+import type { BaseChange } from "../objects/base.change.ts";
 
 /**
  * A sorting rule that matches changes based on their operation, objectType, and/or scope.
  * Rules with undefined fields act as wildcards that match any value for that field.
  * For example, { operation: "drop" } matches all drop operations regardless of objectType or scope.
  */
-export type Rule = Partial<Pick<Change, "operation" | "objectType" | "scope">>;
+export type Rule = Partial<
+  Pick<BaseChange, "operation" | "objectType" | "scope">
+>;
 
 /**
  * Creates a comparator function that orders changes according to a prioritized list of rules.
@@ -18,7 +20,7 @@ export type Rule = Partial<Pick<Change, "operation" | "objectType" | "scope">>;
  * @returns A comparator function that can be used with Array.sort()
  */
 function createComparatorFromRules(rules: Rule[]) {
-  const matchIndex = (change: Change): number => {
+  const matchIndex = (change: BaseChange): number => {
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i];
       if (
@@ -33,7 +35,7 @@ function createComparatorFromRules(rules: Rule[]) {
     return Number.POSITIVE_INFINITY; // no rule matched
   };
 
-  return (a: Change, b: Change): number => {
+  return (a: BaseChange, b: BaseChange): number => {
     const ra = matchIndex(a);
     const rb = matchIndex(b);
     if (ra !== rb) return ra - rb;
@@ -76,7 +78,7 @@ function createComparatorFromRules(rules: Rule[]) {
  * // Result: all DROP TABLE, then CREATE SCHEMA, then CREATE TABLE, then unmatched changes
  * ```
  */
-export function sortChangesByRules<T extends Change>(
+export function sortChangesByRules<T extends BaseChange>(
   changes: T[],
   rules: Rule[],
 ): T[] {

@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 
 /**
@@ -16,10 +16,15 @@ import type { Index } from "../index.model.ts";
  * ```
  */
 
+export type AlterIndex =
+  | AlterIndexSetStatistics
+  | AlterIndexSetStorageParams
+  | AlterIndexSetTablespace;
+
 /**
  * ALTER INDEX ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterIndexSetStorageParams extends Change {
+export class AlterIndexSetStorageParams extends BaseChange {
   public readonly index: Index;
   public readonly paramsToSet: string[];
   public readonly keysToReset: string[];
@@ -63,7 +68,7 @@ export class AlterIndexSetStorageParams extends Change {
 /**
  * ALTER INDEX ... SET STATISTICS ...
  */
-export class AlterIndexSetStatistics extends Change {
+export class AlterIndexSetStatistics extends BaseChange {
   public readonly index: Index;
   public readonly columnTargets: Array<{
     columnNumber: number;
@@ -106,7 +111,7 @@ export class AlterIndexSetStatistics extends Change {
 /**
  * ALTER INDEX ... SET TABLESPACE ...
  */
-export class AlterIndexSetTablespace extends Change {
+export class AlterIndexSetTablespace extends BaseChange {
   public readonly index: Index;
   public readonly tablespace: string;
   public readonly operation = "alter" as const;

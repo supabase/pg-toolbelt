@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
 
 /**
@@ -13,10 +13,12 @@ import type { Language } from "../language.model.ts";
  * ```
  */
 
+export type AlterLanguage = AlterLanguageChangeOwner;
+
 /**
  * ALTER LANGUAGE ... OWNER TO ...
  */
-export class AlterLanguageChangeOwner extends Change {
+export class AlterLanguageChangeOwner extends BaseChange {
   public readonly language: Language;
   public readonly owner: string;
   public readonly operation = "alter" as const;

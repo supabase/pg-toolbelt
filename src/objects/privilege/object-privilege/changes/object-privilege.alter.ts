@@ -1,4 +1,9 @@
-import { Change, type ChangeObjectType } from "../../../base.change.ts";
+import { BaseChange, type ChangeObjectType } from "../../../base.change.ts";
+
+export type AlterObjectPrivilege =
+  | GrantObjectPrivileges
+  | RevokeGrantOptionObjectPrivileges
+  | RevokeObjectPrivileges;
 
 /**
  * Define an object access privileges.
@@ -70,7 +75,7 @@ import { Change, type ChangeObjectType } from "../../../base.change.ts";
  * ```
  */
 
-export class GrantObjectPrivileges extends Change {
+export class GrantObjectPrivileges extends BaseChange {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;
@@ -285,7 +290,7 @@ export class GrantObjectPrivileges extends Change {
  * ```
  */
 
-export class RevokeObjectPrivileges extends Change {
+export class RevokeObjectPrivileges extends BaseChange {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;
@@ -366,7 +371,7 @@ export class RevokeObjectPrivileges extends Change {
   }
 }
 
-export class RevokeGrantOptionObjectPrivileges extends Change {
+export class RevokeGrantOptionObjectPrivileges extends BaseChange {
   public readonly objectId: string;
   public readonly objectNameSql: string;
   public readonly objectKind: string;

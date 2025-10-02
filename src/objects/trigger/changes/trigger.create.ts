@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
 
@@ -26,7 +26,7 @@ import type { Trigger } from "../trigger.model.ts";
  *     TRUNCATE
  * ```
  */
-export class CreateTrigger extends Change {
+export class CreateTrigger extends BaseChange {
   public readonly trigger: Trigger;
   public readonly indexableObject?: TableLikeObject;
   public readonly orReplace?: boolean;

@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 
 /**
@@ -29,7 +29,7 @@ import type { Procedure } from "../procedure.model.ts";
  *     } ...
  * ```
  */
-export class CreateProcedure extends Change {
+export class CreateProcedure extends BaseChange {
   public readonly procedure: Procedure;
   public readonly orReplace: boolean;
   public readonly operation = "create" as const;

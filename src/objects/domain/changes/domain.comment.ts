@@ -1,10 +1,12 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { Domain } from "../domain.model.ts";
+
+export type CommentDomain = CreateCommentOnDomain | DropCommentOnDomain;
 
 /**
  * Create/drop comments on domains.
  */
-export class CreateCommentOnDomain extends Change {
+export class CreateCommentOnDomain extends BaseChange {
   public readonly domain: Domain;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -30,7 +32,7 @@ export class CreateCommentOnDomain extends Change {
   }
 }
 
-export class DropCommentOnDomain extends Change {
+export class DropCommentOnDomain extends BaseChange {
   public readonly domain: Domain;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;

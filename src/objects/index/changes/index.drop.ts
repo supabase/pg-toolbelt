@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { Index } from "../index.model.ts";
  * DROP INDEX [ CONCURRENTLY ] [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropIndex extends Change {
+export class DropIndex extends BaseChange {
   public readonly index: Index;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

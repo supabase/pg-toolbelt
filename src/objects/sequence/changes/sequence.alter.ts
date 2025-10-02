@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
 /**
@@ -15,10 +15,12 @@ import type { Sequence } from "../sequence.model.ts";
  * ```
  */
 
+export type AlterSequence = AlterSequenceSetOptions | AlterSequenceSetOwnedBy;
+
 /**
  * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE
  */
-export class AlterSequenceSetOwnedBy extends Change {
+export class AlterSequenceSetOwnedBy extends BaseChange {
   public readonly sequence: Sequence;
   public readonly ownedBy: {
     schema: string;
@@ -68,7 +70,7 @@ export class AlterSequenceSetOwnedBy extends Change {
  * ALTER SEQUENCE ... set options ...
  * Emits only changed options, in a stable order.
  */
-export class AlterSequenceSetOptions extends Change {
+export class AlterSequenceSetOptions extends BaseChange {
   public readonly sequence: Sequence;
   public readonly options: string[];
   public readonly operation = "alter" as const;

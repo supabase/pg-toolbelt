@@ -1,4 +1,4 @@
-import type { Change } from "../../base.change.ts";
+import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../../utils.ts";
 import {
@@ -27,10 +27,10 @@ import type { CompositeType } from "./composite-type.model.ts";
 export function diffCompositeTypes(
   main: Record<string, CompositeType>,
   branch: Record<string, CompositeType>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const compositeTypeId of created) {
     const ct = branch[compositeTypeId];

@@ -1,6 +1,8 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 
-export class RevokeRoleMembership extends Change {
+export type DropMembership = RevokeMembershipOptions | RevokeRoleMembership;
+
+export class RevokeRoleMembership extends BaseChange {
   public readonly role: string;
   public readonly member: string;
   public readonly operation = "drop" as const;
@@ -23,7 +25,7 @@ export class RevokeRoleMembership extends Change {
   }
 }
 
-export class RevokeMembershipOptions extends Change {
+export class RevokeMembershipOptions extends BaseChange {
   public readonly role: string;
   public readonly member: string;
   public readonly admin?: boolean;

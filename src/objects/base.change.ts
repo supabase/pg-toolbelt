@@ -27,7 +27,7 @@ type ChangeScope =
   | "membership" // Membership of a role
   | "owner"; // Owner of an object
 
-export abstract class Change {
+export abstract class BaseChange {
   abstract readonly operation: ChangeOperation;
   abstract readonly objectType: ChangeObjectType;
   abstract readonly scope: ChangeScope;

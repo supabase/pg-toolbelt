@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
@@ -20,10 +20,10 @@ import type { Language } from "./language.model.ts";
 export function diffLanguages(
   main: Record<string, Language>,
   branch: Record<string, Language>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const languageId of created) {
     const lang = branch[languageId];

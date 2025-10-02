@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -22,10 +22,10 @@ export function diffTriggers(
   main: Record<string, Trigger>,
   branch: Record<string, Trigger>,
   branchIndexableObjects?: Record<string, TableLikeObject>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const triggerId of created) {
     const trg = branch[triggerId];

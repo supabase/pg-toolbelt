@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
 
 /**
@@ -11,7 +11,7 @@ import type { Extension } from "../extension.model.ts";
  * DROP EXTENSION [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropExtension extends Change {
+export class DropExtension extends BaseChange {
   public readonly extension: Extension;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;

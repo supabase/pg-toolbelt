@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
 /**
@@ -31,10 +31,14 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - Changes to definition, options, and other non-alterable properties trigger a replace (drop + create).
  */
 
+export type AlterMaterializedView =
+  | AlterMaterializedViewChangeOwner
+  | AlterMaterializedViewSetStorageParams;
+
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
  */
-export class AlterMaterializedViewChangeOwner extends Change {
+export class AlterMaterializedViewChangeOwner extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly owner: string;
   public readonly operation = "alter" as const;
@@ -65,7 +69,7 @@ export class AlterMaterializedViewChangeOwner extends Change {
  * ALTER MATERIALIZED VIEW ... SET/RESET ( storage_parameter ... )
  * Accepts main and branch, computes differences, and emits RESET then SET statements.
  */
-export class AlterMaterializedViewSetStorageParams extends Change {
+export class AlterMaterializedViewSetStorageParams extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly paramsToSet: string[];
   public readonly keysToReset: string[];

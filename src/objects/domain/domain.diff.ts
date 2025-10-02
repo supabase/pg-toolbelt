@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   AlterDomainAddConstraint,
@@ -28,10 +28,10 @@ import type { Domain } from "./domain.model.ts";
 export function diffDomains(
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const domainId of created) {
     const newDomain = branch[domainId];

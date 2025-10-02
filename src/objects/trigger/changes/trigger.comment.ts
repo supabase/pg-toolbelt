@@ -1,7 +1,9 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
 
-export class CreateCommentOnTrigger extends Change {
+export type CommentTrigger = CreateCommentOnTrigger | DropCommentOnTrigger;
+
+export class CreateCommentOnTrigger extends BaseChange {
   public readonly trigger: Trigger;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -31,7 +33,7 @@ export class CreateCommentOnTrigger extends Change {
   }
 }
 
-export class DropCommentOnTrigger extends Change {
+export class DropCommentOnTrigger extends BaseChange {
   public readonly trigger: Trigger;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;

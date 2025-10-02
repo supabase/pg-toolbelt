@@ -1,4 +1,4 @@
-import type { Change } from "../base.change.ts";
+import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual } from "../utils.ts";
 import {
@@ -42,7 +42,7 @@ function createAlterConstraintChange(
   branchTable: Table,
   branchCatalog: Record<string, Table>,
 ) {
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
   // But since our Table model uses 'name' as the identity field,
@@ -227,10 +227,10 @@ export function diffTables(
   ctx: { version: number },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-): Change[] {
+): BaseChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: BaseChange[] = [];
 
   for (const tableId of created) {
     changes.push(new CreateTable({ table: branch[tableId] }));

@@ -1,7 +1,9 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { BaseChange, quoteLiteral } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
 
-export class CreateCommentOnSequence extends Change {
+export type CommentSequence = CreateCommentOnSequence | DropCommentOnSequence;
+
+export class CreateCommentOnSequence extends BaseChange {
   public readonly sequence: Sequence;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
@@ -27,7 +29,7 @@ export class CreateCommentOnSequence extends Change {
   }
 }
 
-export class DropCommentOnSequence extends Change {
+export class DropCommentOnSequence extends BaseChange {
   public readonly sequence: Sequence;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;

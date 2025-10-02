@@ -1,6 +1,8 @@
-import { Change } from "../../../base.change.ts";
+import { BaseChange } from "../../../base.change.ts";
 
-export class GrantRoleMembership extends Change {
+export type CreateMembership = GrantRoleMembership;
+
+export class GrantRoleMembership extends BaseChange {
   public readonly role: string;
   public readonly member: string;
   public readonly options: {

@@ -1,4 +1,4 @@
-import { Change } from "../../base.change.ts";
+import { BaseChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 
 /**
@@ -15,7 +15,7 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - IF EXISTS is omitted for deterministic diffs; the object must exist in the source.
  * - We do not emit CASCADE; dependency ordering ensures safe drops, and RESTRICT is default.
  */
-export class DropMaterializedView extends Change {
+export class DropMaterializedView extends BaseChange {
   public readonly materializedView: MaterializedView;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
