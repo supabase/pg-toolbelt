@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   AlterRoleSetConfig,
@@ -10,6 +9,7 @@ import {
 } from "./changes/role.comment.ts";
 import { CreateRole } from "./changes/role.create.ts";
 import { DropRole } from "./changes/role.drop.ts";
+import type { RoleChange } from "./changes/role.types.ts";
 import type { Role } from "./role.model.ts";
 
 /**
@@ -22,10 +22,10 @@ import type { Role } from "./role.model.ts";
 export function diffRoles(
   main: Record<string, Role>,
   branch: Record<string, Role>,
-): BaseChange[] {
+): RoleChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: RoleChange[] = [];
 
   for (const roleId of created) {
     const role = branch[roleId];

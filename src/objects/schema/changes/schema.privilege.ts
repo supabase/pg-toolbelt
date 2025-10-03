@@ -62,7 +62,7 @@ export class GrantSchemaPrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SCHEMA", list, this.version);
-    const schemaName = this.schema.schema;
+    const schemaName = this.schema.name;
     return `GRANT ${privSql} ${kindPrefix} ${schemaName} TO ${this.grantee}${withGrant}`;
   }
 }
@@ -113,7 +113,7 @@ export class RevokeSchemaPrivileges extends BaseChange {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SCHEMA", list, this.version);
-    const schemaName = this.schema.schema;
+    const schemaName = this.schema.name;
     return `REVOKE ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`;
   }
 }
@@ -159,7 +159,7 @@ export class RevokeGrantOptionSchemaPrivileges extends BaseChange {
       this.privilegeNames,
       this.version,
     );
-    const schemaName = this.schema.schema;
+    const schemaName = this.schema.name;
     return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`;
   }
 }

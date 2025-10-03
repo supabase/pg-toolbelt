@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -22,6 +21,7 @@ import {
   RevokeGrantOptionMaterializedViewPrivileges,
   RevokeMaterializedViewPrivileges,
 } from "./changes/materialized-view.privilege.ts";
+import type { MaterializedViewChange } from "./changes/materialized-view.types.ts";
 import type { MaterializedView } from "./materialized-view.model.ts";
 
 /**
@@ -36,10 +36,10 @@ export function diffMaterializedViews(
   ctx: { version: number },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
-): BaseChange[] {
+): MaterializedViewChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: MaterializedViewChange[] = [];
 
   for (const materializedViewId of created) {
     changes.push(

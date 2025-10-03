@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -16,6 +15,7 @@ import {
   RevokeGrantOptionSchemaPrivileges,
   RevokeSchemaPrivileges,
 } from "./changes/schema.privilege.ts";
+import type { SchemaChange } from "./changes/schema.types.ts";
 import type { Schema } from "./schema.model.ts";
 
 /**
@@ -29,16 +29,16 @@ export function diffSchemas(
   ctx: { version: number },
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
-): BaseChange[] {
+): SchemaChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: SchemaChange[] = [];
 
   for (const schemaId of created) {
     const sc = branch[schemaId];
     changes.push(new CreateSchema({ schema: sc }));
     if (sc.comment !== null) {
-      changes.push(new CreateCommentOnSchema({ schemaObj: sc }));
+      changes.push(new CreateCommentOnSchema({ schema: sc }));
     }
   }
 
@@ -54,7 +54,7 @@ export function diffSchemas(
     if (mainSchema.owner !== branchSchema.owner) {
       changes.push(
         new AlterSchemaChangeOwner({
-          schemaObj: mainSchema,
+          schema: mainSchema,
           owner: branchSchema.owner,
         }),
       );
@@ -63,9 +63,9 @@ export function diffSchemas(
     // COMMENT
     if (mainSchema.comment !== branchSchema.comment) {
       if (branchSchema.comment === null) {
-        changes.push(new DropCommentOnSchema({ schemaObj: mainSchema }));
+        changes.push(new DropCommentOnSchema({ schema: mainSchema }));
       } else {
-        changes.push(new CreateCommentOnSchema({ schemaObj: branchSchema }));
+        changes.push(new CreateCommentOnSchema({ schema: branchSchema }));
       }
     }
 

@@ -1,18 +1,18 @@
-import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { GrantRoleMembership } from "./changes/membership.create.ts";
 import {
   RevokeMembershipOptions,
   RevokeRoleMembership,
 } from "./changes/membership.drop.ts";
+import type { MembershipChange } from "./changes/membership.types.ts";
 import type { RoleMembership } from "./membership.model.ts";
 
 export function diffRoleMemberships(
   main: Record<string, RoleMembership>,
   branch: Record<string, RoleMembership>,
-): BaseChange[] {
+): MembershipChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
-  const changes: BaseChange[] = [];
+  const changes: MembershipChange[] = [];
 
   for (const id of created) {
     const m = branch[id];

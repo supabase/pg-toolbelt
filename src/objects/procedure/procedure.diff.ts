@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -25,6 +24,7 @@ import {
   RevokeGrantOptionProcedurePrivileges,
   RevokeProcedurePrivileges,
 } from "./changes/procedure.privilege.ts";
+import type { ProcedureChange } from "./changes/procedure.types.ts";
 import type { Procedure } from "./procedure.model.ts";
 
 /**
@@ -39,10 +39,10 @@ export function diffProcedures(
   ctx: { version: number },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
-): BaseChange[] {
+): ProcedureChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: ProcedureChange[] = [];
 
   for (const procedureId of created) {
     const proc = branch[procedureId];

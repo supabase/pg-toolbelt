@@ -32,7 +32,7 @@ export class CreateSchema extends BaseChange {
     const parts: string[] = ["CREATE SCHEMA"];
 
     // Add schema name
-    parts.push(this.schema.schema);
+    parts.push(this.schema.name);
 
     // Add AUTHORIZATION
     parts.push("AUTHORIZATION", this.schema.owner);

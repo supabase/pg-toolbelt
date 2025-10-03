@@ -19,26 +19,24 @@ export type AlterSchema = AlterSchemaChangeOwner;
  * ALTER SCHEMA ... OWNER TO ...
  */
 export class AlterSchemaChangeOwner extends BaseChange {
-  public readonly schemaObj: Schema;
+  public readonly schema: Schema;
   public readonly owner: string;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "schema" as const;
 
-  constructor(props: { schemaObj: Schema; owner: string }) {
+  constructor(props: { schema: Schema; owner: string }) {
     super();
-    this.schemaObj = props.schemaObj;
+    this.schema = props.schema;
     this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.schemaObj.stableId];
+    return [this.schema.stableId];
   }
 
   serialize(): string {
-    return ["ALTER SCHEMA", this.schemaObj.schema, "OWNER TO", this.owner].join(
-      " ",
-    );
+    return ["ALTER SCHEMA", this.schema.name, "OWNER TO", this.owner].join(" ");
   }
 }
 

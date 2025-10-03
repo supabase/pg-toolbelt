@@ -727,28 +727,28 @@ export class AlterTableAlterColumnDropNotNull extends BaseChange {
  * ALTER TABLE ... ATTACH PARTITION ...
  */
 export class AlterTableAttachPartition extends BaseChange {
-  public readonly parent: Table;
+  public readonly table: Table;
   public readonly partition: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "table" as const;
 
-  constructor(props: { parent: Table; partition: Table }) {
+  constructor(props: { table: Table; partition: Table }) {
     super();
-    this.parent = props.parent;
+    this.table = props.table;
     this.partition = props.partition;
   }
 
   get dependencies() {
     // Depend on the partition child so that it is created before attach
-    return [`${this.partition.stableId}`, `${this.parent.stableId}`];
+    return [`${this.partition.stableId}`, `${this.table.stableId}`];
   }
 
   serialize(): string {
     const bound = this.partition.partition_bound ?? "DEFAULT";
     return [
       "ALTER TABLE",
-      `${this.parent.schema}.${this.parent.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "ATTACH PARTITION",
       `${this.partition.schema}.${this.partition.name}`,
       bound,
@@ -760,27 +760,27 @@ export class AlterTableAttachPartition extends BaseChange {
  * ALTER TABLE ... DETACH PARTITION ...
  */
 export class AlterTableDetachPartition extends BaseChange {
-  public readonly parent: Table;
+  public readonly table: Table;
   public readonly partition: Table;
   public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "table" as const;
 
-  constructor(props: { parent: Table; partition: Table }) {
+  constructor(props: { table: Table; partition: Table }) {
     super();
-    this.parent = props.parent;
+    this.table = props.table;
     this.partition = props.partition;
   }
 
   get dependencies() {
     // Depend on the partition child for consistent ordering with potential drops
-    return [`${this.parent.stableId}`, `${this.partition.stableId}`];
+    return [`${this.table.stableId}`, `${this.partition.stableId}`];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.parent.schema}.${this.parent.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "DETACH PARTITION",
       `${this.partition.schema}.${this.partition.name}`,
     ].join(" ");

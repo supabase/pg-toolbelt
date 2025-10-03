@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -20,6 +19,7 @@ import {
   RevokeGrantOptionSequencePrivileges,
   RevokeSequencePrivileges,
 } from "./changes/sequence.privilege.ts";
+import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
 /**
@@ -33,10 +33,10 @@ export function diffSequences(
   ctx: { version: number },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
-): BaseChange[] {
+): SequenceChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: SequenceChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];

@@ -1,18 +1,14 @@
 import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
+import type { Change } from "./change.types.ts";
 import type { BaseChange } from "./objects/base.change.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
-import { RevokeColumnPrivileges } from "./objects/privilege/column-privilege/changes/column-privilege.alter.ts";
 import { diffDefaultPrivileges } from "./objects/privilege/default-privilege/default-privilege.diff.ts";
 import { diffRoleMemberships } from "./objects/privilege/membership/membership.diff.ts";
-import {
-  RevokeGrantOptionObjectPrivileges,
-  RevokeObjectPrivileges,
-} from "./objects/privilege/object-privilege/changes/object-privilege.alter.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
@@ -27,7 +23,7 @@ import { stringifyWithBigInt } from "./objects/utils.ts";
 import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
-  const changes: BaseChange[] = [];
+  const changes: Change[] = [];
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
     ...diffCompositeTypes(
@@ -99,26 +95,27 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
 
   // Filter privilege REVOKEs for objects that are being dropped
   // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
-  const droppedObjectStableIds = new Set<string>();
-  for (const ch of changes) {
-    if (ch.operation === "drop" && ch.scope === "object") {
-      for (const dep of ch.dependencies) droppedObjectStableIds.add(dep);
-    }
-  }
-  const filtered = changes.filter((ch) => {
-    if (
-      ch instanceof RevokeObjectPrivileges ||
-      ch instanceof RevokeGrantOptionObjectPrivileges
-    )
-      return !droppedObjectStableIds.has(ch.objectId);
-    if (ch instanceof RevokeColumnPrivileges)
-      return !droppedObjectStableIds.has(ch.tableId);
-    return true;
-  });
+  // TODO: Refactor using the new privileges within objects approach
+  // const droppedObjectStableIds = new Set<string>();
+  // for (const ch of changes) {
+  //   if (ch.operation === "drop" && ch.scope === "object") {
+  //     for (const dep of ch.dependencies) droppedObjectStableIds.add(dep);
+  //   }
+  // }
+  // const filtered = changes.filter((ch) => {
+  //   if (
+  //     ch instanceof RevokeObjectPrivileges ||
+  //     ch instanceof RevokeGrantOptionObjectPrivileges
+  //   )
+  //     return !droppedObjectStableIds.has(ch.objectId);
+  //   if (ch instanceof RevokeColumnPrivileges)
+  //     return !droppedObjectStableIds.has(ch.tableId);
+  //   return true;
+  // });
 
   if (DEBUG) {
-    console.log("changes catalog diff: ", stringifyWithBigInt(filtered, 2));
+    console.log("changes catalog diff: ", stringifyWithBigInt(changes, 2));
   }
 
-  return filtered;
+  return changes;
 }

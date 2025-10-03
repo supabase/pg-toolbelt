@@ -14,7 +14,7 @@ import {
  * https://www.postgresql.org/docs/current/sql-alterschema.html
  */
 const schemaPropsSchema = z.object({
-  schema: z.string(),
+  name: z.string(),
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
@@ -24,7 +24,7 @@ export type SchemaPrivilegeProps = PrivilegeProps;
 export type SchemaProps = z.infer<typeof schemaPropsSchema>;
 
 export class Schema extends BasePgModel {
-  public readonly schema: SchemaProps["schema"];
+  public readonly name: SchemaProps["name"];
   public readonly owner: SchemaProps["owner"];
   public readonly comment: SchemaProps["comment"];
   public readonly privileges: SchemaPrivilegeProps[];
@@ -33,7 +33,7 @@ export class Schema extends BasePgModel {
     super();
 
     // Identity fields
-    this.schema = props.schema;
+    this.name = props.name;
 
     // Data fields
     this.owner = props.owner;
@@ -42,12 +42,12 @@ export class Schema extends BasePgModel {
   }
 
   get stableId(): `schema:${string}` {
-    return `schema:${this.schema}`;
+    return `schema:${this.name}`;
   }
 
   get identityFields() {
     return {
-      schema: this.schema,
+      name: this.name,
     };
   }
 
@@ -74,7 +74,7 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
         and d.classid = 'pg_namespace'::regclass
     )
     select
-      quote_ident(nspname) as schema,
+      quote_ident(nspname) as name,
       nspowner::regrole::text as owner,
       obj_description(oid, 'pg_namespace') as comment,
       coalesce(

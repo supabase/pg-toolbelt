@@ -4,7 +4,7 @@ import { DropRlsPolicy } from "./rls-policy.drop.ts";
 
 describe("rls-policy", () => {
   test("drop", () => {
-    const rlsPolicy = new RlsPolicy({
+    const policy = new RlsPolicy({
       schema: "public",
       name: "test_policy",
       table_name: "test_table",
@@ -18,7 +18,7 @@ describe("rls-policy", () => {
     });
 
     const change = new DropRlsPolicy({
-      rlsPolicy,
+      policy,
     });
 
     expect(change.serialize()).toBe(

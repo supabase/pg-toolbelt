@@ -27,6 +27,6 @@ export class DropSchema extends BaseChange {
   }
 
   serialize(): string {
-    return ["DROP SCHEMA", this.schema.schema].join(" ");
+    return ["DROP SCHEMA", this.schema.name].join(" ");
   }
 }

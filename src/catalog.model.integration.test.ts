@@ -334,7 +334,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Test system schema filtering
       const schemaNames = Object.keys(catalog.schemas).map(
-        (key) => catalog.schemas[key].schema,
+        (key) => catalog.schemas[key].name,
       );
       const systemSchemas = ["information_schema", "pg_catalog", "pg_toast"];
 

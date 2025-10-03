@@ -18,10 +18,6 @@ import {
   type MaterializedView,
 } from "./objects/materialized-view/materialized-view.model.ts";
 import {
-  type ColumnPrivilegeSet,
-  extractColumnPrivileges,
-} from "./objects/privilege/column-privilege/column-privilege.model.ts";
-import {
   type DefaultPrivilegeSet,
   extractDefaultPrivileges,
 } from "./objects/privilege/default-privilege/default-privilege.model.ts";

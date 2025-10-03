@@ -6,58 +6,58 @@ export type CommentRlsPolicy =
   | DropCommentOnRlsPolicy;
 
 export class CreateCommentOnRlsPolicy extends BaseChange {
-  public readonly rlsPolicy: RlsPolicy;
+  public readonly policy: RlsPolicy;
   public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
   public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { rlsPolicy: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy }) {
     super();
-    this.rlsPolicy = props.rlsPolicy;
+    this.policy = props.policy;
   }
 
   get dependencies() {
     return [
-      `comment:${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}.${this.rlsPolicy.name}`,
+      `comment:${this.policy.schema}.${this.policy.table_name}.${this.policy.name}`,
     ];
   }
 
   serialize(): string {
     return [
       "COMMENT ON POLICY",
-      this.rlsPolicy.name,
+      this.policy.name,
       "ON",
-      `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
       "IS",
       // biome-ignore lint/style/noNonNullAssertion: rls policy comment is not nullable in this case
-      quoteLiteral(this.rlsPolicy.comment!),
+      quoteLiteral(this.policy.comment!),
     ].join(" ");
   }
 }
 
 export class DropCommentOnRlsPolicy extends BaseChange {
-  public readonly rlsPolicy: RlsPolicy;
+  public readonly policy: RlsPolicy;
   public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
   public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { rlsPolicy: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy }) {
     super();
-    this.rlsPolicy = props.rlsPolicy;
+    this.policy = props.policy;
   }
 
   get dependencies() {
     return [
-      `comment:${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}.${this.rlsPolicy.name}`,
+      `comment:${this.policy.schema}.${this.policy.table_name}.${this.policy.name}`,
     ];
   }
 
   serialize(): string {
     return [
       "COMMENT ON POLICY",
-      this.rlsPolicy.name,
+      this.policy.name,
       "ON",
-      `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
       "IS NULL",
     ].join(" ");
   }

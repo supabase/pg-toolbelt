@@ -25,6 +25,7 @@ import {
   RevokeDomainPrivileges,
   RevokeGrantOptionDomainPrivileges,
 } from "./changes/domain.privilege.ts";
+import type { DomainChange } from "./changes/domain.types.ts";
 import type { Domain } from "./domain.model.ts";
 
 /**
@@ -39,10 +40,10 @@ export function diffDomains(
   ctx: { version: number },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
-): BaseChange[] {
+): DomainChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: DomainChange[] = [];
 
   for (const domainId of created) {
     const newDomain = branch[domainId];

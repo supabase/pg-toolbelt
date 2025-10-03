@@ -1,18 +1,18 @@
-import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   AlterDefaultPrivilegesGrant,
   AlterDefaultPrivilegesRevoke,
 } from "./changes/default-privilege.alter.ts";
+import type { DefaultPrivilegeChange } from "./changes/default-privilege.types.ts";
 import type { DefaultPrivilegeSet } from "./default-privilege.model.ts";
 
 export function diffDefaultPrivileges(
   ctx: { version: number },
   main: Record<string, DefaultPrivilegeSet>,
   branch: Record<string, DefaultPrivilegeSet>,
-): BaseChange[] {
+): DefaultPrivilegeChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
-  const changes: BaseChange[] = [];
+  const changes: DefaultPrivilegeChange[] = [];
 
   for (const id of created) {
     const s = branch[id];

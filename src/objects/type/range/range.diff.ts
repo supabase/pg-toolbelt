@@ -1,4 +1,3 @@
-import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
@@ -17,6 +16,7 @@ import {
   RevokeGrantOptionRangePrivileges,
   RevokeRangePrivileges,
 } from "./changes/range.privilege.ts";
+import type { RangeChange } from "./changes/range.types.ts";
 import type { Range } from "./range.model.ts";
 
 /**
@@ -30,10 +30,10 @@ export function diffRanges(
   ctx: { version: number },
   main: Record<string, Range>,
   branch: Record<string, Range>,
-): BaseChange[] {
+): RangeChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: RangeChange[] = [];
 
   for (const id of created) {
     const createdRange = branch[id];

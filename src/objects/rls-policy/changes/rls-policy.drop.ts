@@ -12,26 +12,26 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * ```
  */
 export class DropRlsPolicy extends BaseChange {
-  public readonly rlsPolicy: RlsPolicy;
+  public readonly policy: RlsPolicy;
   public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
   public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { rlsPolicy: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy }) {
     super();
-    this.rlsPolicy = props.rlsPolicy;
+    this.policy = props.policy;
   }
 
   get dependencies() {
-    return [this.rlsPolicy.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
     return [
       "DROP POLICY",
-      this.rlsPolicy.name,
+      this.policy.name,
       "ON",
-      `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
     ].join(" ");
   }
 }

@@ -1,4 +1,3 @@
-import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
@@ -24,6 +23,7 @@ import {
   RevokeCompositeTypePrivileges,
   RevokeGrantOptionCompositeTypePrivileges,
 } from "./changes/composite-type.privilege.ts";
+import type { CompositeTypeChange } from "./changes/composite-type.types.ts";
 import type { CompositeType } from "./composite-type.model.ts";
 
 /**
@@ -37,10 +37,10 @@ export function diffCompositeTypes(
   ctx: { version: number },
   main: Record<string, CompositeType>,
   branch: Record<string, CompositeType>,
-): BaseChange[] {
+): CompositeTypeChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: CompositeTypeChange[] = [];
 
   for (const compositeTypeId of created) {
     const ct = branch[compositeTypeId];

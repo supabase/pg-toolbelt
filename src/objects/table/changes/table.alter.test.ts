@@ -727,7 +727,7 @@ describe.concurrent("table", () => {
     });
 
     test("attach/detach partition", () => {
-      const parent = new Table({
+      const table = new Table({
         schema: "public",
         name: "events",
         persistence: "p",
@@ -794,7 +794,7 @@ describe.concurrent("table", () => {
       });
 
       const attach = new AlterTableAttachPartition({
-        parent,
+        table,
         partition: part2025,
       });
       expect(attach.serialize()).toBe(
@@ -802,7 +802,7 @@ describe.concurrent("table", () => {
       );
 
       const detach = new AlterTableDetachPartition({
-        parent,
+        table,
         partition: part2025,
       });
       expect(detach.serialize()).toBe(

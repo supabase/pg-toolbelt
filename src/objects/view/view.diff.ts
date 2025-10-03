@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -21,6 +20,7 @@ import {
   RevokeGrantOptionViewPrivileges,
   RevokeViewPrivileges,
 } from "./changes/view.privilege.ts";
+import type { ViewChange } from "./changes/view.types.ts";
 import type { View } from "./view.model.ts";
 
 /**
@@ -35,10 +35,10 @@ export function diffViews(
   ctx: { version: number },
   main: Record<string, View>,
   branch: Record<string, View>,
-): BaseChange[] {
+): ViewChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: ViewChange[] = [];
 
   for (const viewId of created) {
     const v = branch[viewId];

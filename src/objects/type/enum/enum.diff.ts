@@ -1,4 +1,3 @@
-import type { BaseChange } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
@@ -19,6 +18,7 @@ import {
   RevokeEnumPrivileges,
   RevokeGrantOptionEnumPrivileges,
 } from "./changes/enum.privilege.ts";
+import type { EnumChange } from "./changes/enum.types.ts";
 import type { Enum } from "./enum.model.ts";
 
 /**
@@ -32,10 +32,10 @@ export function diffEnums(
   ctx: { version: number },
   main: Record<string, Enum>,
   branch: Record<string, Enum>,
-): BaseChange[] {
+): EnumChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: EnumChange[] = [];
 
   for (const enumId of created) {
     const createdEnum = branch[enumId];
@@ -140,8 +140,8 @@ export function diffEnums(
  * This implementation properly handles enum value positioning using sort_order.
  * Note: We cannot reliably detect renames, so we only handle additions.
  */
-function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): BaseChange[] {
-  const changes: BaseChange[] = [];
+function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
+  const changes: EnumChange[] = [];
 
   // Create maps for efficient lookup
   const mainLabelMap = new Map(

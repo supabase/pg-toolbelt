@@ -6,7 +6,7 @@ import { diffSchemas } from "./schema.diff.ts";
 import { Schema, type SchemaProps } from "./schema.model.ts";
 
 const base: SchemaProps = {
-  schema: "utils",
+  name: "utils",
   owner: "o1",
   comment: null,
   privileges: [],

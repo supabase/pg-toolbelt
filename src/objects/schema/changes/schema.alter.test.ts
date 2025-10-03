@@ -6,7 +6,7 @@ describe.concurrent("schema", () => {
   describe("alter", () => {
     test("change owner", () => {
       const props: Omit<SchemaProps, "owner"> = {
-        schema: "test_schema",
+        name: "test_schema",
         comment: null,
         privileges: [],
       };
@@ -16,7 +16,7 @@ describe.concurrent("schema", () => {
       });
 
       const change = new AlterSchemaChangeOwner({
-        schemaObj,
+        schema: schemaObj,
         owner: "new_owner",
       });
 

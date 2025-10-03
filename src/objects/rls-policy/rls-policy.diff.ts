@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -12,6 +11,7 @@ import {
 } from "./changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./changes/rls-policy.drop.ts";
+import type { RlsPolicyChange } from "./changes/rls-policy.types.ts";
 import type { RlsPolicy } from "./rls-policy.model.ts";
 
 /**
@@ -24,21 +24,21 @@ import type { RlsPolicy } from "./rls-policy.model.ts";
 export function diffRlsPolicies(
   main: Record<string, RlsPolicy>,
   branch: Record<string, RlsPolicy>,
-): BaseChange[] {
+): RlsPolicyChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: RlsPolicyChange[] = [];
 
   for (const rlsPolicyId of created) {
-    const pol = branch[rlsPolicyId];
-    changes.push(new CreateRlsPolicy({ rlsPolicy: pol }));
-    if (pol.comment !== null) {
-      changes.push(new CreateCommentOnRlsPolicy({ rlsPolicy: pol }));
+    const policy = branch[rlsPolicyId];
+    changes.push(new CreateRlsPolicy({ policy: policy }));
+    if (policy.comment !== null) {
+      changes.push(new CreateCommentOnRlsPolicy({ policy }));
     }
   }
 
   for (const rlsPolicyId of dropped) {
-    changes.push(new DropRlsPolicy({ rlsPolicy: main[rlsPolicyId] }));
+    changes.push(new DropRlsPolicy({ policy: main[rlsPolicyId] }));
   }
 
   for (const rlsPolicyId of altered) {
@@ -62,8 +62,8 @@ export function diffRlsPolicies(
     if (nonAlterablePropsChanged) {
       // Replace the entire RLS policy (drop + create)
       changes.push(
-        new DropRlsPolicy({ rlsPolicy: mainRlsPolicy }),
-        new CreateRlsPolicy({ rlsPolicy: branchRlsPolicy }),
+        new DropRlsPolicy({ policy: mainRlsPolicy }),
+        new CreateRlsPolicy({ policy: branchRlsPolicy }),
       );
     } else {
       // Only alterable properties changed - check each one
@@ -105,12 +105,10 @@ export function diffRlsPolicies(
       // COMMENT
       if (mainRlsPolicy.comment !== branchRlsPolicy.comment) {
         if (branchRlsPolicy.comment === null) {
-          changes.push(
-            new DropCommentOnRlsPolicy({ rlsPolicy: mainRlsPolicy }),
-          );
+          changes.push(new DropCommentOnRlsPolicy({ policy: mainRlsPolicy }));
         } else {
           changes.push(
-            new CreateCommentOnRlsPolicy({ rlsPolicy: branchRlsPolicy }),
+            new CreateCommentOnRlsPolicy({ policy: branchRlsPolicy }),
           );
         }
       }

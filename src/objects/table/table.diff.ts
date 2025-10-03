@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
@@ -44,6 +43,7 @@ import {
   RevokeGrantOptionTablePrivileges,
   RevokeTablePrivileges,
 } from "./changes/table.privilege.ts";
+import type { TableChange } from "./changes/table.types.ts";
 import { Table } from "./table.model.js";
 
 function createAlterConstraintChange(
@@ -51,7 +51,7 @@ function createAlterConstraintChange(
   branchTable: Table,
   branchCatalog: Record<string, Table>,
 ) {
-  const changes: BaseChange[] = [];
+  const changes: TableChange[] = [];
 
   // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
   // But since our Table model uses 'name' as the identity field,
@@ -236,10 +236,10 @@ export function diffTables(
   ctx: { version: number },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-): BaseChange[] {
+): TableChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: BaseChange[] = [];
+  const changes: TableChange[] = [];
 
   for (const tableId of created) {
     changes.push(new CreateTable({ table: branch[tableId] }));
@@ -401,25 +401,25 @@ export function diffTables(
     ): Table | undefined => catalog[`table:${schema}.${name}`];
 
     if (!mainIsPartition && branchIsPartition) {
-      const parent = resolveParent(
+      const table = resolveParent(
         branch,
         branchTable.parent_schema as string,
         branchTable.parent_name as string,
       );
-      if (parent) {
+      if (table) {
         changes.push(
-          new AlterTableAttachPartition({ parent, partition: branchTable }),
+          new AlterTableAttachPartition({ table, partition: branchTable }),
         );
       }
     } else if (mainIsPartition && !branchIsPartition) {
-      const parent = resolveParent(
+      const table = resolveParent(
         main,
         mainTable.parent_schema as string,
         mainTable.parent_name as string,
       );
-      if (parent) {
+      if (table) {
         changes.push(
-          new AlterTableDetachPartition({ parent, partition: mainTable }),
+          new AlterTableDetachPartition({ table, partition: mainTable }),
         );
       }
     } else if (mainIsPartition && branchIsPartition) {
@@ -437,7 +437,7 @@ export function diffTables(
         if (oldParent) {
           changes.push(
             new AlterTableDetachPartition({
-              parent: oldParent,
+              table: oldParent,
               partition: mainTable,
             }),
           );
@@ -450,7 +450,7 @@ export function diffTables(
         if (newParent) {
           changes.push(
             new AlterTableAttachPartition({
-              parent: newParent,
+              table: newParent,
               partition: branchTable,
             }),
           );
