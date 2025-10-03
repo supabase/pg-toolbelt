@@ -1,7 +1,6 @@
 import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import type { BaseChange } from "./objects/base.change.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";

@@ -1,4 +1,3 @@
-import type { BaseChange } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
