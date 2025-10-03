@@ -8,6 +8,7 @@ describe.concurrent("schema", () => {
       const props: Omit<SchemaProps, "owner"> = {
         schema: "test_schema",
         comment: null,
+        privileges: [],
       };
       const schemaObj = new Schema({
         ...props,

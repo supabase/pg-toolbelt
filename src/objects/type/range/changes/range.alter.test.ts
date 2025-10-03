@@ -18,6 +18,7 @@ describe.concurrent("range", () => {
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
       comment: null,
+      privileges: [],
     };
     const main = new Range(base);
     const change = new AlterRangeChangeOwner({ range: main, owner: "o2" });

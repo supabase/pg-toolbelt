@@ -18,6 +18,7 @@ describe("domain", () => {
       owner: "test",
       comment: null,
       constraints: [],
+      privileges: [],
     });
 
     const change = new DropDomain({

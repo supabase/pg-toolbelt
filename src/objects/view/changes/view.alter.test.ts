@@ -25,6 +25,8 @@ describe.concurrent("view", () => {
         options: null,
         partition_bound: null,
         comment: null,
+        columns: [],
+        privileges: [],
       };
       const main = new View({
         ...props,
@@ -60,6 +62,8 @@ describe.concurrent("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     };
     const main = new View({ ...props, options: ["security_barrier=true"] });
     // branch no longer needed; we pass explicit options list
@@ -91,6 +95,8 @@ describe.concurrent("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     });
 
     const change = new AlterViewResetOptions({

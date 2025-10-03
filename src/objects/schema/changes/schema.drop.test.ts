@@ -8,6 +8,7 @@ describe("schema", () => {
       schema: "test_schema",
       owner: "test",
       comment: null,
+      privileges: [],
     });
 
     const change = new DropSchema({

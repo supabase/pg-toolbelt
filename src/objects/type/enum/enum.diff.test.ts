@@ -19,13 +19,14 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
       ],
       comment: null,
+      privileges: [],
     };
     const e = new Enum(props);
 
-    const created = diffEnums({}, { [e.stableId]: e });
+    const created = diffEnums({ version: 170000 }, {}, { [e.stableId]: e });
     expect(created[0]).toBeInstanceOf(CreateEnum);
 
-    const dropped = diffEnums({ [e.stableId]: e }, {});
+    const dropped = diffEnums({ version: 170000 }, { [e.stableId]: e }, {});
     expect(dropped[0]).toBeInstanceOf(DropEnum);
   });
 
@@ -39,6 +40,7 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
     const branch = new Enum({
       schema: "public",
@@ -50,9 +52,11 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
 
     const changes = diffEnums(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -73,6 +77,7 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
     const branch = new Enum({
       schema: "public",
@@ -84,9 +89,11 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
 
     const changes = diffEnums(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -108,6 +115,7 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
     const branch = new Enum({
       schema: "public",
@@ -119,9 +127,11 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
 
     const changes = diffEnums(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -143,6 +153,7 @@ describe.concurrent("enum.diff", () => {
         { label: "b", sort_order: 2 },
       ],
       comment: null,
+      privileges: [],
     });
     const branch = new Enum({
       schema: "public",
@@ -154,9 +165,11 @@ describe.concurrent("enum.diff", () => {
         { label: "c", sort_order: 3 },
       ],
       comment: null,
+      privileges: [],
     });
 
     const changes = diffEnums(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

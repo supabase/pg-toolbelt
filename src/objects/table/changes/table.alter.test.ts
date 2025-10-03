@@ -48,6 +48,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({
         ...props,
@@ -80,6 +81,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({ ...props, owner: "o1", options: null });
 
@@ -108,6 +110,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({ ...props, owner: "o1", options: null });
 
@@ -135,6 +138,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const enable = new AlterTableEnableRowLevelSecurity({
         table: new Table({
@@ -179,6 +183,7 @@ describe.concurrent("table", () => {
           parent_schema: null,
           parent_name: null,
           columns: [],
+          privileges: [],
         };
       const force = new AlterTableForceRowLevelSecurity({
         table: new Table({
@@ -223,6 +228,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const change = new AlterTableSetStorageParams({
         table: new Table({ ...base, owner: "o1", options: null }),
@@ -252,6 +258,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({
         ...base,
@@ -288,6 +295,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({
         ...baseProps,
@@ -342,6 +350,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const table = new Table({
         ...baseProps,
@@ -395,6 +404,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const colInt: ColumnProps = {
         name: "a",
@@ -508,6 +518,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const withCols = new Table({ ...tableProps, owner: "o1", options: null });
       const col: ColumnProps = {
@@ -553,6 +564,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const withCols = new Table({ ...tableProps, owner: "o1", options: null });
       const col: ColumnProps = {
@@ -601,6 +613,7 @@ describe.concurrent("table", () => {
         parent_schema: null,
         parent_name: null,
         columns: [],
+        privileges: [],
       };
       const withCols = new Table({ ...tableProps, owner: "o1", options: null });
       const col: ColumnProps = {
@@ -670,6 +683,7 @@ describe.concurrent("table", () => {
             comment: null,
           },
         ],
+        privileges: [],
       });
       const pkey = {
         name: "pk_t",
@@ -752,6 +766,7 @@ describe.concurrent("table", () => {
             comment: null,
           },
         ],
+        privileges: [],
       });
 
       const part2025 = new Table({
@@ -775,6 +790,7 @@ describe.concurrent("table", () => {
         parent_schema: "public",
         parent_name: "events",
         columns: [],
+        privileges: [],
       });
 
       const attach = new AlterTableAttachPartition({

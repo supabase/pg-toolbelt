@@ -18,6 +18,7 @@ describe("range", () => {
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
       comment: null,
+      privileges: [],
     });
     const change = new CreateRange({ range: r });
     expect(change.serialize()).toBe(
@@ -40,6 +41,7 @@ describe("range", () => {
       subtype_opclass_schema: "public",
       subtype_opclass_name: "date_ops",
       comment: null,
+      privileges: [],
     });
     const change = new CreateRange({ range: r });
     expect(change.serialize()).toBe(

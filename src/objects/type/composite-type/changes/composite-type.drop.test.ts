@@ -21,6 +21,7 @@ describe("composite-type", () => {
       owner: "test",
       comment: null,
       columns: [],
+      privileges: [],
     });
 
     const change = new DropCompositeType({

@@ -42,6 +42,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({
         ...props,
@@ -88,6 +89,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({
         ...props,
@@ -134,6 +136,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...props, security_definer: false });
       const change = new AlterProcedureSetSecurity({
@@ -175,6 +178,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...props, security_definer: true });
       const change = new AlterProcedureSetSecurity({
@@ -216,6 +220,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({
         ...base,
@@ -279,6 +284,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, config: null });
       const change = new AlterProcedureSetConfig({
@@ -322,6 +328,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, volatility: "v" });
       const change = new AlterProcedureSetVolatility({
@@ -363,6 +370,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, is_strict: false });
       const change = new AlterProcedureSetStrictness({
@@ -404,6 +412,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, is_strict: true });
       const change = new AlterProcedureSetStrictness({
@@ -445,6 +454,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, leakproof: false });
       const change = new AlterProcedureSetLeakproof({
@@ -486,6 +496,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, leakproof: true });
       const change = new AlterProcedureSetLeakproof({
@@ -527,6 +538,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, parallel_safety: "u" });
       const change = new AlterProcedureSetParallel({
@@ -569,6 +581,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, security_definer: false });
       const change = new AlterProcedureSetSecurity({
@@ -610,6 +623,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, security_definer: true });
       const change = new AlterProcedureSetSecurity({
@@ -651,6 +665,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
       const change1 = new AlterProcedureSetConfig({
@@ -711,6 +726,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const main = new Procedure({
         ...base,
@@ -764,6 +780,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, volatility: "v" });
       const change = new AlterProcedureSetVolatility({
@@ -805,6 +822,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, is_strict: false });
       const change = new AlterProcedureSetStrictness({
@@ -846,6 +864,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, is_strict: true });
       const change = new AlterProcedureSetStrictness({
@@ -887,6 +906,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, leakproof: false });
       const change = new AlterProcedureSetLeakproof({
@@ -928,6 +948,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, leakproof: true });
       const change = new AlterProcedureSetLeakproof({
@@ -969,6 +990,7 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const procedure = new Procedure({ ...base, parallel_safety: "u" });
       const change = new AlterProcedureSetParallel({

@@ -19,6 +19,7 @@ describe("domain", () => {
       owner: "test",
       comment: null,
       constraints: [],
+      privileges: [],
     });
 
     const change = new CreateDomain({ domain });
@@ -52,6 +53,7 @@ describe("domain", () => {
           check_expression: "VALUE <> ''",
         },
       ],
+      privileges: [],
     });
 
     const change = new CreateDomain({ domain });

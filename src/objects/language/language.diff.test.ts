@@ -14,15 +14,16 @@ const base: LanguageProps = {
   validator: null,
   owner: "o1",
   comment: null,
+  privileges: [],
 };
 
 describe.concurrent("language.diff", () => {
   test("create and drop", () => {
     const l = new Language(base);
-    const created = diffLanguages({}, { [l.stableId]: l });
+    const created = diffLanguages({ version: 170000 }, {}, { [l.stableId]: l });
     expect(created[0]).toBeInstanceOf(CreateLanguage);
 
-    const dropped = diffLanguages({ [l.stableId]: l }, {});
+    const dropped = diffLanguages({ version: 170000 }, { [l.stableId]: l }, {});
     expect(dropped[0]).toBeInstanceOf(DropLanguage);
   });
 
@@ -30,6 +31,7 @@ describe.concurrent("language.diff", () => {
     const main = new Language(base);
     const branch = new Language({ ...base, owner: "o2" });
     const changes = diffLanguages(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -40,6 +42,7 @@ describe.concurrent("language.diff", () => {
     const main = new Language(base);
     const branch = new Language({ ...base, call_handler: "handler()" });
     const changes = diffLanguages(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

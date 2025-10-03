@@ -21,6 +21,8 @@ describe("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     });
 
     const change = new CreateView({
@@ -50,6 +52,8 @@ describe("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     });
 
     const change = new CreateView({ view });

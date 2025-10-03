@@ -29,6 +29,7 @@ describe.concurrent("composite-type", () => {
         partition_bound: null,
         comment: null,
         columns: [],
+        privileges: [],
       };
       const main = new CompositeType({
         ...props,
@@ -62,6 +63,7 @@ describe.concurrent("composite-type", () => {
       partition_bound: null,
       owner: "o1",
       comment: null,
+      privileges: [],
     } as const;
     const branch = new CompositeType({
       ...base,
@@ -85,6 +87,7 @@ describe.concurrent("composite-type", () => {
           comment: null,
         },
       ],
+      privileges: [],
     });
     const change = new AlterCompositeTypeAddAttribute({
       compositeType: branch,
@@ -112,6 +115,7 @@ describe.concurrent("composite-type", () => {
       partition_bound: null,
       owner: "o1",
       comment: null,
+      privileges: [],
     } as const;
     const main = new CompositeType({
       ...base,
@@ -135,6 +139,7 @@ describe.concurrent("composite-type", () => {
           comment: null,
         },
       ],
+      privileges: [],
     });
     const change = new AlterCompositeTypeDropAttribute({
       compositeType: main,
@@ -160,6 +165,7 @@ describe.concurrent("composite-type", () => {
       partition_bound: null,
       owner: "o1",
       comment: null,
+      privileges: [],
     } as const;
     const branch = new CompositeType({
       ...base,
@@ -183,6 +189,7 @@ describe.concurrent("composite-type", () => {
           comment: null,
         },
       ],
+      privileges: [],
     });
     const change = new AlterCompositeTypeAlterAttributeType({
       compositeType: branch,

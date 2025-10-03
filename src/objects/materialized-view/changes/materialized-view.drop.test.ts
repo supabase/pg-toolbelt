@@ -22,6 +22,7 @@ describe("materialized-view", () => {
       owner: "test",
       comment: null,
       columns: [],
+      privileges: [],
     });
 
     const change = new DropMaterializedView({

@@ -43,14 +43,23 @@ const base: ProcedureProps = {
   execution_cost: 0,
   result_rows: 0,
   comment: null,
+  privileges: [],
 };
 
 describe.concurrent("procedure.diff", () => {
   test("create and drop", () => {
     const p = new Procedure(base);
-    const created = diffProcedures({}, { [p.stableId]: p });
+    const created = diffProcedures(
+      { version: 170000 },
+      {},
+      { [p.stableId]: p },
+    );
     expect(created[0]).toBeInstanceOf(CreateProcedure);
-    const dropped = diffProcedures({ [p.stableId]: p }, {});
+    const dropped = diffProcedures(
+      { version: 170000 },
+      { [p.stableId]: p },
+      {},
+    );
     expect(dropped[0]).toBeInstanceOf(DropProcedure);
   });
 
@@ -58,6 +67,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, owner: "o2" });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -68,6 +78,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, security_definer: true });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -81,6 +92,7 @@ describe.concurrent("procedure.diff", () => {
       config: ["search_path=pg_temp", "work_mem=64MB"],
     });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -91,6 +103,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, volatility: "i" });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -101,6 +114,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, is_strict: true });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -111,6 +125,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, leakproof: true });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -121,6 +136,7 @@ describe.concurrent("procedure.diff", () => {
     const main = new Procedure(base);
     const branch = new Procedure({ ...base, parallel_safety: "r" });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -135,6 +151,7 @@ describe.concurrent("procedure.diff", () => {
       language: "plpgsql",
     });
     const changes = diffProcedures(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

@@ -19,14 +19,15 @@ const base: RangeProps = {
   subtype_opclass_schema: null,
   subtype_opclass_name: null,
   comment: null,
+  privileges: [],
 };
 
 describe.concurrent("range.diff", () => {
   test("create and drop", () => {
     const r = new Range(base);
-    const created = diffRanges({}, { [r.stableId]: r });
+    const created = diffRanges({ version: 170000 }, {}, { [r.stableId]: r });
     expect(created[0]).toBeInstanceOf(CreateRange);
-    const dropped = diffRanges({ [r.stableId]: r }, {});
+    const dropped = diffRanges({ version: 170000 }, { [r.stableId]: r }, {});
     expect(dropped[0]).toBeInstanceOf(DropRange);
   });
 
@@ -34,6 +35,7 @@ describe.concurrent("range.diff", () => {
     const main = new Range(base);
     const branch = new Range({ ...base, owner: "o2" });
     const changes = diffRanges(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -49,6 +51,7 @@ describe.concurrent("range.diff", () => {
       collation: "en_US",
     });
     const changes = diffRanges(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

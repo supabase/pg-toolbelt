@@ -28,6 +28,7 @@ describe.concurrent("materialized-view", () => {
         partition_bound: null,
         comment: null,
         columns: [],
+        privileges: [],
       };
       const materializedView = new MaterializedView({
         ...props,
@@ -62,6 +63,7 @@ describe.concurrent("materialized-view", () => {
         owner: "test",
         comment: null,
         columns: [],
+        privileges: [],
       };
       const materializedView = new MaterializedView({
         ...props,
@@ -97,6 +99,7 @@ describe.concurrent("materialized-view", () => {
         owner: "test",
         comment: null,
         columns: [],
+        privileges: [],
       };
       const materializedView = new MaterializedView({
         ...props,

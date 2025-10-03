@@ -9,14 +9,15 @@ const base: SchemaProps = {
   schema: "utils",
   owner: "o1",
   comment: null,
+  privileges: [],
 };
 
 describe.concurrent("schema.diff", () => {
   test("create and drop", () => {
     const s = new Schema(base);
-    const created = diffSchemas({}, { [s.stableId]: s });
+    const created = diffSchemas({ version: 170000 }, {}, { [s.stableId]: s });
     expect(created[0]).toBeInstanceOf(CreateSchema);
-    const dropped = diffSchemas({ [s.stableId]: s }, {});
+    const dropped = diffSchemas({ version: 170000 }, { [s.stableId]: s }, {});
     expect(dropped[0]).toBeInstanceOf(DropSchema);
   });
 
@@ -24,6 +25,7 @@ describe.concurrent("schema.diff", () => {
     const main = new Schema(base);
     const branch = new Schema({ ...base, owner: "o2" });
     const changes = diffSchemas(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

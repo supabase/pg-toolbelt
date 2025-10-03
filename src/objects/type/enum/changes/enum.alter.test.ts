@@ -13,6 +13,7 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum({
         ...props,
@@ -38,6 +39,7 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
       const change = new AlterEnumAddValue({ enum: main, newValue: "value3" });
@@ -57,6 +59,7 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
       const change = new AlterEnumAddValue({
@@ -80,6 +83,7 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
       const change = new AlterEnumAddValue({

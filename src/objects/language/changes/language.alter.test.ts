@@ -13,6 +13,7 @@ describe.concurrent("language", () => {
         inline_handler: "plpgsql_inline_handler",
         validator: "plpgsql_validator",
         comment: null,
+        privileges: [],
       };
       const language = new Language({
         ...props,

@@ -27,6 +27,7 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+        privileges: [],
       };
       const domain = new Domain({
         ...props,
@@ -57,6 +58,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain({
         ...props,
@@ -86,6 +89,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain({
         ...props,
@@ -115,6 +120,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain({
         ...props,
@@ -144,6 +151,8 @@ describe.concurrent("domain", () => {
         default_value: null,
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain({
         ...props,
@@ -175,6 +184,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain(props);
 
@@ -209,6 +220,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain(props);
 
@@ -243,6 +256,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain(props);
 
@@ -277,6 +292,8 @@ describe.concurrent("domain", () => {
         owner: "test",
         comment: null,
         constraints: [],
+
+        privileges: [],
       };
       const domain = new Domain(props);
 
