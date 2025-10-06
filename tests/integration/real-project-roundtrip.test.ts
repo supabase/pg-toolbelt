@@ -152,12 +152,16 @@ class RealProjectRoundtripTester {
 
     // Connect to remote project
     let migrationScript: string | null = null;
-    console.log(project.connection_strings);
-    const remoteSql = postgres(
-      project.connection_strings.postgres,
-      postgresConfig,
+    const rawPostgresUrl = project.connection_strings.postgres;
+    // EncodeURIComponent the rawPostgresUrl password component
+    // the connection string is always like `postgresql://postgres:<password>@db.`
+    // use regex to replace the password component with the encodedURIComponent
+    const encodedPostgresUrl = rawPostgresUrl.replace(
+      /postgresql:\/\/postgres:(.+)@db\./,
+      (_match, password) =>
+        `postgresql://postgres:${encodeURIComponent(password)}@db.`,
     );
-    console.log("ALIVE");
+    const remoteSql = postgres(encodedPostgresUrl, postgresConfig);
     try {
       // Extract remote catalog
       const remoteCatalog = await extractCatalog(remoteSql);

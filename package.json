@@ -22,7 +22,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage --project=integration",
     "typecheck": "tsc --noEmit",
-    "test:real-world": "tsx scripts/real-project-roundtrip-test.ts"
+    "test:real-world": "vitest run tests/integration/real-project-roundtrip.test.ts"
   },
   "keywords": [
     "pg",
