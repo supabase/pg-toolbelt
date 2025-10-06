@@ -1,5 +1,5 @@
 import type { Catalog } from "../catalog.model.ts";
-import type { BaseChange } from "../objects/base.change.ts";
+import type { Change } from "../change.types.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -63,7 +63,7 @@ function makePairwiseFromDepends(
     return false;
   };
 
-  return (a: BaseChange, b: BaseChange) => {
+  return (a: Change, b: Change) => {
     const aIds = a.dependencies,
       bIds = b.dependencies;
     if (hasEdge(aIds, bIds))
@@ -145,11 +145,11 @@ interface RefinementContext {
  */
 export function applyRefinements(
   ctx: RefinementContext,
-  list: BaseChange[],
-): BaseChange[] {
+  list: Change[],
+): Change[] {
   // no pre-indexing; use hasEdge on ctx.branchCatalog.depends directly for reuse
 
-  const specs: TopoWindowSpec<BaseChange>[] = [
+  const specs: TopoWindowSpec<Change>[] = [
     {
       /**
        * Sort ALTER TABLE operations across multiple ordering rules:

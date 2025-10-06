@@ -5,10 +5,6 @@ import { test } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import { postgresConfig } from "../../src/main.ts";
-import { CreateProcedure } from "../../src/objects/procedure/changes/procedure.create.ts";
-import { CreateRlsPolicy } from "../../src/objects/rls-policy/changes/rls-policy.create.ts";
-import { CreateTrigger } from "../../src/objects/trigger/changes/trigger.create.ts";
-import { CreateView } from "../../src/objects/view/changes/view.create.ts";
 import { pgDumpSort } from "../../src/sort/global-sort.ts";
 import { applyRefinements } from "../../src/sort/refined-sort.ts";
 import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
@@ -18,6 +14,7 @@ import {
 } from "../constants.ts";
 import { SupabasePostgreSqlContainer } from "../supabase-postgres.ts";
 import { catalogsSemanticalyEqual } from "./roundtrip.ts";
+import { supabaseFilter } from "./supabase-filter.ts";
 
 interface ProjectData {
   ref: string;
@@ -606,7 +603,7 @@ ${change}
 }
 
 // Enable locally to run the test
-test.skip("real-project-roundtrip-test", async () => {
+test("real-project-roundtrip-test", async () => {
   await main();
 });
 
@@ -655,34 +652,26 @@ async function main() {
 }
 
 function generateMigrationScript(mainCatalog: Catalog, branchCatalog: Catalog) {
-  let changes = diffCatalogs(mainCatalog, branchCatalog);
-
-  // Filter out changes
-  // TODO: Properly implement a filter feature and delete this
-  const SUPABASE_EXTENSION_SCHEMAS = ["vault", "cron", "pgsodium"];
-  changes = changes.filter(
-    (change) =>
-      !(
-        (change instanceof CreateView &&
-          SUPABASE_EXTENSION_SCHEMAS.includes(change.view.schema)) ||
-        (change instanceof CreateProcedure &&
-          SUPABASE_EXTENSION_SCHEMAS.includes(change.procedure.schema)) ||
-        (change instanceof CreateTrigger &&
-          SUPABASE_EXTENSION_SCHEMAS.includes(change.trigger.schema)) ||
-        (change instanceof CreateRlsPolicy &&
-          SUPABASE_EXTENSION_SCHEMAS.includes(change.rlsPolicy.schema))
-      ),
-  );
+  const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   if (changes.length === 0) {
     // No changes needed - remote is same as fresh Supabase
     return null;
   }
 
+  // Global sort
   const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
+
+  // Refined sort
   const sortedChanges = applyRefinements(
     { mainCatalog, branchCatalog },
     globallySortedChanges,
+  );
+
+  // Custom filter
+  const filteredChanges = supabaseFilter(
+    { mainCatalog, branchCatalog },
+    sortedChanges,
   );
 
   // Generate migration SQL
@@ -690,7 +679,7 @@ function generateMigrationScript(mainCatalog: Catalog, branchCatalog: Catalog) {
 
   return [
     ...sessionConfig,
-    ...sortedChanges.map((change) => change.serialize()),
+    ...filteredChanges.map((change) => change.serialize()),
   ]
     .join(";\n\n")
     .trim();
