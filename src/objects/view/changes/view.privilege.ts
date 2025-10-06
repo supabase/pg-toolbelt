@@ -72,7 +72,7 @@ export class GrantViewPrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `GRANT ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} TO ${this.grantee}${withGrant}`;
+    return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${viewName} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -132,7 +132,7 @@ export class RevokeViewPrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} FROM ${this.grantee}`;
+    return `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
   }
 }
 
@@ -185,6 +185,6 @@ export class RevokeGrantOptionViewPrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ON ${viewName}${columnSpec} FROM ${this.grantee}`;
+    return `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
   }
 }

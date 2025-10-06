@@ -72,7 +72,7 @@ export class GrantTablePrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `GRANT ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} TO ${this.grantee}${withGrant}`;
+    return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${tableName} TO ${this.grantee}${withGrant}`;
   }
 }
 
@@ -132,7 +132,7 @@ export class RevokeTablePrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} FROM ${this.grantee}`;
+    return `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
   }
 }
 
@@ -185,6 +185,6 @@ export class RevokeGrantOptionTablePrivileges extends BaseChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ON ${tableName}${columnSpec} FROM ${this.grantee}`;
+    return `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
   }
 }

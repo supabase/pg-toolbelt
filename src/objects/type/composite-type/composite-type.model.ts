@@ -117,40 +117,38 @@ export async function extractCompositeTypes(
     await sql`set search_path = ''`;
 
     const compositeTypeRows = await sql`
-      with extension_oids as (
-        select
-          objid
-        from
-          pg_depend d
-        where
-          d.refclassid = 'pg_extension'::regclass
-          and d.classid = 'pg_type'::regclass
-      ), composite_types as (
-        select
-          c.relnamespace::regnamespace::text as schema,
-          quote_ident(c.relname) as name,
-          c.relrowsecurity as row_security,
-          c.relforcerowsecurity as force_row_security,
-          c.relhasindex as has_indexes,
-          c.relhasrules as has_rules,
-          c.relhastriggers as has_triggers,
-          c.relhassubclass as has_subclasses,
-          c.relispopulated as is_populated,
-          c.relreplident as replica_identity,
-          c.relispartition as is_partition,
-          c.reloptions as options,
-          pg_get_expr(c.relpartbound, c.oid) as partition_bound,
-          c.relowner::regrole::text as owner,
-          obj_description(c.reltype, 'pg_type') as comment,
-          c.oid as oid
-        from
-          pg_catalog.pg_class c
-          left outer join extension_oids e on c.reltype = e.objid
-        where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-          and e.objid is null
-          and c.relkind = 'c'
+      WITH extension_oids AS (
+        SELECT objid
+        FROM pg_depend d
+        WHERE d.refclassid = 'pg_extension'::regclass
+          AND d.classid    = 'pg_type'::regclass
+      ),
+      composite_types AS (
+        SELECT
+          c.relnamespace::regnamespace::text AS schema,
+          quote_ident(c.relname)              AS name,
+          c.relrowsecurity                    AS row_security,
+          c.relforcerowsecurity               AS force_row_security,
+          c.relhasindex                       AS has_indexes,
+          c.relhasrules                       AS has_rules,
+          c.relhastriggers                    AS has_triggers,
+          c.relhassubclass                    AS has_subclasses,
+          c.relispopulated                    AS is_populated,
+          c.relreplident                      AS replica_identity,
+          c.relispartition                    AS is_partition,
+          c.reloptions                        AS options,
+          pg_get_expr(c.relpartbound, c.oid)  AS partition_bound,
+          c.relowner::regrole::text           AS owner,
+          obj_description(c.reltype, 'pg_type') AS comment,
+          c.relacl                            AS relacl,    -- used by privileges LATERAL
+          c.oid                                AS oid
+        FROM pg_catalog.pg_class c
+        LEFT JOIN extension_oids e ON c.reltype = e.objid
+        WHERE NOT c.relnamespace::regnamespace::text LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
+          AND e.objid IS NULL
+          AND c.relkind = 'c'
       )
-      select
+      SELECT
         ct.schema,
         ct.name,
         ct.row_security,
@@ -166,57 +164,61 @@ export async function extractCompositeTypes(
         ct.partition_bound,
         ct.owner,
         ct.comment,
-        coalesce(
-            (
-              select json_agg(
+        COALESCE(priv.privileges, '[]') AS privileges,
+        COALESCE(cols.columns, '[]')    AS columns
+      FROM composite_types ct
+
+      -- privileges as a per-row LATERAL subquery
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
                 json_build_object(
-                  'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+                  'grantee',   CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END,
                   'privilege', x.privilege_type,
                   'grantable', x.is_grantable
                 )
-                order by x.grantee, x.privilege_type
-              )
-              from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
-            ), '[]'
-          ) as privileges,
-        coalesce(json_agg(
-          case when a.attname is not null then
-            json_build_object(
-              'name', quote_ident(a.attname),
-              'position', a.attnum,
-              'data_type', a.atttypid::regtype::text,
-              'data_type_str', format_type(a.atttypid, a.atttypmod),
-              'is_custom_type', ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema'),
-              'custom_type_type', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typtype else null end,
-              'custom_type_category', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typcategory else null end,
-              'custom_type_schema', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then ty.typnamespace::regnamespace else null end,
-              'custom_type_name', case when ty.typnamespace::regnamespace::text not in ('pg_catalog', 'information_schema') then quote_ident(ty.typname) else null end,
-              'not_null', a.attnotnull,
-              'is_identity', a.attidentity != '',
-              'is_identity_always', a.attidentity = 'a',
-              'is_generated', a.attgenerated != '',
-              'collation', (
-                select quote_ident(c2.collname)
-                from pg_collation c2, pg_type t2
-                where c2.oid = a.attcollation
-                  and t2.oid = a.atttypid
-                  and a.attcollation <> t2.typcollation
-              ),
-              'default', pg_get_expr(ad.adbin, ad.adrelid),
-              'comment', col_description(a.attrelid, a.attnum)
-            )
-          end
-          order by a.attnum
-        ) filter (where a.attname is not null), '[]') as columns
-      from
-        composite_types ct
-        left join pg_attribute a on a.attrelid = ct.oid and a.attnum > 0 and not a.attisdropped
-        left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
-        left join pg_type ty on ty.oid = a.atttypid       -- use regnamespace instead of joining pg_namespace
-      group by
-        ct.schema, ct.name, ct.row_security, ct.force_row_security, ct.has_indexes, ct.has_rules, ct.has_triggers, ct.has_subclasses, ct.is_populated, ct.replica_identity, ct.is_partition, ct.options, ct.partition_bound, ct.owner, ct.comment, ct.oid
-      order by
-        ct.schema, ct.name;
+                ORDER BY x.grantee, x.privilege_type
+              ) AS privileges
+        FROM LATERAL aclexplode(ct.relacl) AS x(grantor, grantee, privilege_type, is_grantable)
+      ) priv ON TRUE
+
+      -- columns as a per-row LATERAL subquery (so no GROUP BY needed)
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+                json_build_object(
+                  'name',                 quote_ident(a.attname),
+                  'position',             a.attnum,
+                  'data_type',            a.atttypid::regtype::text,
+                  'data_type_str',        format_type(a.atttypid, a.atttypmod),
+                  'is_custom_type',       ty.typnamespace::regnamespace::text NOT IN ('pg_catalog','information_schema'),
+                  'custom_type_type',     CASE WHEN ty.typnamespace::regnamespace::text NOT IN ('pg_catalog','information_schema') THEN ty.typtype    ELSE NULL END,
+                  'custom_type_category', CASE WHEN ty.typnamespace::regnamespace::text NOT IN ('pg_catalog','information_schema') THEN ty.typcategory ELSE NULL END,
+                  'custom_type_schema',   CASE WHEN ty.typnamespace::regnamespace::text NOT IN ('pg_catalog','information_schema') THEN ty.typnamespace::regnamespace ELSE NULL END,
+                  'custom_type_name',     CASE WHEN ty.typnamespace::regnamespace::text NOT IN ('pg_catalog','information_schema') THEN quote_ident(ty.typname) ELSE NULL END,
+                  'not_null',             a.attnotnull,
+                  'is_identity',          a.attidentity <> '',
+                  'is_identity_always',   a.attidentity = 'a',
+                  'is_generated',         a.attgenerated <> '',
+                  'collation', (
+                    SELECT quote_ident(c2.collname)
+                    FROM pg_collation c2, pg_type t2
+                    WHERE c2.oid = a.attcollation
+                      AND t2.oid = a.atttypid
+                      AND a.attcollation <> t2.typcollation
+                  ),
+                  'default',              pg_get_expr(ad.adbin, ad.adrelid),
+                  'comment',              col_description(a.attrelid, a.attnum)
+                )
+                ORDER BY a.attnum
+              ) AS columns
+        FROM pg_attribute a
+        LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+        LEFT JOIN pg_type    ty ON ty.oid     = a.atttypid
+        WHERE a.attrelid = ct.oid
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+      ) cols ON TRUE
+
+      ORDER BY ct.schema, ct.name;
     `;
 
     // Validate and parse each row using the Zod schema
