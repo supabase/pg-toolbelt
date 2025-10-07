@@ -3,13 +3,29 @@ import type { Change } from "../../src/change.types.ts";
 
 const SUPABASE_SCHEMAS = [
   "auth",
-  "cron",
-  "pgmq",
-  "pgmq_public",
-  "pgsodium",
+  "extensions",
+  "graphql",
+  "graphql_public",
+  "pgbouncer",
   "realtime",
   "storage",
   "vault",
+];
+
+const SUPABASE_ROLES = [
+  "anon",
+  "authenticated",
+  "authenticator",
+  "dashboard_user",
+  "pgbouncer",
+  "service_role",
+  "supabase_admin",
+  "supabase_auth_admin",
+  "supabase_etl_admin",
+  "supabase_read_only_user",
+  "supabase_realtime_admin",
+  "supabase_replication_admin",
+  "supabase_storage_admin",
 ];
 
 function getSchema(change: Change) {
@@ -105,12 +121,16 @@ export function supabaseFilter(
   changes: Change[],
 ) {
   return changes.filter((change) => {
+    const owner = getOwner(change);
     const schema = getSchema(change);
     return (
-      change.objectType === "extension" ||
-      change.objectType === "schema" ||
-      schema === null ||
-      !SUPABASE_SCHEMAS.includes(schema)
+      !SUPABASE_ROLES.includes(owner) &&
+      !(
+        change.objectType === "role" &&
+        change.scope === "membership" &&
+        SUPABASE_ROLES.includes(change.member)
+      ) &&
+      !SUPABASE_SCHEMAS.includes(schema ?? "")
     );
   });
 }

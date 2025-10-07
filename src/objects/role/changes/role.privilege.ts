@@ -29,7 +29,7 @@ export class GrantRoleMembership extends BaseChange {
     set?: boolean | null;
   };
   public readonly operation = "create" as const;
-  public readonly scope = "privilege" as const;
+  public readonly scope = "membership" as const;
   public readonly objectType = "role" as const;
 
   constructor(props: {
@@ -73,7 +73,7 @@ export class RevokeRoleMembership extends BaseChange {
   public readonly role: Role;
   public readonly member: string;
   public readonly operation = "drop" as const;
-  public readonly scope = "privilege" as const;
+  public readonly scope = "membership" as const;
   public readonly objectType = "role" as const;
 
   constructor(props: { role: Role; member: string }) {
@@ -107,7 +107,7 @@ export class RevokeRoleMembershipOptions extends BaseChange {
   public readonly inherit?: boolean;
   public readonly set?: boolean;
   public readonly operation = "drop" as const;
-  public readonly scope = "privilege" as const;
+  public readonly scope = "membership" as const;
   public readonly objectType = "role" as const;
 
   constructor(props: {
@@ -152,7 +152,7 @@ export class GrantRoleDefaultPrivileges extends BaseChange {
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number;
   public readonly operation = "create" as const;
-  public readonly scope = "privilege" as const;
+  public readonly scope = "default_privilege" as const;
   public readonly objectType = "role" as const;
 
   constructor(props: {
@@ -210,7 +210,7 @@ export class RevokeRoleDefaultPrivileges extends BaseChange {
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number;
   public readonly operation = "drop" as const;
-  public readonly scope = "privilege" as const;
+  public readonly scope = "default_privilege" as const;
   public readonly objectType = "role" as const;
 
   constructor(props: {
