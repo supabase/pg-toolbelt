@@ -19,66 +19,8 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
-  "defaultPrivileges": {},
   "rlsPolicies": {},
-  "roles": {
-    "role:pg_checkpoint": {
-      "role_name": "pg_checkpoint",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null,
-      "members": []
-    },
-    "role:pg_database_owner": {
-      "role_name": "pg_database_owner",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null,
-      "members": []
-    },
-    "role:pg_read_all_data": {
-      "role_name": "pg_read_all_data",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null,
-      "members": []
-    },
-    "role:pg_write_all_data": {
-      "role_name": "pg_write_all_data",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null,
-      "members": []
-    }
-  },
+  "roles": {},
   "schemas": {
     "schema:public": {
       "name": "public",
@@ -6995,11 +6937,10 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
-  "defaultPrivileges": {},
   "rlsPolicies": {},
   "roles": {
     "role:pg_checkpoint": {
-      "role_name": "pg_checkpoint",
+      "name": "pg_checkpoint",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7010,10 +6951,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_create_subscription": {
-      "role_name": "pg_create_subscription",
+      "name": "pg_create_subscription",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7024,10 +6966,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_database_owner": {
-      "role_name": "pg_database_owner",
+      "name": "pg_database_owner",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7038,10 +6981,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_maintain": {
-      "role_name": "pg_maintain",
+      "name": "pg_maintain",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7052,10 +6996,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_read_all_data": {
-      "role_name": "pg_read_all_data",
+      "name": "pg_read_all_data",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7066,10 +7011,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_use_reserved_connections": {
-      "role_name": "pg_use_reserved_connections",
+      "name": "pg_use_reserved_connections",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7080,10 +7026,11 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_write_all_data": {
-      "role_name": "pg_write_all_data",
+      "name": "pg_write_all_data",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7094,7 +7041,8 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "can_bypass_rls": false,
       "config": null,
       "comment": null,
-      "members": []
+      "members": [],
+      "default_privileges": []
     }
   },
   "schemas": {
