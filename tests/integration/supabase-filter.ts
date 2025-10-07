@@ -9,6 +9,7 @@ const SUPABASE_SCHEMAS = [
   "pgbouncer",
   "realtime",
   "storage",
+  "supabase_functions",
   "vault",
 ];
 
@@ -123,6 +124,17 @@ export function supabaseFilter(
   return changes.filter((change) => {
     const owner = getOwner(change);
     const schema = getSchema(change);
+
+    // if new extensions are enabled, we need to include them
+    if (change.objectType === "extension" && change.operation === "create") {
+      return true;
+    }
+
+    // if new schemas are created and they are used by extensions, we need to include them
+    if (change.objectType === "schema" && change.operation === "create") {
+      return true;
+    }
+
     return (
       !SUPABASE_ROLES.includes(owner) &&
       !(

@@ -1,10 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import postgres from "postgres";
-import { test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import { postgresConfig } from "../../src/main.ts";
+import { stringifyWithBigInt } from "../../src/objects/utils.ts";
 import { pgDumpSort } from "../../src/sort/global-sort.ts";
 import { applyRefinements } from "../../src/sort/refined-sort.ts";
 import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
@@ -12,8 +13,10 @@ import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
 } from "../constants.ts";
-import { SupabasePostgreSqlContainer } from "../supabase-postgres.ts";
-import { catalogsSemanticalyEqual } from "./roundtrip.ts";
+import {
+  type StartedSupabasePostgreSqlContainer,
+  SupabasePostgreSqlContainer,
+} from "../supabase-postgres.ts";
 import { supabaseFilter } from "./supabase-filter.ts";
 
 interface ProjectData {
@@ -73,193 +76,281 @@ interface Issue {
 class RealProjectRoundtripTester {
   private issueCounter = new Map<string, number>();
 
-  async runTests(
-    projects: ProjectData[],
-    maxProjects = 10,
-  ): Promise<TestResult[]> {
-    console.log(
-      `Starting roundtrip tests for ${Math.min(projects.length, maxProjects)} projects...`,
-    );
-
-    const validProjects = projects
-      .filter((p) => p.connection_valid)
-      .slice(0, maxProjects);
-
-    const results: TestResult[] = [];
-
-    for (const project of validProjects) {
-      console.log(
-        `\nTesting project: ${project.ref} (PostgreSQL ${project.postgres_major_version})`,
-      );
-
-      try {
-        const result = await this.testProject(project);
-        results.push(result);
-
-        if (result.issues.length > 0) {
-          await this.generateIssueFiles(result);
-        }
-
-        console.log(
-          `  ${result.success ? "✅" : "❌"} Project ${project.ref}: ${result.success ? "PASSED" : "FAILED"} (${result.issues.length} issues)`,
-        );
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        console.log(`  ❌ Project ${project.ref}: CRASHED - ${errorMessage}`);
-
-        const result: TestResult = {
-          projectRef: project.ref,
-          success: false,
-          error: errorMessage,
-          issues: [
-            {
-              type: "connection-error",
-              description: `Failed to test project: ${errorMessage}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                errorMessage,
-              },
-            },
-          ],
-          testType:
-            project.migrations.length > 0 ? "with-migrations" : "no-migrations",
-        };
-
-        results.push(result);
-        await this.generateIssueFiles(result);
-      }
-    }
-
-    return results;
-  }
-
-  private async testProject(project: ProjectData): Promise<TestResult> {
+  async testProject(project: ProjectData): Promise<TestResult> {
     const hasMigrations = project.migrations.length > 0;
+    const issues: Issue[] = [];
+    const testType = hasMigrations ? "with-migrations" : "no-migrations";
 
-    if (hasMigrations) {
-      return await this.testProjectWithMigrations(project);
-    } else {
-      return await this.testProjectWithoutMigrations(project);
+    // Setup containers based on test type
+    const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
+
+    let sourceContainer: StartedSupabasePostgreSqlContainer | null = null;
+    let testContainer: StartedSupabasePostgreSqlContainer | null = null;
+    let remoteSql: postgres.Sql | null = null;
+
+    try {
+      if (hasMigrations) {
+        // With migrations: start two fresh containers
+        [sourceContainer, testContainer] = await Promise.all([
+          new SupabasePostgreSqlContainer(supabaseImage).start(),
+          new SupabasePostgreSqlContainer(supabaseImage).start(),
+        ]);
+      } else {
+        // No migrations: connect to remote + start one container
+        const rawPostgresUrl = project.connection_strings.postgres;
+        const encodedPostgresUrl = rawPostgresUrl.replace(
+          /postgresql:\/\/postgres:(.+)@db\./,
+          (_match, password) =>
+            `postgresql://postgres:${encodeURIComponent(password)}@db.`,
+        );
+        remoteSql = postgres(encodedPostgresUrl, postgresConfig);
+        sourceContainer = await new SupabasePostgreSqlContainer(
+          supabaseImage,
+        ).start();
+      }
+
+      const sourceSql = postgres(
+        sourceContainer.getConnectionUri(),
+        postgresConfig,
+      );
+      const testSql = testContainer
+        ? postgres(testContainer.getConnectionUri(), postgresConfig)
+        : null;
+
+      try {
+        return await this.testWorkflow(
+          project,
+          sourceSql,
+          testSql,
+          remoteSql,
+          issues,
+          testType,
+        );
+      } finally {
+        await Promise.all([sourceSql.end(), testSql?.end()]);
+      }
+    } finally {
+      await Promise.all([
+        sourceContainer?.stop(),
+        testContainer?.stop(),
+        remoteSql?.end(),
+      ]);
     }
   }
 
-  private async testProjectWithoutMigrations(
+  private async testWorkflow(
     project: ProjectData,
+    sourceSql: postgres.Sql,
+    testSql: postgres.Sql | null,
+    remoteSql: postgres.Sql | null,
+    issues: Issue[],
+    testType: "no-migrations" | "with-migrations",
   ): Promise<TestResult> {
-    const issues: Issue[] = [];
-
-    // Connect to remote project
+    const hasMigrations = testType === "with-migrations";
     let migrationScript: string | null = null;
-    const rawPostgresUrl = project.connection_strings.postgres;
-    // EncodeURIComponent the rawPostgresUrl password component
-    // the connection string is always like `postgresql://postgres:<password>@db.`
-    // use regex to replace the password component with the encodedURIComponent
-    const encodedPostgresUrl = rawPostgresUrl.replace(
-      /postgresql:\/\/postgres:(.+)@db\./,
-      (_match, password) =>
-        `postgresql://postgres:${encodeURIComponent(password)}@db.`,
-    );
-    const remoteSql = postgres(encodedPostgresUrl, postgresConfig);
+
     try {
-      // Extract remote catalog
-      const remoteCatalog = await extractCatalog(remoteSql);
+      if (hasMigrations) {
+        // With migrations: apply migrations step by step
+        for (let i = 0; i < project.migrations.length; i++) {
+          const migration = project.migrations[i];
+          const migrationSql = migration.statements.join(";\n");
 
-      // Start fresh Supabase container with matching version
-      const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
-      const container = new SupabasePostgreSqlContainer(supabaseImage);
-      const startedContainer = await container.start();
-
-      try {
-        const localSql = postgres(
-          startedContainer.getConnectionUri(),
-          postgresConfig,
-        );
-
-        try {
-          // Extract fresh Supabase catalog
-          const localCatalog = await extractCatalog(localSql);
-
-          // Generate diff from fresh Supabase to remote state
-          migrationScript = generateMigrationScript(
-            localCatalog,
-            remoteCatalog,
+          // Apply migration to source database
+          await this.executeMigrationScript(
+            sourceSql,
+            migrationSql,
+            project,
+            issues,
+            `Migration ${migration.name} failed to apply`,
+            migration.name,
           );
 
-          if (!migrationScript) {
-            return {
-              projectRef: project.ref,
-              success: true,
-              issues,
-              testType: "no-migrations",
-            };
-          }
-
-          // Apply migration to local database
-          try {
-            if (migrationScript) {
-              await localSql.unsafe(migrationScript);
-            }
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            issues.push({
-              type: "invalid-sql",
-              description: `Generated SQL failed to execute: ${errorMessage}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                sqlScript: migrationScript,
-                errorMessage,
-              },
-            });
-
+          if (issues.length > 0) {
             return {
               projectRef: project.ref,
               success: false,
               issues,
-              testType: "no-migrations",
+              testType,
             };
           }
 
-          // Extract catalog after migration
-          const localCatalogAfter = await extractCatalog(localSql);
+          // Extract catalogs and generate diff
+          if (!testSql) {
+            throw new Error(
+              "Test SQL connection not available for migrations test",
+            );
+          }
+          const [sourceCatalog, testCatalog] = await Promise.all([
+            extractCatalog(sourceSql),
+            extractCatalog(testSql),
+          ]);
 
-          catalogsSemanticalyEqual(localCatalogAfter, remoteCatalog);
+          const migrationScript = generateMigrationScript(
+            sourceCatalog,
+            testCatalog,
+          );
 
-          // Check for remaining differences
-          // const remainingChanges = diffCatalogs(
-          //   localCatalogAfter,
-          //   remoteCatalog,
-          // );
+          if (!migrationScript) {
+            continue; // No changes needed for this migration
+          }
 
-          // if (remainingChanges.length > 0) {
-          //   issues.push({
-          //     type: "remaining-diff",
-          //     description: `After applying migration, ${remainingChanges.length} differences remain`,
-          //     details: {
-          //       projectRef: project.ref,
-          //       postgresVersion: project.postgres_version,
-          //       sqlScript: migrationScript,
-          //       remainingChanges: remainingChanges.map((change) =>
-          //         change.serialize(),
-          //       ),
-          //     },
-          //   });
-          // }
+          // Apply diff to test container
+          await this.executeMigrationScript(
+            testSql,
+            migrationScript,
+            project,
+            issues,
+            `Generated diff for migration ${migration.name} failed to execute`,
+            migration.name,
+          );
 
+          if (issues.length > 0) {
+            return {
+              projectRef: project.ref,
+              success: false,
+              issues,
+              testType,
+            };
+          }
+
+          // Verify no remaining differences
+          const testCatalogAfter = await extractCatalog(testSql);
+          const remainingChanges = diffCatalogs(
+            testCatalogAfter,
+            sourceCatalog,
+          );
+          const remainingChangesFiltered = supabaseFilter(
+            { mainCatalog: testCatalogAfter, branchCatalog: sourceCatalog },
+            remainingChanges,
+          );
+          if (remainingChangesFiltered.length > 0) {
+            issues.push({
+              type: "remaining-diff",
+              description: `After applying diff for migration ${migration.name}, ${remainingChangesFiltered.length} differences remain`,
+              details: {
+                projectRef: project.ref,
+                postgresVersion: project.postgres_major_version,
+                migrationName: migration.name,
+                allMigrations: project.migrations.map((m) => m.name),
+                sqlScript: migrationScript,
+                remainingChanges: remainingChangesFiltered.map((change) =>
+                  change.serialize(),
+                ),
+              },
+            });
+          }
+        }
+
+        // Final check against remote database
+        if (!remoteSql) {
+          throw new Error(
+            "Remote SQL connection not available for final check",
+          );
+        }
+        const [finalSourceCatalog, remoteCatalog] = await Promise.all([
+          extractCatalog(sourceSql),
+          extractCatalog(remoteSql),
+        ]);
+
+        const finalMigrationScript = generateMigrationScript(
+          finalSourceCatalog,
+          remoteCatalog,
+        );
+
+        if (!finalMigrationScript) {
           return {
             projectRef: project.ref,
-            success: true, //remainingChanges.length === 0,
+            success: true,
             issues,
-            testType: "no-migrations",
+            testType,
           };
-        } finally {
-          await localSql.end();
         }
-      } finally {
-        await startedContainer.stop();
+
+        await this.executeMigrationScript(
+          sourceSql,
+          finalMigrationScript,
+          project,
+          issues,
+          "Final diff script failed to execute",
+        );
+
+        return {
+          projectRef: project.ref,
+          success: issues.length === 0,
+          issues,
+          testType,
+        };
+      } else {
+        // No migrations: single migration operation
+        if (!remoteSql) {
+          throw new Error(
+            "Remote SQL connection not available for no-migrations test",
+          );
+        }
+        const [localCatalog, remoteCatalog] = await Promise.all([
+          extractCatalog(sourceSql),
+          extractCatalog(remoteSql),
+        ]);
+
+        // Generate and apply migration
+        migrationScript = generateMigrationScript(localCatalog, remoteCatalog);
+
+        if (!migrationScript) {
+          return {
+            projectRef: project.ref,
+            success: true,
+            issues,
+            testType,
+          };
+        }
+
+        await this.executeMigrationScript(
+          sourceSql,
+          migrationScript,
+          project,
+          issues,
+          "Generated SQL failed to execute",
+        );
+
+        if (issues.length > 0) {
+          return {
+            projectRef: project.ref,
+            success: false,
+            issues,
+            testType,
+          };
+        }
+
+        // Verify no remaining differences
+        const localCatalogAfter = await extractCatalog(sourceSql);
+        const remainingChanges = diffCatalogs(localCatalogAfter, remoteCatalog);
+        const remainingChangesFiltered = supabaseFilter(
+          { mainCatalog: localCatalogAfter, branchCatalog: remoteCatalog },
+          remainingChanges,
+        );
+
+        if (remainingChangesFiltered.length > 0) {
+          issues.push({
+            type: "remaining-diff",
+            description: `After applying migration, ${remainingChangesFiltered.length} differences remain`,
+            details: {
+              projectRef: project.ref,
+              postgresVersion: project.postgres_major_version,
+              sqlScript: migrationScript,
+              remainingChanges: remainingChangesFiltered.map((change) =>
+                change.serialize(),
+              ),
+            },
+          });
+        }
+
+        return {
+          projectRef: project.ref,
+          success: remainingChangesFiltered.length === 0,
+          issues,
+          testType,
+        };
       }
     } catch (error) {
       const errorMessage =
@@ -279,235 +370,40 @@ class RealProjectRoundtripTester {
         projectRef: project.ref,
         success: false,
         issues,
-        testType: "no-migrations",
+        testType,
       };
-    } finally {
-      await remoteSql.end();
     }
   }
 
-  private async testProjectWithMigrations(
+  private async executeMigrationScript(
+    sql: postgres.Sql,
+    script: string,
     project: ProjectData,
-  ): Promise<TestResult> {
-    const issues: Issue[] = [];
-
-    // Start two fresh Supabase containers
-    const supabaseImage = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[project.postgres_major_version as PostgresVersion]}`;
-    const [sourceContainer, testContainer] = await Promise.all([
-      new SupabasePostgreSqlContainer(supabaseImage).start(),
-      new SupabasePostgreSqlContainer(supabaseImage).start(),
-    ]);
-
+    issues: Issue[],
+    errorDescription: string,
+    migrationName?: string,
+  ): Promise<void> {
     try {
-      const sourceSql = postgres(
-        sourceContainer.getConnectionUri(),
-        postgresConfig,
-      );
-      const testSql = postgres(
-        testContainer.getConnectionUri(),
-        postgresConfig,
-      );
-
-      try {
-        // Apply migrations step by step
-        for (let i = 0; i < project.migrations.length; i++) {
-          const migration = project.migrations[i];
-          const migrationSql = migration.statements.join(";\n");
-
-          // Apply migration to source database
-          try {
-            await sourceSql.unsafe(migrationSql);
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            issues.push({
-              type: "invalid-sql",
-              description: `Migration ${migration.name} failed to apply: ${errorMessage}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                migrationName: migration.name,
-                allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: migrationSql,
-                errorMessage,
-              },
-            });
-
-            return {
-              projectRef: project.ref,
-              success: false,
-              issues,
-              testType: "with-migrations",
-            };
-          }
-
-          // Extract catalogs
-          const [sourceCatalog, testCatalog] = await Promise.all([
-            extractCatalog(sourceSql),
-            extractCatalog(testSql),
-          ]);
-
-          const migrationScript = generateMigrationScript(
-            sourceCatalog,
-            testCatalog,
-          );
-
-          if (!migrationScript) {
-            return {
-              projectRef: project.ref,
-              success: true,
-              issues,
-              testType: "with-migrations",
-            };
-          }
-
-          try {
-            if (migrationScript) {
-              await testSql.unsafe(migrationScript);
-            }
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            issues.push({
-              type: "invalid-sql",
-              description: `Generated diff for migration ${migration.name} failed to execute: ${errorMessage}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                migrationName: migration.name,
-                allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: migrationScript,
-                errorMessage,
-              },
-            });
-
-            return {
-              projectRef: project.ref,
-              success: false,
-              issues,
-              testType: "with-migrations",
-            };
-          }
-
-          // Verify no remaining differences
-          const testCatalogAfter = await extractCatalog(testSql);
-          const remainingChanges = diffCatalogs(
-            testCatalogAfter,
-            sourceCatalog,
-          );
-
-          if (remainingChanges.length > 0) {
-            issues.push({
-              type: "remaining-diff",
-              description: `After applying diff for migration ${migration.name}, ${remainingChanges.length} differences remain`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                migrationName: migration.name,
-                allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: migrationScript,
-                remainingChanges: remainingChanges.map((change) =>
-                  change.serialize(),
-                ),
-              },
-            });
-          }
-        }
-
-        // Final check against remote database
-        const remoteSql = postgres(
-          project.connection_strings.postgres,
-          postgresConfig,
-        );
-
-        try {
-          const [finalSourceCatalog, remoteCatalog] = await Promise.all([
-            extractCatalog(sourceSql),
-            extractCatalog(remoteSql),
-          ]);
-
-          const finalMigrationScript = generateMigrationScript(
-            finalSourceCatalog,
-            remoteCatalog,
-          );
-
-          if (!finalMigrationScript) {
-            return {
-              projectRef: project.ref,
-              success: true,
-              issues,
-              testType: "with-migrations",
-            };
-          }
-
-          try {
-            if (finalMigrationScript) {
-              await sourceSql.unsafe(finalMigrationScript);
-            }
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            issues.push({
-              type: "invalid-sql",
-              description: `Final diff script failed to execute: ${errorMessage}`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: finalMigrationScript,
-                errorMessage,
-              },
-            });
-
-            return {
-              projectRef: project.ref,
-              success: false,
-              issues,
-              testType: "with-migrations",
-            };
-          }
-
-          // Final verification
-          const finalCatalogAfter = await extractCatalog(sourceSql);
-          const finalRemainingChanges = diffCatalogs(
-            finalCatalogAfter,
-            remoteCatalog,
-          );
-
-          if (finalRemainingChanges.length > 0) {
-            issues.push({
-              type: "remaining-diff",
-              description: `After applying final diff, ${finalRemainingChanges.length} differences remain`,
-              details: {
-                projectRef: project.ref,
-                postgresVersion: project.postgres_major_version,
-                allMigrations: project.migrations.map((m) => m.name),
-                sqlScript: finalMigrationScript,
-                remainingChanges: finalRemainingChanges.map((change) =>
-                  change.serialize(),
-                ),
-              },
-            });
-          }
-        } finally {
-          await remoteSql.end();
-        }
-
-        return {
+      await sql.unsafe(script);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      issues.push({
+        type: "invalid-sql",
+        description: `${errorDescription}: ${errorMessage}`,
+        details: {
           projectRef: project.ref,
-          success: issues.length === 0,
-          issues,
-          testType: "with-migrations",
-        };
-      } finally {
-        await Promise.all([sourceSql.end(), testSql.end()]);
-      }
-    } finally {
-      await Promise.all([sourceContainer.stop(), testContainer.stop()]);
+          postgresVersion: project.postgres_major_version,
+          migrationName,
+          allMigrations: project.migrations.map((m) => m.name),
+          sqlScript: script,
+          errorMessage,
+        },
+      });
     }
   }
 
-  private async generateIssueFiles(result: TestResult): Promise<void> {
+  async generateIssueFiles(result: TestResult): Promise<void> {
     const issuesDir = join(
       process.cwd(),
       "diff-issues",
@@ -607,60 +503,53 @@ ${change}
   }
 }
 
-// Enable locally to run the test
-test("real-project-roundtrip-test", async () => {
-  await main();
-});
+// Load project data once at module level
+let projectsData: ProjectData[] | null = null;
 
-async function main() {
-  try {
-    let projectsData = JSON.parse(
+async function loadProjectsData(): Promise<ProjectData[]> {
+  if (projectsData === null) {
+    projectsData = JSON.parse(
       await readFile("database-extraction-results.json", "utf-8"),
     ) as ProjectData[];
-
-    projectsData = projectsData.filter((p) => p.ref === "firmdujfeupgocnckibm");
-
-    const tester = new RealProjectRoundtripTester();
-    const results = await tester.runTests(projectsData, 1);
-
-    // Print summary
-    console.log(`\n${"=".repeat(50)}`);
-    console.log("ROUNDTRIP TEST SUMMARY");
-    console.log("=".repeat(50));
-
-    const passed = results.filter((r) => r.success).length;
-    const failed = results.filter((r) => !r.success).length;
-    const totalIssues = results.reduce((sum, r) => sum + r.issues.length, 0);
-
-    console.log(`Total Projects: ${results.length}`);
-    console.log(`Passed: ${passed}`);
-    console.log(`Failed: ${failed}`);
-    console.log(`Total Issues: ${totalIssues}`);
-
-    const issuesByType = results
-      .flatMap((r) => r.issues)
-      .reduce(
-        (acc, issue) => {
-          acc[issue.type] = (acc[issue.type] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      );
-
-    console.log("\nIssues by Type:");
-    for (const [type, count] of Object.entries(issuesByType)) {
-      console.log(`  ${type}: ${count}`);
-    }
-
-    console.log(`\nIssue files generated in: diff-issues/staging/`);
-  } catch (error) {
-    console.error("Test execution failed:", error);
   }
+  return projectsData;
 }
+
+// Generate individual vitest tests for each project
+describe("Real Project Roundtrip Tests", async () => {
+  let projects = await loadProjectsData();
+
+  // Take only the first 10 projects
+  projects = projects.slice(0, 1);
+
+  // projects = projects.filter((p) => p.ref === "firmdujfeupgocnckibm");
+
+  for (const project of projects) {
+    const testName = `project-${project.ref}-roundtrip`;
+
+    test(testName, async () => {
+      const tester = new RealProjectRoundtripTester();
+      const result = await tester.testProject(project);
+
+      // Generate issue files if there are issues
+      if (result.issues.length > 0) {
+        await tester.generateIssueFiles(result);
+      }
+
+      // Assert test success
+      expect(result.success).toBe(true);
+    });
+  }
+});
 
 function generateMigrationScript(mainCatalog: Catalog, branchCatalog: Catalog) {
   const changes = diffCatalogs(mainCatalog, branchCatalog);
-
+  if (process.env.DEBUG) {
+    console.log("branchCatalog.extensions: ");
+    console.log(stringifyWithBigInt(branchCatalog.extensions, 2));
+    console.log("mainCatalog.extensions: ");
+    console.log(stringifyWithBigInt(mainCatalog.extensions, 2));
+  }
   if (changes.length === 0) {
     // No changes needed - remote is same as fresh Supabase
     return null;
