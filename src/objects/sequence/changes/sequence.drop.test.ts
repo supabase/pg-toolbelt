@@ -20,6 +20,7 @@ describe("sequence", () => {
       owned_by_column: null,
       comment: null,
       privileges: [],
+      owner: "test",
     });
 
     const change = new DropSequence({

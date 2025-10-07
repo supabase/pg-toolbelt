@@ -30,6 +30,7 @@ describe("index", () => {
       table_relkind: "r",
       definition: "CREATE INDEX test_index ON public.test_table (id)",
       comment: null,
+      owner: "test",
     });
 
     const columns: ColumnProps[] = [

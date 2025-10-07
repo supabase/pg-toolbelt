@@ -1,8 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
-import {
-  AlterExtensionChangeOwner,
-  AlterExtensionSetSchema,
-} from "./changes/extension.alter.ts";
+import { AlterExtensionSetSchema } from "./changes/extension.alter.ts";
 import {
   CreateCommentOnExtension,
   DropCommentOnExtension,
@@ -70,16 +67,6 @@ export function diffExtensions(
         new AlterExtensionSetSchema({
           extension: mainExtension,
           schema: branchExtension.schema,
-        }),
-      );
-    }
-
-    // OWNER
-    if (mainExtension.owner !== branchExtension.owner) {
-      changes.push(
-        new AlterExtensionChangeOwner({
-          extension: mainExtension,
-          owner: branchExtension.owner,
         }),
       );
     }

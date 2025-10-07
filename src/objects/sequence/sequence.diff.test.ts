@@ -24,6 +24,7 @@ const base: SequenceProps = {
   owned_by_column: null,
   comment: null,
   privileges: [],
+  owner: "test",
 };
 
 describe.concurrent("sequence.diff", () => {

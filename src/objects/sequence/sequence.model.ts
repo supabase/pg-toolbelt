@@ -22,6 +22,7 @@ const sequencePropsSchema = z.object({
   owned_by_column: z.string().nullable(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  owner: z.string(),
 });
 
 export type SequencePrivilegeProps = PrivilegeProps;
@@ -43,6 +44,7 @@ export class Sequence extends BasePgModel {
   public readonly owned_by_column: SequenceProps["owned_by_column"];
   public readonly comment: SequenceProps["comment"];
   public readonly privileges: SequencePrivilegeProps[];
+  public readonly owner: SequenceProps["owner"];
 
   constructor(props: SequenceProps) {
     super();
@@ -65,6 +67,7 @@ export class Sequence extends BasePgModel {
     this.owned_by_column = props.owned_by_column;
     this.comment = props.comment;
     this.privileges = props.privileges;
+    this.owner = props.owner;
   }
 
   get stableId(): `sequence:${string}` {
@@ -93,6 +96,7 @@ export class Sequence extends BasePgModel {
       owned_by_column: this.owned_by_column,
       comment: this.comment,
       privileges: this.privileges,
+      owner: this.owner,
     };
   }
 }
@@ -137,7 +141,8 @@ select
       )
       from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
-  ) as privileges
+  ) as privileges,
+  c.relowner::regrole::text as owner
 from
   pg_catalog.pg_class c
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid

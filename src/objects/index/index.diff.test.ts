@@ -34,6 +34,7 @@ const base: IndexProps = {
   is_constraint: false,
   definition: "CREATE INDEX ix ON t (expression)",
   comment: null,
+  owner: "test",
 };
 
 describe.concurrent("index.diff", () => {

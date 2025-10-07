@@ -24,6 +24,7 @@ describe.concurrent("sequence", () => {
         persistence: "p",
         comment: null,
         privileges: [],
+        owner: "test",
       };
       const sequence = new Sequence({
         ...props,
@@ -59,6 +60,7 @@ describe.concurrent("sequence", () => {
         owned_by_column: "id",
         comment: null,
         privileges: [],
+        owner: "test",
       });
       const change = new AlterSequenceSetOwnedBy({ sequence, ownedBy: null });
       expect(change.serialize()).toBe("ALTER SEQUENCE public.s OWNED BY NONE");
@@ -85,6 +87,7 @@ describe.concurrent("sequence", () => {
         owned_by_column: null,
         comment: null,
         privileges: [],
+        owner: "test",
       });
       const change = new AlterSequenceSetOptions({
         sequence,
@@ -124,6 +127,7 @@ describe.concurrent("sequence", () => {
         owned_by_column: null,
         comment: null,
         privileges: [],
+        owner: "test",
       });
       const change = new AlterSequenceSetOptions({
         sequence,

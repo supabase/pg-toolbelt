@@ -34,6 +34,7 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
       const index = new Index({
         ...props,
@@ -77,6 +78,7 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
       const index = new Index({
         ...props,
@@ -123,6 +125,7 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
       const index = new Index({
         ...props,
@@ -165,6 +168,7 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
       const index = new Index({
         ...props,

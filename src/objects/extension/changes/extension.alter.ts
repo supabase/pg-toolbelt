@@ -16,7 +16,6 @@ import type { Extension } from "../extension.model.ts";
  */
 
 export type AlterExtension =
-  | AlterExtensionChangeOwner
   | AlterExtensionSetSchema
   | AlterExtensionUpdateVersion;
 
@@ -76,36 +75,6 @@ export class AlterExtensionSetSchema extends BaseChange {
       this.extension.name,
       "SET SCHEMA",
       this.schema,
-    ].join(" ");
-  }
-}
-
-/**
- * ALTER EXTENSION ... OWNER TO ...
- */
-export class AlterExtensionChangeOwner extends BaseChange {
-  public readonly extension: Extension;
-  public readonly owner: string;
-  public readonly operation = "alter" as const;
-  public readonly scope = "object" as const;
-  public readonly objectType = "extension" as const;
-
-  constructor(props: { extension: Extension; owner: string }) {
-    super();
-    this.extension = props.extension;
-    this.owner = props.owner;
-  }
-
-  get dependencies() {
-    return [this.extension.stableId];
-  }
-
-  serialize(): string {
-    return [
-      "ALTER EXTENSION",
-      this.extension.name,
-      "OWNER TO",
-      this.owner,
     ].join(" ");
   }
 }

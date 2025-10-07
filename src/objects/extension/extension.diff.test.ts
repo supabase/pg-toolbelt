@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  AlterExtensionChangeOwner,
-  AlterExtensionSetSchema,
-} from "./changes/extension.alter.ts";
+import { AlterExtensionSetSchema } from "./changes/extension.alter.ts";
 import { CreateExtension } from "./changes/extension.create.ts";
 import { DropExtension } from "./changes/extension.drop.ts";
 import { diffExtensions } from "./extension.diff.ts";
@@ -26,22 +23,18 @@ describe.concurrent("extension.diff", () => {
     expect(dropped[0]).toBeInstanceOf(DropExtension);
   });
 
-  test("alter: version, schema, owner", () => {
+  test("alter: version, schema", () => {
     const main = new Extension(base);
     const branch = new Extension({
       ...base,
       version: "1.1",
       schema: "utils",
-      owner: "o2",
     });
     const changes = diffExtensions(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
     expect(changes.some((c) => c instanceof AlterExtensionSetSchema)).toBe(
-      true,
-    );
-    expect(changes.some((c) => c instanceof AlterExtensionChangeOwner)).toBe(
       true,
     );
   });
