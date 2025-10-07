@@ -186,7 +186,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
       left join lateral unnest(i.indoption)    with ordinality as opt(val, ordi) on ordi = k.ord
     )
     select
-      quote_ident(n.nspname)           as schema,
+      c.relnamespace::regnamespace::text as schema,
       quote_ident(tc.relname)          as table_name,
       tc.relkind                       as table_relkind,
       quote_ident(c.relname)           as name,
@@ -221,7 +221,6 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
     from pg_index i
     join pg_class c  on c.oid  = i.indexrelid
     join pg_class tc on tc.oid = i.indrelid
-    join pg_namespace n on n.oid = c.relnamespace
     join pg_am am    on am.oid = c.relam
     left join pg_tablespace ts on ts.oid = c.reltablespace
     left join extension_oids e  on c.oid = e.objid
@@ -281,8 +280,7 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
         and a2.attnum > 0
     ) as st on true
 
-    where n.nspname not like 'pg\_%'
-      and n.nspname <> 'information_schema'
+    where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
       and i.indislive is true
       and e.objid is null
       and e_table.objid is null

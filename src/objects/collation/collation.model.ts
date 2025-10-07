@@ -135,7 +135,7 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
       from
         pg_catalog.pg_collation c
         left outer join extension_oids e on c.oid = e.objid
-        where not c.collnamespace::regnamespace::text like any(array['pg\_%', 'information\_schema'])
+        where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
       order by
         1, 2;
