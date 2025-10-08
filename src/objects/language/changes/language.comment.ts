@@ -1,16 +1,15 @@
-import { BaseChange, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
+import { CreateLanguageChange, DropLanguageChange } from "./language.base.ts";
 
 export type CommentLanguage = CreateCommentOnLanguage | DropCommentOnLanguage;
 
 /**
  * Create/drop comments on languages.
  */
-export class CreateCommentOnLanguage extends BaseChange {
+export class CreateCommentOnLanguage extends CreateLanguageChange {
   public readonly language: Language;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "language" as const;
 
   constructor(props: { language: Language }) {
     super();
@@ -31,11 +30,9 @@ export class CreateCommentOnLanguage extends BaseChange {
   }
 }
 
-export class DropCommentOnLanguage extends BaseChange {
+export class DropCommentOnLanguage extends DropLanguageChange {
   public readonly language: Language;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "language" as const;
 
   constructor(props: { language: Language }) {
     super();

@@ -1,6 +1,6 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatFunctionArguments } from "../utils.ts";
+import { DropProcedureChange } from "./procedure.base.ts";
 
 /**
  * Drop a procedure.
@@ -13,11 +13,9 @@ import { formatFunctionArguments } from "../utils.ts";
  * DROP PROCEDURE [ IF EXISTS ] name ( [ [ argmode ] [ argname ] argtype [, ...] ] ) [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropProcedure extends BaseChange {
+export class DropProcedure extends DropProcedureChange {
   public readonly procedure: Procedure;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure }) {
     super();

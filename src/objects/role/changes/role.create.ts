@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
+import { CreateRoleChange } from "./role.base.ts";
 
 /**
  * Create a role.
@@ -28,11 +28,9 @@ import type { Role } from "../role.model.ts";
  *     | SYSID uid
  * ```
  */
-export class CreateRole extends BaseChange {
+export class CreateRole extends CreateRoleChange {
   public readonly role: Role;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();

@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
+import { AlterRlsPolicyChange } from "./rls-policy.base.ts";
 
 /**
  * Alter an RLS policy.
@@ -23,12 +23,10 @@ export type AlterRlsPolicy =
 /**
  * ALTER POLICY ... TO roles ...
  */
-export class AlterRlsPolicySetRoles extends BaseChange {
+export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
   public readonly policy: RlsPolicy;
   public readonly roles: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { policy: RlsPolicy; roles: string[] }) {
     super();
@@ -61,12 +59,10 @@ export class AlterRlsPolicySetRoles extends BaseChange {
 /**
  * ALTER POLICY ... USING (...)
  */
-export class AlterRlsPolicySetUsingExpression extends BaseChange {
+export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
   public readonly policy: RlsPolicy;
   public readonly usingExpression: string | null;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { policy: RlsPolicy; usingExpression: string | null }) {
     super();
@@ -94,12 +90,10 @@ export class AlterRlsPolicySetUsingExpression extends BaseChange {
 /**
  * ALTER POLICY ... WITH CHECK (...)
  */
-export class AlterRlsPolicySetWithCheckExpression extends BaseChange {
+export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
   public readonly policy: RlsPolicy;
   public readonly withCheckExpression: string | null;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
   constructor(props: {
     policy: RlsPolicy;

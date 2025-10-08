@@ -1,5 +1,6 @@
-import { BaseChange, quoteLiteral } from "../../../base.change.ts";
+import { quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
+import { CreateEnumChange } from "./enum.base.ts";
 
 /**
  * Create an enum.
@@ -11,11 +12,9 @@ import type { Enum } from "../enum.model.ts";
  * CREATE TYPE name AS ENUM ( [ label [, ...] ] )
  * ```
  */
-export class CreateEnum extends BaseChange {
+export class CreateEnum extends CreateEnumChange {
   public readonly enum: Enum;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "enum" as const;
 
   constructor(props: { enum: Enum }) {
     super();

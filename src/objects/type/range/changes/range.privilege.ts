@@ -1,9 +1,9 @@
-import { BaseChange } from "../../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
 import type { Range } from "../range.model.ts";
+import { CreateRangeChange, DropRangeChange } from "./range.base.ts";
 
 export type RangePrivilege =
   | GrantRangePrivileges
@@ -23,14 +23,12 @@ export type RangePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantRangePrivileges extends BaseChange {
+export class GrantRangePrivileges extends CreateRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "range" as const;
 
   constructor(props: {
     range: Range;
@@ -82,14 +80,12 @@ export class GrantRangePrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeRangePrivileges extends BaseChange {
+export class RevokeRangePrivileges extends DropRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "range" as const;
 
   constructor(props: {
     range: Range;
@@ -125,14 +121,12 @@ export class RevokeRangePrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionRangePrivileges extends BaseChange {
+export class RevokeGrantOptionRangePrivileges extends DropRangeChange {
   public readonly range: Range;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "range" as const;
 
   constructor(props: {
     range: Range;

@@ -1,5 +1,5 @@
-import { BaseChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
+import { CreateCompositeTypeChange } from "./composite-type.base.ts";
 
 /**
  * Create a composite type.
@@ -12,11 +12,9 @@ import type { CompositeType } from "../composite-type.model.ts";
  *     ( [ attribute_name data_type [ COLLATE collation ] [, ... ] ] )
  * ```
  */
-export class CreateCompositeType extends BaseChange {
+export class CreateCompositeType extends CreateCompositeTypeChange {
   public readonly compositeType: CompositeType;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType }) {
     super();

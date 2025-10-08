@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
+import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
 
 /**
  * Alter a domain.
@@ -47,12 +47,10 @@ export type AlterDomain =
 /**
  * ALTER DOMAIN ... SET DEFAULT ...
  */
-export class AlterDomainSetDefault extends BaseChange {
+export class AlterDomainSetDefault extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly defaultValue: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; defaultValue: string }) {
     super();
@@ -72,11 +70,9 @@ export class AlterDomainSetDefault extends BaseChange {
 /**
  * ALTER DOMAIN ... DROP DEFAULT
  */
-export class AlterDomainDropDefault extends BaseChange {
+export class AlterDomainDropDefault extends AlterDomainChange {
   public readonly domain: Domain;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain }) {
     super();
@@ -95,11 +91,9 @@ export class AlterDomainDropDefault extends BaseChange {
 /**
  * ALTER DOMAIN ... SET NOT NULL
  */
-export class AlterDomainSetNotNull extends BaseChange {
+export class AlterDomainSetNotNull extends AlterDomainChange {
   public readonly domain: Domain;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain }) {
     super();
@@ -118,11 +112,9 @@ export class AlterDomainSetNotNull extends BaseChange {
 /**
  * ALTER DOMAIN ... DROP NOT NULL
  */
-export class AlterDomainDropNotNull extends BaseChange {
+export class AlterDomainDropNotNull extends AlterDomainChange {
   public readonly domain: Domain;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain }) {
     super();
@@ -141,12 +133,10 @@ export class AlterDomainDropNotNull extends BaseChange {
 /**
  * ALTER DOMAIN ... OWNER TO ...
  */
-export class AlterDomainChangeOwner extends BaseChange {
+export class AlterDomainChangeOwner extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; owner: string }) {
     super();
@@ -166,12 +156,10 @@ export class AlterDomainChangeOwner extends BaseChange {
 /**
  * ALTER DOMAIN ... ADD CONSTRAINT ... [ NOT VALID ]
  */
-export class AlterDomainAddConstraint extends BaseChange {
+export class AlterDomainAddConstraint extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();
@@ -204,12 +192,10 @@ export class AlterDomainAddConstraint extends BaseChange {
 /**
  * ALTER DOMAIN ... DROP CONSTRAINT ...
  */
-export class AlterDomainDropConstraint extends BaseChange {
+export class AlterDomainDropConstraint extends DropDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();
@@ -238,12 +224,10 @@ export class AlterDomainDropConstraint extends BaseChange {
 /**
  * ALTER DOMAIN ... VALIDATE CONSTRAINT ...
  */
-export class AlterDomainValidateConstraint extends BaseChange {
+export class AlterDomainValidateConstraint extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();

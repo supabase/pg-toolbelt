@@ -1,5 +1,6 @@
-import { BaseChange, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Extension } from "../extension.model.ts";
+import { AlterExtensionChange } from "./extension.base.ts";
 
 /**
  * Alter an extension.
@@ -22,12 +23,10 @@ export type AlterExtension =
 /**
  * ALTER EXTENSION ... UPDATE TO ...
  */
-export class AlterExtensionUpdateVersion extends BaseChange {
+export class AlterExtensionUpdateVersion extends AlterExtensionChange {
   public readonly extension: Extension;
   public readonly version: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension; version: string }) {
     super();
@@ -52,12 +51,10 @@ export class AlterExtensionUpdateVersion extends BaseChange {
 /**
  * ALTER EXTENSION ... SET SCHEMA ...
  */
-export class AlterExtensionSetSchema extends BaseChange {
+export class AlterExtensionSetSchema extends AlterExtensionChange {
   public readonly extension: Extension;
   public readonly schema: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "extension" as const;
 
   constructor(props: { extension: Extension; schema: string }) {
     super();

@@ -1,6 +1,6 @@
-import { BaseChange } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
+import { AlterTriggerChange } from "./trigger.base.ts";
 import { CreateTrigger } from "./trigger.create.ts";
 
 /**
@@ -20,12 +20,10 @@ export type AlterTrigger = ReplaceTrigger;
  * Replace a trigger by dropping and recreating it.
  * This is used when properties that cannot be altered via ALTER TRIGGER change.
  */
-export class ReplaceTrigger extends BaseChange {
+export class ReplaceTrigger extends AlterTriggerChange {
   public readonly trigger: Trigger;
   public readonly indexableObject?: TableLikeObject;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "trigger" as const;
 
   constructor(props: {
     trigger: Trigger;

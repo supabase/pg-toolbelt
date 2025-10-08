@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
+import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
 /**
  * Alter a materialized view.
@@ -38,12 +38,10 @@ export type AlterMaterializedView =
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
  */
-export class AlterMaterializedViewChangeOwner extends BaseChange {
+export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { materializedView: MaterializedView; owner: string }) {
     super();
@@ -69,13 +67,11 @@ export class AlterMaterializedViewChangeOwner extends BaseChange {
  * ALTER MATERIALIZED VIEW ... SET/RESET ( storage_parameter ... )
  * Accepts main and branch, computes differences, and emits RESET then SET statements.
  */
-export class AlterMaterializedViewSetStorageParams extends BaseChange {
+export class AlterMaterializedViewSetStorageParams extends AlterMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly paramsToSet: string[];
   public readonly keysToReset: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;

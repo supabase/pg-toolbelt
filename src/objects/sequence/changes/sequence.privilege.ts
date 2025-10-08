@@ -1,9 +1,9 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { Sequence } from "../sequence.model.ts";
+import { CreateSequenceChange, DropSequenceChange } from "./sequence.base.ts";
 
 export type SequencePrivilege =
   | GrantSequencePrivileges
@@ -25,14 +25,12 @@ export type SequencePrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantSequencePrivileges extends BaseChange {
+export class GrantSequencePrivileges extends CreateSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: {
     sequence: Sequence;
@@ -86,14 +84,12 @@ export class GrantSequencePrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeSequencePrivileges extends BaseChange {
+export class RevokeSequencePrivileges extends DropSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: {
     sequence: Sequence;
@@ -129,14 +125,12 @@ export class RevokeSequencePrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionSequencePrivileges extends BaseChange {
+export class RevokeGrantOptionSequencePrivileges extends DropSequenceChange {
   public readonly sequence: Sequence;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: {
     sequence: Sequence;

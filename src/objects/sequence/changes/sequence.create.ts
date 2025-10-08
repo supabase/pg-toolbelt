@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
+import { CreateSequenceChange } from "./sequence.base.ts";
 
 /**
  * Create a sequence.
@@ -14,11 +14,9 @@ import type { Sequence } from "../sequence.model.ts";
  *     [ OWNED BY { table_name.column_name | NONE } ]
  * ```
  */
-export class CreateSequence extends BaseChange {
+export class CreateSequence extends CreateSequenceChange {
   public readonly sequence: Sequence;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: { sequence: Sequence }) {
     super();

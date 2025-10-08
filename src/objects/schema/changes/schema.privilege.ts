@@ -1,9 +1,9 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { Schema } from "../schema.model.ts";
+import { CreateSchemaChange, DropSchemaChange } from "./schema.base.ts";
 
 export type SchemaPrivilege =
   | GrantSchemaPrivileges
@@ -23,14 +23,12 @@ export type SchemaPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantSchemaPrivileges extends BaseChange {
+export class GrantSchemaPrivileges extends CreateSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "schema" as const;
 
   constructor(props: {
     schema: Schema;
@@ -82,14 +80,12 @@ export class GrantSchemaPrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeSchemaPrivileges extends BaseChange {
+export class RevokeSchemaPrivileges extends DropSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "schema" as const;
 
   constructor(props: {
     schema: Schema;
@@ -125,14 +121,12 @@ export class RevokeSchemaPrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionSchemaPrivileges extends BaseChange {
+export class RevokeGrantOptionSchemaPrivileges extends DropSchemaChange {
   public readonly schema: Schema;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "schema" as const;
 
   constructor(props: {
     schema: Schema;

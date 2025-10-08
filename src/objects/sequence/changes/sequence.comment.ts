@@ -1,13 +1,12 @@
-import { BaseChange, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
+import { CreateSequenceChange, DropSequenceChange } from "./sequence.base.ts";
 
 export type CommentSequence = CreateCommentOnSequence | DropCommentOnSequence;
 
-export class CreateCommentOnSequence extends BaseChange {
+export class CreateCommentOnSequence extends CreateSequenceChange {
   public readonly sequence: Sequence;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: { sequence: Sequence }) {
     super();
@@ -29,11 +28,9 @@ export class CreateCommentOnSequence extends BaseChange {
   }
 }
 
-export class DropCommentOnSequence extends BaseChange {
+export class DropCommentOnSequence extends DropSequenceChange {
   public readonly sequence: Sequence;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "sequence" as const;
 
   constructor(props: { sequence: Sequence }) {
     super();

@@ -1,9 +1,9 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { Table } from "../table.model.ts";
+import { CreateTableChange, DropTableChange } from "./table.base.ts";
 
 export type TablePrivilege =
   | GrantTablePrivileges
@@ -25,15 +25,13 @@ export type TablePrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantTablePrivileges extends BaseChange {
+export class GrantTablePrivileges extends CreateTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;
@@ -93,15 +91,13 @@ export class GrantTablePrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeTablePrivileges extends BaseChange {
+export class RevokeTablePrivileges extends DropTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;
@@ -143,15 +139,13 @@ export class RevokeTablePrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionTablePrivileges extends BaseChange {
+export class RevokeGrantOptionTablePrivileges extends DropTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;

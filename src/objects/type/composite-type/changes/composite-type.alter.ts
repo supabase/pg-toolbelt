@@ -1,5 +1,5 @@
-import { BaseChange } from "../../../base.change.ts";
 import type { CompositeType } from "../composite-type.model.ts";
+import { AlterCompositeTypeChange } from "./composite-type.base.ts";
 
 /**
  * Alter a composite type.
@@ -27,12 +27,10 @@ export type AlterCompositeType =
 /**
  * ALTER TYPE ... OWNER TO ...
  */
-export class AlterCompositeTypeChangeOwner extends BaseChange {
+export class AlterCompositeTypeChangeOwner extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType; owner: string }) {
     super();
@@ -57,12 +55,10 @@ export class AlterCompositeTypeChangeOwner extends BaseChange {
 /**
  * ALTER TYPE ... ADD ATTRIBUTE ...
  */
-export class AlterCompositeTypeAddAttribute extends BaseChange {
+export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;
@@ -95,12 +91,10 @@ export class AlterCompositeTypeAddAttribute extends BaseChange {
 /**
  * ALTER TYPE ... DROP ATTRIBUTE ...
  */
-export class AlterCompositeTypeDropAttribute extends BaseChange {
+export class AlterCompositeTypeDropAttribute extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;
@@ -128,12 +122,10 @@ export class AlterCompositeTypeDropAttribute extends BaseChange {
 /**
  * ALTER TYPE ... ALTER ATTRIBUTE ... TYPE ... [ COLLATE ... ]
  */
-export class AlterCompositeTypeAlterAttributeType extends BaseChange {
+export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: CompositeType["columns"][number];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: {
     compositeType: CompositeType;

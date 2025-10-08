@@ -1,9 +1,9 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { Domain } from "../domain.model.ts";
+import { CreateDomainChange, DropDomainChange } from "./domain.base.ts";
 
 export type DomainPrivilege =
   | GrantDomainPrivileges
@@ -23,14 +23,12 @@ export type DomainPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantDomainPrivileges extends BaseChange {
+export class GrantDomainPrivileges extends CreateDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: {
     domain: Domain;
@@ -82,14 +80,12 @@ export class GrantDomainPrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeDomainPrivileges extends BaseChange {
+export class RevokeDomainPrivileges extends DropDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: {
     domain: Domain;
@@ -125,14 +121,12 @@ export class RevokeDomainPrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionDomainPrivileges extends BaseChange {
+export class RevokeGrantOptionDomainPrivileges extends DropDomainChange {
   public readonly domain: Domain;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: {
     domain: Domain;

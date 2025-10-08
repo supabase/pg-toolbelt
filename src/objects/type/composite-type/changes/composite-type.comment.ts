@@ -1,6 +1,10 @@
-import { BaseChange, quoteLiteral } from "../../../base.change.ts";
+import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import type { CompositeType } from "../composite-type.model.ts";
+import {
+  CreateCompositeTypeChange,
+  DropCompositeTypeChange,
+} from "./composite-type.base.ts";
 
 /**
  * Create/drop comments on composite types or their attributes.
@@ -14,11 +18,9 @@ export type CommentCompositeType =
   | DropCommentOnCompositeType
   | DropCommentOnCompositeTypeAttribute;
 
-export class CreateCommentOnCompositeType extends BaseChange {
+export class CreateCommentOnCompositeType extends CreateCompositeTypeChange {
   public readonly compositeType: CompositeType;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType }) {
     super();
@@ -40,11 +42,9 @@ export class CreateCommentOnCompositeType extends BaseChange {
   }
 }
 
-export class DropCommentOnCompositeType extends BaseChange {
+export class DropCommentOnCompositeType extends DropCompositeTypeChange {
   public readonly compositeType: CompositeType;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType }) {
     super();
@@ -64,12 +64,10 @@ export class DropCommentOnCompositeType extends BaseChange {
   }
 }
 
-export class CreateCommentOnCompositeTypeAttribute extends BaseChange {
+export class CreateCommentOnCompositeTypeAttribute extends CreateCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType; attribute: ColumnProps }) {
     super();
@@ -94,12 +92,10 @@ export class CreateCommentOnCompositeTypeAttribute extends BaseChange {
   }
 }
 
-export class DropCommentOnCompositeTypeAttribute extends BaseChange {
+export class DropCommentOnCompositeTypeAttribute extends DropCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType; attribute: ColumnProps }) {
     super();

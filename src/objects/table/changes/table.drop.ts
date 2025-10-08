@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Table } from "../table.model.ts";
+import { DropTableChange } from "./table.base.ts";
 
 /**
  * Drop a table.
@@ -11,11 +11,9 @@ import type { Table } from "../table.model.ts";
  * DROP TABLE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropTable extends BaseChange {
+export class DropTable extends DropTableChange {
   public readonly table: Table;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table }) {
     super();

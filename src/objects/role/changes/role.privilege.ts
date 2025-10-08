@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
+import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
 
 export type RolePrivilege =
   | GrantRoleMembership
@@ -20,7 +20,7 @@ export type RolePrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantRoleMembership extends BaseChange {
+export class GrantRoleMembership extends CreateRoleChange {
   public readonly role: Role;
   public readonly member: string;
   public readonly options: {
@@ -28,9 +28,7 @@ export class GrantRoleMembership extends BaseChange {
     inherit?: boolean | null;
     set?: boolean | null;
   };
-  public readonly operation = "create" as const;
   public readonly scope = "membership" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: Role;
@@ -69,12 +67,10 @@ export class GrantRoleMembership extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeRoleMembership extends BaseChange {
+export class RevokeRoleMembership extends DropRoleChange {
   public readonly role: Role;
   public readonly member: string;
-  public readonly operation = "drop" as const;
   public readonly scope = "membership" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role; member: string }) {
     super();
@@ -100,15 +96,13 @@ export class RevokeRoleMembership extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeRoleMembershipOptions extends BaseChange {
+export class RevokeRoleMembershipOptions extends DropRoleChange {
   public readonly role: Role;
   public readonly member: string;
   public readonly admin?: boolean;
   public readonly inherit?: boolean;
   public readonly set?: boolean;
-  public readonly operation = "drop" as const;
   public readonly scope = "membership" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: Role;
@@ -144,16 +138,14 @@ export class RevokeRoleMembershipOptions extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html
  */
-export class GrantRoleDefaultPrivileges extends BaseChange {
+export class GrantRoleDefaultPrivileges extends CreateRoleChange {
   public readonly role: Role;
   public readonly inSchema: string | null;
   public readonly objtype: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number;
-  public readonly operation = "create" as const;
   public readonly scope = "default_privilege" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: Role;
@@ -202,16 +194,14 @@ export class GrantRoleDefaultPrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-alterdefaultprivileges.html
  */
-export class RevokeRoleDefaultPrivileges extends BaseChange {
+export class RevokeRoleDefaultPrivileges extends DropRoleChange {
   public readonly role: Role;
   public readonly inSchema: string | null;
   public readonly objtype: string;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number;
-  public readonly operation = "drop" as const;
   public readonly scope = "default_privilege" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: {
     role: Role;

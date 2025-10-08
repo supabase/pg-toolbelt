@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
+import { AlterViewChange } from "./view.base.ts";
 
 /**
  * Alter a view.
@@ -27,12 +27,10 @@ export type AlterView =
 /**
  * ALTER VIEW ... OWNER TO ...
  */
-export class AlterViewChangeOwner extends BaseChange {
+export class AlterViewChangeOwner extends AlterViewChange {
   public readonly view: View;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View; owner: string }) {
     super();
@@ -59,12 +57,10 @@ export class AlterViewChangeOwner extends BaseChange {
 /**
  * ALTER VIEW ... SET ( ... )
  */
-export class AlterViewSetOptions extends BaseChange {
+export class AlterViewSetOptions extends AlterViewChange {
   public readonly view: View;
   public readonly options: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View; options: string[] }) {
     super();
@@ -90,12 +86,10 @@ export class AlterViewSetOptions extends BaseChange {
 /**
  * ALTER VIEW ... RESET ( ... )
  */
-export class AlterViewResetOptions extends BaseChange {
+export class AlterViewResetOptions extends AlterViewChange {
   public readonly view: View;
   public readonly params: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View; params: string[] }) {
     super();

@@ -1,6 +1,6 @@
-import { BaseChange } from "../../base.change.ts";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
+import { AlterRoleChange } from "./role.base.ts";
 
 /**
  * Alter a role.
@@ -41,12 +41,10 @@ export type AlterRole = AlterRoleSetConfig | AlterRoleSetOptions;
  * ALTER ROLE ... WITH option [...]
  * Emits only options that differ between main and branch.
  */
-export class AlterRoleSetOptions extends BaseChange {
+export class AlterRoleSetOptions extends AlterRoleChange {
   public readonly role: Role;
   public readonly options: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role; options: string[] }) {
     super();
@@ -68,14 +66,12 @@ export class AlterRoleSetOptions extends BaseChange {
  * ALTER ROLE ... SET/RESET configuration_parameter (single statement)
  * Represents one action: SET key TO value, RESET key, or RESET ALL.
  */
-export class AlterRoleSetConfig extends BaseChange {
+export class AlterRoleSetConfig extends AlterRoleChange {
   public readonly role: Role;
   public readonly action: "set" | "reset" | "reset_all";
   public readonly key?: string;
   public readonly value?: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role; action: "set"; key: string; value: string });
   constructor(props: { role: Role; action: "reset"; key: string });

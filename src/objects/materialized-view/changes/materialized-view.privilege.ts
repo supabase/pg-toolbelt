@@ -1,9 +1,12 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
+import {
+  CreateMaterializedViewChange,
+  DropMaterializedViewChange,
+} from "./materialized-view.base.ts";
 
 export type MaterializedViewPrivilege =
   | GrantMaterializedViewPrivileges
@@ -24,15 +27,13 @@ export type MaterializedViewPrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantMaterializedViewPrivileges extends BaseChange {
+export class GrantMaterializedViewPrivileges extends CreateMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;
@@ -97,15 +98,13 @@ export class GrantMaterializedViewPrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeMaterializedViewPrivileges extends BaseChange {
+export class RevokeMaterializedViewPrivileges extends DropMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;
@@ -153,15 +152,13 @@ export class RevokeMaterializedViewPrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionMaterializedViewPrivileges extends BaseChange {
+export class RevokeGrantOptionMaterializedViewPrivileges extends DropMaterializedViewChange {
   public readonly materializedView: MaterializedView;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly columns?: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: {
     materializedView: MaterializedView;

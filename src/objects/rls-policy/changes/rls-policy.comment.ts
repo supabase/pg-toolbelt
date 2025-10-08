@@ -1,15 +1,17 @@
-import { BaseChange, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
+import {
+  CreateRlsPolicyChange,
+  DropRlsPolicyChange,
+} from "./rls-policy.base.ts";
 
 export type CommentRlsPolicy =
   | CreateCommentOnRlsPolicy
   | DropCommentOnRlsPolicy;
 
-export class CreateCommentOnRlsPolicy extends BaseChange {
+export class CreateCommentOnRlsPolicy extends CreateRlsPolicyChange {
   public readonly policy: RlsPolicy;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { policy: RlsPolicy }) {
     super();
@@ -35,11 +37,9 @@ export class CreateCommentOnRlsPolicy extends BaseChange {
   }
 }
 
-export class DropCommentOnRlsPolicy extends BaseChange {
+export class DropCommentOnRlsPolicy extends DropRlsPolicyChange {
   public readonly policy: RlsPolicy;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "rls_policy" as const;
 
   constructor(props: { policy: RlsPolicy }) {
     super();

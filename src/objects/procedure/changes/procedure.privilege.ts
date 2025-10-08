@@ -1,9 +1,12 @@
-import { BaseChange } from "../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
 import type { Procedure } from "../procedure.model.ts";
+import {
+  CreateProcedureChange,
+  DropProcedureChange,
+} from "./procedure.base.ts";
 
 export type ProcedurePrivilege =
   | GrantProcedurePrivileges
@@ -24,14 +27,12 @@ export type ProcedurePrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantProcedurePrivileges extends BaseChange {
+export class GrantProcedurePrivileges extends CreateProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: {
     procedure: Procedure;
@@ -85,14 +86,12 @@ export class GrantProcedurePrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeProcedurePrivileges extends BaseChange {
+export class RevokeProcedurePrivileges extends DropProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: {
     procedure: Procedure;
@@ -130,14 +129,12 @@ export class RevokeProcedurePrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionProcedurePrivileges extends BaseChange {
+export class RevokeGrantOptionProcedurePrivileges extends DropProcedureChange {
   public readonly procedure: Procedure;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: {
     procedure: Procedure;

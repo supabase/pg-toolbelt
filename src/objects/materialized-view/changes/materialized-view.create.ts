@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
+import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
 
 /**
  * Create a materialized view.
@@ -23,11 +23,9 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - WITH (options) is emitted only when non-empty.
  * - WITH NO DATA is PostgreSQL's default and is omitted; WITH DATA is emitted only when requested.
  */
-export class CreateMaterializedView extends BaseChange {
+export class CreateMaterializedView extends CreateMaterializedViewChange {
   public readonly materializedView: MaterializedView;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "materialized_view" as const;
 
   constructor(props: { materializedView: MaterializedView }) {
     super();

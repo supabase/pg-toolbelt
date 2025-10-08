@@ -1,6 +1,6 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
+import { AlterProcedureChange } from "./procedure.base.ts";
 
 /**
  * Alter a procedure.
@@ -39,12 +39,10 @@ export type AlterProcedure =
 /**
  * ALTER FUNCTION/PROCEDURE ... OWNER TO ...
  */
-export class AlterProcedureChangeOwner extends BaseChange {
+export class AlterProcedureChangeOwner extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly owner: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; owner: string }) {
     super();
@@ -72,12 +70,10 @@ export class AlterProcedureChangeOwner extends BaseChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... SECURITY { INVOKER | DEFINER }
  */
-export class AlterProcedureSetSecurity extends BaseChange {
+export class AlterProcedureSetSecurity extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly securityDefiner: boolean;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; securityDefiner: boolean }) {
     super();
@@ -108,14 +104,12 @@ export class AlterProcedureSetSecurity extends BaseChange {
  * ALTER FUNCTION/PROCEDURE ... SET/RESET configuration_parameter
  * Emits individual RESET for removed keys and SET for added/changed keys.
  */
-export class AlterProcedureSetConfig extends BaseChange {
+export class AlterProcedureSetConfig extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly action: "set" | "reset" | "reset_all";
   public readonly key?: string;
   public readonly value?: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: {
     procedure: Procedure;
@@ -161,12 +155,10 @@ export class AlterProcedureSetConfig extends BaseChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { IMMUTABLE | STABLE | VOLATILE }
  */
-export class AlterProcedureSetVolatility extends BaseChange {
+export class AlterProcedureSetVolatility extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly volatility: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; volatility: string }) {
     super();
@@ -197,12 +189,10 @@ export class AlterProcedureSetVolatility extends BaseChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { STRICT | CALLED ON NULL INPUT }
  */
-export class AlterProcedureSetStrictness extends BaseChange {
+export class AlterProcedureSetStrictness extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly isStrict: boolean;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; isStrict: boolean }) {
     super();
@@ -229,12 +219,10 @@ export class AlterProcedureSetStrictness extends BaseChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... { LEAKPROOF | NOT LEAKPROOF }
  */
-export class AlterProcedureSetLeakproof extends BaseChange {
+export class AlterProcedureSetLeakproof extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly leakproof: boolean;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; leakproof: boolean }) {
     super();
@@ -261,12 +249,10 @@ export class AlterProcedureSetLeakproof extends BaseChange {
 /**
  * ALTER FUNCTION/PROCEDURE ... PARALLEL { UNSAFE | RESTRICTED | SAFE }
  */
-export class AlterProcedureSetParallel extends BaseChange {
+export class AlterProcedureSetParallel extends AlterProcedureChange {
   public readonly procedure: Procedure;
   public readonly parallelSafety: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; parallelSafety: string }) {
     super();

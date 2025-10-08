@@ -1,9 +1,9 @@
-import { BaseChange } from "../../../base.change.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
 import type { Enum } from "../enum.model.ts";
+import { CreateEnumChange, DropEnumChange } from "./enum.base.ts";
 
 export type EnumPrivilege =
   | GrantEnumPrivileges
@@ -23,14 +23,12 @@ export type EnumPrivilege =
  *    [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantEnumPrivileges extends BaseChange {
+export class GrantEnumPrivileges extends CreateEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "create" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "enum" as const;
 
   constructor(props: {
     enum: Enum;
@@ -82,14 +80,12 @@ export class GrantEnumPrivileges extends BaseChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeEnumPrivileges extends BaseChange {
+export class RevokeEnumPrivileges extends DropEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "enum" as const;
 
   constructor(props: {
     enum: Enum;
@@ -125,14 +121,12 @@ export class RevokeEnumPrivileges extends BaseChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionEnumPrivileges extends BaseChange {
+export class RevokeGrantOptionEnumPrivileges extends DropEnumChange {
   public readonly enum: Enum;
   public readonly grantee: string;
   public readonly privilegeNames: string[];
   public readonly version: number | undefined;
-  public readonly operation = "drop" as const;
   public readonly scope = "privilege" as const;
-  public readonly objectType = "enum" as const;
 
   constructor(props: {
     enum: Enum;

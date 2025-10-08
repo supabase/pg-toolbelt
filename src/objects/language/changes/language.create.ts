@@ -1,5 +1,5 @@
-import { BaseChange } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
+import { CreateLanguageChange } from "./language.base.ts";
 
 /**
  * Create a language.
@@ -12,12 +12,10 @@ import type { Language } from "../language.model.ts";
  * [ HANDLER call_handler [ INLINE inline_handler ] [ VALIDATOR valfunction ] ]
  * ```
  */
-export class CreateLanguage extends BaseChange {
+export class CreateLanguage extends CreateLanguageChange {
   public readonly language: Language;
   public readonly orReplace?: boolean;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "language" as const;
 
   constructor(props: { language: Language; orReplace?: boolean }) {
     super();
