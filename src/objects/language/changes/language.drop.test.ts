@@ -13,6 +13,7 @@ describe("language", () => {
       validator: "plpgsql_validator",
       owner: "test",
       comment: null,
+      privileges: [],
     });
 
     const change = new DropLanguage({

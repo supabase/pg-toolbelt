@@ -1,6 +1,6 @@
-import { Change } from "../../base.change.ts";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
+import { AlterRoleChange } from "./role.base.ts";
 
 /**
  * Alter a role.
@@ -35,76 +35,30 @@ import type { Role } from "../role.model.ts";
  * ```
  */
 
+export type AlterRole = AlterRoleSetConfig | AlterRoleSetOptions;
+
 /**
  * ALTER ROLE ... WITH option [...]
  * Emits only options that differ between main and branch.
  */
-export class AlterRoleSetOptions extends Change {
-  public readonly main: Role;
-  public readonly branch: Role;
-  public readonly operation = "alter" as const;
+export class AlterRoleSetOptions extends AlterRoleChange {
+  public readonly role: Role;
+  public readonly options: string[];
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
-  constructor(props: { main: Role; branch: Role }) {
+  constructor(props: { role: Role; options: string[] }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.role = props.role;
+    this.options = props.options;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.role.stableId];
   }
 
   serialize(): string {
-    const parts: string[] = ["ALTER ROLE", this.main.role_name];
-    const options: string[] = [];
-
-    // SUPERUSER | NOSUPERUSER (default NOSUPERUSER in CREATE; here reflect change)
-    if (this.main.is_superuser !== this.branch.is_superuser) {
-      options.push(this.branch.is_superuser ? "SUPERUSER" : "NOSUPERUSER");
-    }
-
-    // CREATEDB | NOCREATEDB
-    if (this.main.can_create_databases !== this.branch.can_create_databases) {
-      options.push(
-        this.branch.can_create_databases ? "CREATEDB" : "NOCREATEDB",
-      );
-    }
-
-    // CREATEROLE | NOCREATEROLE
-    if (this.main.can_create_roles !== this.branch.can_create_roles) {
-      options.push(
-        this.branch.can_create_roles ? "CREATEROLE" : "NOCREATEROLE",
-      );
-    }
-
-    // INHERIT | NOINHERIT (default INHERIT)
-    if (this.main.can_inherit !== this.branch.can_inherit) {
-      options.push(this.branch.can_inherit ? "INHERIT" : "NOINHERIT");
-    }
-
-    // LOGIN | NOLOGIN (default NOLOGIN)
-    if (this.main.can_login !== this.branch.can_login) {
-      options.push(this.branch.can_login ? "LOGIN" : "NOLOGIN");
-    }
-
-    // REPLICATION | NOREPLICATION
-    if (this.main.can_replicate !== this.branch.can_replicate) {
-      options.push(this.branch.can_replicate ? "REPLICATION" : "NOREPLICATION");
-    }
-
-    // BYPASSRLS | NOBYPASSRLS
-    if (this.main.can_bypass_rls !== this.branch.can_bypass_rls) {
-      options.push(this.branch.can_bypass_rls ? "BYPASSRLS" : "NOBYPASSRLS");
-    }
-
-    // CONNECTION LIMIT connlimit (null treated as no change sentinel in model)
-    if (this.main.connection_limit !== this.branch.connection_limit) {
-      options.push(`CONNECTION LIMIT ${this.branch.connection_limit}`);
-    }
-
-    return [...parts, "WITH", options.join(" ")].join(" ");
+    const parts: string[] = ["ALTER ROLE", this.role.name];
+    return [...parts, "WITH", this.options.join(" ")].join(" ");
   }
 }
 
@@ -112,14 +66,12 @@ export class AlterRoleSetOptions extends Change {
  * ALTER ROLE ... SET/RESET configuration_parameter (single statement)
  * Represents one action: SET key TO value, RESET key, or RESET ALL.
  */
-export class AlterRoleSetConfig extends Change {
+export class AlterRoleSetConfig extends AlterRoleChange {
   public readonly role: Role;
   public readonly action: "set" | "reset" | "reset_all";
   public readonly key?: string;
   public readonly value?: string;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role; action: "set"; key: string; value: string });
   constructor(props: { role: Role; action: "reset"; key: string });
@@ -142,7 +94,7 @@ export class AlterRoleSetConfig extends Change {
   }
 
   serialize(): string {
-    const head = ["ALTER ROLE", this.role.role_name].join(" ");
+    const head = ["ALTER ROLE", this.role.name].join(" ");
     if (this.action === "reset_all") {
       return `${head} RESET ALL`;
     }

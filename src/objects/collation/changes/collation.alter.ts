@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
+import { AlterCollationChange } from "./collation.base.ts";
 
 /**
  * Alter a collation.
@@ -14,32 +14,34 @@ import type { Collation } from "../collation.model.ts";
  * ```
  */
 
+export type AlterCollation =
+  | AlterCollationChangeOwner
+  | AlterCollationRefreshVersion;
+
 /**
  * ALTER COLLATION ... OWNER TO ...
  */
-export class AlterCollationChangeOwner extends Change {
-  public readonly main: Collation;
-  public readonly branch: Collation;
-  public readonly operation = "alter" as const;
+export class AlterCollationChangeOwner extends AlterCollationChange {
+  public readonly collation: Collation;
+  public readonly owner: string;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
-  constructor(props: { main: Collation; branch: Collation }) {
+  constructor(props: { collation: Collation; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.collation = props.collation;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.collation.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER COLLATION",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.collation.schema}.${this.collation.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -47,27 +49,23 @@ export class AlterCollationChangeOwner extends Change {
 /**
  * ALTER COLLATION ... REFRESH VERSION
  */
-export class AlterCollationRefreshVersion extends Change {
-  public readonly main: Collation;
-  public readonly branch: Collation;
-  public readonly operation = "alter" as const;
+export class AlterCollationRefreshVersion extends AlterCollationChange {
+  public readonly collation: Collation;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
-  constructor(props: { main: Collation; branch: Collation }) {
+  constructor(props: { collation: Collation }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.collation = props.collation;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.collation.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER COLLATION",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.collation.schema}.${this.collation.name}`,
       "REFRESH VERSION",
     ].join(" ");
   }

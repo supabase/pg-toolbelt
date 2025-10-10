@@ -1,11 +1,12 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
+import { CreateViewChange, DropViewChange } from "./view.base.ts";
 
-export class CreateCommentOnView extends Change {
+export type CommentView = CreateCommentOnView | DropCommentOnView;
+
+export class CreateCommentOnView extends CreateViewChange {
   public readonly view: View;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View }) {
     super();
@@ -26,11 +27,9 @@ export class CreateCommentOnView extends Change {
   }
 }
 
-export class DropCommentOnView extends Change {
+export class DropCommentOnView extends DropViewChange {
   public readonly view: View;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View }) {
     super();

@@ -6,21 +6,18 @@ describe.concurrent("schema", () => {
   describe("alter", () => {
     test("change owner", () => {
       const props: Omit<SchemaProps, "owner"> = {
-        schema: "test_schema",
+        name: "test_schema",
         comment: null,
+        privileges: [],
       };
-      const main = new Schema({
+      const schemaObj = new Schema({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Schema({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterSchemaChangeOwner({
-        main,
-        branch,
+        schema: schemaObj,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

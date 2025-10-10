@@ -23,6 +23,7 @@ describe("materialized-view", () => {
       owner: "test",
       columns: [],
       comment: null,
+      privileges: [],
     });
 
     const change = new CreateMaterializedView({ materializedView: mv });
@@ -51,6 +52,7 @@ describe("materialized-view", () => {
       owner: "test",
       columns: [],
       comment: null,
+      privileges: [],
     });
 
     const change = new CreateMaterializedView({ materializedView: mv });

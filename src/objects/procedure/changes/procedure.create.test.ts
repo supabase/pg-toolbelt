@@ -34,6 +34,7 @@ describe("procedure", () => {
       execution_cost: 0,
       result_rows: 0,
       comment: null,
+      privileges: [],
     });
 
     const change = new CreateProcedure({

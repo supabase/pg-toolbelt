@@ -1,5 +1,8 @@
-import type { Change } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../../base.privilege-diff.ts";
 import { deepEqual, hasNonAlterableChanges } from "../../utils.ts";
 import {
   AlterCompositeTypeAddAttribute,
@@ -15,6 +18,12 @@ import {
 } from "./changes/composite-type.comment.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
 import { DropCompositeType } from "./changes/composite-type.drop.ts";
+import {
+  GrantCompositeTypePrivileges,
+  RevokeCompositeTypePrivileges,
+  RevokeGrantOptionCompositeTypePrivileges,
+} from "./changes/composite-type.privilege.ts";
+import type { CompositeTypeChange } from "./changes/composite-type.types.ts";
 import type { CompositeType } from "./composite-type.model.ts";
 
 /**
@@ -25,12 +34,13 @@ import type { CompositeType } from "./composite-type.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffCompositeTypes(
+  ctx: { version: number },
   main: Record<string, CompositeType>,
   branch: Record<string, CompositeType>,
-): Change[] {
+): CompositeTypeChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: CompositeTypeChange[] = [];
 
   for (const compositeTypeId of created) {
     const ct = branch[compositeTypeId];
@@ -94,8 +104,8 @@ export function diffCompositeTypes(
       if (mainCompositeType.owner !== branchCompositeType.owner) {
         changes.push(
           new AlterCompositeTypeChangeOwner({
-            main: mainCompositeType,
-            branch: branchCompositeType,
+            compositeType: mainCompositeType,
+            owner: branchCompositeType.owner,
           }),
         );
       }
@@ -190,6 +200,58 @@ export function diffCompositeTypes(
               }),
             );
           }
+        }
+      }
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainCompositeType.privileges,
+        branchCompositeType.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantCompositeTypePrivileges({
+                compositeType: branchCompositeType,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeCompositeTypePrivileges({
+                compositeType: mainCompositeType,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionCompositeTypePrivileges({
+              compositeType: mainCompositeType,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
+          );
         }
       }
 

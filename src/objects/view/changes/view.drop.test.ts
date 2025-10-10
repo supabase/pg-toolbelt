@@ -21,6 +21,8 @@ describe("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     });
 
     const change = new DropView({

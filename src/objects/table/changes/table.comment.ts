@@ -1,6 +1,7 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
+import { CreateTableChange, DropTableChange } from "./table.base.ts";
 
 /**
  * Create a table/column/constraint comment.
@@ -19,14 +20,20 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  * ```
  */
 
+export type CommentTable =
+  | CreateCommentOnColumn
+  | CreateCommentOnConstraint
+  | CreateCommentOnTable
+  | DropCommentOnColumn
+  | DropCommentOnConstraint
+  | DropCommentOnTable;
+
 /**
  * COMMENT ON TABLE ... IS ...
  */
-export class CreateCommentOnTable extends Change {
+export class CreateCommentOnTable extends CreateTableChange {
   public readonly table: Table;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table }) {
     super();
@@ -51,11 +58,9 @@ export class CreateCommentOnTable extends Change {
 /**
  * COMMENT ON TABLE ... IS ...
  */
-export class DropCommentOnTable extends Change {
+export class DropCommentOnTable extends DropTableChange {
   public readonly table: Table;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table }) {
     super();
@@ -78,12 +83,10 @@ export class DropCommentOnTable extends Change {
 /**
  * COMMENT ON COLUMN ... IS ...
  */
-export class CreateCommentOnColumn extends Change {
+export class CreateCommentOnColumn extends CreateTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -111,12 +114,10 @@ export class CreateCommentOnColumn extends Change {
 /**
  * COMMENT ON COLUMN ... IS ...
  */
-export class DropCommentOnColumn extends Change {
+export class DropCommentOnColumn extends DropTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -142,12 +143,10 @@ export class DropCommentOnColumn extends Change {
 /**
  * COMMENT ON CONSTRAINT ... IS ...
  */
-export class CreateCommentOnConstraint extends Change {
+export class CreateCommentOnConstraint extends CreateTableChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;
@@ -180,12 +179,10 @@ export class CreateCommentOnConstraint extends Change {
 /**
  * COMMENT ON CONSTRAINT ... IS ...
  */
-export class DropCommentOnConstraint extends Change {
+export class DropCommentOnConstraint extends DropTableChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;

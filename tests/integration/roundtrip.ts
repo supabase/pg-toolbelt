@@ -6,8 +6,8 @@ import type postgres from "postgres";
 import { expect } from "vitest";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
+import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import type { Change } from "../../src/objects/base.change.ts";
 import { pgDumpSort } from "../../src/sort/global-sort.ts";
 import { applyRefinements } from "../../src/sort/refined-sort.ts";
 import { sortChangesByRules } from "../../src/sort/sort-utils.ts";
@@ -169,7 +169,7 @@ export async function roundtripFidelityTest(
  * This is a simplified version - in a real implementation you would
  * need more sophisticated equality checking.
  */
-export function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
+function catalogsSemanticalyEqual(catalog1: Catalog, catalog2: Catalog) {
   // For now, we'll do a basic check by comparing the serialized forms
   // of all objects in the catalog. In a real implementation, this would
   // be more sophisticated.

@@ -18,10 +18,10 @@ describe.concurrent("range", () => {
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
       comment: null,
+      privileges: [],
     };
     const main = new Range(base);
-    const branch = new Range({ ...base, owner: "o2" });
-    const change = new AlterRangeChangeOwner({ main, branch });
+    const change = new AlterRangeChangeOwner({ range: main, owner: "o2" });
     expect(change.serialize()).toBe("ALTER TYPE public.ts_custom OWNER TO o2");
   });
 });

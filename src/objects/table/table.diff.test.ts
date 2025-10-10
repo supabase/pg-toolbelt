@@ -46,6 +46,7 @@ const base: TableProps = {
   parent_schema: null,
   parent_name: null,
   columns: [],
+  privileges: [],
 };
 
 describe.concurrent("table.diff", () => {

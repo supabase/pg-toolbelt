@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
+import { DropLanguageChange } from "./language.base.ts";
 
 /**
  * Drop a language.
@@ -11,11 +11,9 @@ import type { Language } from "../language.model.ts";
  * DROP [ PROCEDURAL ] LANGUAGE [ IF EXISTS ] name [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropLanguage extends Change {
+export class DropLanguage extends DropLanguageChange {
   public readonly language: Language;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "language" as const;
 
   constructor(props: { language: Language }) {
     super();

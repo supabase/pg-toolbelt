@@ -1,11 +1,12 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
+import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
 
-export class CreateCommentOnRole extends Change {
+export type CommentRole = CreateCommentOnRole | DropCommentOnRole;
+
+export class CreateCommentOnRole extends CreateRoleChange {
   public readonly role: Role;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();
@@ -13,24 +14,22 @@ export class CreateCommentOnRole extends Change {
   }
 
   get dependencies() {
-    return [`comment:${this.role.role_name}`];
+    return [`comment:${this.role.name}`];
   }
 
   serialize(): string {
     return [
       "COMMENT ON ROLE",
-      this.role.role_name,
+      this.role.name,
       "IS",
       quoteLiteral(this.role.comment as string),
     ].join(" ");
   }
 }
 
-export class DropCommentOnRole extends Change {
+export class DropCommentOnRole extends DropRoleChange {
   public readonly role: Role;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();
@@ -38,10 +37,10 @@ export class DropCommentOnRole extends Change {
   }
 
   get dependencies() {
-    return [`comment:${this.role.role_name}`];
+    return [`comment:${this.role.name}`];
   }
 
   serialize(): string {
-    return ["COMMENT ON ROLE", this.role.role_name, "IS NULL"].join(" ");
+    return ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" ");
   }
 }

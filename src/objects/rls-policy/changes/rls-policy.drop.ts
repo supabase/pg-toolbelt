@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
+import { DropRlsPolicyChange } from "./rls-policy.base.ts";
 
 /**
  * Drop an RLS policy.
@@ -11,27 +11,25 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * DROP POLICY [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropRlsPolicy extends Change {
-  public readonly rlsPolicy: RlsPolicy;
-  public readonly operation = "drop" as const;
+export class DropRlsPolicy extends DropRlsPolicyChange {
+  public readonly policy: RlsPolicy;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { rlsPolicy: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy }) {
     super();
-    this.rlsPolicy = props.rlsPolicy;
+    this.policy = props.policy;
   }
 
   get dependencies() {
-    return [this.rlsPolicy.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
     return [
       "DROP POLICY",
-      this.rlsPolicy.name,
+      this.policy.name,
       "ON",
-      `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
     ].join(" ");
   }
 }

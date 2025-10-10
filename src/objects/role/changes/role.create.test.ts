@@ -5,7 +5,7 @@ import { CreateRole } from "./role.create.ts";
 describe("role", () => {
   test("create minimal (omit defaults)", () => {
     const role = new Role({
-      role_name: "test_role",
+      name: "test_role",
       is_superuser: false,
       can_inherit: true,
       can_create_roles: false,
@@ -16,6 +16,8 @@ describe("role", () => {
       can_bypass_rls: false,
       config: null,
       comment: null,
+      members: [],
+      default_privileges: [],
     });
 
     const change = new CreateRole({
@@ -27,7 +29,7 @@ describe("role", () => {
 
   test("create with all options (non-defaults only)", () => {
     const role = new Role({
-      role_name: "r_all",
+      name: "r_all",
       is_superuser: true,
       can_inherit: false,
       can_create_roles: true,
@@ -38,6 +40,8 @@ describe("role", () => {
       can_bypass_rls: true,
       config: null,
       comment: null,
+      members: [],
+      default_privileges: [],
     });
 
     const change = new CreateRole({ role });

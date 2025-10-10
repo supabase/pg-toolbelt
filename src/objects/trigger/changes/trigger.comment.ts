@@ -1,11 +1,12 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Trigger } from "../trigger.model.ts";
+import { CreateTriggerChange, DropTriggerChange } from "./trigger.base.ts";
 
-export class CreateCommentOnTrigger extends Change {
+export type CommentTrigger = CreateCommentOnTrigger | DropCommentOnTrigger;
+
+export class CreateCommentOnTrigger extends CreateTriggerChange {
   public readonly trigger: Trigger;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "trigger" as const;
 
   constructor(props: { trigger: Trigger }) {
     super();
@@ -31,11 +32,9 @@ export class CreateCommentOnTrigger extends Change {
   }
 }
 
-export class DropCommentOnTrigger extends Change {
+export class DropCommentOnTrigger extends DropTriggerChange {
   public readonly trigger: Trigger;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "trigger" as const;
 
   constructor(props: { trigger: Trigger }) {
     super();

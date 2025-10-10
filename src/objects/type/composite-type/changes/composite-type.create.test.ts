@@ -40,6 +40,7 @@ describe("composite-type", () => {
           comment: null,
         },
       ],
+      privileges: [],
     });
 
     const change = new CreateCompositeType({
@@ -88,6 +89,7 @@ describe("composite-type", () => {
           comment: null,
         },
       ],
+      privileges: [],
     });
 
     const change = new CreateCompositeType({ compositeType });

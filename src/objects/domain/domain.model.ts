@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 
 const domainConstraintPropsSchema = z.object({
   name: z.string(),
@@ -25,9 +29,11 @@ const domainPropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   constraints: z.array(domainConstraintPropsSchema),
+  privileges: z.array(privilegePropsSchema),
 });
 
 export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
+type DomainPrivilegeProps = PrivilegeProps;
 export type DomainProps = z.infer<typeof domainPropsSchema>;
 
 /**
@@ -50,6 +56,7 @@ export class Domain extends BasePgModel {
   public readonly owner: DomainProps["owner"];
   public readonly comment: DomainProps["comment"];
   public readonly constraints: DomainConstraintProps[];
+  public readonly privileges: DomainPrivilegeProps[];
 
   constructor(props: DomainProps) {
     super();
@@ -71,6 +78,7 @@ export class Domain extends BasePgModel {
     this.owner = props.owner;
     this.comment = props.comment;
     this.constraints = props.constraints;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `domain:${string}` {
@@ -97,6 +105,7 @@ export class Domain extends BasePgModel {
       owner: this.owner,
       comment: this.comment,
       constraints: this.constraints,
+      privileges: this.privileges,
     };
   }
 }
@@ -149,7 +158,20 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
             from pg_catalog.pg_constraint con
             where con.contypid = t.oid
           ), '[]'
-        ) as constraints
+        ) as constraints,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object(
+                'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+                'privilege', x.privilege_type,
+                'grantable', x.is_grantable
+              )
+              order by x.grantee, x.privilege_type
+            )
+            from lateral aclexplode(t.typacl) as x(grantor, grantee, privilege_type, is_grantable)
+          ), '[]'
+        ) as privileges
       from
         pg_catalog.pg_type t
         inner join pg_catalog.pg_type bt on bt.oid = t.typbasetype

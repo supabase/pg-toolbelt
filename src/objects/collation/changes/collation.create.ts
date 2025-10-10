@@ -1,5 +1,6 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Collation } from "../collation.model.ts";
+import { CreateCollationChange } from "./collation.base.ts";
 
 /**
  * Create a collation.
@@ -21,11 +22,9 @@ import type { Collation } from "../collation.model.ts";
  * CREATE COLLATION [ IF NOT EXISTS ] name FROM existing_collation
  * ```
  */
-export class CreateCollation extends Change {
+export class CreateCollation extends CreateCollationChange {
   public readonly collation: Collation;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "collation" as const;
 
   constructor(props: { collation: Collation }) {
     super();

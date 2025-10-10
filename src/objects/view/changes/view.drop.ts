@@ -1,16 +1,14 @@
-import { Change } from "../../base.change.ts";
 import type { View } from "../view.model.ts";
+import { DropViewChange } from "./view.base.ts";
 
 /**
  * Drops a view from the database.
  *
  * @see https://www.postgresql.org/docs/17/sql-dropview.html
  */
-export class DropView extends Change {
+export class DropView extends DropViewChange {
   public readonly view: View;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "view" as const;
 
   constructor(props: { view: View }) {
     super();

@@ -1,5 +1,8 @@
-import type { Change } from "../../base.change.ts";
 import { diffObjects } from "../../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../../base.privilege-diff.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -10,6 +13,12 @@ import {
 } from "./changes/enum.comment.ts";
 import { CreateEnum } from "./changes/enum.create.ts";
 import { DropEnum } from "./changes/enum.drop.ts";
+import {
+  GrantEnumPrivileges,
+  RevokeEnumPrivileges,
+  RevokeGrantOptionEnumPrivileges,
+} from "./changes/enum.privilege.ts";
+import type { EnumChange } from "./changes/enum.types.ts";
 import type { Enum } from "./enum.model.ts";
 
 /**
@@ -20,12 +29,13 @@ import type { Enum } from "./enum.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffEnums(
+  ctx: { version: number },
   main: Record<string, Enum>,
   branch: Record<string, Enum>,
-): Change[] {
+): EnumChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: EnumChange[] = [];
 
   for (const enumId of created) {
     const createdEnum = branch[enumId];
@@ -46,10 +56,7 @@ export function diffEnums(
     // OWNER
     if (mainEnum.owner !== branchEnum.owner) {
       changes.push(
-        new AlterEnumChangeOwner({
-          main: mainEnum,
-          branch: branchEnum,
-        }),
+        new AlterEnumChangeOwner({ enum: mainEnum, owner: branchEnum.owner }),
       );
     }
 
@@ -68,6 +75,58 @@ export function diffEnums(
       }
     }
 
+    // PRIVILEGES
+    const privilegeResults = diffPrivileges(
+      mainEnum.privileges,
+      branchEnum.privileges,
+    );
+
+    for (const [grantee, result] of privilegeResults) {
+      // Generate grant changes
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantEnumPrivileges({
+              enum: branchEnum,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeEnumPrivileges({
+              enum: mainEnum,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionEnumPrivileges({
+            enum: mainEnum,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
+      }
+    }
+
     // Note: Enum renaming would also use ALTER TYPE ... RENAME TO ...
     // But since our Enum model uses 'name' as the identity field,
     // a name change would be handled as drop + create by diffObjects()
@@ -81,8 +140,8 @@ export function diffEnums(
  * This implementation properly handles enum value positioning using sort_order.
  * Note: We cannot reliably detect renames, so we only handle additions.
  */
-function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
-  const changes: Change[] = [];
+function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
+  const changes: EnumChange[] = [];
 
   // Create maps for efficient lookup
   const mainLabelMap = new Map(
@@ -106,14 +165,7 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): Change[] {
     // Find the correct position for the new value
     const position = findEnumValuePosition(mainEnum.labels, newValueSortOrder);
 
-    changes.push(
-      new AlterEnumAddValue({
-        main: mainEnum,
-        branch: branchEnum,
-        newValue,
-        position,
-      }),
-    );
+    changes.push(new AlterEnumAddValue({ enum: mainEnum, newValue, position }));
   }
 
   // Complex changes (removals, resorting) are currently not auto-handled.

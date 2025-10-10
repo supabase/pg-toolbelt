@@ -13,19 +13,16 @@ describe.concurrent("language", () => {
         inline_handler: "plpgsql_inline_handler",
         validator: "plpgsql_validator",
         comment: null,
+        privileges: [],
       };
-      const main = new Language({
+      const language = new Language({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Language({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterLanguageChangeOwner({
-        main,
-        branch,
+        language,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(

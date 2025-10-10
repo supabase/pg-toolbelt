@@ -1,14 +1,20 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import {
+  CreateProcedureChange,
+  DropProcedureChange,
+} from "./procedure.base.ts";
+
+export type CommentProcedure =
+  | CreateCommentOnProcedure
+  | DropCommentOnProcedure;
 
 /**
  * Create/drop comments on procedures/functions.
  */
-export class CreateCommentOnProcedure extends Change {
+export class CreateCommentOnProcedure extends CreateProcedureChange {
   public readonly procedure: Procedure;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure }) {
     super();
@@ -33,11 +39,9 @@ export class CreateCommentOnProcedure extends Change {
   }
 }
 
-export class DropCommentOnProcedure extends Change {
+export class DropCommentOnProcedure extends DropProcedureChange {
   public readonly procedure: Procedure;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure }) {
     super();

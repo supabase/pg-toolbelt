@@ -28,14 +28,15 @@ const base: DomainProps = {
   owner: "o1",
   comment: null,
   constraints: [],
+  privileges: [],
 };
 
 describe.concurrent("domain.diff", () => {
   test("create and drop", () => {
     const d = new Domain(base);
-    const created = diffDomains({}, { [d.stableId]: d });
+    const created = diffDomains({ version: 170000 }, {}, { [d.stableId]: d });
     expect(created[0]).toBeInstanceOf(CreateDomain);
-    const dropped = diffDomains({ [d.stableId]: d }, {});
+    const dropped = diffDomains({ version: 170000 }, { [d.stableId]: d }, {});
     expect(dropped[0]).toBeInstanceOf(DropDomain);
   });
 
@@ -60,7 +61,7 @@ describe.concurrent("domain.diff", () => {
       ],
     });
 
-    const created = diffDomains({}, { [d.stableId]: d });
+    const created = diffDomains({ version: 170000 }, {}, { [d.stableId]: d });
     expect(created[0]).toBeInstanceOf(CreateDomain);
     // Expect ADD for both constraints
     expect(created.some((c) => c instanceof AlterDomainAddConstraint)).toBe(
@@ -76,6 +77,7 @@ describe.concurrent("domain.diff", () => {
     const main = new Domain(base);
     const branch1 = new Domain({ ...base, default_value: "1" });
     const changes1 = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch1.stableId]: branch1 },
     );
@@ -83,6 +85,7 @@ describe.concurrent("domain.diff", () => {
 
     const branch2 = new Domain({ ...base, not_null: true });
     const changes2 = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch2.stableId]: branch2 },
     );
@@ -90,6 +93,7 @@ describe.concurrent("domain.diff", () => {
 
     const branch3 = new Domain({ ...base, owner: "o2" });
     const changes3 = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch3.stableId]: branch3 },
     );
@@ -100,6 +104,7 @@ describe.concurrent("domain.diff", () => {
     const main4 = new Domain({ ...base, default_value: "1" });
     const branch4 = new Domain({ ...base, default_value: null });
     const changes4 = diffDomains(
+      { version: 170000 },
       { [main4.stableId]: main4 },
       { [branch4.stableId]: branch4 },
     );
@@ -108,6 +113,7 @@ describe.concurrent("domain.diff", () => {
     const main5 = new Domain({ ...base, not_null: true });
     const branch5 = new Domain({ ...base, not_null: false });
     const changes5 = diffDomains(
+      { version: 170000 },
       { [main5.stableId]: main5 },
       { [branch5.stableId]: branch5 },
     );
@@ -141,6 +147,7 @@ describe.concurrent("domain.diff", () => {
     });
 
     const changes = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -178,6 +185,7 @@ describe.concurrent("domain.diff", () => {
     });
 
     const changes = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -203,6 +211,7 @@ describe.concurrent("domain.diff", () => {
     });
 
     const changes = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -227,6 +236,7 @@ describe.concurrent("domain.diff", () => {
     });
 
     const changes = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -255,6 +265,7 @@ describe.concurrent("domain.diff", () => {
     });
 
     const changes = diffDomains(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

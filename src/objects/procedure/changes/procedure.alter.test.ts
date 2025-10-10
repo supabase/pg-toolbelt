@@ -42,19 +42,16 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({
+      const procedure = new Procedure({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Procedure({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterProcedureChangeOwner({
-        main,
-        branch,
+        procedure,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -92,19 +89,16 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({
+      const procedure = new Procedure({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Procedure({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterProcedureChangeOwner({
-        main,
-        branch,
+        procedure,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -142,11 +136,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...props, security_definer: false });
-      const branch = new Procedure({ ...props, security_definer: true });
-
-      const change = new AlterProcedureSetSecurity({ main, branch });
+      const procedure = new Procedure({ ...props, security_definer: false });
+      const change = new AlterProcedureSetSecurity({
+        procedure,
+        securityDefiner: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function SECURITY DEFINER",
       );
@@ -182,11 +178,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...props, security_definer: true });
-      const branch = new Procedure({ ...props, security_definer: false });
-
-      const change = new AlterProcedureSetSecurity({ main, branch });
+      const procedure = new Procedure({ ...props, security_definer: true });
+      const change = new AlterProcedureSetSecurity({
+        procedure,
+        securityDefiner: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function SECURITY INVOKER",
       );
@@ -222,20 +220,37 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, config: ["search_path=public"] });
-      const branch = new Procedure({
+      const procedure = new Procedure({
         ...base,
-        config: ["search_path=pg_temp", "work_mem=64MB"],
+        config: ["search_path=public"],
       });
-
-      const change = new AlterProcedureSetConfig({ main, branch });
-      expect(change.serialize()).toBe(
-        [
-          "ALTER FUNCTION public.test_function RESET search_path",
-          "ALTER FUNCTION public.test_function SET search_path TO pg_temp",
-          "ALTER FUNCTION public.test_function SET work_mem TO '64MB'",
-        ].join(";\n"),
+      const change1 = new AlterProcedureSetConfig({
+        procedure,
+        action: "reset",
+        key: "search_path",
+      });
+      const change2 = new AlterProcedureSetConfig({
+        procedure,
+        action: "set",
+        key: "search_path",
+        value: "pg_temp",
+      });
+      const change3 = new AlterProcedureSetConfig({
+        procedure,
+        action: "set",
+        key: "work_mem",
+        value: "64MB",
+      });
+      expect(change1.serialize()).toBe(
+        "ALTER FUNCTION public.test_function RESET search_path",
+      );
+      expect(change2.serialize()).toBe(
+        "ALTER FUNCTION public.test_function SET search_path TO pg_temp",
+      );
+      expect(change3.serialize()).toBe(
+        "ALTER FUNCTION public.test_function SET work_mem TO '64MB'",
       );
     });
 
@@ -269,11 +284,15 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, config: null });
-      const branch = new Procedure({ ...base, config: ["search_path=public"] });
-
-      const change = new AlterProcedureSetConfig({ main, branch });
+      const procedure = new Procedure({ ...base, config: null });
+      const change = new AlterProcedureSetConfig({
+        procedure,
+        action: "set",
+        key: "search_path",
+        value: "public",
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function SET search_path TO public",
       );
@@ -309,10 +328,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, volatility: "v" });
-      const branch = new Procedure({ ...base, volatility: "i" });
-      const change = new AlterProcedureSetVolatility({ main, branch });
+      const procedure = new Procedure({ ...base, volatility: "v" });
+      const change = new AlterProcedureSetVolatility({
+        procedure,
+        volatility: "i",
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function IMMUTABLE",
       );
@@ -348,10 +370,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, is_strict: false });
-      const branch = new Procedure({ ...base, is_strict: true });
-      const change = new AlterProcedureSetStrictness({ main, branch });
+      const procedure = new Procedure({ ...base, is_strict: false });
+      const change = new AlterProcedureSetStrictness({
+        procedure,
+        isStrict: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function STRICT",
       );
@@ -387,10 +412,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, is_strict: true });
-      const branch = new Procedure({ ...base, is_strict: false });
-      const change = new AlterProcedureSetStrictness({ main, branch });
+      const procedure = new Procedure({ ...base, is_strict: true });
+      const change = new AlterProcedureSetStrictness({
+        procedure,
+        isStrict: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function CALLED ON NULL INPUT",
       );
@@ -426,10 +454,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, leakproof: false });
-      const branch = new Procedure({ ...base, leakproof: true });
-      const change = new AlterProcedureSetLeakproof({ main, branch });
+      const procedure = new Procedure({ ...base, leakproof: false });
+      const change = new AlterProcedureSetLeakproof({
+        procedure,
+        leakproof: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function LEAKPROOF",
       );
@@ -465,10 +496,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, leakproof: true });
-      const branch = new Procedure({ ...base, leakproof: false });
-      const change = new AlterProcedureSetLeakproof({ main, branch });
+      const procedure = new Procedure({ ...base, leakproof: true });
+      const change = new AlterProcedureSetLeakproof({
+        procedure,
+        leakproof: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function NOT LEAKPROOF",
       );
@@ -504,10 +538,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, parallel_safety: "u" });
-      const branch = new Procedure({ ...base, parallel_safety: "r" });
-      const change = new AlterProcedureSetParallel({ main, branch });
+      const procedure = new Procedure({ ...base, parallel_safety: "u" });
+      const change = new AlterProcedureSetParallel({
+        procedure,
+        parallelSafety: "r",
+      });
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function PARALLEL RESTRICTED",
       );
@@ -544,10 +581,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, security_definer: false });
-      const branch = new Procedure({ ...base, security_definer: true });
-      const change = new AlterProcedureSetSecurity({ main, branch });
+      const procedure = new Procedure({ ...base, security_definer: false });
+      const change = new AlterProcedureSetSecurity({
+        procedure,
+        securityDefiner: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure SECURITY DEFINER",
       );
@@ -583,10 +623,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, security_definer: true });
-      const branch = new Procedure({ ...base, security_definer: false });
-      const change = new AlterProcedureSetSecurity({ main, branch });
+      const procedure = new Procedure({ ...base, security_definer: true });
+      const change = new AlterProcedureSetSecurity({
+        procedure,
+        securityDefiner: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure SECURITY INVOKER",
       );
@@ -622,19 +665,34 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const main = new Procedure({ ...base, config: ["search_path=public"] });
-      const branch = new Procedure({
-        ...base,
-        config: ["search_path=pg_temp", "work_mem=64MB"],
+      const change1 = new AlterProcedureSetConfig({
+        procedure: main,
+        action: "reset",
+        key: "search_path",
       });
-      const change = new AlterProcedureSetConfig({ main, branch });
-      expect(change.serialize()).toBe(
-        [
-          "ALTER PROCEDURE public.test_procedure RESET search_path",
-          "ALTER PROCEDURE public.test_procedure SET search_path TO pg_temp",
-          "ALTER PROCEDURE public.test_procedure SET work_mem TO '64MB'",
-        ].join(";\n"),
+      const change2 = new AlterProcedureSetConfig({
+        procedure: main,
+        action: "set",
+        key: "search_path",
+        value: "pg_temp",
+      });
+      const change3 = new AlterProcedureSetConfig({
+        procedure: main,
+        action: "set",
+        key: "work_mem",
+        value: "64MB",
+      });
+      expect(change1.serialize()).toBe(
+        "ALTER PROCEDURE public.test_procedure RESET search_path",
+      );
+      expect(change2.serialize()).toBe(
+        "ALTER PROCEDURE public.test_procedure SET search_path TO pg_temp",
+      );
+      expect(change3.serialize()).toBe(
+        "ALTER PROCEDURE public.test_procedure SET work_mem TO '64MB'",
       );
     });
 
@@ -668,19 +726,27 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
       const main = new Procedure({
         ...base,
         config: ["search_path=public", "work_mem=64MB"],
       });
-      const branch = new Procedure({ ...base, config: null });
-
-      const change = new AlterProcedureSetConfig({ main, branch });
-      expect(change.serialize()).toBe(
-        [
-          "ALTER PROCEDURE public.test_procedure RESET search_path",
-          "ALTER PROCEDURE public.test_procedure RESET work_mem",
-        ].join(";\n"),
+      const change1 = new AlterProcedureSetConfig({
+        procedure: main,
+        action: "reset",
+        key: "search_path",
+      });
+      const change2 = new AlterProcedureSetConfig({
+        procedure: main,
+        action: "reset",
+        key: "work_mem",
+      });
+      expect(change1.serialize()).toBe(
+        "ALTER PROCEDURE public.test_procedure RESET search_path",
+      );
+      expect(change2.serialize()).toBe(
+        "ALTER PROCEDURE public.test_procedure RESET work_mem",
       );
     });
 
@@ -714,10 +780,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, volatility: "v" });
-      const branch = new Procedure({ ...base, volatility: "s" });
-      const change = new AlterProcedureSetVolatility({ main, branch });
+      const procedure = new Procedure({ ...base, volatility: "v" });
+      const change = new AlterProcedureSetVolatility({
+        procedure,
+        volatility: "s",
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure STABLE",
       );
@@ -753,10 +822,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, is_strict: false });
-      const branch = new Procedure({ ...base, is_strict: true });
-      const change = new AlterProcedureSetStrictness({ main, branch });
+      const procedure = new Procedure({ ...base, is_strict: false });
+      const change = new AlterProcedureSetStrictness({
+        procedure,
+        isStrict: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure STRICT",
       );
@@ -792,10 +864,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, is_strict: true });
-      const branch = new Procedure({ ...base, is_strict: false });
-      const change = new AlterProcedureSetStrictness({ main, branch });
+      const procedure = new Procedure({ ...base, is_strict: true });
+      const change = new AlterProcedureSetStrictness({
+        procedure,
+        isStrict: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure CALLED ON NULL INPUT",
       );
@@ -831,10 +906,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, leakproof: false });
-      const branch = new Procedure({ ...base, leakproof: true });
-      const change = new AlterProcedureSetLeakproof({ main, branch });
+      const procedure = new Procedure({ ...base, leakproof: false });
+      const change = new AlterProcedureSetLeakproof({
+        procedure,
+        leakproof: true,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure LEAKPROOF",
       );
@@ -870,10 +948,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, leakproof: true });
-      const branch = new Procedure({ ...base, leakproof: false });
-      const change = new AlterProcedureSetLeakproof({ main, branch });
+      const procedure = new Procedure({ ...base, leakproof: true });
+      const change = new AlterProcedureSetLeakproof({
+        procedure,
+        leakproof: false,
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure NOT LEAKPROOF",
       );
@@ -909,10 +990,13 @@ describe.concurrent("procedure", () => {
         execution_cost: 0,
         result_rows: 0,
         comment: null,
+        privileges: [],
       };
-      const main = new Procedure({ ...base, parallel_safety: "u" });
-      const branch = new Procedure({ ...base, parallel_safety: "s" });
-      const change = new AlterProcedureSetParallel({ main, branch });
+      const procedure = new Procedure({ ...base, parallel_safety: "u" });
+      const change = new AlterProcedureSetParallel({
+        procedure,
+        parallelSafety: "s",
+      });
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure PARALLEL SAFE",
       );

@@ -14,6 +14,7 @@ describe("enum", () => {
         { sort_order: 3, label: "value3" },
       ],
       comment: null,
+      privileges: [],
     });
 
     const change = new CreateEnum({

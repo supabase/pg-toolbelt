@@ -34,19 +34,17 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
-      const main = new Index({
+      const index = new Index({
         ...props,
         storage_params: [],
       });
-      const branch = new Index({
-        ...props,
-        storage_params: ["fillfactor=90"],
-      });
 
       const change = new AlterIndexSetStorageParams({
-        main,
-        branch,
+        index,
+        paramsToSet: ["fillfactor=90"],
+        keysToReset: [],
       });
 
       expect(change.serialize()).toBe(
@@ -80,19 +78,17 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
-      const main = new Index({
+      const index = new Index({
         ...props,
         storage_params: ["fillfactor=70", "fastupdate=on"],
       });
-      const branch = new Index({
-        ...props,
-        storage_params: ["fillfactor=90"],
-      });
 
       const change = new AlterIndexSetStorageParams({
-        main,
-        branch,
+        index,
+        paramsToSet: ["fillfactor=90"],
+        keysToReset: ["fastupdate"],
       });
 
       expect(change.serialize()).toBe(
@@ -129,19 +125,16 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
-      const main = new Index({
+      const index = new Index({
         ...props,
         statistics_target: [0],
       });
-      const branch = new Index({
-        ...props,
-        statistics_target: [100],
-      });
 
       const change = new AlterIndexSetStatistics({
-        main,
-        branch,
+        index,
+        columnTargets: [{ columnNumber: 1, statistics: 100 }],
       });
 
       expect(change.serialize()).toBe(
@@ -175,19 +168,16 @@ describe.concurrent("index", () => {
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
+        owner: "test",
       };
-      const main = new Index({
+      const index = new Index({
         ...props,
         tablespace: null,
       });
-      const branch = new Index({
-        ...props,
-        tablespace: "fast_space",
-      });
 
       const change = new AlterIndexSetTablespace({
-        main,
-        branch,
+        index,
+        tablespace: "fast_space",
       });
 
       expect(change.serialize()).toBe(

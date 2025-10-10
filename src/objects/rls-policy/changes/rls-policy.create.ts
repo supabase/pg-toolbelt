@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
+import { CreateRlsPolicyChange } from "./rls-policy.base.ts";
 
 /**
  * Create an RLS policy.
@@ -16,32 +16,30 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  *     [ WITH CHECK ( with_check_expression ) ]
  * ```
  */
-export class CreateRlsPolicy extends Change {
-  public readonly rlsPolicy: RlsPolicy;
-  public readonly operation = "create" as const;
+export class CreateRlsPolicy extends CreateRlsPolicyChange {
+  public readonly policy: RlsPolicy;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { rlsPolicy: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy }) {
     super();
-    this.rlsPolicy = props.rlsPolicy;
+    this.policy = props.policy;
   }
 
   get dependencies() {
-    return [this.rlsPolicy.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
     const parts: string[] = ["CREATE POLICY"];
 
     // Add policy name
-    parts.push(this.rlsPolicy.name);
+    parts.push(this.policy.name);
 
     // Add ON table
-    parts.push("ON", `${this.rlsPolicy.schema}.${this.rlsPolicy.table_name}`);
+    parts.push("ON", `${this.policy.schema}.${this.policy.table_name}`);
 
     // Add AS RESTRICTIVE only if false (default is PERMISSIVE)
-    if (!this.rlsPolicy.permissive) {
+    if (!this.policy.permissive) {
       parts.push("AS RESTRICTIVE");
     }
 
@@ -54,29 +52,29 @@ export class CreateRlsPolicy extends Change {
       "*": "FOR ALL",
     };
     // Default is FOR ALL; only print when not default
-    if (this.rlsPolicy.command && this.rlsPolicy.command !== "*") {
-      parts.push(commandMap[this.rlsPolicy.command]);
+    if (this.policy.command && this.policy.command !== "*") {
+      parts.push(commandMap[this.policy.command]);
     }
 
     // Add TO roles
     // Default is TO PUBLIC; avoid printing explicit PUBLIC in CREATE
-    if (this.rlsPolicy.roles && this.rlsPolicy.roles.length > 0) {
+    if (this.policy.roles && this.policy.roles.length > 0) {
       const onlyPublic =
-        this.rlsPolicy.roles.length === 1 &&
-        this.rlsPolicy.roles[0].toLowerCase() === "public";
+        this.policy.roles.length === 1 &&
+        this.policy.roles[0].toLowerCase() === "public";
       if (!onlyPublic) {
-        parts.push("TO", this.rlsPolicy.roles.join(", "));
+        parts.push("TO", this.policy.roles.join(", "));
       }
     }
 
     // Add USING expression
-    if (this.rlsPolicy.using_expression) {
-      parts.push("USING", `(${this.rlsPolicy.using_expression})`);
+    if (this.policy.using_expression) {
+      parts.push("USING", `(${this.policy.using_expression})`);
     }
 
     // Add WITH CHECK expression
-    if (this.rlsPolicy.with_check_expression) {
-      parts.push("WITH CHECK", `(${this.rlsPolicy.with_check_expression})`);
+    if (this.policy.with_check_expression) {
+      parts.push("WITH CHECK", `(${this.policy.with_check_expression})`);
     }
 
     return parts.join(" ");

@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
+import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
 
 /**
  * Alter a domain.
@@ -34,140 +34,132 @@ import type { Domain, DomainConstraintProps } from "../domain.model.ts";
  * ```
  */
 
+export type AlterDomain =
+  | AlterDomainAddConstraint
+  | AlterDomainChangeOwner
+  | AlterDomainDropConstraint
+  | AlterDomainDropDefault
+  | AlterDomainDropNotNull
+  | AlterDomainSetDefault
+  | AlterDomainSetNotNull
+  | AlterDomainValidateConstraint;
+
 /**
  * ALTER DOMAIN ... SET DEFAULT ...
  */
-export class AlterDomainSetDefault extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
-  public readonly operation = "alter" as const;
+export class AlterDomainSetDefault extends AlterDomainChange {
+  public readonly domain: Domain;
+  public readonly defaultValue: string;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain; defaultValue: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
+    this.defaultValue = props.defaultValue;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET DEFAULT ${this.branch.default_value}`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`;
   }
 }
 
 /**
  * ALTER DOMAIN ... DROP DEFAULT
  */
-export class AlterDomainDropDefault extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
-  public readonly operation = "alter" as const;
+export class AlterDomainDropDefault extends AlterDomainChange {
+  public readonly domain: Domain;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP DEFAULT`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`;
   }
 }
 
 /**
  * ALTER DOMAIN ... SET NOT NULL
  */
-export class AlterDomainSetNotNull extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
-  public readonly operation = "alter" as const;
+export class AlterDomainSetNotNull extends AlterDomainChange {
+  public readonly domain: Domain;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} SET NOT NULL`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`;
   }
 }
 
 /**
  * ALTER DOMAIN ... DROP NOT NULL
  */
-export class AlterDomainDropNotNull extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
-  public readonly operation = "alter" as const;
+export class AlterDomainDropNotNull extends AlterDomainChange {
+  public readonly domain: Domain;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} DROP NOT NULL`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`;
   }
 }
 
 /**
  * ALTER DOMAIN ... OWNER TO ...
  */
-export class AlterDomainChangeOwner extends Change {
-  public readonly main: Domain;
-  public readonly branch: Domain;
-  public readonly operation = "alter" as const;
+export class AlterDomainChangeOwner extends AlterDomainChange {
+  public readonly domain: Domain;
+  public readonly owner: string;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
-  constructor(props: { main: Domain; branch: Domain }) {
+  constructor(props: { domain: Domain; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.domain = props.domain;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.domain.stableId];
   }
 
   serialize(): string {
-    return `ALTER DOMAIN ${this.main.schema}.${this.main.name} OWNER TO ${this.branch.owner}`;
+    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`;
   }
 }
 
 /**
  * ALTER DOMAIN ... ADD CONSTRAINT ... [ NOT VALID ]
  */
-export class AlterDomainAddConstraint extends Change {
+export class AlterDomainAddConstraint extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();
@@ -200,12 +192,10 @@ export class AlterDomainAddConstraint extends Change {
 /**
  * ALTER DOMAIN ... DROP CONSTRAINT ...
  */
-export class AlterDomainDropConstraint extends Change {
+export class AlterDomainDropConstraint extends DropDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();
@@ -234,12 +224,10 @@ export class AlterDomainDropConstraint extends Change {
 /**
  * ALTER DOMAIN ... VALIDATE CONSTRAINT ...
  */
-export class AlterDomainValidateConstraint extends Change {
+export class AlterDomainValidateConstraint extends AlterDomainChange {
   public readonly domain: Domain;
   public readonly constraint: DomainConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "domain" as const;
 
   constructor(props: { domain: Domain; constraint: DomainConstraintProps }) {
     super();

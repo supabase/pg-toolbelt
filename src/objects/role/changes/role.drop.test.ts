@@ -5,7 +5,7 @@ import { DropRole } from "./role.drop.ts";
 describe("role", () => {
   test("drop", () => {
     const role = new Role({
-      role_name: "test_role",
+      name: "test_role",
       is_superuser: false,
       can_inherit: true,
       can_create_roles: false,
@@ -16,6 +16,8 @@ describe("role", () => {
       can_bypass_rls: false,
       config: null,
       comment: null,
+      members: [],
+      default_privileges: [],
     });
 
     const change = new DropRole({

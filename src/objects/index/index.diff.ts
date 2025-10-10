@@ -1,4 +1,3 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -13,6 +12,7 @@ import {
 } from "./changes/index.comment.ts";
 import { CreateIndex } from "./changes/index.create.ts";
 import { DropIndex } from "./changes/index.drop.ts";
+import type { IndexChange } from "./changes/index.types.ts";
 import type { Index } from "./index.model.ts";
 
 /**
@@ -26,10 +26,10 @@ export function diffIndexes(
   main: Record<string, Index>,
   branch: Record<string, Index>,
   branchIndexableObjects: Record<string, TableLikeObject>,
-): Change[] {
+): IndexChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: IndexChange[] = [];
 
   for (const indexId of created) {
     const index = branch[indexId];
@@ -108,10 +108,41 @@ export function diffIndexes(
         JSON.stringify(mainIndex.storage_params) !==
         JSON.stringify(branchIndex.storage_params)
       ) {
+        const parseOptions = (options: string[]) => {
+          const map = new Map<string, string>();
+          for (const opt of options) {
+            const eqIndex = opt.indexOf("=");
+            const key = opt.slice(0, eqIndex);
+            const value = opt.slice(eqIndex + 1);
+            map.set(key, value);
+          }
+          return map;
+        };
+
+        const mainMap = parseOptions(mainIndex.storage_params);
+        const branchMap = parseOptions(branchIndex.storage_params);
+
+        const keysToReset: string[] = [];
+        for (const key of mainMap.keys()) {
+          if (!branchMap.has(key)) {
+            keysToReset.push(key);
+          }
+        }
+
+        const paramsToSet: string[] = [];
+        for (const [key, newValue] of branchMap.entries()) {
+          const oldValue = mainMap.get(key);
+          const changed = oldValue !== newValue;
+          if (changed) {
+            paramsToSet.push(`${key}=${newValue}`);
+          }
+        }
+
         changes.push(
           new AlterIndexSetStorageParams({
-            main: mainIndex,
-            branch: branchIndex,
+            index: mainIndex,
+            paramsToSet,
+            keysToReset,
           }),
         );
       }
@@ -121,16 +152,38 @@ export function diffIndexes(
         JSON.stringify(mainIndex.statistics_target) !==
         JSON.stringify(branchIndex.statistics_target)
       ) {
-        changes.push(
-          new AlterIndexSetStatistics({ main: mainIndex, branch: branchIndex }),
-        );
+        const columnTargets: Array<{
+          columnNumber: number;
+          statistics: number;
+        }> = [];
+        const mainTargets = mainIndex.statistics_target;
+        const branchTargets = branchIndex.statistics_target;
+        const length = Math.max(mainTargets.length, branchTargets.length);
+        for (let i = 0; i < length; i++) {
+          const oldVal = mainTargets[i];
+          const newVal = branchTargets[i];
+          if (oldVal !== newVal && newVal !== undefined) {
+            columnTargets.push({ columnNumber: i + 1, statistics: newVal });
+          }
+        }
+        if (columnTargets.length > 0) {
+          changes.push(
+            new AlterIndexSetStatistics({ index: mainIndex, columnTargets }),
+          );
+        }
       }
 
       // TABLESPACE
       if (mainIndex.tablespace !== branchIndex.tablespace) {
-        changes.push(
-          new AlterIndexSetTablespace({ main: mainIndex, branch: branchIndex }),
-        );
+        const nextTablespace = branchIndex.tablespace;
+        if (nextTablespace !== null) {
+          changes.push(
+            new AlterIndexSetTablespace({
+              index: mainIndex,
+              tablespace: nextTablespace,
+            }),
+          );
+        }
       }
 
       // COMMENT

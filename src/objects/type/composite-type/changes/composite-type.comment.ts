@@ -1,6 +1,10 @@
-import { Change, quoteLiteral } from "../../../base.change.ts";
+import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import type { CompositeType } from "../composite-type.model.ts";
+import {
+  CreateCompositeTypeChange,
+  DropCompositeTypeChange,
+} from "./composite-type.base.ts";
 
 /**
  * Create/drop comments on composite types or their attributes.
@@ -8,11 +12,15 @@ import type { CompositeType } from "../composite-type.model.ts";
  * @see https://www.postgresql.org/docs/17/sql-comment.html
  */
 
-export class CreateCommentOnCompositeType extends Change {
+export type CommentCompositeType =
+  | CreateCommentOnCompositeType
+  | CreateCommentOnCompositeTypeAttribute
+  | DropCommentOnCompositeType
+  | DropCommentOnCompositeTypeAttribute;
+
+export class CreateCommentOnCompositeType extends CreateCompositeTypeChange {
   public readonly compositeType: CompositeType;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType }) {
     super();
@@ -34,11 +42,9 @@ export class CreateCommentOnCompositeType extends Change {
   }
 }
 
-export class DropCommentOnCompositeType extends Change {
+export class DropCommentOnCompositeType extends DropCompositeTypeChange {
   public readonly compositeType: CompositeType;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType }) {
     super();
@@ -58,12 +64,10 @@ export class DropCommentOnCompositeType extends Change {
   }
 }
 
-export class CreateCommentOnCompositeTypeAttribute extends Change {
+export class CreateCommentOnCompositeTypeAttribute extends CreateCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
-  public readonly operation = "create" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType; attribute: ColumnProps }) {
     super();
@@ -88,12 +92,10 @@ export class CreateCommentOnCompositeTypeAttribute extends Change {
   }
 }
 
-export class DropCommentOnCompositeTypeAttribute extends Change {
+export class DropCommentOnCompositeTypeAttribute extends DropCompositeTypeChange {
   public readonly compositeType: CompositeType;
   public readonly attribute: ColumnProps;
-  public readonly operation = "drop" as const;
   public readonly scope = "comment" as const;
-  public readonly objectType = "composite_type" as const;
 
   constructor(props: { compositeType: CompositeType; attribute: ColumnProps }) {
     super();

@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
+import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
 /**
  * Alter a materialized view.
@@ -31,32 +31,34 @@ import type { MaterializedView } from "../materialized-view.model.ts";
  * - Changes to definition, options, and other non-alterable properties trigger a replace (drop + create).
  */
 
+export type AlterMaterializedView =
+  | AlterMaterializedViewChangeOwner
+  | AlterMaterializedViewSetStorageParams;
+
 /**
  * ALTER MATERIALIZED VIEW ... OWNER TO ...
  */
-export class AlterMaterializedViewChangeOwner extends Change {
-  public readonly main: MaterializedView;
-  public readonly branch: MaterializedView;
-  public readonly operation = "alter" as const;
+export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChange {
+  public readonly materializedView: MaterializedView;
+  public readonly owner: string;
   public readonly scope = "object" as const;
-  public readonly objectType = "materialized_view" as const;
 
-  constructor(props: { main: MaterializedView; branch: MaterializedView }) {
+  constructor(props: { materializedView: MaterializedView; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.materializedView = props.materializedView;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.materializedView.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER MATERIALIZED VIEW",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.materializedView.schema}.${this.materializedView.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -65,66 +67,39 @@ export class AlterMaterializedViewChangeOwner extends Change {
  * ALTER MATERIALIZED VIEW ... SET/RESET ( storage_parameter ... )
  * Accepts main and branch, computes differences, and emits RESET then SET statements.
  */
-export class AlterMaterializedViewSetStorageParams extends Change {
-  public readonly main: MaterializedView;
-  public readonly branch: MaterializedView;
-  public readonly operation = "alter" as const;
+export class AlterMaterializedViewSetStorageParams extends AlterMaterializedViewChange {
+  public readonly materializedView: MaterializedView;
+  public readonly paramsToSet: string[];
+  public readonly keysToReset: string[];
   public readonly scope = "object" as const;
-  public readonly objectType = "materialized_view" as const;
 
-  constructor(props: { main: MaterializedView; branch: MaterializedView }) {
+  constructor(props: {
+    materializedView: MaterializedView;
+    paramsToSet: string[];
+    keysToReset: string[];
+  }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.materializedView = props.materializedView;
+    this.paramsToSet = props.paramsToSet;
+    this.keysToReset = props.keysToReset;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.materializedView.stableId];
   }
 
   serialize(): string {
-    const parseOptions = (options: string[] | null | undefined) => {
-      const map = new Map<string, string>();
-      if (!options) return map;
-      for (const opt of options) {
-        const eqIndex = opt.indexOf("=");
-        const key = opt.slice(0, eqIndex).trim();
-        const value = opt.slice(eqIndex + 1).trim();
-        map.set(key, value);
-      }
-      return map;
-    };
-
-    const mainMap = parseOptions(this.main.options);
-    const branchMap = parseOptions(this.branch.options);
-
-    const keysToReset: string[] = [];
-    for (const key of mainMap.keys()) {
-      if (!branchMap.has(key)) {
-        keysToReset.push(key);
-      }
-    }
-
-    const paramsToSet: string[] = [];
-    for (const [key, newValue] of branchMap.entries()) {
-      const oldValue = mainMap.get(key);
-      const changed = oldValue !== newValue;
-      if (changed) {
-        paramsToSet.push(newValue === undefined ? key : `${key}=${newValue}`);
-      }
-    }
-
     const head = [
       "ALTER MATERIALIZED VIEW",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.materializedView.schema}.${this.materializedView.name}`,
     ].join(" ");
 
     const statements: string[] = [];
-    if (keysToReset.length > 0) {
-      statements.push(`${head} RESET (${keysToReset.join(", ")})`);
+    if (this.keysToReset.length > 0) {
+      statements.push(`${head} RESET (${this.keysToReset.join(", ")})`);
     }
-    if (paramsToSet.length > 0) {
-      statements.push(`${head} SET (${paramsToSet.join(", ")})`);
+    if (this.paramsToSet.length > 0) {
+      statements.push(`${head} SET (${this.paramsToSet.join(", ")})`);
     }
 
     return statements.join(";\n");

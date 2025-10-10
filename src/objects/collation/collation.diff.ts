@@ -1,4 +1,3 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -11,6 +10,7 @@ import {
 } from "./changes/collation.comment.ts";
 import { CreateCollation } from "./changes/collation.create.ts";
 import { DropCollation } from "./changes/collation.drop.ts";
+import type { CollationChange } from "./changes/collation.types.ts";
 import type { Collation } from "./collation.model.ts";
 
 /**
@@ -23,10 +23,10 @@ import type { Collation } from "./collation.model.ts";
 export function diffCollations(
   main: Record<string, Collation>,
   branch: Record<string, Collation>,
-): Change[] {
+): CollationChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: CollationChange[] = [];
 
   for (const collationId of created) {
     const coll = branch[collationId];
@@ -74,8 +74,7 @@ export function diffCollations(
       if (mainCollation.version !== branchCollation.version) {
         changes.push(
           new AlterCollationRefreshVersion({
-            main: mainCollation,
-            branch: branchCollation,
+            collation: mainCollation,
           }),
         );
       }
@@ -84,8 +83,8 @@ export function diffCollations(
       if (mainCollation.owner !== branchCollation.owner) {
         changes.push(
           new AlterCollationChangeOwner({
-            main: mainCollation,
-            branch: branchCollation,
+            collation: mainCollation,
+            owner: branchCollation.owner,
           }),
         );
       }

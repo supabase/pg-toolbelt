@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 
 const FunctionKindSchema = z.enum([
   "f", // function
@@ -58,8 +62,10 @@ const procedurePropsSchema = z.object({
   config: z.array(z.string()).nullable(),
   owner: z.string(),
   comment: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
 
 export class Procedure extends BasePgModel {
@@ -91,6 +97,7 @@ export class Procedure extends BasePgModel {
   public readonly config: ProcedureProps["config"];
   public readonly owner: ProcedureProps["owner"];
   public readonly comment: ProcedureProps["comment"];
+  public readonly privileges: ProcedurePrivilegeProps[];
 
   constructor(props: ProcedureProps) {
     super();
@@ -126,6 +133,7 @@ export class Procedure extends BasePgModel {
     this.config = props.config;
     this.owner = props.owner;
     this.comment = props.comment;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `procedure:${string}` {
@@ -169,6 +177,7 @@ export class Procedure extends BasePgModel {
       config: this.config,
       owner: this.owner,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -223,7 +232,20 @@ select
   pg_get_functiondef(p.oid) as definition,
   p.proconfig as config,
   p.proowner::regrole::text as owner,
-  obj_description(p.oid, 'pg_proc') as comment
+  obj_description(p.oid, 'pg_proc') as comment,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+          'privilege', x.privilege_type,
+          'grantable', x.is_grantable
+        )
+        order by x.grantee, x.privilege_type
+      )
+      from lateral aclexplode(p.proacl) as x(grantor, grantee, privilege_type, is_grantable)
+    ), '[]'
+  ) as privileges
 from
   pg_catalog.pg_proc p
   inner join pg_catalog.pg_language l on l.oid = p.prolang

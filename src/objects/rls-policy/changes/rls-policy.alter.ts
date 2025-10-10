@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
+import { AlterRlsPolicyChange } from "./rls-policy.base.ts";
 
 /**
  * Alter an RLS policy.
@@ -15,28 +15,31 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
  * ```
  */
 
+export type AlterRlsPolicy =
+  | AlterRlsPolicySetRoles
+  | AlterRlsPolicySetUsingExpression
+  | AlterRlsPolicySetWithCheckExpression;
+
 /**
  * ALTER POLICY ... TO roles ...
  */
-export class AlterRlsPolicySetRoles extends Change {
-  public readonly main: RlsPolicy;
-  public readonly branch: RlsPolicy;
-  public readonly operation = "alter" as const;
+export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
+  public readonly policy: RlsPolicy;
+  public readonly roles: string[];
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy; roles: string[] }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.policy = props.policy;
+    this.roles = props.roles;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
-    const targetRoles = this.branch.roles;
+    const targetRoles = this.roles;
     const toPublic =
       targetRoles.length === 0 ||
       (targetRoles.length === 1 && targetRoles[0].toLowerCase() === "public");
@@ -44,9 +47,9 @@ export class AlterRlsPolicySetRoles extends Change {
 
     return [
       "ALTER POLICY",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.policy.schema}.${this.policy.name}`,
       "ON",
-      `${this.main.schema}.${this.main.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
       "TO",
       rolesSql,
     ].join(" ");
@@ -56,30 +59,28 @@ export class AlterRlsPolicySetRoles extends Change {
 /**
  * ALTER POLICY ... USING (...)
  */
-export class AlterRlsPolicySetUsingExpression extends Change {
-  public readonly main: RlsPolicy;
-  public readonly branch: RlsPolicy;
-  public readonly operation = "alter" as const;
+export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
+  public readonly policy: RlsPolicy;
+  public readonly usingExpression: string | null;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
+  constructor(props: { policy: RlsPolicy; usingExpression: string | null }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.policy = props.policy;
+    this.usingExpression = props.usingExpression;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
-    const expr = this.branch.using_expression ?? "true";
+    const expr = this.usingExpression ?? "true";
     return [
       "ALTER POLICY",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.policy.schema}.${this.policy.name}`,
       "ON",
-      `${this.main.schema}.${this.main.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
       "USING",
       `(${expr})`,
     ].join(" ");
@@ -89,30 +90,31 @@ export class AlterRlsPolicySetUsingExpression extends Change {
 /**
  * ALTER POLICY ... WITH CHECK (...)
  */
-export class AlterRlsPolicySetWithCheckExpression extends Change {
-  public readonly main: RlsPolicy;
-  public readonly branch: RlsPolicy;
-  public readonly operation = "alter" as const;
+export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
+  public readonly policy: RlsPolicy;
+  public readonly withCheckExpression: string | null;
   public readonly scope = "object" as const;
-  public readonly objectType = "rls_policy" as const;
 
-  constructor(props: { main: RlsPolicy; branch: RlsPolicy }) {
+  constructor(props: {
+    policy: RlsPolicy;
+    withCheckExpression: string | null;
+  }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.policy = props.policy;
+    this.withCheckExpression = props.withCheckExpression;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.policy.stableId];
   }
 
   serialize(): string {
-    const expr = this.branch.with_check_expression ?? "true";
+    const expr = this.withCheckExpression ?? "true";
     return [
       "ALTER POLICY",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.policy.schema}.${this.policy.name}`,
       "ON",
-      `${this.main.schema}.${this.main.table_name}`,
+      `${this.policy.schema}.${this.policy.table_name}`,
       "WITH CHECK",
       `(${expr})`,
     ].join(" ");

@@ -26,19 +26,12 @@ describe.concurrent("trigger", () => {
           "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
         comment: null,
       };
-      const main = new Trigger({
-        ...props,
-        enabled: "O",
-      });
       const branch = new Trigger({
         ...props,
         enabled: "D",
       });
 
-      const change = new ReplaceTrigger({
-        main,
-        branch,
-      });
+      const change = new ReplaceTrigger({ trigger: branch });
 
       expect(change.serialize()).toBe(
         "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",

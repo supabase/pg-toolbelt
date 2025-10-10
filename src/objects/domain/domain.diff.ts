@@ -1,5 +1,8 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainChangeOwner,
@@ -16,22 +19,30 @@ import {
 } from "./changes/domain.comment.ts";
 import { CreateDomain } from "./changes/domain.create.ts";
 import { DropDomain } from "./changes/domain.drop.ts";
+import {
+  GrantDomainPrivileges,
+  RevokeDomainPrivileges,
+  RevokeGrantOptionDomainPrivileges,
+} from "./changes/domain.privilege.ts";
+import type { DomainChange } from "./changes/domain.types.ts";
 import type { Domain } from "./domain.model.ts";
 
 /**
  * Diff two sets of domains from main and branch catalogs.
  *
+ * @param ctx - Context containing version information.
  * @param main - The domains in the main catalog.
  * @param branch - The domains in the branch catalog.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffDomains(
+  ctx: { version: number },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
-): Change[] {
+): DomainChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: DomainChange[] = [];
 
   for (const domainId of created) {
     const newDomain = branch[domainId];
@@ -70,15 +81,13 @@ export function diffDomains(
     // DEFAULT
     if (mainDomain.default_value !== branchDomain.default_value) {
       if (branchDomain.default_value === null) {
-        changes.push(
-          new AlterDomainDropDefault({
-            main: mainDomain,
-            branch: branchDomain,
-          }),
-        );
+        changes.push(new AlterDomainDropDefault({ domain: mainDomain }));
       } else {
         changes.push(
-          new AlterDomainSetDefault({ main: mainDomain, branch: branchDomain }),
+          new AlterDomainSetDefault({
+            domain: mainDomain,
+            defaultValue: branchDomain.default_value,
+          }),
         );
       }
     }
@@ -86,16 +95,9 @@ export function diffDomains(
     // NOT NULL
     if (mainDomain.not_null !== branchDomain.not_null) {
       if (branchDomain.not_null) {
-        changes.push(
-          new AlterDomainSetNotNull({ main: mainDomain, branch: branchDomain }),
-        );
+        changes.push(new AlterDomainSetNotNull({ domain: mainDomain }));
       } else {
-        changes.push(
-          new AlterDomainDropNotNull({
-            main: mainDomain,
-            branch: branchDomain,
-          }),
-        );
+        changes.push(new AlterDomainDropNotNull({ domain: mainDomain }));
       }
     }
 
@@ -176,7 +178,10 @@ export function diffDomains(
     // OWNER
     if (mainDomain.owner !== branchDomain.owner) {
       changes.push(
-        new AlterDomainChangeOwner({ main: mainDomain, branch: branchDomain }),
+        new AlterDomainChangeOwner({
+          domain: mainDomain,
+          owner: branchDomain.owner,
+        }),
       );
     }
 
@@ -186,6 +191,58 @@ export function diffDomains(
         changes.push(new DropCommentOnDomain({ domain: mainDomain }));
       } else {
         changes.push(new CreateCommentOnDomain({ domain: branchDomain }));
+      }
+    }
+
+    // PRIVILEGES
+    const privilegeResults = diffPrivileges(
+      mainDomain.privileges,
+      branchDomain.privileges,
+    );
+
+    for (const [grantee, result] of privilegeResults) {
+      // Generate grant changes
+      if (result.grants.length > 0) {
+        const grantGroups = groupPrivilegesByGrantable(result.grants);
+        for (const [grantable, list] of grantGroups) {
+          void grantable;
+          changes.push(
+            new GrantDomainPrivileges({
+              domain: branchDomain,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke changes
+      if (result.revokes.length > 0) {
+        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+        for (const [grantable, list] of revokeGroups) {
+          void grantable;
+          changes.push(
+            new RevokeDomainPrivileges({
+              domain: mainDomain,
+              grantee,
+              privileges: list,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      // Generate revoke grant option changes
+      if (result.revokeGrantOption.length > 0) {
+        changes.push(
+          new RevokeGrantOptionDomainPrivileges({
+            domain: mainDomain,
+            grantee,
+            privilegeNames: result.revokeGrantOption,
+            version: ctx.version,
+          }),
+        );
       }
     }
   }

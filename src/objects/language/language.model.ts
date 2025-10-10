@@ -1,6 +1,10 @@
 import type { Sql } from "postgres";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type PrivilegeProps,
+  privilegePropsSchema,
+} from "../base.privilege-diff.ts";
 
 /**
  * All properties exposed by CREATE LANGUAGE statement are included in diff output.
@@ -11,6 +15,7 @@ import { BasePgModel } from "../base.model.ts";
  *
  * Other properties require dropping and creating a new language.
  */
+
 const languagePropsSchema = z.object({
   name: z.string(),
   is_trusted: z.boolean(),
@@ -20,8 +25,10 @@ const languagePropsSchema = z.object({
   validator: z.string().nullable(),
   owner: z.string(),
   comment: z.string().nullable(),
+  privileges: z.array(privilegePropsSchema),
 });
 
+type LanguagePrivilegeProps = PrivilegeProps;
 export type LanguageProps = z.infer<typeof languagePropsSchema>;
 
 export class Language extends BasePgModel {
@@ -33,6 +40,7 @@ export class Language extends BasePgModel {
   public readonly validator: LanguageProps["validator"];
   public readonly owner: LanguageProps["owner"];
   public readonly comment: LanguageProps["comment"];
+  public readonly privileges: LanguagePrivilegeProps[];
 
   constructor(props: LanguageProps) {
     super();
@@ -48,6 +56,7 @@ export class Language extends BasePgModel {
     this.validator = props.validator;
     this.owner = props.owner;
     this.comment = props.comment;
+    this.privileges = props.privileges;
   }
 
   get stableId(): `language:${string}` {
@@ -69,6 +78,7 @@ export class Language extends BasePgModel {
       validator: this.validator,
       owner: this.owner,
       comment: this.comment,
+      privileges: this.privileges,
     };
   }
 }
@@ -94,7 +104,20 @@ async function _extractLanguages(sql: Sql): Promise<Language[]> {
       lan.laninline::regprocedure::text as inline_handler,
       lan.lanvalidator::regprocedure::text as validator,
       lan.lanowner::regrole::text as owner,
-      obj_description(lan.oid, 'pg_language') as comment
+      obj_description(lan.oid, 'pg_language') as comment,
+      coalesce(
+        (
+          select json_agg(
+            json_build_object(
+              'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+              'privilege', x.privilege_type,
+              'grantable', x.is_grantable
+            )
+            order by x.grantee, x.privilege_type
+          )
+          from lateral aclexplode(lan.lanacl) as x(grantor, grantee, privilege_type, is_grantable)
+        ), '[]'
+      ) as privileges
     from
       pg_catalog.pg_language lan
       left outer join extension_oids e on lan.oid = e.objid

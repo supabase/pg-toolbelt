@@ -13,19 +13,15 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum({
         ...props,
         owner: "old_owner",
       });
-      const branch = new Enum({
-        ...props,
-        owner: "new_owner",
-      });
-
       const change = new AlterEnumChangeOwner({
-        main,
-        branch,
+        enum: main,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -43,18 +39,10 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
-      const branch = new Enum({
-        ...props,
-        labels: [...props.labels, { sort_order: 3, label: "value3" }],
-      });
-
-      const change = new AlterEnumAddValue({
-        main,
-        branch,
-        newValue: "value3",
-      });
+      const change = new AlterEnumAddValue({ enum: main, newValue: "value3" });
 
       expect(change.serialize()).toBe(
         "ALTER TYPE public.test_enum ADD VALUE 'value3'",
@@ -71,20 +59,11 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
-      const branch = new Enum({
-        ...props,
-        labels: [
-          { sort_order: 1, label: "value1" },
-          { sort_order: 1.5, label: "value1_5" },
-          { sort_order: 2, label: "value2" },
-        ],
-      });
-
       const change = new AlterEnumAddValue({
-        main,
-        branch,
+        enum: main,
         newValue: "value1_5",
         position: { before: "value2" },
       });
@@ -104,20 +83,11 @@ describe.concurrent("enum", () => {
           { sort_order: 2, label: "value2" },
         ],
         comment: null,
+        privileges: [],
       };
       const main = new Enum(props);
-      const branch = new Enum({
-        ...props,
-        labels: [
-          { sort_order: 1, label: "value1" },
-          { sort_order: 1.5, label: "value1_5" },
-          { sort_order: 2, label: "value2" },
-        ],
-      });
-
       const change = new AlterEnumAddValue({
-        main,
-        branch,
+        enum: main,
         newValue: "value1_5",
         position: { after: "value1" },
       });

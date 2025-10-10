@@ -18,6 +18,7 @@ describe("range", () => {
       subtype_opclass_schema: null,
       subtype_opclass_name: null,
       comment: null,
+      privileges: [],
     });
     const change = new DropRange({ range: r });
     expect(change.serialize()).toBe("DROP TYPE public.tsrange_custom");

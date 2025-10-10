@@ -334,7 +334,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       // Test system schema filtering
       const schemaNames = Object.keys(catalog.schemas).map(
-        (key) => catalog.schemas[key].schema,
+        (key) => catalog.schemas[key].name,
       );
       const systemSchemas = ["information_schema", "pg_catalog", "pg_toast"];
 
@@ -347,7 +347,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(Object.keys(catalog.roles).length).toBeGreaterThan(0);
       const adminRole = catalog.roles["role:supabase_admin"];
       if (adminRole) {
-        expect(adminRole.role_name).toBe("supabase_admin");
+        expect(adminRole.name).toBe("supabase_admin");
       }
 
       // Test extension extraction

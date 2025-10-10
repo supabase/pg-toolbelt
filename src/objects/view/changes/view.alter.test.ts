@@ -25,19 +25,18 @@ describe.concurrent("view", () => {
         options: null,
         partition_bound: null,
         comment: null,
+        columns: [],
+        privileges: [],
       };
       const main = new View({
         ...props,
         owner: "old_owner",
       });
-      const branch = new View({
-        ...props,
-        owner: "new_owner",
-      });
+      // branch no longer needed for constructor; we only pass explicit owner
 
       const change = new AlterViewChangeOwner({
-        main,
-        branch,
+        view: main,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -63,11 +62,16 @@ describe.concurrent("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     };
     const main = new View({ ...props, options: ["security_barrier=true"] });
-    const branch = new View({ ...props, options: ["security_barrier=false"] });
+    // branch no longer needed; we pass explicit options list
 
-    const change = new AlterViewSetOptions({ main, branch });
+    const change = new AlterViewSetOptions({
+      view: main,
+      options: ["security_barrier=false"],
+    });
     expect(change.serialize()).toBe(
       "ALTER VIEW public.test_view SET (security_barrier=false)",
     );
@@ -91,6 +95,8 @@ describe.concurrent("view", () => {
       partition_bound: null,
       owner: "test",
       comment: null,
+      columns: [],
+      privileges: [],
     });
 
     const change = new AlterViewResetOptions({

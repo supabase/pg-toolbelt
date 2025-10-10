@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
+import { DropSchemaChange } from "./schema.base.ts";
 
 /**
  * Drop a schema.
@@ -11,11 +11,9 @@ import type { Schema } from "../schema.model.ts";
  * DROP SCHEMA [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropSchema extends Change {
+export class DropSchema extends DropSchemaChange {
   public readonly schema: Schema;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "schema" as const;
 
   constructor(props: { schema: Schema }) {
     super();
@@ -27,6 +25,6 @@ export class DropSchema extends Change {
   }
 
   serialize(): string {
-    return ["DROP SCHEMA", this.schema.schema].join(" ");
+    return ["DROP SCHEMA", this.schema.name].join(" ");
   }
 }

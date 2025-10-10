@@ -1,15 +1,12 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
-import {
-  AlterExtensionChangeOwner,
-  AlterExtensionSetSchema,
-} from "./changes/extension.alter.ts";
+import { AlterExtensionSetSchema } from "./changes/extension.alter.ts";
 import {
   CreateCommentOnExtension,
   DropCommentOnExtension,
 } from "./changes/extension.comment.ts";
 import { CreateExtension } from "./changes/extension.create.ts";
 import { DropExtension } from "./changes/extension.drop.ts";
+import type { ExtensionChange } from "./changes/extension.types.ts";
 import type { Extension } from "./extension.model.ts";
 
 /**
@@ -22,10 +19,10 @@ import type { Extension } from "./extension.model.ts";
 export function diffExtensions(
   main: Record<string, Extension>,
   branch: Record<string, Extension>,
-): Change[] {
+): ExtensionChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: ExtensionChange[] = [];
 
   for (const extensionId of created) {
     const ext = branch[extensionId];
@@ -58,8 +55,8 @@ export function diffExtensions(
     // if (mainExtension.version !== branchExtension.version) {
     //   changes.push(
     //     new AlterExtensionUpdateVersion({
-    //       main: mainExtension,
-    //       branch: branchExtension,
+    //       extension: mainExtension,
+    //       version: branchExtension.version,
     //     }),
     //   );
     // }
@@ -68,18 +65,8 @@ export function diffExtensions(
     if (schemaChanged && mainExtension.relocatable) {
       changes.push(
         new AlterExtensionSetSchema({
-          main: mainExtension,
-          branch: branchExtension,
-        }),
-      );
-    }
-
-    // OWNER
-    if (mainExtension.owner !== branchExtension.owner) {
-      changes.push(
-        new AlterExtensionChangeOwner({
-          main: mainExtension,
-          branch: branchExtension,
+          extension: mainExtension,
+          schema: branchExtension.schema,
         }),
       );
     }

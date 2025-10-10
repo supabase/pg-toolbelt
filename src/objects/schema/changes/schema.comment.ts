@@ -1,48 +1,47 @@
-import { Change, quoteLiteral } from "../../base.change.ts";
+import { quoteLiteral } from "../../base.change.ts";
 import type { Schema } from "../schema.model.ts";
+import { CreateSchemaChange, DropSchemaChange } from "./schema.base.ts";
 
-export class CreateCommentOnSchema extends Change {
-  public readonly schemaObj: Schema;
-  public readonly operation = "create" as const;
+export type CommentSchema = CreateCommentOnSchema | DropCommentOnSchema;
+
+export class CreateCommentOnSchema extends CreateSchemaChange {
+  public readonly schema: Schema;
   public readonly scope = "comment" as const;
-  public readonly objectType = "schema" as const;
 
-  constructor(props: { schemaObj: Schema }) {
+  constructor(props: { schema: Schema }) {
     super();
-    this.schemaObj = props.schemaObj;
+    this.schema = props.schema;
   }
 
   get dependencies() {
-    return [`comment:${this.schemaObj.schema}`];
+    return [`comment:${this.schema.name}`];
   }
 
   serialize(): string {
     return [
       "COMMENT ON SCHEMA",
-      this.schemaObj.schema,
+      this.schema.name,
       "IS",
       // biome-ignore lint/style/noNonNullAssertion: schema comment is not nullable in this case
-      quoteLiteral(this.schemaObj.comment!),
+      quoteLiteral(this.schema.comment!),
     ].join(" ");
   }
 }
 
-export class DropCommentOnSchema extends Change {
-  public readonly schemaObj: Schema;
-  public readonly operation = "drop" as const;
+export class DropCommentOnSchema extends DropSchemaChange {
+  public readonly schema: Schema;
   public readonly scope = "comment" as const;
-  public readonly objectType = "schema" as const;
 
-  constructor(props: { schemaObj: Schema }) {
+  constructor(props: { schema: Schema }) {
     super();
-    this.schemaObj = props.schemaObj;
+    this.schema = props.schema;
   }
 
   get dependencies() {
-    return [`comment:${this.schemaObj.schema}`];
+    return [`comment:${this.schema.name}`];
   }
 
   serialize(): string {
-    return ["COMMENT ON SCHEMA", this.schemaObj.schema, "IS NULL"].join(" ");
+    return ["COMMENT ON SCHEMA", this.schema.name, "IS NULL"].join(" ");
   }
 }

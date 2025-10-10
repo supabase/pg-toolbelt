@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Language } from "../language.model.ts";
+import { AlterLanguageChange } from "./language.base.ts";
 
 /**
  * Alter a language.
@@ -13,24 +13,24 @@ import type { Language } from "../language.model.ts";
  * ```
  */
 
+export type AlterLanguage = AlterLanguageChangeOwner;
+
 /**
  * ALTER LANGUAGE ... OWNER TO ...
  */
-export class AlterLanguageChangeOwner extends Change {
-  public readonly main: Language;
-  public readonly branch: Language;
-  public readonly operation = "alter" as const;
+export class AlterLanguageChangeOwner extends AlterLanguageChange {
+  public readonly language: Language;
+  public readonly owner: string;
   public readonly scope = "object" as const;
-  public readonly objectType = "language" as const;
 
-  constructor(props: { main: Language; branch: Language }) {
+  constructor(props: { language: Language; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.language = props.language;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.language.stableId];
   }
 
   serialize(): string {
@@ -40,7 +40,7 @@ export class AlterLanguageChangeOwner extends Change {
     // It is syntactic noise and the default for procedural languages,
     // so we purposely omit it to avoid emitting defaults.
 
-    parts.push("LANGUAGE", this.main.name, "OWNER TO", this.branch.owner);
+    parts.push("LANGUAGE", this.language.name, "OWNER TO", this.owner);
 
     return parts.join(" ");
   }

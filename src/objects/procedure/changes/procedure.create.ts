@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Procedure } from "../procedure.model.ts";
+import { CreateProcedureChange } from "./procedure.base.ts";
 
 /**
  * Create a procedure.
@@ -29,12 +29,10 @@ import type { Procedure } from "../procedure.model.ts";
  *     } ...
  * ```
  */
-export class CreateProcedure extends Change {
+export class CreateProcedure extends CreateProcedureChange {
   public readonly procedure: Procedure;
   public readonly orReplace: boolean;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "procedure" as const;
 
   constructor(props: { procedure: Procedure; orReplace?: boolean }) {
     super();

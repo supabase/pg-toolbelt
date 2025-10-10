@@ -1,4 +1,3 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
@@ -9,6 +8,7 @@ import {
 } from "./changes/trigger.comment.ts";
 import { CreateTrigger } from "./changes/trigger.create.ts";
 import { DropTrigger } from "./changes/trigger.drop.ts";
+import type { TriggerChange } from "./changes/trigger.types.ts";
 import type { Trigger } from "./trigger.model.ts";
 
 /**
@@ -22,10 +22,10 @@ export function diffTriggers(
   main: Record<string, Trigger>,
   branch: Record<string, Trigger>,
   branchIndexableObjects?: Record<string, TableLikeObject>,
-): Change[] {
+): TriggerChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: TriggerChange[] = [];
 
   for (const triggerId of created) {
     const trg = branch[triggerId];
@@ -76,8 +76,7 @@ export function diffTriggers(
         `table:${branchTrigger.schema}.${branchTrigger.table_name}` as const;
       changes.push(
         new ReplaceTrigger({
-          main: mainTrigger,
-          branch: branchTrigger,
+          trigger: branchTrigger,
           indexableObject: branchIndexableObjects?.[tableStableId],
         }),
       );

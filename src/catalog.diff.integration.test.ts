@@ -19,12 +19,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
       // Expect the changes to be:
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "composite_type",
+            scope: "object",
             compositeType: expect.objectContaining({
               name: "address",
               schema: "test_schema",
@@ -32,8 +34,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
         ]),
@@ -53,19 +57,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           // Remove the two index expectations - unique constraints are handled as table constraints
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -73,16 +81,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            objectType: "sequence",
+            scope: "object",
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -90,6 +104,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -100,6 +116,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -110,6 +128,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -135,18 +155,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -154,6 +178,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -161,6 +187,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -171,6 +199,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "view",
+            scope: "object",
             view: expect.objectContaining({
               name: "active_users",
               schema: "test_schema",
@@ -178,12 +208,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            objectType: "sequence",
+            scope: "object",
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -203,18 +237,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "user_id_seq",
               schema: "test_schema",
@@ -232,12 +270,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "enum",
+            scope: "object",
             enum: expect.objectContaining({
               name: "user_status",
               schema: "test_schema",
@@ -245,8 +285,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
         ]),
@@ -262,12 +304,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "domain",
+            scope: "object",
             domain: expect.objectContaining({
               name: "email_address",
               schema: "test_schema",
@@ -275,8 +319,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
         ]),
@@ -300,12 +346,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "procedure",
+            scope: "object",
             procedure: expect.objectContaining({
               name: "create_user",
               schema: "test_schema",
@@ -313,8 +361,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
         ]),
@@ -339,12 +389,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "materialized_view",
+            scope: "object",
             materializedView: expect.objectContaining({
               name: "user_stats",
               schema: "test_schema",
@@ -352,12 +404,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -365,6 +421,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -372,6 +430,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -382,12 +442,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            objectType: "sequence",
+            scope: "object",
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -418,12 +482,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "procedure",
+            scope: "object",
             procedure: expect.objectContaining({
               name: "update_updated_at",
               schema: "test_schema",
@@ -431,12 +497,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -444,6 +514,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -451,6 +523,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -461,6 +535,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "trigger",
+            scope: "object",
             trigger: expect.objectContaining({
               name: "users_updated_at_trigger",
               schema: "test_schema",
@@ -468,12 +544,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            objectType: "sequence",
+            scope: "object",
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -498,25 +578,31 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
-            rlsPolicy: expect.objectContaining({
+            objectType: "rls_policy",
+            scope: "object",
+            policy: expect.objectContaining({
               name: "tenant_isolation_policy",
               schema: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
@@ -524,6 +610,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -531,6 +619,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -541,12 +631,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
-            branch: expect.objectContaining({
+            objectType: "sequence",
+            scope: "object",
+            sequence: expect.objectContaining({
               name: "users_id_seq",
               schema: "test_schema",
-              owned_by_schema: "test_schema",
-              owned_by_table: "users",
-              owned_by_column: "id",
+            }),
+            ownedBy: expect.objectContaining({
+              schema: "test_schema",
+              table: "users",
+              column: "id",
             }),
           }),
         ]),
@@ -593,12 +687,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "create",
+            objectType: "domain",
+            scope: "object",
             domain: expect.objectContaining({
               name: "positive_integer",
               schema: "test_schema",
@@ -606,6 +702,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "enum",
+            scope: "object",
             enum: expect.objectContaining({
               name: "user_role",
               schema: "test_schema",
@@ -614,6 +712,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // Remove the index expectation - unique constraints are handled as table constraints
           expect.objectContaining({
             operation: "create",
+            objectType: "procedure",
+            scope: "object",
             procedure: expect.objectContaining({
               name: "create_admin_user",
               schema: "test_schema",
@@ -621,12 +721,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "global_id_seq",
               schema: "test_schema",
@@ -634,6 +738,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -641,6 +747,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -651,6 +759,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "alter",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -661,6 +771,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "create",
+            objectType: "view",
+            scope: "object",
             view: expect.objectContaining({
               name: "admin_users",
               schema: "test_schema",
@@ -717,12 +829,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             operation: "drop",
+            objectType: "domain",
+            scope: "object",
             domain: expect.objectContaining({
               name: "positive_integer",
               schema: "test_schema",
@@ -730,6 +844,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "drop",
+            objectType: "enum",
+            scope: "object",
             enum: expect.objectContaining({
               name: "user_role",
               schema: "test_schema",
@@ -738,6 +854,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           expect.objectContaining({
             operation: "drop",
+            objectType: "procedure",
+            scope: "object",
             procedure: expect.objectContaining({
               name: "create_admin_user",
               schema: "test_schema",
@@ -745,12 +863,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "drop",
+            objectType: "schema",
+            scope: "object",
             schema: expect.objectContaining({
-              schema: "test_schema",
+              name: "test_schema",
             }),
           }),
           expect.objectContaining({
             operation: "drop",
+            objectType: "sequence",
+            scope: "object",
             sequence: expect.objectContaining({
               name: "global_id_seq",
               schema: "test_schema",
@@ -758,6 +880,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "drop",
+            objectType: "table",
+            scope: "object",
             table: expect.objectContaining({
               name: "users",
               schema: "test_schema",
@@ -765,6 +889,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           }),
           expect.objectContaining({
             operation: "drop",
+            objectType: "view",
+            scope: "object",
             view: expect.objectContaining({
               name: "admin_users",
               schema: "test_schema",
@@ -853,7 +979,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       // We expect 7 alter operations (1 for enum, 1 for domain, 1 for sequence, 2 for table columns, 1 for view, 1 for procedure)
 
@@ -867,6 +993,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "alter",
+          objectType: "domain",
+          scope: "object",
           domain: expect.objectContaining({
             name: "positive_integer",
             schema: "test_schema",
@@ -878,11 +1006,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "alter",
-          main: expect.objectContaining({
-            name: "user_role",
-            schema: "test_schema",
-          }),
-          branch: expect.objectContaining({
+          objectType: "enum",
+          scope: "object",
+          enum: expect.objectContaining({
             name: "user_role",
             schema: "test_schema",
           }),
@@ -891,6 +1017,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "create",
+          objectType: "procedure",
+          scope: "object",
           orReplace: true,
           procedure: expect.objectContaining({
             name: "create_admin_user",
@@ -899,17 +1027,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "alter",
-          main: expect.objectContaining({
+          objectType: "sequence",
+          scope: "object",
+          sequence: expect.objectContaining({
             name: "global_id_seq",
             schema: "test_schema",
           }),
-          branch: expect.objectContaining({
-            name: "global_id_seq",
-            schema: "test_schema",
-          }),
+          options: ["START WITH", "10000"],
         }),
         expect.objectContaining({
           operation: "alter",
+          objectType: "table",
+          scope: "object",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -920,6 +1049,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "alter",
+          objectType: "table",
+          scope: "object",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -930,6 +1061,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         expect.objectContaining({
           operation: "create",
+          objectType: "view",
+          scope: "object",
           orReplace: true,
           view: expect.objectContaining({
             name: "admin_users",
@@ -955,11 +1088,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "alter",
+          objectType: "enum",
+          scope: "object",
           newValue: "pending",
           position: { after: "inactive" },
         }),
@@ -983,11 +1118,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "alter",
+          objectType: "domain",
+          scope: "object",
           domain: expect.objectContaining({
             name: "age",
             schema: "test_schema",
@@ -1023,11 +1160,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "alter",
+          objectType: "table",
+          scope: "object",
           table: expect.objectContaining({
             name: "users",
             schema: "test_schema",
@@ -1067,11 +1206,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
       const mainCatalog = await extractCatalog(db.main);
       const branchCatalog = await extractCatalog(db.branch);
-      const changes = await diffCatalogs(mainCatalog, branchCatalog);
+      const changes = diffCatalogs(mainCatalog, branchCatalog);
 
       expect(changes).toEqual([
         expect.objectContaining({
           operation: "create",
+          objectType: "view",
+          scope: "object",
           orReplace: true,
           view: expect.objectContaining({
             name: "user_list",

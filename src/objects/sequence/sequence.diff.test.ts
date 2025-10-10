@@ -23,14 +23,16 @@ const base: SequenceProps = {
   owned_by_table: null,
   owned_by_column: null,
   comment: null,
+  privileges: [],
+  owner: "test",
 };
 
 describe.concurrent("sequence.diff", () => {
   test("create and drop", () => {
     const s = new Sequence(base);
-    const created = diffSequences({}, { [s.stableId]: s });
+    const created = diffSequences({ version: 170000 }, {}, { [s.stableId]: s });
     expect(created[0]).toBeInstanceOf(CreateSequence);
-    const dropped = diffSequences({ [s.stableId]: s }, {});
+    const dropped = diffSequences({ version: 170000 }, { [s.stableId]: s }, {});
     expect(dropped[0]).toBeInstanceOf(DropSequence);
   });
 
@@ -43,6 +45,7 @@ describe.concurrent("sequence.diff", () => {
       owned_by_column: "id",
     });
     const changes = diffSequences(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -61,6 +64,7 @@ describe.concurrent("sequence.diff", () => {
       cycle_option: true,
     });
     const changes = diffSequences(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -77,6 +81,7 @@ describe.concurrent("sequence.diff", () => {
       persistence: "u",
     });
     const changes = diffSequences(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

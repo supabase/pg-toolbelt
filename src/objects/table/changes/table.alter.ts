@@ -1,6 +1,6 @@
-import { Change } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
+import { AlterTableChange } from "./table.base.ts";
 
 // No drop+create paths; destructive operations are out of scope
 
@@ -58,32 +58,54 @@ import type { Table, TableConstraintProps } from "../table.model.ts";
  * ```
  */
 
+export type AlterTable =
+  | AlterTableAddColumn
+  | AlterTableAddConstraint
+  | AlterTableAlterColumnDropDefault
+  | AlterTableAlterColumnDropNotNull
+  | AlterTableAlterColumnSetDefault
+  | AlterTableAlterColumnSetNotNull
+  | AlterTableAlterColumnType
+  | AlterTableAttachPartition
+  | AlterTableChangeOwner
+  | AlterTableDetachPartition
+  | AlterTableDisableRowLevelSecurity
+  | AlterTableDropColumn
+  | AlterTableDropConstraint
+  | AlterTableEnableRowLevelSecurity
+  | AlterTableForceRowLevelSecurity
+  | AlterTableNoForceRowLevelSecurity
+  | AlterTableResetStorageParams
+  | AlterTableSetLogged
+  | AlterTableSetReplicaIdentity
+  | AlterTableSetStorageParams
+  | AlterTableSetUnlogged
+  | AlterTableValidateConstraint;
+
 /**
  * ALTER TABLE ... OWNER TO ...
  */
-export class AlterTableChangeOwner extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
-  public readonly scope = "owner" as const;
-  public readonly objectType = "table" as const;
+export class AlterTableChangeOwner extends AlterTableChange {
+  public readonly table: Table;
+  public readonly owner: string;
+  public readonly scope = "object" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table; owner: string }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
+    this.owner = props.owner;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "OWNER TO",
-      this.branch.owner,
+      this.owner,
     ].join(" ");
   }
 }
@@ -91,27 +113,23 @@ export class AlterTableChangeOwner extends Change {
 /**
  * ALTER TABLE ... SET LOGGED
  */
-export class AlterTableSetLogged extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableSetLogged extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "SET LOGGED",
     ].join(" ");
   }
@@ -120,27 +138,23 @@ export class AlterTableSetLogged extends Change {
 /**
  * ALTER TABLE ... SET UNLOGGED
  */
-export class AlterTableSetUnlogged extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableSetUnlogged extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "SET UNLOGGED",
     ].join(" ");
   }
@@ -149,27 +163,23 @@ export class AlterTableSetUnlogged extends Change {
 /**
  * ALTER TABLE ... ENABLE ROW LEVEL SECURITY
  */
-export class AlterTableEnableRowLevelSecurity extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableEnableRowLevelSecurity extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "ENABLE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -178,27 +188,23 @@ export class AlterTableEnableRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... DISABLE ROW LEVEL SECURITY
  */
-export class AlterTableDisableRowLevelSecurity extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableDisableRowLevelSecurity extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "DISABLE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -207,27 +213,23 @@ export class AlterTableDisableRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... FORCE ROW LEVEL SECURITY
  */
-export class AlterTableForceRowLevelSecurity extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableForceRowLevelSecurity extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "FORCE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -236,27 +238,23 @@ export class AlterTableForceRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... NO FORCE ROW LEVEL SECURITY
  */
-export class AlterTableNoForceRowLevelSecurity extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableNoForceRowLevelSecurity extends AlterTableChange {
+  public readonly table: Table;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "NO FORCE ROW LEVEL SECURITY",
     ].join(" ");
   }
@@ -265,28 +263,26 @@ export class AlterTableNoForceRowLevelSecurity extends Change {
 /**
  * ALTER TABLE ... SET ( storage_parameter = value [, ... ] )
  */
-export class AlterTableSetStorageParams extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableSetStorageParams extends AlterTableChange {
+  public readonly table: Table;
+  public readonly options: string[];
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table; options: string[] }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
+    this.options = props.options;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
-    const storageParams = (this.branch.options ?? []).join(", ");
+    const storageParams = this.options.join(", ");
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       `SET (${storageParams})`,
     ].join(" ");
   }
@@ -295,12 +291,10 @@ export class AlterTableSetStorageParams extends Change {
 /**
  * ALTER TABLE ... RESET ( storage_parameter [, ... ] )
  */
-export class AlterTableResetStorageParams extends Change {
+export class AlterTableResetStorageParams extends AlterTableChange {
   public readonly table: Table;
   public readonly params: string[];
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; params: string[] }) {
     super();
@@ -327,13 +321,11 @@ export class AlterTableResetStorageParams extends Change {
 /**
  * ALTER TABLE ... ADD CONSTRAINT ...
  */
-export class AlterTableAddConstraint extends Change {
+export class AlterTableAddConstraint extends AlterTableChange {
   public readonly table: Table;
   public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: {
     table: Table;
@@ -374,12 +366,10 @@ export class AlterTableAddConstraint extends Change {
 /**
  * ALTER TABLE ... DROP CONSTRAINT ...
  */
-export class AlterTableDropConstraint extends Change {
+export class AlterTableDropConstraint extends AlterTableChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
@@ -404,12 +394,10 @@ export class AlterTableDropConstraint extends Change {
 /**
  * ALTER TABLE ... VALIDATE CONSTRAINT ...
  */
-export class AlterTableValidateConstraint extends Change {
+export class AlterTableValidateConstraint extends AlterTableChange {
   public readonly table: Table;
   public readonly constraint: TableConstraintProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
@@ -434,36 +422,33 @@ export class AlterTableValidateConstraint extends Change {
 /**
  * ALTER TABLE ... REPLICA IDENTITY ...
  */
-export class AlterTableSetReplicaIdentity extends Change {
-  public readonly main: Table;
-  public readonly branch: Table;
-  public readonly operation = "alter" as const;
+export class AlterTableSetReplicaIdentity extends AlterTableChange {
+  public readonly table: Table;
+  public readonly mode: "d" | "n" | "f" | "i";
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { main: Table; branch: Table }) {
+  constructor(props: { table: Table; mode: "d" | "n" | "f" | "i" }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.table = props.table;
+    this.mode = props.mode;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.table.stableId];
   }
 
   serialize(): string {
-    const mode = this.branch.replica_identity;
     const clause =
-      mode === "d"
+      this.mode === "d"
         ? "DEFAULT"
-        : mode === "n"
+        : this.mode === "n"
           ? "NOTHING"
-          : mode === "f"
+          : this.mode === "f"
             ? "FULL"
             : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
     return [
       "ALTER TABLE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "REPLICA IDENTITY",
       clause,
     ].join(" ");
@@ -473,12 +458,10 @@ export class AlterTableSetReplicaIdentity extends Change {
 /**
  * ALTER TABLE ... ADD COLUMN ...
  */
-export class AlterTableAddColumn extends Change {
+export class AlterTableAddColumn extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -522,12 +505,10 @@ export class AlterTableAddColumn extends Change {
 /**
  * ALTER TABLE ... DROP COLUMN ...
  */
-export class AlterTableDropColumn extends Change {
+export class AlterTableDropColumn extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -552,12 +533,10 @@ export class AlterTableDropColumn extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... TYPE ...
  */
-export class AlterTableAlterColumnType extends Change {
+export class AlterTableAlterColumnType extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -588,12 +567,10 @@ export class AlterTableAlterColumnType extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET DEFAULT ...
  */
-export class AlterTableAlterColumnSetDefault extends Change {
+export class AlterTableAlterColumnSetDefault extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -622,12 +599,10 @@ export class AlterTableAlterColumnSetDefault extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP DEFAULT
  */
-export class AlterTableAlterColumnDropDefault extends Change {
+export class AlterTableAlterColumnDropDefault extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -653,12 +628,10 @@ export class AlterTableAlterColumnDropDefault extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... SET NOT NULL
  */
-export class AlterTableAlterColumnSetNotNull extends Change {
+export class AlterTableAlterColumnSetNotNull extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -684,12 +657,10 @@ export class AlterTableAlterColumnSetNotNull extends Change {
 /**
  * ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL
  */
-export class AlterTableAlterColumnDropNotNull extends Change {
+export class AlterTableAlterColumnDropNotNull extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
   constructor(props: { table: Table; column: ColumnProps }) {
     super();
@@ -715,29 +686,27 @@ export class AlterTableAlterColumnDropNotNull extends Change {
 /**
  * ALTER TABLE ... ATTACH PARTITION ...
  */
-export class AlterTableAttachPartition extends Change {
-  public readonly parent: Table;
+export class AlterTableAttachPartition extends AlterTableChange {
+  public readonly table: Table;
   public readonly partition: Table;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { parent: Table; partition: Table }) {
+  constructor(props: { table: Table; partition: Table }) {
     super();
-    this.parent = props.parent;
+    this.table = props.table;
     this.partition = props.partition;
   }
 
   get dependencies() {
     // Depend on the partition child so that it is created before attach
-    return [`${this.partition.stableId}`, `${this.parent.stableId}`];
+    return [`${this.partition.stableId}`, `${this.table.stableId}`];
   }
 
   serialize(): string {
     const bound = this.partition.partition_bound ?? "DEFAULT";
     return [
       "ALTER TABLE",
-      `${this.parent.schema}.${this.parent.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "ATTACH PARTITION",
       `${this.partition.schema}.${this.partition.name}`,
       bound,
@@ -748,28 +717,26 @@ export class AlterTableAttachPartition extends Change {
 /**
  * ALTER TABLE ... DETACH PARTITION ...
  */
-export class AlterTableDetachPartition extends Change {
-  public readonly parent: Table;
+export class AlterTableDetachPartition extends AlterTableChange {
+  public readonly table: Table;
   public readonly partition: Table;
-  public readonly operation = "alter" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "table" as const;
 
-  constructor(props: { parent: Table; partition: Table }) {
+  constructor(props: { table: Table; partition: Table }) {
     super();
-    this.parent = props.parent;
+    this.table = props.table;
     this.partition = props.partition;
   }
 
   get dependencies() {
     // Depend on the partition child for consistent ordering with potential drops
-    return [`${this.parent.stableId}`, `${this.partition.stableId}`];
+    return [`${this.table.stableId}`, `${this.partition.stableId}`];
   }
 
   serialize(): string {
     return [
       "ALTER TABLE",
-      `${this.parent.schema}.${this.parent.name}`,
+      `${this.table.schema}.${this.table.name}`,
       "DETACH PARTITION",
       `${this.partition.schema}.${this.partition.name}`,
     ].join(" ");

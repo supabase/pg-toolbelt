@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Collation, type CollationProps } from "../collation.model.ts";
+import { Collation } from "../collation.model.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
@@ -8,7 +8,7 @@ import {
 describe.concurrent("collation", () => {
   describe("alter", () => {
     test("change owner", () => {
-      const base: Omit<CollationProps, "owner"> = {
+      const collation = new Collation({
         schema: "public",
         name: "test",
         provider: "c",
@@ -20,19 +20,12 @@ describe.concurrent("collation", () => {
         ctype: "test",
         icu_rules: "test",
         comment: null,
-      };
-      const main = new Collation({
-        ...base,
         owner: "old_owner",
-      });
-      const branch = new Collation({
-        ...base,
-        owner: "new_owner",
       });
 
       const change = new AlterCollationChangeOwner({
-        main,
-        branch,
+        collation,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -41,7 +34,7 @@ describe.concurrent("collation", () => {
     });
 
     test("refresh version", () => {
-      const base: Omit<CollationProps, "version"> = {
+      const collation = new Collation({
         schema: "public",
         name: "test",
         provider: "c",
@@ -53,19 +46,11 @@ describe.concurrent("collation", () => {
         icu_rules: "test",
         comment: null,
         owner: "test",
-      };
-      const main = new Collation({
-        ...base,
         version: "1.0",
-      });
-      const branch = new Collation({
-        ...base,
-        version: "2.0",
       });
 
       const change = new AlterCollationRefreshVersion({
-        main,
-        branch,
+        collation,
       });
 
       expect(change.serialize()).toBe(

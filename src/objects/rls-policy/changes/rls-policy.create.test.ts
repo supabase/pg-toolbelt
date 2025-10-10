@@ -4,7 +4,7 @@ import { CreateRlsPolicy } from "./rls-policy.create.ts";
 
 describe("rls-policy", () => {
   test("create minimal", () => {
-    const rlsPolicy = new RlsPolicy({
+    const policy = new RlsPolicy({
       schema: "public",
       name: "test_policy_min",
       table_name: "test_table",
@@ -18,7 +18,7 @@ describe("rls-policy", () => {
     });
 
     const change = new CreateRlsPolicy({
-      rlsPolicy,
+      policy,
     });
 
     expect(change.serialize()).toBe(
@@ -27,7 +27,7 @@ describe("rls-policy", () => {
   });
 
   test("create", () => {
-    const rlsPolicy = new RlsPolicy({
+    const policy = new RlsPolicy({
       schema: "public",
       name: "test_policy",
       table_name: "test_table",
@@ -41,7 +41,7 @@ describe("rls-policy", () => {
     });
 
     const change = new CreateRlsPolicy({
-      rlsPolicy,
+      policy,
     });
 
     expect(change.serialize()).toBe(
@@ -50,7 +50,7 @@ describe("rls-policy", () => {
   });
 
   test("create with all options", () => {
-    const rlsPolicy = new RlsPolicy({
+    const policy = new RlsPolicy({
       schema: "public",
       name: "test_policy_all",
       table_name: "test_table",
@@ -64,7 +64,7 @@ describe("rls-policy", () => {
     });
 
     const change = new CreateRlsPolicy({
-      rlsPolicy,
+      policy,
     });
 
     expect(change.serialize()).toBe(

@@ -1,5 +1,5 @@
-import { Change } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
+import { DropRangeChange } from "./range.base.ts";
 
 /**
  * Drop a range type.
@@ -11,11 +11,9 @@ import type { Range } from "../range.model.ts";
  * DROP TYPE [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
  * ```
  */
-export class DropRange extends Change {
+export class DropRange extends DropRangeChange {
   public readonly range: Range;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "range" as const;
 
   constructor(props: { range: Range }) {
     super();

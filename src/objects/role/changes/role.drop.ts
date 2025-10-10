@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Role } from "../role.model.ts";
+import { DropRoleChange } from "./role.base.ts";
 
 /**
  * Drop a role.
@@ -11,11 +11,9 @@ import type { Role } from "../role.model.ts";
  * DROP ROLE [ IF EXISTS ] name [, ...]
  * ```
  */
-export class DropRole extends Change {
+export class DropRole extends DropRoleChange {
   public readonly role: Role;
-  public readonly operation = "drop" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "role" as const;
 
   constructor(props: { role: Role }) {
     super();
@@ -27,6 +25,6 @@ export class DropRole extends Change {
   }
 
   serialize(): string {
-    return ["DROP ROLE", this.role.role_name].join(" ");
+    return ["DROP ROLE", this.role.name].join(" ");
   }
 }

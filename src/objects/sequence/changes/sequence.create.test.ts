@@ -19,6 +19,8 @@ describe("sequence", () => {
       owned_by_table: null,
       owned_by_column: null,
       comment: null,
+      privileges: [],
+      owner: "test",
     });
 
     const change = new CreateSequence({ sequence });
@@ -41,6 +43,8 @@ describe("sequence", () => {
       owned_by_table: null,
       owned_by_column: null,
       comment: null,
+      privileges: [],
+      owner: "test",
     });
 
     const change = new CreateSequence({
@@ -68,6 +72,8 @@ describe("sequence", () => {
       owned_by_table: null,
       owned_by_column: null,
       comment: null,
+      privileges: [],
+      owner: "test",
     });
 
     const change = new CreateSequence({ sequence });

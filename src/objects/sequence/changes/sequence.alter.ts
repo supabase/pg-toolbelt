@@ -1,5 +1,5 @@
-import { Change } from "../../base.change.ts";
 import type { Sequence } from "../sequence.model.ts";
+import { AlterSequenceChange } from "./sequence.base.ts";
 
 /**
  * Alter a sequence.
@@ -15,40 +15,49 @@ import type { Sequence } from "../sequence.model.ts";
  * ```
  */
 
+export type AlterSequence = AlterSequenceSetOptions | AlterSequenceSetOwnedBy;
+
 /**
  * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE
  */
-export class AlterSequenceSetOwnedBy extends Change {
-  public readonly main: Sequence;
-  public readonly branch: Sequence;
-  public readonly operation = "alter" as const;
+export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
+  public readonly sequence: Sequence;
+  public readonly ownedBy: {
+    schema: string;
+    table: string;
+    column: string;
+  } | null;
   public readonly scope = "object" as const;
-  public readonly objectType = "sequence" as const;
 
-  constructor(props: { main: Sequence; branch: Sequence }) {
+  constructor(props: {
+    sequence: Sequence;
+    ownedBy: { schema: string; table: string; column: string } | null;
+  }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.sequence = props.sequence;
+    this.ownedBy = props.ownedBy;
   }
 
   get dependencies() {
-    return [
-      `${this.main.stableId}`,
-      `table:${this.branch.owned_by_schema}.${this.branch.owned_by_table}`,
-    ];
+    if (this.ownedBy) {
+      return [
+        `${this.sequence.stableId}`,
+        `table:${this.ownedBy.schema}.${this.ownedBy.table}`,
+      ];
+    }
+    return [`${this.sequence.stableId}`];
   }
 
   serialize(): string {
-    const head = ["ALTER SEQUENCE", `${this.main.schema}.${this.main.name}`];
-    const hasOwnedBy =
-      this.branch.owned_by_schema !== null &&
-      this.branch.owned_by_table !== null &&
-      this.branch.owned_by_column !== null;
-    if (hasOwnedBy) {
+    const head = [
+      "ALTER SEQUENCE",
+      `${this.sequence.schema}.${this.sequence.name}`,
+    ];
+    if (this.ownedBy) {
       return [
         ...head,
         "OWNED BY",
-        `${this.branch.owned_by_schema}.${this.branch.owned_by_table}.${this.branch.owned_by_column}`,
+        `${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
       ].join(" ");
     }
     return [...head, "OWNED BY NONE"].join(" ");
@@ -59,77 +68,29 @@ export class AlterSequenceSetOwnedBy extends Change {
  * ALTER SEQUENCE ... set options ...
  * Emits only changed options, in a stable order.
  */
-export class AlterSequenceSetOptions extends Change {
-  public readonly main: Sequence;
-  public readonly branch: Sequence;
-  public readonly operation = "alter" as const;
+export class AlterSequenceSetOptions extends AlterSequenceChange {
+  public readonly sequence: Sequence;
+  public readonly options: string[];
   public readonly scope = "object" as const;
-  public readonly objectType = "sequence" as const;
 
-  constructor(props: { main: Sequence; branch: Sequence }) {
+  constructor(props: { sequence: Sequence; options: string[] }) {
     super();
-    this.main = props.main;
-    this.branch = props.branch;
+    this.sequence = props.sequence;
+    this.options = props.options;
   }
 
   get dependencies() {
-    return [this.main.stableId];
+    return [this.sequence.stableId];
   }
 
-  private computeDefaultMax(type: string): bigint {
-    return type === "integer"
-      ? BigInt("2147483647")
-      : BigInt("9223372036854775807");
-  }
+  // Note: default max computation moved to diff when building options
 
   serialize(): string {
     const parts: string[] = [
       "ALTER SEQUENCE",
-      `${this.main.schema}.${this.main.name}`,
+      `${this.sequence.schema}.${this.sequence.name}`,
     ];
-    const options: string[] = [];
-
-    // INCREMENT
-    if (this.main.increment !== this.branch.increment) {
-      options.push("INCREMENT BY", String(this.branch.increment));
-    }
-
-    // MINVALUE | NO MINVALUE
-    if (this.main.minimum_value !== this.branch.minimum_value) {
-      const defaultMin = BigInt(1);
-      if (this.branch.minimum_value === defaultMin) {
-        options.push("NO MINVALUE");
-      } else {
-        options.push("MINVALUE", this.branch.minimum_value.toString());
-      }
-    }
-
-    // MAXVALUE | NO MAXVALUE
-    if (this.main.maximum_value !== this.branch.maximum_value) {
-      const defaultMax = this.computeDefaultMax(this.branch.data_type);
-      if (this.branch.maximum_value === defaultMax) {
-        options.push("NO MAXVALUE");
-      } else {
-        options.push("MAXVALUE", this.branch.maximum_value.toString());
-      }
-    }
-
-    // START WITH
-    if (this.main.start_value !== this.branch.start_value) {
-      options.push("START WITH", String(this.branch.start_value));
-    }
-
-    // CACHE
-    if (this.main.cache_size !== this.branch.cache_size) {
-      options.push("CACHE", String(this.branch.cache_size));
-    }
-
-    // [ NO ] CYCLE
-    if (this.main.cycle_option !== this.branch.cycle_option) {
-      options.push(this.branch.cycle_option ? "CYCLE" : "NO CYCLE");
-    }
-
-    return [...parts, ...options].join(" ");
+    return [...parts, ...this.options].join(" ");
   }
 }
 

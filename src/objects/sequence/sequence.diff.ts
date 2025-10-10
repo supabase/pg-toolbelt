@@ -1,5 +1,8 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByGrantable,
+} from "../base.privilege-diff.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSequenceSetOptions,
@@ -11,6 +14,12 @@ import {
 } from "./changes/sequence.comment.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
+import {
+  GrantSequencePrivileges,
+  RevokeGrantOptionSequencePrivileges,
+  RevokeSequencePrivileges,
+} from "./changes/sequence.privilege.ts";
+import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
 /**
@@ -21,12 +30,13 @@ import type { Sequence } from "./sequence.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
+  ctx: { version: number },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
-): Change[] {
+): SequenceChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: SequenceChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
@@ -41,7 +51,14 @@ export function diffSequences(
       createdSeq.owned_by_column !== null
     ) {
       changes.push(
-        new AlterSequenceSetOwnedBy({ main: createdSeq, branch: createdSeq }),
+        new AlterSequenceSetOwnedBy({
+          sequence: createdSeq,
+          ownedBy: {
+            schema: createdSeq.owned_by_schema,
+            table: createdSeq.owned_by_table,
+            column: createdSeq.owned_by_column,
+          } as { schema: string; table: string; column: string },
+        }),
       );
     }
   }
@@ -80,8 +97,12 @@ export function diffSequences(
       ) {
         changes.push(
           new AlterSequenceSetOwnedBy({
-            main: branchSequence,
-            branch: branchSequence,
+            sequence: branchSequence,
+            ownedBy: {
+              schema: branchSequence.owned_by_schema,
+              table: branchSequence.owned_by_table,
+              column: branchSequence.owned_by_column,
+            } as { schema: string; table: string; column: string },
           }),
         );
       } else if (
@@ -92,8 +113,8 @@ export function diffSequences(
         // If main had ownership but branch removed it, emit OWNED BY NONE
         changes.push(
           new AlterSequenceSetOwnedBy({
-            main: mainSequence,
-            branch: branchSequence,
+            sequence: mainSequence,
+            ownedBy: null,
           }),
         );
       }
@@ -108,11 +129,41 @@ export function diffSequences(
         mainSequence.cycle_option !== branchSequence.cycle_option;
 
       if (optionsChanged) {
-        const alterOptions = new AlterSequenceSetOptions({
-          main: mainSequence,
-          branch: branchSequence,
-        });
-        changes.push(alterOptions);
+        const options: string[] = [];
+        if (mainSequence.increment !== branchSequence.increment) {
+          options.push("INCREMENT BY", String(branchSequence.increment));
+        }
+        if (mainSequence.minimum_value !== branchSequence.minimum_value) {
+          const defaultMin = BigInt(1);
+          if (branchSequence.minimum_value === defaultMin) {
+            options.push("NO MINVALUE");
+          } else {
+            options.push("MINVALUE", branchSequence.minimum_value.toString());
+          }
+        }
+        if (mainSequence.maximum_value !== branchSequence.maximum_value) {
+          const defaultMax =
+            branchSequence.data_type === "integer"
+              ? BigInt("2147483647")
+              : BigInt("9223372036854775807");
+          if (branchSequence.maximum_value === defaultMax) {
+            options.push("NO MAXVALUE");
+          } else {
+            options.push("MAXVALUE", branchSequence.maximum_value.toString());
+          }
+        }
+        if (mainSequence.start_value !== branchSequence.start_value) {
+          options.push("START WITH", String(branchSequence.start_value));
+        }
+        if (mainSequence.cache_size !== branchSequence.cache_size) {
+          options.push("CACHE", String(branchSequence.cache_size));
+        }
+        if (mainSequence.cycle_option !== branchSequence.cycle_option) {
+          options.push(branchSequence.cycle_option ? "CYCLE" : "NO CYCLE");
+        }
+        changes.push(
+          new AlterSequenceSetOptions({ sequence: mainSequence, options }),
+        );
       }
 
       const ownedByChanged =
@@ -121,11 +172,18 @@ export function diffSequences(
         mainSequence.owned_by_column !== branchSequence.owned_by_column;
 
       if (ownedByChanged) {
+        const ownedBy =
+          branchSequence.owned_by_schema &&
+          branchSequence.owned_by_table &&
+          branchSequence.owned_by_column
+            ? {
+                schema: branchSequence.owned_by_schema,
+                table: branchSequence.owned_by_table,
+                column: branchSequence.owned_by_column,
+              }
+            : null;
         changes.push(
-          new AlterSequenceSetOwnedBy({
-            main: mainSequence,
-            branch: branchSequence,
-          }),
+          new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
         );
       }
 
@@ -136,6 +194,58 @@ export function diffSequences(
         } else {
           changes.push(
             new CreateCommentOnSequence({ sequence: branchSequence }),
+          );
+        }
+      }
+
+      // PRIVILEGES
+      const privilegeResults = diffPrivileges(
+        mainSequence.privileges,
+        branchSequence.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantSequencePrivileges({
+                sequence: branchSequence,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeSequencePrivileges({
+                sequence: mainSequence,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionSequencePrivileges({
+              sequence: mainSequence,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
           );
         }
       }

@@ -5,9 +5,10 @@ import { CreateSchema } from "./schema.create.ts";
 describe("schema", () => {
   test("create", () => {
     const schema = new Schema({
-      schema: "test_schema",
+      name: "test_schema",
       owner: "test",
       comment: null,
+      privileges: [],
     });
 
     const change = new CreateSchema({

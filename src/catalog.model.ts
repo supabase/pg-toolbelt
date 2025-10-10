@@ -18,22 +18,6 @@ import {
   type MaterializedView,
 } from "./objects/materialized-view/materialized-view.model.ts";
 import {
-  type ColumnPrivilegeSet,
-  extractColumnPrivileges,
-} from "./objects/privilege/column-privilege/column-privilege.model.ts";
-import {
-  type DefaultPrivilegeSet,
-  extractDefaultPrivileges,
-} from "./objects/privilege/default-privilege/default-privilege.model.ts";
-import {
-  extractRoleMemberships,
-  type RoleMembership,
-} from "./objects/privilege/membership/membership.model.ts";
-import {
-  extractObjectPrivileges,
-  type ObjectPrivilegeSet,
-} from "./objects/privilege/object-privilege/object-privilege.model.ts";
-import {
   extractProcedures,
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
@@ -69,12 +53,8 @@ interface CatalogProps {
   procedures: Record<string, Procedure>;
   indexes: Record<string, Index>;
   materializedViews: Record<string, MaterializedView>;
-  objectPrivileges: Record<string, ObjectPrivilegeSet>;
-  columnPrivileges: Record<string, ColumnPrivilegeSet>;
-  defaultPrivileges: Record<string, DefaultPrivilegeSet>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
-  roleMemberships: Record<string, RoleMembership>;
   schemas: Record<string, Schema>;
   sequences: Record<string, Sequence>;
   tables: Record<string, Table>;
@@ -96,12 +76,8 @@ export class Catalog {
   public readonly procedures: CatalogProps["procedures"];
   public readonly indexes: CatalogProps["indexes"];
   public readonly materializedViews: CatalogProps["materializedViews"];
-  public readonly objectPrivileges: CatalogProps["objectPrivileges"];
-  public readonly columnPrivileges: CatalogProps["columnPrivileges"];
-  public readonly defaultPrivileges: CatalogProps["defaultPrivileges"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
-  public readonly roleMemberships: CatalogProps["roleMemberships"];
   public readonly schemas: CatalogProps["schemas"];
   public readonly sequences: CatalogProps["sequences"];
   public readonly tables: CatalogProps["tables"];
@@ -122,12 +98,8 @@ export class Catalog {
     this.procedures = props.procedures;
     this.indexes = props.indexes;
     this.materializedViews = props.materializedViews;
-    this.objectPrivileges = props.objectPrivileges;
-    this.columnPrivileges = props.columnPrivileges;
-    this.defaultPrivileges = props.defaultPrivileges;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
-    this.roleMemberships = props.roleMemberships;
     this.schemas = props.schemas;
     this.sequences = props.sequences;
     this.tables = props.tables;
@@ -150,13 +122,9 @@ export async function extractCatalog(sql: Sql) {
     extensions,
     indexes,
     materializedViews,
-    objectPrivileges,
-    columnPrivileges,
-    defaultPrivileges,
     procedures,
     rlsPolicies,
     roles,
-    roleMemberships,
     schemas,
     sequences,
     tables,
@@ -174,13 +142,9 @@ export async function extractCatalog(sql: Sql) {
     extractExtensions(sql).then(listToRecord),
     extractIndexes(sql).then(listToRecord),
     extractMaterializedViews(sql).then(listToRecord),
-    extractObjectPrivileges(sql).then(listToRecord),
-    extractColumnPrivileges(sql).then(listToRecord),
-    extractDefaultPrivileges(sql).then(listToRecord),
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
     extractRoles(sql).then(listToRecord),
-    extractRoleMemberships(sql).then(listToRecord),
     extractSchemas(sql).then(listToRecord),
     extractSequences(sql).then(listToRecord),
     extractTables(sql).then(listToRecord),
@@ -197,23 +161,6 @@ export async function extractCatalog(sql: Sql) {
     ...materializedViews,
   };
 
-  if (process.env.DEBUG) {
-    console.log(
-      "depends: ",
-      JSON.stringify(
-        depends.filter(
-          (depend) =>
-            !depend.dependent_stable_id.includes("information_schema") &&
-            !depend.dependent_stable_id.includes("pg_catalog") &&
-            !depend.dependent_stable_id.includes("pg_toast") &&
-            !depend.dependent_stable_id.includes("language:plpgsql"),
-        ),
-        null,
-        2,
-      ),
-    );
-  }
-
   return new Catalog({
     collations,
     compositeTypes,
@@ -223,12 +170,8 @@ export async function extractCatalog(sql: Sql) {
     procedures,
     indexes,
     materializedViews,
-    objectPrivileges,
-    columnPrivileges,
-    defaultPrivileges,
     rlsPolicies,
     roles,
-    roleMemberships,
     schemas,
     sequences,
     tables,

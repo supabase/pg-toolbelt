@@ -29,14 +29,23 @@ const base: MaterializedViewProps = {
   owner: "o1",
   comment: null,
   columns: [],
+  privileges: [],
 };
 
 describe.concurrent("materialized-view.diff", () => {
   test("create and drop", () => {
     const mv = new MaterializedView(base);
-    const created = diffMaterializedViews({}, { [mv.stableId]: mv });
+    const created = diffMaterializedViews(
+      { version: 170000 },
+      {},
+      { [mv.stableId]: mv },
+    );
     expect(created[0]).toBeInstanceOf(CreateMaterializedView);
-    const dropped = diffMaterializedViews({ [mv.stableId]: mv }, {});
+    const dropped = diffMaterializedViews(
+      { version: 170000 },
+      { [mv.stableId]: mv },
+      {},
+    );
     expect(dropped[0]).toBeInstanceOf(DropMaterializedView);
   });
 
@@ -44,6 +53,7 @@ describe.concurrent("materialized-view.diff", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, owner: "o2" });
     const changes = diffMaterializedViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -54,6 +64,7 @@ describe.concurrent("materialized-view.diff", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, definition: "select 2" });
     const changes = diffMaterializedViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -72,6 +83,7 @@ describe.concurrent("materialized-view.diff", () => {
       options: ["fillfactor=70", "user_catalog_table=true"],
     });
     const changes = diffMaterializedViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

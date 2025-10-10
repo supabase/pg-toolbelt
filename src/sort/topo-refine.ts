@@ -1,5 +1,6 @@
 import { Graph, topologicalSort } from "graph-data-structure";
-import type { Change } from "../objects/base.change.ts";
+import type { Change } from "../change.types.ts";
+import type { BaseChange } from "../objects/base.change.ts";
 
 /**
  * A filter that selects which changes belong to a window for refinement.
@@ -32,7 +33,7 @@ type Edge<T> = EdgeIndices | EdgeObjects<T>;
  * - How to determine ordering constraints within a window (via buildEdges or pairwise)
  * - How to optionally subdivide windows into smaller groups (via groupBy)
  */
-export interface TopoWindowSpec<T extends Change> {
+export interface TopoWindowSpec<T extends BaseChange> {
   /** Selects which consecutive changes form a window to be refined */
   filter: ChangeFilter;
 
@@ -157,7 +158,7 @@ export function refineByTopologicalWindows<T extends Change>(
  * @param to - End index of the window (exclusive)
  * @param spec - Specification defining how to order items in the window
  */
-function refineSlice<T extends Change>(
+function refineSlice<T extends BaseChange>(
   arr: T[],
   from: number,
   to: number,

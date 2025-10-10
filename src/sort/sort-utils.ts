@@ -1,11 +1,14 @@
-import type { Change } from "../objects/base.change.ts";
+import type { Change } from "../change.types.ts";
+import type { BaseChange } from "../objects/base.change.ts";
 
 /**
  * A sorting rule that matches changes based on their operation, objectType, and/or scope.
  * Rules with undefined fields act as wildcards that match any value for that field.
  * For example, { operation: "drop" } matches all drop operations regardless of objectType or scope.
  */
-export type Rule = Partial<Pick<Change, "operation" | "objectType" | "scope">>;
+export type Rule = Partial<
+  Pick<BaseChange, "operation" | "objectType" | "scope">
+>;
 
 /**
  * Creates a comparator function that orders changes according to a prioritized list of rules.

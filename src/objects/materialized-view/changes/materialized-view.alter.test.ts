@@ -28,19 +28,16 @@ describe.concurrent("materialized-view", () => {
         partition_bound: null,
         comment: null,
         columns: [],
+        privileges: [],
       };
-      const main = new MaterializedView({
+      const materializedView = new MaterializedView({
         ...props,
         owner: "old_owner",
       });
-      const branch = new MaterializedView({
-        ...props,
-        owner: "new_owner",
-      });
 
       const change = new AlterMaterializedViewChangeOwner({
-        main,
-        branch,
+        materializedView,
+        owner: "new_owner",
       });
 
       expect(change.serialize()).toBe(
@@ -66,19 +63,17 @@ describe.concurrent("materialized-view", () => {
         owner: "test",
         comment: null,
         columns: [],
+        privileges: [],
       };
-      const main = new MaterializedView({
+      const materializedView = new MaterializedView({
         ...props,
         options: [],
       });
-      const branch = new MaterializedView({
-        ...props,
-        options: ["fillfactor=90"],
-      });
 
       const change = new AlterMaterializedViewSetStorageParams({
-        main,
-        branch,
+        materializedView,
+        paramsToSet: ["fillfactor=90"],
+        keysToReset: [],
       });
 
       expect(change.serialize()).toBe(
@@ -104,19 +99,17 @@ describe.concurrent("materialized-view", () => {
         owner: "test",
         comment: null,
         columns: [],
+        privileges: [],
       };
-      const main = new MaterializedView({
+      const materializedView = new MaterializedView({
         ...props,
         options: ["fillfactor=70", "autovacuum_enabled=false"],
       });
-      const branch = new MaterializedView({
-        ...props,
-        options: ["fillfactor=90", "user_catalog_table=true"],
-      });
 
       const change = new AlterMaterializedViewSetStorageParams({
-        main,
-        branch,
+        materializedView,
+        paramsToSet: ["fillfactor=90", "user_catalog_table=true"],
+        keysToReset: ["autovacuum_enabled"],
       });
 
       expect(change.serialize()).toBe(

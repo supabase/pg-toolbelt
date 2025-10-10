@@ -1,6 +1,8 @@
 import postgres from "postgres";
 import { diffCatalogs } from "./catalog.diff.ts";
+import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
+import type { Change } from "./change.types.ts";
 import { pgDumpSort } from "./sort/global-sort.ts";
 import { applyRefinements } from "./sort/refined-sort.ts";
 import { sortChangesByRules } from "./sort/sort-utils.ts";
@@ -47,7 +49,20 @@ export const postgresConfig: postgres.Options<
   },
 };
 
-export async function main(mainDatabaseUrl: string, branchDatabaseUrl: string) {
+export interface DiffContext {
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}
+
+export interface MainOptions {
+  filter?: (ctx: DiffContext, changes: Change[]) => Change[];
+}
+
+export async function main(
+  mainDatabaseUrl: string,
+  branchDatabaseUrl: string,
+  options: MainOptions = {},
+) {
   const mainSql = postgres(mainDatabaseUrl, postgresConfig);
   const branchSql = postgres(branchDatabaseUrl, postgresConfig);
 
@@ -60,28 +75,21 @@ export async function main(mainDatabaseUrl: string, branchDatabaseUrl: string) {
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  // Order the changes to satisfy dependencies constraints between objects
-  // const sortedChanges = resolveDependencies(
-  //   changes,
-  //   mainCatalog,
-  //   branchCatalog,
-  // );
-
-  // if (sortedChanges.isErr()) {
-  //   throw sortedChanges.error;
-  // }
-
   const globallySortedChanges = sortChangesByRules(changes, pgDumpSort);
   const refinedChanges = applyRefinements(
     { mainCatalog, branchCatalog },
     globallySortedChanges,
   );
 
+  const filteredChanges = options.filter
+    ? options.filter({ mainCatalog, branchCatalog }, refinedChanges)
+    : refinedChanges;
+
   const sessionConfig = ["SET check_function_bodies = false"];
 
   const migrationScript = [
     ...sessionConfig,
-    ...refinedChanges.map((change) => change.serialize()),
+    ...filteredChanges.map((change) => change.serialize()),
   ].join(";\n\n");
 
   console.log(migrationScript);

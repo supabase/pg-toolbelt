@@ -26,14 +26,16 @@ const base: ViewProps = {
   partition_bound: null,
   owner: "o1",
   comment: null,
+  columns: [],
+  privileges: [],
 };
 
 describe.concurrent("view.diff", () => {
   test("create and drop", () => {
     const v = new View(base);
-    const created = diffViews({}, { [v.stableId]: v });
+    const created = diffViews({ version: 170000 }, {}, { [v.stableId]: v });
     expect(created[0]).toBeInstanceOf(CreateView);
-    const dropped = diffViews({ [v.stableId]: v }, {});
+    const dropped = diffViews({ version: 170000 }, { [v.stableId]: v }, {});
     expect(dropped[0]).toBeInstanceOf(DropView);
   });
 
@@ -41,6 +43,7 @@ describe.concurrent("view.diff", () => {
     const main = new View(base);
     const branch = new View({ ...base, owner: "o2" });
     const changes = diffViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -54,6 +57,7 @@ describe.concurrent("view.diff", () => {
     });
     const branch = new View({ ...base, options: ["security_barrier=false"] });
     const changes = diffViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -69,6 +73,7 @@ describe.concurrent("view.diff", () => {
       row_security: true,
     });
     const changes = diffViews(
+      { version: 170000 },
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

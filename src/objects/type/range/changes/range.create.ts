@@ -1,5 +1,5 @@
-import { Change } from "../../../base.change.ts";
 import type { Range } from "../range.model.ts";
+import { CreateRangeChange } from "./range.base.ts";
 
 /**
  * Create a range type.
@@ -20,11 +20,9 @@ import type { Range } from "../range.model.ts";
  * Notes
  * - Only non-default options are emitted in the generated SQL.
  */
-export class CreateRange extends Change {
+export class CreateRange extends CreateRangeChange {
   public readonly range: Range;
-  public readonly operation = "create" as const;
   public readonly scope = "object" as const;
-  public readonly objectType = "range" as const;
 
   constructor(props: { range: Range }) {
     super();

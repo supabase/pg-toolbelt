@@ -1,5 +1,8 @@
-import type { Change } from "../base.change.ts";
 import { diffObjects } from "../base.diff.ts";
+import {
+  diffPrivileges,
+  groupPrivilegesByColumns,
+} from "../base.privilege-diff.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
@@ -35,6 +38,12 @@ import {
 } from "./changes/table.comment.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
+import {
+  GrantTablePrivileges,
+  RevokeGrantOptionTablePrivileges,
+  RevokeTablePrivileges,
+} from "./changes/table.privilege.ts";
+import type { TableChange } from "./changes/table.types.ts";
 import { Table } from "./table.model.js";
 
 function createAlterConstraintChange(
@@ -42,7 +51,7 @@ function createAlterConstraintChange(
   branchTable: Table,
   branchCatalog: Record<string, Table>,
 ) {
-  const changes: Change[] = [];
+  const changes: TableChange[] = [];
 
   // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
   // But since our Table model uses 'name' as the identity field,
@@ -227,10 +236,10 @@ export function diffTables(
   ctx: { version: number },
   main: Record<string, Table>,
   branch: Record<string, Table>,
-): Change[] {
+): TableChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: Change[] = [];
+  const changes: TableChange[] = [];
 
   for (const tableId of created) {
     changes.push(new CreateTable({ table: branch[tableId] }));
@@ -277,16 +286,12 @@ export function diffTables(
     // PERSISTENCE (LOGGED/UNLOGGED)
     if (mainTable.persistence !== branchTable.persistence) {
       if (branchTable.persistence === "u" && mainTable.persistence === "p") {
-        changes.push(
-          new AlterTableSetUnlogged({ main: mainTable, branch: branchTable }),
-        );
+        changes.push(new AlterTableSetUnlogged({ table: mainTable }));
       } else if (
         branchTable.persistence === "p" &&
         mainTable.persistence === "u"
       ) {
-        changes.push(
-          new AlterTableSetLogged({ main: mainTable, branch: branchTable }),
-        );
+        changes.push(new AlterTableSetLogged({ table: mainTable }));
       }
     }
 
@@ -294,17 +299,11 @@ export function diffTables(
     if (mainTable.row_security !== branchTable.row_security) {
       if (branchTable.row_security) {
         changes.push(
-          new AlterTableEnableRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableEnableRowLevelSecurity({ table: mainTable }),
         );
       } else {
         changes.push(
-          new AlterTableDisableRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableDisableRowLevelSecurity({ table: mainTable }),
         );
       }
     }
@@ -312,18 +311,10 @@ export function diffTables(
     // FORCE ROW LEVEL SECURITY
     if (mainTable.force_row_security !== branchTable.force_row_security) {
       if (branchTable.force_row_security) {
-        changes.push(
-          new AlterTableForceRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
-        );
+        changes.push(new AlterTableForceRowLevelSecurity({ table: mainTable }));
       } else {
         changes.push(
-          new AlterTableNoForceRowLevelSecurity({
-            main: mainTable,
-            branch: branchTable,
-          }),
+          new AlterTableNoForceRowLevelSecurity({ table: mainTable }),
         );
       }
     }
@@ -337,8 +328,8 @@ export function diffTables(
       if (branchOpts.length > 0) {
         changes.push(
           new AlterTableSetStorageParams({
-            main: mainTable,
-            branch: branchTable,
+            table: mainTable,
+            options: branchOpts,
           }),
         );
       }
@@ -368,8 +359,8 @@ export function diffTables(
       if (branchTable.replica_identity !== "i") {
         changes.push(
           new AlterTableSetReplicaIdentity({
-            main: mainTable,
-            branch: branchTable,
+            table: mainTable,
+            mode: branchTable.replica_identity,
           }),
         );
       }
@@ -379,8 +370,8 @@ export function diffTables(
     if (mainTable.owner !== branchTable.owner) {
       changes.push(
         new AlterTableChangeOwner({
-          main: mainTable,
-          branch: branchTable,
+          table: mainTable,
+          owner: branchTable.owner,
         }),
       );
     }
@@ -410,25 +401,25 @@ export function diffTables(
     ): Table | undefined => catalog[`table:${schema}.${name}`];
 
     if (!mainIsPartition && branchIsPartition) {
-      const parent = resolveParent(
+      const table = resolveParent(
         branch,
         branchTable.parent_schema as string,
         branchTable.parent_name as string,
       );
-      if (parent) {
+      if (table) {
         changes.push(
-          new AlterTableAttachPartition({ parent, partition: branchTable }),
+          new AlterTableAttachPartition({ table, partition: branchTable }),
         );
       }
     } else if (mainIsPartition && !branchIsPartition) {
-      const parent = resolveParent(
+      const table = resolveParent(
         main,
         mainTable.parent_schema as string,
         mainTable.parent_name as string,
       );
-      if (parent) {
+      if (table) {
         changes.push(
-          new AlterTableDetachPartition({ parent, partition: mainTable }),
+          new AlterTableDetachPartition({ table, partition: mainTable }),
         );
       }
     } else if (mainIsPartition && branchIsPartition) {
@@ -446,7 +437,7 @@ export function diffTables(
         if (oldParent) {
           changes.push(
             new AlterTableDetachPartition({
-              parent: oldParent,
+              table: oldParent,
               partition: mainTable,
             }),
           );
@@ -459,7 +450,7 @@ export function diffTables(
         if (newParent) {
           changes.push(
             new AlterTableAttachPartition({
-              parent: newParent,
+              table: newParent,
               partition: branchTable,
             }),
           );
@@ -593,6 +584,103 @@ export function diffTables(
               column: branchCol,
             }),
           );
+        }
+      }
+
+      // PRIVILEGES (unified object and column privileges)
+      const privilegeResults = diffPrivileges(
+        mainTable.privileges,
+        branchTable.privileges,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        // Generate grant changes
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByColumns(result.grants);
+          for (const [, group] of grantGroups) {
+            for (const [grantable, privSet] of group.byGrant) {
+              const privileges = Array.from(privSet).map((priv) => ({
+                privilege: priv,
+                grantable,
+              }));
+              changes.push(
+                new GrantTablePrivileges({
+                  table: branchTable,
+                  grantee,
+                  privileges,
+                  columns: group.columns,
+                  version: ctx.version,
+                }),
+              );
+            }
+          }
+        }
+
+        // Generate revoke changes
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByColumns(result.revokes);
+          for (const [, group] of revokeGroups) {
+            // Collapse all grantable groups into a single revoke (grantable: false)
+            const allPrivileges = new Set<string>();
+            for (const [, privSet] of group.byGrant) {
+              for (const priv of privSet) {
+                allPrivileges.add(priv);
+              }
+            }
+            const privileges = Array.from(allPrivileges).map((priv) => ({
+              privilege: priv,
+              grantable: false,
+            }));
+            changes.push(
+              new RevokeTablePrivileges({
+                table: mainTable,
+                grantee,
+                privileges,
+                columns: group.columns,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        // Generate revoke grant option changes
+        if (result.revokeGrantOption.length > 0) {
+          const revokeGrantGroups = new Map<
+            string,
+            { columns?: string[]; privileges: Set<string> }
+          >();
+          for (const r of result.revokeGrantOption) {
+            // For revoke grant option, we need to find the columns from the original privilege
+            const originalPriv = mainTable.privileges.find(
+              (p) => p.grantee === grantee && p.privilege === r,
+            );
+            const key = originalPriv?.columns
+              ? originalPriv.columns.sort().join(",")
+              : "";
+            if (!revokeGrantGroups.has(key)) {
+              revokeGrantGroups.set(key, {
+                columns: originalPriv?.columns
+                  ? [...originalPriv.columns]
+                  : undefined,
+                privileges: new Set(),
+              });
+            }
+            const group = revokeGrantGroups.get(key);
+            if (!group) continue;
+            group.privileges.add(r);
+          }
+          for (const [, group] of revokeGrantGroups) {
+            const privilegeNames = Array.from(group.privileges);
+            changes.push(
+              new RevokeGrantOptionTablePrivileges({
+                table: mainTable,
+                grantee,
+                privilegeNames,
+                columns: group.columns,
+                version: ctx.version,
+              }),
+            );
+          }
         }
       }
     }

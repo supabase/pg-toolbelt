@@ -5,9 +5,10 @@ import { DropSchema } from "./schema.drop.ts";
 describe("schema", () => {
   test("drop", () => {
     const schema = new Schema({
-      schema: "test_schema",
+      name: "test_schema",
       owner: "test",
       comment: null,
+      privileges: [],
     });
 
     const change = new DropSchema({

@@ -19,122 +19,30 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
-  "objectPrivileges": {
-    "acl:schema:public::grantee:PUBLIC": {
-      "target_kind": "SCHEMA",
-      "schema": null,
+  "rlsPolicies": {},
+  "roles": {},
+  "schemas": {
+    "schema:public": {
       "name": "public",
-      "arg_types": null,
-      "target_stable_id": "schema:public",
-      "grantee": "PUBLIC",
+      "owner": "pg_database_owner",
+      "comment": "standard public schema",
       "privileges": [
         {
+          "grantee": "PUBLIC",
           "privilege": "USAGE",
           "grantable": false
-        }
-      ]
-    },
-    "acl:schema:public::grantee:pg_database_owner": {
-      "target_kind": "SCHEMA",
-      "schema": null,
-      "name": "public",
-      "arg_types": null,
-      "target_stable_id": "schema:public",
-      "grantee": "pg_database_owner",
-      "privileges": [
+        },
         {
+          "grantee": "pg_database_owner",
           "privilege": "CREATE",
           "grantable": false
         },
         {
+          "grantee": "pg_database_owner",
           "privilege": "USAGE",
           "grantable": false
         }
       ]
-    }
-  },
-  "columnPrivileges": {},
-  "defaultPrivileges": {},
-  "rlsPolicies": {},
-  "roles": {
-    "role:pg_checkpoint": {
-      "role_name": "pg_checkpoint",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null
-    },
-    "role:pg_database_owner": {
-      "role_name": "pg_database_owner",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null
-    },
-    "role:pg_read_all_data": {
-      "role_name": "pg_read_all_data",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null
-    },
-    "role:pg_write_all_data": {
-      "role_name": "pg_write_all_data",
-      "is_superuser": false,
-      "can_inherit": true,
-      "can_create_roles": false,
-      "can_create_databases": false,
-      "can_login": false,
-      "can_replicate": false,
-      "connection_limit": -1,
-      "can_bypass_rls": false,
-      "config": null,
-      "comment": null
-    }
-  },
-  "roleMemberships": {
-    "membership:pg_read_all_settings->pg_monitor": {
-      "role": "pg_read_all_settings",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false
-    },
-    "membership:pg_read_all_stats->pg_monitor": {
-      "role": "pg_read_all_stats",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false
-    },
-    "membership:pg_stat_scan_tables->pg_monitor": {
-      "role": "pg_stat_scan_tables",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false
-    }
-  },
-  "schemas": {
-    "schema:public": {
-      "schema": "public",
-      "owner": "pg_database_owner",
-      "comment": "standard public schema"
     }
   },
   "sequences": {},
@@ -7029,46 +6937,10 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "procedures": {},
   "indexes": {},
   "materializedViews": {},
-  "objectPrivileges": {
-    "acl:schema:public::grantee:PUBLIC": {
-      "target_kind": "SCHEMA",
-      "schema": null,
-      "name": "public",
-      "arg_types": null,
-      "target_stable_id": "schema:public",
-      "grantee": "PUBLIC",
-      "privileges": [
-        {
-          "privilege": "USAGE",
-          "grantable": false
-        }
-      ]
-    },
-    "acl:schema:public::grantee:pg_database_owner": {
-      "target_kind": "SCHEMA",
-      "schema": null,
-      "name": "public",
-      "arg_types": null,
-      "target_stable_id": "schema:public",
-      "grantee": "pg_database_owner",
-      "privileges": [
-        {
-          "privilege": "CREATE",
-          "grantable": false
-        },
-        {
-          "privilege": "USAGE",
-          "grantable": false
-        }
-      ]
-    }
-  },
-  "columnPrivileges": {},
-  "defaultPrivileges": {},
   "rlsPolicies": {},
   "roles": {
     "role:pg_checkpoint": {
-      "role_name": "pg_checkpoint",
+      "name": "pg_checkpoint",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7078,10 +6950,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_create_subscription": {
-      "role_name": "pg_create_subscription",
+      "name": "pg_create_subscription",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7091,10 +6965,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_database_owner": {
-      "role_name": "pg_database_owner",
+      "name": "pg_database_owner",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7104,10 +6980,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_maintain": {
-      "role_name": "pg_maintain",
+      "name": "pg_maintain",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7117,10 +6995,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_read_all_data": {
-      "role_name": "pg_read_all_data",
+      "name": "pg_read_all_data",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7130,10 +7010,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_use_reserved_connections": {
-      "role_name": "pg_use_reserved_connections",
+      "name": "pg_use_reserved_connections",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7143,10 +7025,12 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     },
     "role:pg_write_all_data": {
-      "role_name": "pg_write_all_data",
+      "name": "pg_write_all_data",
       "is_superuser": false,
       "can_inherit": true,
       "can_create_roles": false,
@@ -7156,40 +7040,33 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
       "connection_limit": -1,
       "can_bypass_rls": false,
       "config": null,
-      "comment": null
-    }
-  },
-  "roleMemberships": {
-    "membership:pg_read_all_settings->pg_monitor": {
-      "role": "pg_read_all_settings",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false,
-      "inherit_option": true,
-      "set_option": true
-    },
-    "membership:pg_read_all_stats->pg_monitor": {
-      "role": "pg_read_all_stats",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false,
-      "inherit_option": true,
-      "set_option": true
-    },
-    "membership:pg_stat_scan_tables->pg_monitor": {
-      "role": "pg_stat_scan_tables",
-      "member": "pg_monitor",
-      "grantor": "postgres",
-      "admin_option": false,
-      "inherit_option": true,
-      "set_option": true
+      "comment": null,
+      "members": [],
+      "default_privileges": []
     }
   },
   "schemas": {
     "schema:public": {
-      "schema": "public",
+      "name": "public",
       "owner": "pg_database_owner",
-      "comment": "standard public schema"
+      "comment": "standard public schema",
+      "privileges": [
+        {
+          "grantee": "PUBLIC",
+          "privilege": "USAGE",
+          "grantable": false
+        },
+        {
+          "grantee": "pg_database_owner",
+          "privilege": "CREATE",
+          "grantable": false
+        },
+        {
+          "grantee": "pg_database_owner",
+          "privilege": "USAGE",
+          "grantable": false
+        }
+      ]
     }
   },
   "sequences": {},
