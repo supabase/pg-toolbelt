@@ -85,7 +85,16 @@ export async function main(
     ? options.filter({ mainCatalog, branchCatalog }, refinedChanges)
     : refinedChanges;
 
-  const sessionConfig = ["SET check_function_bodies = false"];
+  if (filteredChanges.length === 0) {
+    return null;
+  }
+
+  const hasProcedureChanges = filteredChanges.some(
+    (change) => change.objectType === "procedure",
+  );
+  const sessionConfig = hasProcedureChanges
+    ? ["SET check_function_bodies = false"]
+    : [];
 
   const migrationScript = [
     ...sessionConfig,
