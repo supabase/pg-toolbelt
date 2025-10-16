@@ -56,6 +56,7 @@ export interface DiffContext {
 
 export interface MainOptions {
   filter?: (ctx: DiffContext, changes: Change[]) => Change[];
+  serialize?: (ctx: DiffContext, change: Change) => string | undefined;
 }
 
 export async function main(
@@ -98,7 +99,12 @@ export async function main(
 
   const migrationScript = [
     ...sessionConfig,
-    ...filteredChanges.map((change) => change.serialize()),
+    ...filteredChanges.map((change) => {
+      return (
+        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
+        change.serialize()
+      );
+    }),
   ].join(";\n\n");
 
   console.log(migrationScript);

@@ -29,7 +29,7 @@ export abstract class BaseChange {
   /**
    * Serialize the change into a single SQL statement.
    */
-  abstract serialize(): string;
+  abstract serialize(options?: Record<string, unknown>): string;
 }
 
 /**
