@@ -17,6 +17,33 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTestIsolated(pgVersion);
 
   describe(`default privileges edge case (pg${pgVersion})`, () => {
+    test("table revoke a privilege that is granted by default", async ({
+      db,
+    }) => {
+      await roundtripFidelityTest({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: `
+          -- Create Supabase roles (simulating Supabase environment)
+          CREATE ROLE anon;
+          CREATE ROLE authenticated;
+          CREATE ROLE service_role;
+          
+          -- Set up default privileges for all new tables in public schema
+          -- This simulates Supabase's default behavior
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+            GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
+          CREATE TABLE public.test (
+            id integer PRIMARY KEY,
+            data text
+          );
+        `,
+        testSql: `
+          REVOKE ALL ON public.test FROM anon;
+        `,
+        expectedSqlTerms: ["REVOKE ALL ON public.test FROM anon"],
+      });
+    });
     // This test verifies that when a user creates a table and explicitly revokes
     // access from the anon role, the diff tool correctly accounts for default
     // privileges and doesn't generate conflicting grants.
@@ -51,12 +78,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             data text
           );
           
-          REVOKE ALL ON TABLE public.test FROM anon;
+          REVOKE ALL ON public.test FROM anon;
         `,
         expectedSqlTerms: [
           "CREATE TABLE public.test (id integer NOT NULL, data text)",
           "ALTER TABLE public.test ADD CONSTRAINT test_pkey PRIMARY KEY (id)",
-          "REVOKE ALL ON TABLE public.test FROM anon",
+          "REVOKE ALL ON public.test FROM anon",
         ],
       });
     });
@@ -91,14 +118,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sensitive_data text
           );
           
-          REVOKE ALL ON TABLE public.restricted_table FROM anon;
-          REVOKE ALL ON TABLE public.restricted_table FROM authenticated;
+          REVOKE ALL ON public.restricted_table FROM anon;
+          REVOKE ALL ON public.restricted_table FROM authenticated;
         `,
         expectedSqlTerms: [
           "CREATE TABLE public.restricted_table (id integer NOT NULL, sensitive_data text)",
           "ALTER TABLE public.restricted_table ADD CONSTRAINT restricted_table_pkey PRIMARY KEY (id)",
-          "REVOKE ALL ON TABLE public.restricted_table FROM anon",
-          "REVOKE ALL ON TABLE public.restricted_table FROM authenticated",
+          "REVOKE ALL ON public.restricted_table FROM anon",
+          "REVOKE ALL ON public.restricted_table FROM authenticated",
         ],
       });
     });
@@ -137,24 +164,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           
           -- Revoke all first, then grant only what's needed
-          REVOKE ALL ON TABLE public.selective_table FROM anon;
-          REVOKE ALL ON TABLE public.selective_table FROM authenticated;
-          REVOKE ALL ON TABLE public.selective_table FROM service_role;
+          REVOKE ALL ON public.selective_table FROM anon;
+          REVOKE ALL ON public.selective_table FROM authenticated;
+          REVOKE ALL ON public.selective_table FROM service_role;
           
           -- Grant only SELECT to authenticated users
-          GRANT SELECT ON TABLE public.selective_table TO authenticated;
+          GRANT SELECT ON public.selective_table TO authenticated;
           
           -- Grant full access to service_role
-          GRANT ALL ON TABLE public.selective_table TO service_role;
+          GRANT ALL ON public.selective_table TO service_role;
         `,
         expectedSqlTerms: [
           "CREATE TABLE public.selective_table (id integer NOT NULL, public_data text, private_data text)",
           "ALTER TABLE public.selective_table ADD CONSTRAINT selective_table_pkey PRIMARY KEY (id)",
-          "REVOKE ALL ON TABLE public.selective_table FROM anon",
-          "REVOKE ALL ON TABLE public.selective_table FROM authenticated",
-          "REVOKE ALL ON TABLE public.selective_table FROM service_role",
-          "GRANT SELECT ON TABLE public.selective_table TO authenticated",
-          "GRANT ALL ON TABLE public.selective_table TO service_role",
+          "REVOKE ALL ON public.selective_table FROM anon",
+          "REVOKE ALL ON public.selective_table FROM authenticated",
+          "REVOKE ALL ON public.selective_table FROM service_role",
+          "GRANT SELECT ON public.selective_table TO authenticated",
+          "GRANT ALL ON public.selective_table TO service_role",
         ],
       });
     });
@@ -192,12 +219,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email text
           );
           
-          REVOKE ALL ON TABLE app.user_data FROM anon;
+          REVOKE ALL ON app.user_data FROM anon;
         `,
         expectedSqlTerms: [
           "CREATE TABLE app.user_data (id integer NOT NULL, username text NOT NULL, email text)",
           "ALTER TABLE app.user_data ADD CONSTRAINT user_data_pkey PRIMARY KEY (id)",
-          "REVOKE ALL ON TABLE app.user_data FROM anon",
+          "REVOKE ALL ON app.user_data FROM anon",
         ],
       });
     });
