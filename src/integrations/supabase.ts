@@ -18,7 +18,7 @@ const SUPABASE_EXTENSIONS_SCHEMAS = [
 const SUPABASE_SCHEMAS = [
   "_analytics", // local only
   "_realtime", // local only
-  // "_supavisor", // local only
+  "_supavisor", // local only
   "auth",
   "cron",
   "extensions",
