@@ -1,4 +1,7 @@
-import { AlterTableAddConstraint } from "../objects/table/changes/table.alter.ts";
+import {
+  AlterTableAddConstraint,
+  AlterTableDropConstraint,
+} from "../objects/table/changes/table.alter.ts";
 import type { Rule } from "./sort-utils.ts";
 
 /**
@@ -24,9 +27,27 @@ import type { Rule } from "./sort-utils.ts";
  */
 export const pgDumpSort: Rule[] = [
   // PRE_DROP — place destructive changes first (high to low impact)
+  // DROP in reverse dependency order: dependents before dependencies
   { operation: "drop", objectType: "rls_policy", scope: "object" },
   { operation: "drop", objectType: "trigger", scope: "object" },
+
+  // DROP constraints: foreign keys first (dependents), then unique/primary (dependencies)
+  (change) => {
+    return (
+      change instanceof AlterTableDropConstraint &&
+      change.constraint.constraint_type === "f"
+    );
+  },
+  (change) => {
+    return (
+      change instanceof AlterTableDropConstraint &&
+      change.constraint.constraint_type !== "f"
+    );
+  },
+
+  // DROP indexes AFTER constraints (can be owned by unique constraints)
   { operation: "drop", objectType: "index", scope: "object" },
+
   { operation: "drop", objectType: "materialized_view", scope: "object" },
   { operation: "drop", objectType: "view", scope: "object" },
   // Detach partition would be here (ALTER TABLE ... DETACH PARTITION) — add scope: "partition" to target precisely
@@ -74,18 +95,24 @@ export const pgDumpSort: Rule[] = [
   // Relations
   { operation: "create", objectType: "sequence", scope: "object" },
   { operation: "create", objectType: "table", scope: "object" },
-  // Any alter table operation that is not an add foreign key constraint
+
+  // Any alter table operation that is not an add/drop constraint
   (change) => {
     const isAlterTable =
       change.operation === "alter" &&
       change.objectType === "table" &&
       change.scope === "object";
-    const isAddForeignKeyConstraint =
-      isAlterTable &&
-      change instanceof AlterTableAddConstraint &&
-      change.constraint.constraint_type === "f";
-    return isAlterTable && !isAddForeignKeyConstraint;
+    const isAddConstraint = change instanceof AlterTableAddConstraint;
+    const isDropConstraint = change instanceof AlterTableDropConstraint;
+
+    return isAlterTable && !isAddConstraint && !isDropConstraint;
   },
+
+  // CREATE constraints (UNIQUE, PRIMARY KEY) - before foreign keys
+  (change) =>
+    change instanceof AlterTableAddConstraint &&
+    change.constraint.constraint_type !== "f",
+
   { operation: "alter", objectType: "sequence", scope: "object" }, // e.g., OWNED BY / SET options — requires table/column to exist
   // Partition attach would be here (ALTER TABLE ... ATTACH PARTITION) — add scope: "partition" to target precisely
   { operation: "create", objectType: "view", scope: "object" },
@@ -94,17 +121,15 @@ export const pgDumpSort: Rule[] = [
   { operation: "alter", objectType: "materialized_view", scope: "object" },
 
   // POST_CREATE — build secondary structures and policies
-  // Non-FK constraints would be ordered here (ALTER TABLE ... ADD CONSTRAINT) — add scope: "constraint" to target precisely
+  // Indexes created standalone
   { operation: "create", objectType: "index", scope: "object" },
   { operation: "alter", objectType: "index", scope: "object" },
-  // Foreign key constraints
-  (change) => {
-    return (
-      change instanceof AlterTableAddConstraint &&
-      change.constraint.constraint_type === "f"
-    );
-  },
-  // Partitioned index attachments would be here (ALTER INDEX ... ATTACH PARTITION)
+
+  // CREATE foreign key constraints last (need pk/unique constraints or indexes to exist first)
+  (change) =>
+    change instanceof AlterTableAddConstraint &&
+    change.constraint.constraint_type === "f",
+
   { operation: "create", objectType: "trigger", scope: "object" },
   { operation: "alter", objectType: "trigger", scope: "object" },
   { operation: "create", objectType: "rls_policy", scope: "object" },

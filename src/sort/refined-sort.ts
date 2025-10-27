@@ -2,7 +2,6 @@ import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import {
   AlterTableAddColumn,
-  AlterTableAddConstraint,
   AlterTableDropColumn,
 } from "../objects/table/changes/table.alter.ts";
 import {
@@ -119,9 +118,7 @@ interface RefinementContext {
  *
  * 1. **ALTER TABLE refinement**: Orders table alterations within the same table
  *    - DROP COLUMN before ADD COLUMN
- *    - ADD COLUMN before ADD CONSTRAINT
  *    - ADD COLUMN dependency order (for generated columns)
- *    - Primary/unique keys before foreign keys that reference them
  *
  * 2. **View/materialized view CREATE/ALTER**: Orders by dependency graph
  *    - Views are sorted so dependencies come before dependents
@@ -163,16 +160,7 @@ export function applyRefinements(
        *        ALTER TABLE users DROP COLUMN old_email;
        *        ALTER TABLE users ADD COLUMN email TEXT;
        *
-       * 2. Per-table: ADD COLUMN before ADD CONSTRAINT
-       *    Example:
-       *      Before:
-       *        ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
-       *        ALTER TABLE users ADD COLUMN email TEXT;
-       *      After:
-       *        ALTER TABLE users ADD COLUMN email TEXT;
-       *        ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);
-       *
-       * 3. Per-table: ADD COLUMN dependency order (for generated/computed columns)
+       * 2. Per-table: ADD COLUMN dependency order (for generated/computed columns)
        *    Example:
        *      Before:
        *        ALTER TABLE users ADD COLUMN full_name TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;
@@ -183,14 +171,6 @@ export function applyRefinements(
        *        ALTER TABLE users ADD COLUMN last_name TEXT;
        *        ALTER TABLE users ADD COLUMN full_name TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED;
        *
-       * 4. Cross-table: Primary/unique keys before foreign keys that reference them
-       *    Example:
-       *      Before:
-       *        ALTER TABLE posts ADD CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
-       *        ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-       *      After:
-       *        ALTER TABLE users ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-       *        ALTER TABLE posts ADD CONSTRAINT posts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
        */
       filter: { operation: "alter", objectType: "table" },
       pairwise: (a, b) => {
@@ -202,15 +182,7 @@ export function applyRefinements(
         )
           return "a_before_b";
 
-        // 2) Per-table: ADD COLUMN before ADD CONSTRAINT
-        if (
-          a instanceof AlterTableAddColumn &&
-          b instanceof AlterTableAddConstraint &&
-          a.table.stableId === b.table.stableId
-        )
-          return "a_before_b";
-
-        // 3) Per-table: ADD COLUMN dependency via catalog depends (column -> column)
+        // 2) Per-table: ADD COLUMN dependency via catalog depends (column -> column)
         if (
           a instanceof AlterTableAddColumn &&
           b instanceof AlterTableAddColumn &&
@@ -224,20 +196,6 @@ export function applyRefinements(
             return "b_before_a"; // a depends on b
           if (hasEdge(ctx.branchCatalog.depends, bColId, aColId))
             return "a_before_b"; // b depends on a
-        }
-
-        // 4) Cross-table: key before FK
-        if (
-          a instanceof AlterTableAddConstraint &&
-          b instanceof AlterTableAddConstraint
-        ) {
-          const aIsKey =
-            a.constraint.constraint_type === "p" ||
-            a.constraint.constraint_type === "u";
-          const bIsFk = b.constraint.constraint_type === "f";
-          const bRefs = b.foreignKeyTable?.stableId;
-          if (aIsKey && bIsFk && bRefs === a.table.stableId)
-            return "a_before_b";
         }
 
         return undefined;
