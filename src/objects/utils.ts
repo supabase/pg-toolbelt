@@ -41,6 +41,9 @@ export const stableId = {
   schema(schema: string) {
     return `schema:${schema}` as const;
   },
+  table(schema: string, table: string) {
+    return `table:${schema}.${table}` as const;
+  },
   acl(objectStableId: string, grantee: string) {
     return `acl:${objectStableId}::grantee:${grantee}` as const;
   },

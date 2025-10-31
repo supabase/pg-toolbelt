@@ -324,26 +324,13 @@ export class AlterTableResetStorageParams extends AlterTableChange {
  */
 export class AlterTableAddConstraint extends AlterTableChange {
   public readonly table: Table;
-  public readonly foreignKeyTable?: Table;
   public readonly constraint: TableConstraintProps;
   public readonly scope = "object" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-    foreignKeyTable?: Table;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
-
-    if (props.constraint.constraint_type === "f" && !props.foreignKeyTable) {
-      throw new Error(
-        "foreignKeyTable is required for FOREIGN KEY constraints",
-      );
-    }
-
     this.table = props.table;
     this.constraint = props.constraint;
-    this.foreignKeyTable = props.foreignKeyTable;
   }
 
   get creates() {
@@ -357,9 +344,23 @@ export class AlterTableAddConstraint extends AlterTableChange {
   }
 
   get requires() {
-    const reqs = [this.table.stableId];
-    if (this.constraint.constraint_type === "f" && this.foreignKeyTable) {
-      reqs.push(this.foreignKeyTable.stableId);
+    const reqs: string[] = [this.table.stableId];
+    if (this.constraint.constraint_type === "f") {
+      const referencingColumns = this.constraint.key_columns.map((columnName) =>
+        stableId.column(this.table.schema, this.table.name, columnName),
+      );
+      const referencedColumns =
+        // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_columns is not null
+        this.constraint.foreign_key_columns!.map((columnName) =>
+          stableId.column(
+            // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_schema is not null
+            this.constraint.foreign_key_schema!,
+            // biome-ignore lint/style/noNonNullAssertion: constraint_type "f" means foreign_key_table is not null
+            this.constraint.foreign_key_table!,
+            columnName,
+          ),
+        );
+      reqs.push(...referencingColumns, ...referencedColumns);
     }
     return reqs;
   }
@@ -802,4 +803,36 @@ export class AlterTableDetachPartition extends AlterTableChange {
       `${this.partition.schema}.${this.partition.name}`,
     ].join(" ");
   }
+}
+
+function buildColumnStableIdsFromConstraint(
+  table: Table,
+  constraint: TableConstraintProps,
+): Array<ReturnType<typeof stableId.column>> {
+  const columnNames = constraint.key_columns ?? [];
+  if (columnNames.length === 0) return [];
+  const columnsByName = new Map(
+    table.columns.map((column) => [column.name, column]),
+  );
+  const stableIds: Array<ReturnType<typeof stableId.column>> = [];
+  for (const columnName of columnNames) {
+    const column = columnsByName.get(columnName);
+    if (!column) continue;
+    stableIds.push(stableId.column(table.schema, table.name, column.name));
+  }
+  return stableIds;
+}
+
+function buildReferencedColumnStableIdsFromConstraint(
+  constraint: TableConstraintProps,
+): Array<ReturnType<typeof stableId.column>> {
+  const schema = constraint.foreign_key_schema;
+  const tableName = constraint.foreign_key_table;
+  const columnNames = constraint.foreign_key_columns;
+  if (!schema || !tableName || !columnNames || columnNames.length === 0) {
+    return [];
+  }
+  return columnNames.map((columnName) =>
+    stableId.column(schema, tableName, columnName),
+  );
 }
