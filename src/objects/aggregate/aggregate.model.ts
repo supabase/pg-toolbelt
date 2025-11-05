@@ -77,7 +77,7 @@ const aggregatePropsSchema = z.object({
 });
 
 type AggregatePrivilegeProps = PrivilegeProps;
-export type AggregateProps = z.infer<typeof aggregatePropsSchema>;
+type AggregateProps = z.infer<typeof aggregatePropsSchema>;
 
 export class Aggregate extends BasePgModel {
   public readonly schema: AggregateProps["schema"];
