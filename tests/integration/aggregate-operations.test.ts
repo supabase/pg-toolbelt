@@ -4,6 +4,7 @@
 
 import dedent from "dedent";
 import { describe } from "vitest";
+import type { Change } from "../../src/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest, getTestIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -106,6 +107,49 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
     });
+
+    testIsolated(
+      "aggregate comment creation depends on aggregate create order",
+      async ({ db }) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
+            CREATE AGGREGATE test_schema.collect_text_dependency(text)
+            (
+              SFUNC = pg_catalog.array_append,
+              STYPE = text[],
+              INITCOND = '{}'
+            );
+
+            COMMENT ON AGGREGATE test_schema.collect_text_dependency(text) IS 'dependency check';
+          `,
+          sortChangesCallback: (a, b) => {
+            // force comment create ahead of aggregate create to ensure dependency sorting fixes the order
+            const priority = (change: Change) => {
+              if (
+                change.objectType === "aggregate" &&
+                change.scope === "comment" &&
+                change.operation === "create"
+              ) {
+                return 0;
+              }
+              if (
+                change.objectType === "aggregate" &&
+                change.scope === "object" &&
+                change.operation === "create"
+              ) {
+                return 1;
+              }
+              return 2;
+            };
+
+            return priority(a) - priority(b);
+          },
+        });
+      },
+    );
 
     testIsolated("aggregate grant privileges", async ({ db }) => {
       await roundtripFidelityTest({
