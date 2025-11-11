@@ -47,6 +47,10 @@ export class DropCommentOnSubscription extends DropSubscriptionChange {
     this.subscription = props.subscription;
   }
 
+  get drops() {
+    return [stableId.comment(this.subscription.stableId)];
+  }
+
   get requires() {
     return [
       stableId.comment(this.subscription.stableId),
