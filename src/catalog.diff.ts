@@ -1,6 +1,7 @@
 import { DEBUG } from "../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
@@ -9,6 +10,7 @@ import { diffMaterializedViews } from "./objects/materialized-view/materialized-
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import { diffRlsPolicies } from "./objects/rls-policy/rls-policy.diff.ts";
 import { diffRoles } from "./objects/role/role.diff.ts";
+import { diffRules } from "./objects/rule/rule.diff.ts";
 import { diffSchemas } from "./objects/schema/schema.diff.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { diffSubscriptions } from "./objects/subscription/subscription.diff.ts";
@@ -22,6 +24,13 @@ import { diffViews } from "./objects/view/view.diff.ts";
 
 export function diffCatalogs(main: Catalog, branch: Catalog) {
   const changes: Change[] = [];
+  changes.push(
+    ...diffAggregates(
+      { version: main.version },
+      main.aggregates,
+      branch.aggregates,
+    ),
+  );
   changes.push(...diffCollations(main.collations, branch.collations));
   changes.push(
     ...diffCompositeTypes(
@@ -75,6 +84,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
+  changes.push(...diffRules(main.rules, branch.rules));
   changes.push(
     ...diffRanges({ version: main.version }, main.ranges, branch.ranges),
   );
@@ -105,6 +115,8 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
           return !droppedObjectStableIds.has(change.language.stableId);
         case "materialized_view":
           return !droppedObjectStableIds.has(change.materializedView.stableId);
+        case "aggregate":
+          return !droppedObjectStableIds.has(change.aggregate.stableId);
         case "procedure":
           return !droppedObjectStableIds.has(change.procedure.stableId);
         case "range":
