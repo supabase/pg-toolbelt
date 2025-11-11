@@ -33,9 +33,6 @@ describe("rule.drop", () => {
 
     expect(change.drops).toEqual([rule.stableId]);
     expect(change.requires).toEqual([rule.stableId, rule.relationStableId]);
-    expect(change.serialize()).toBe(
-      'DROP RULE "my_rule" ON public."my_table"',
-    );
+    expect(change.serialize()).toBe('DROP RULE "my_rule" ON public."my_table"');
   });
 });
-

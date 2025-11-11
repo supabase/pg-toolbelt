@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
-import {
-  CreateCommentOnRule,
-  DropCommentOnRule,
-} from "./rule.comment.ts";
+import { CreateCommentOnRule, DropCommentOnRule } from "./rule.comment.ts";
 
 type RuleProps = ConstructorParameters<typeof Rule>[0];
 
@@ -38,7 +35,7 @@ describe("rule.comment", () => {
     expect(change.creates).toEqual([stableId.comment(rule.stableId)]);
     expect(change.requires).toEqual([rule.stableId]);
     expect(change.serialize()).toBe(
-      'COMMENT ON RULE "my_rule" ON public."my_table" IS \'rule\'\'s description\'',
+      "COMMENT ON RULE \"my_rule\" ON public.\"my_table\" IS 'rule''s description'",
     );
   });
 
@@ -56,4 +53,3 @@ describe("rule.comment", () => {
     );
   });
 });
-

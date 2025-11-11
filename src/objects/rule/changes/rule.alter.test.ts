@@ -76,4 +76,3 @@ describe("rule.alter", () => {
     );
   });
 });
-
