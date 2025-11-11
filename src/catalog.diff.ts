@@ -3,6 +3,7 @@ import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
+import { diffEventTriggers } from "./objects/event-trigger/event-trigger.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
@@ -73,6 +74,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
   );
+  changes.push(...diffEventTriggers(main.eventTriggers, branch.eventTriggers));
   changes.push(
     ...diffRanges({ version: main.version }, main.ranges, branch.ranges),
   );

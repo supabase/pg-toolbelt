@@ -848,6 +848,17 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     FROM pg_description d
     JOIN pg_language l ON d.classoid = 'pg_language'::regclass AND d.objoid = l.oid AND d.objsubid = 0
     WHERE l.lanname NOT IN ('internal', 'c')
+    UNION ALL
+
+    -- Event trigger comments
+    SELECT DISTINCT
+      format('comment:%s', format('eventTrigger:%I', et.evtname))                 AS dependent_stable_id,
+      format('eventTrigger:%I', et.evtname)                                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_event_trigger et ON d.classoid = 'pg_event_trigger'::regclass AND d.objoid = et.oid AND d.objsubid = 0
 
     UNION ALL
 
@@ -1321,6 +1332,17 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       NULL::text AS ref_schema
     FROM pg_language l
     WHERE l.lanname NOT IN ('internal', 'c', 'sql')
+
+    UNION ALL
+
+    -- Event trigger ownership dependencies
+    SELECT DISTINCT
+      format('eventTrigger:%I', et.evtname) AS dependent_stable_id,
+      format('role:%s', et.evtowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_event_trigger et
 
     UNION ALL
 
