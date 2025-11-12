@@ -13,6 +13,7 @@ import type { RoleChange } from "./objects/role/changes/role.types.ts";
 import type { RuleChange } from "./objects/rule/changes/rule.types.ts";
 import type { SchemaChange } from "./objects/schema/changes/schema.types.ts";
 import type { SequenceChange } from "./objects/sequence/changes/sequence.types.ts";
+import type { SubscriptionChange } from "./objects/subscription/changes/subscription.types.ts";
 import type { TableChange } from "./objects/table/changes/table.types.ts";
 import type { TriggerChange } from "./objects/trigger/changes/trigger.types.ts";
 import type { TypeChange } from "./objects/type/type.types.ts";
@@ -26,6 +27,7 @@ export type Change =
   | IndexChange
   | LanguageChange
   | MaterializedViewChange
+  | SubscriptionChange
   | PublicationChange
   | ProcedureChange
   | RlsPolicyChange

@@ -38,6 +38,8 @@ export function getSchema(change: Change) {
       return change.schema.name;
     case "sequence":
       return change.sequence.schema;
+    case "subscription":
+      return null;
     case "table":
       return change.table.schema;
     case "trigger":
@@ -90,6 +92,8 @@ export function getOwner(change: Change) {
       return change.schema.owner;
     case "sequence":
       return change.sequence.owner;
+    case "subscription":
+      return change.subscription.owner;
     case "table":
       return change.table.owner;
     case "trigger":

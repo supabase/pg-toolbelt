@@ -15,6 +15,7 @@ import { diffRoles } from "./objects/role/role.diff.ts";
 import { diffRules } from "./objects/rule/rule.diff.ts";
 import { diffSchemas } from "./objects/schema/schema.diff.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
+import { diffSubscriptions } from "./objects/subscription/subscription.diff.ts";
 import { diffTables } from "./objects/table/table.diff.ts";
 import { diffTriggers } from "./objects/trigger/trigger.diff.ts";
 import { diffCompositeTypes } from "./objects/type/composite-type/composite-type.diff.ts";
@@ -57,6 +58,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
       branch.materializedViews,
     ),
   );
+  changes.push(...diffSubscriptions(main.subscriptions, branch.subscriptions));
   changes.push(...diffPublications(main.publications, branch.publications));
   changes.push(
     ...diffProcedures(

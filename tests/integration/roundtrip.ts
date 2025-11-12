@@ -74,16 +74,23 @@ export async function roundtripFidelityTest(
     expectedOperationOrder,
     sortChangesCallback,
   } = options;
-
+  // Silent warnings from PostgreSQL such as subscriptions created without a slot.
+  const sessionConfig = ["SET LOCAL client_min_messages = error"];
   // Set up initial schema in BOTH databases
   if (initialSetup) {
-    await expect(mainSession.unsafe(initialSetup)).resolves.not.toThrow();
-    await expect(branchSession.unsafe(initialSetup)).resolves.not.toThrow();
+    await expect(
+      mainSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
+    await expect(
+      branchSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
   }
 
   // Execute the test SQL in the BRANCH database only
   if (testSql) {
-    await expect(branchSession.unsafe(testSql)).resolves.not.toThrow();
+    await expect(
+      branchSession.unsafe([...sessionConfig, testSql].join(";\n\n")),
+    ).resolves.not.toThrow();
   }
 
   // Extract catalogs from both databases
@@ -143,12 +150,14 @@ export async function roundtripFidelityTest(
     (change) =>
       change.objectType === "procedure" || change.objectType === "aggregate",
   );
-  const sessionConfig = hasRoutineChanges
+  const migrationSessionConfig = hasRoutineChanges
     ? ["SET check_function_bodies = false"]
     : [];
 
   const sqlStatements = sortedChanges.map((change) => change.serialize());
-  const migrationScript = [...sessionConfig, ...sqlStatements].join(";\n\n");
+  const migrationScript = [...migrationSessionConfig, ...sqlStatements].join(
+    ";\n\n",
+  );
 
   // Verify expected terms are the same as the generated SQL
   if (expectedSqlTerms) {
@@ -164,10 +173,14 @@ export async function roundtripFidelityTest(
   }
   // Apply migration to main database
   if (migrationScript.trim()) {
-    await runOrDump(() => mainSession.unsafe(migrationScript), {
-      label: "migration",
-      diffScript: migrationScript,
-    });
+    await runOrDump(
+      () =>
+        mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
+      {
+        label: "migration",
+        diffScript: migrationScript,
+      },
+    );
   }
 
   // Extract final catalog from main database

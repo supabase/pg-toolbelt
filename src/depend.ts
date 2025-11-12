@@ -663,6 +663,18 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT 'pg_extension'::regclass, e.oid, 0::int2, NULL::text, format('extension:%I', e.extname)
     FROM pg_extension e
     JOIN ids i ON i.classid = 'pg_extension'::regclass AND i.objid = e.oid AND COALESCE(i.objsubid,0) = 0
+
+    UNION ALL
+    /* Subscriptions (cluster-wide; scope to current database) */
+    SELECT 'pg_subscription'::regclass, s.oid, 0::int2,
+          NULL::text,
+          format('subscription:%I', s.subname)
+    FROM pg_subscription s
+    JOIN ids i
+      ON i.classid = 'pg_subscription'::regclass
+     AND i.objid = s.oid
+     AND COALESCE(i.objsubid,0) = 0
+    WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   ),
   base AS (
     SELECT DISTINCT
@@ -907,6 +919,22 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       ON d.classoid = 'pg_publication'::regclass
      AND d.objoid = p.oid
      AND d.objsubid = 0
+
+    UNION ALL
+
+    -- Subscription comments
+    SELECT DISTINCT
+      format('comment:%s', format('subscription:%I', s.subname)) AS dependent_stable_id,
+      format('subscription:%I', s.subname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_subscription s
+      ON d.classoid = 'pg_subscription'::regclass
+     AND d.objoid = s.oid
+     AND d.objsubid = 0
+    WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 
     UNION ALL
 
@@ -1441,6 +1469,18 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
 
     UNION ALL
 
+    -- Subscription ownership dependencies
+    SELECT DISTINCT
+      format('subscription:%I', s.subname) AS dependent_stable_id,
+      format('role:%s', s.subowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_subscription s
+    WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+
+    UNION ALL
+    
     -- Publication ownership dependencies
     SELECT DISTINCT
       format('publication:%I', p.pubname) AS dependent_stable_id,
