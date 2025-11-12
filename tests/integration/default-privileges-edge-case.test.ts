@@ -53,7 +53,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     // - The authenticated and service_role should retain their grants
     // - The generated SQL should reflect the user's intent, not just the
     //   current privilege state
-    test.only("table creation with anon role revocation should account for default privileges", async ({
+    test("table creation with anon role revocation should account for default privileges", async ({
       db,
     }) => {
       await roundtripFidelityTest({
@@ -130,7 +130,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("table creation with selective privilege grants should override default privileges", async ({
+    test.only("table creation with selective privilege grants should override default privileges", async ({
       db,
     }) => {
       // This test verifies that when a user creates a table and wants to override
@@ -224,6 +224,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expectedSqlTerms: [
           "CREATE TABLE app.user_data (id integer NOT NULL, username text NOT NULL, email text)",
           "ALTER TABLE app.user_data ADD CONSTRAINT user_data_pkey PRIMARY KEY (id)",
+          "ALTER TABLE app.user_data ADD CONSTRAINT user_data_username_key UNIQUE (username)",
           "REVOKE ALL ON app.user_data FROM anon",
         ],
       });

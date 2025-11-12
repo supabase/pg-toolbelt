@@ -102,6 +102,13 @@ export class RevokeTablePrivileges extends DropTableChange {
   public readonly columns?: string[];
   public readonly version: number | undefined;
   public readonly scope = "privilege" as const;
+  /**
+   * When true, indicates this revoke is for a privilege that doesn't exist yet
+   * (e.g., revoking a default privilege on a newly created table).
+   * In this case, drops() returns an empty array so the change goes into the
+   * create_alter phase instead of the drop phase.
+   */
+  public readonly privilegeDoesNotExist: boolean;
 
   constructor(props: {
     table: Table;
@@ -109,6 +116,7 @@ export class RevokeTablePrivileges extends DropTableChange {
     privileges: { privilege: string; grantable: boolean }[];
     columns?: string[];
     version?: number;
+    privilegeDoesNotExist?: boolean;
   }) {
     super();
     this.table = props.table;
@@ -116,9 +124,14 @@ export class RevokeTablePrivileges extends DropTableChange {
     this.privileges = props.privileges;
     this.columns = props.columns;
     this.version = props.version;
+    this.privilegeDoesNotExist = props.privilegeDoesNotExist ?? false;
   }
 
   get drops() {
+    // If the privilege doesn't exist yet, don't put this in the drop phase
+    if (this.privilegeDoesNotExist) {
+      return [];
+    }
     return [stableId.acl(this.table.stableId, this.grantee)];
   }
 

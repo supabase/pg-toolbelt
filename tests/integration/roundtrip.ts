@@ -22,6 +22,7 @@ interface RoundtripTestOptions {
   sortChangesCallback?: (a: Change, b: Change) => number;
   // List of terms that must appear in the generated SQL.
   // If not provided, we expect the generated SQL to match the testSql.
+  // When defined, random sorting of changes is skipped to ensure deterministic order.
   expectedSqlTerms?: string[] | "same-as-test-sql";
   // List of dependencies that must be present in main catalog.
   expectedMainDependencies?: PgDepend[];
@@ -122,8 +123,10 @@ export async function roundtripFidelityTest(
     console.log(branchCatalog.depends);
   }
 
-  // Randomize changes order
-  changes = changes.sort(() => Math.random() - 0.5);
+  // Randomize changes order (skip if expectedSqlTerms is defined for deterministic testing)
+  if (!expectedSqlTerms) {
+    changes = changes.sort(() => Math.random() - 0.5);
+  }
 
   // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
