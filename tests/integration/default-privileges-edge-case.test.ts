@@ -178,7 +178,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE public.selective_table (id integer NOT NULL, public_data text, private_data text)",
           "ALTER TABLE public.selective_table ADD CONSTRAINT selective_table_pkey PRIMARY KEY (id)",
           "REVOKE ALL ON public.selective_table FROM anon",
-          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON public.selective_table FROM authenticated",
+          pgVersion <= 15
+            ? "REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON public.selective_table FROM authenticated"
+            : "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON public.selective_table FROM authenticated",
         ],
       });
     });
