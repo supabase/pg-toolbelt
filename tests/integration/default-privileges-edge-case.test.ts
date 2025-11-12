@@ -130,7 +130,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test.only("table creation with selective privilege grants should override default privileges", async ({
+    test("table creation with selective privilege grants should override default privileges", async ({
       db,
     }) => {
       // This test verifies that when a user creates a table and wants to override
@@ -178,10 +178,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE TABLE public.selective_table (id integer NOT NULL, public_data text, private_data text)",
           "ALTER TABLE public.selective_table ADD CONSTRAINT selective_table_pkey PRIMARY KEY (id)",
           "REVOKE ALL ON public.selective_table FROM anon",
-          "REVOKE ALL ON public.selective_table FROM authenticated",
-          "REVOKE ALL ON public.selective_table FROM service_role",
-          "GRANT SELECT ON public.selective_table TO authenticated",
-          "GRANT ALL ON public.selective_table TO service_role",
+          "REVOKE DELETE, INSERT, MAINTAIN, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON public.selective_table FROM authenticated",
         ],
       });
     });
