@@ -247,6 +247,40 @@ function sortPhaseChanges(
     }
   }
 
+  // Create edges directly from creates/requires relationships between changes
+  // This handles cases where dependencies aren't in pg_depend (e.g., privileges
+  // computed from default privileges that don't exist in the database yet)
+  // We iterate through explicitRequirementSets to ensure we catch all explicit
+  // requirements, not just those that were also in pg_depend
+  for (
+    let consumerIndex = 0;
+    consumerIndex < phaseChanges.length;
+    consumerIndex++
+  ) {
+    const consumerChange = phaseChanges[consumerIndex];
+    for (const requiredId of explicitRequirementSets[consumerIndex]) {
+      const producerIndexes = changeIndexesByCreatedId.get(requiredId);
+      if (!producerIndexes) continue;
+      for (const producerIndex of producerIndexes) {
+        if (producerIndex === consumerIndex) continue;
+        // For explicit requirements, we check if the consumer accepts the dependency
+        // using the consumer's created IDs as the dependent and the required ID as referenced
+        const consumerCreates = createdStableIdSets[consumerIndex];
+        let acceptsDependency = true;
+        if (consumerCreates.size > 0) {
+          // Use the first created ID as the dependent (or we could check all)
+          const dependentId = Array.from(consumerCreates)[0];
+          acceptsDependency = consumerChange.acceptsDependency(
+            dependentId,
+            requiredId,
+          );
+        }
+        if (!acceptsDependency) continue;
+        registerEdge(producerIndex, consumerIndex);
+      }
+    }
+  }
+
   if (constraintSpecs.length > 0) {
     graphEdges.push(...generateConstraintEdges(phaseChanges, constraintSpecs));
   }
