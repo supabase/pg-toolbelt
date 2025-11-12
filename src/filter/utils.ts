@@ -24,6 +24,8 @@ export function getSchema(change: Change) {
       return change.materializedView.schema;
     case "procedure":
       return change.procedure.schema;
+    case "publication":
+      return null;
     case "range":
       return change.range.schema;
     case "rls_policy":
@@ -74,6 +76,8 @@ export function getOwner(change: Change) {
       return change.materializedView.owner;
     case "procedure":
       return change.procedure.owner;
+    case "publication":
+      return change.publication.owner;
     case "range":
       return change.range.owner;
     case "rls_policy":

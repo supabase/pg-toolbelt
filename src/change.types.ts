@@ -7,6 +7,7 @@ import type { IndexChange } from "./objects/index/changes/index.types.ts";
 import type { LanguageChange } from "./objects/language/changes/language.types.ts";
 import type { MaterializedViewChange } from "./objects/materialized-view/changes/materialized-view.types.ts";
 import type { ProcedureChange } from "./objects/procedure/changes/procedure.types.ts";
+import type { PublicationChange } from "./objects/publication/changes/publication.types.ts";
 import type { RlsPolicyChange } from "./objects/rls-policy/changes/rls-policy.types.ts";
 import type { RoleChange } from "./objects/role/changes/role.types.ts";
 import type { RuleChange } from "./objects/rule/changes/rule.types.ts";
@@ -25,6 +26,7 @@ export type Change =
   | IndexChange
   | LanguageChange
   | MaterializedViewChange
+  | PublicationChange
   | ProcedureChange
   | RlsPolicyChange
   | RoleChange

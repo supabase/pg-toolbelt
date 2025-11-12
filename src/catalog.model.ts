@@ -30,6 +30,10 @@ import {
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
 import {
+  extractPublications,
+  type Publication,
+} from "./objects/publication/publication.model.ts";
+import {
   extractRlsPolicies,
   type RlsPolicy,
 } from "./objects/rls-policy/rls-policy.model.ts";
@@ -63,6 +67,7 @@ interface CatalogProps {
   procedures: Record<string, Procedure>;
   indexes: Record<string, Index>;
   materializedViews: Record<string, MaterializedView>;
+  publications: Record<string, Publication>;
   rlsPolicies: Record<string, RlsPolicy>;
   roles: Record<string, Role>;
   schemas: Record<string, Schema>;
@@ -89,6 +94,7 @@ export class Catalog {
   public readonly procedures: CatalogProps["procedures"];
   public readonly indexes: CatalogProps["indexes"];
   public readonly materializedViews: CatalogProps["materializedViews"];
+  public readonly publications: CatalogProps["publications"];
   public readonly rlsPolicies: CatalogProps["rlsPolicies"];
   public readonly roles: CatalogProps["roles"];
   public readonly schemas: CatalogProps["schemas"];
@@ -114,6 +120,7 @@ export class Catalog {
     this.procedures = props.procedures;
     this.indexes = props.indexes;
     this.materializedViews = props.materializedViews;
+    this.publications = props.publications;
     this.rlsPolicies = props.rlsPolicies;
     this.roles = props.roles;
     this.schemas = props.schemas;
@@ -141,6 +148,7 @@ export async function extractCatalog(sql: Sql) {
     extensions,
     indexes,
     materializedViews,
+    publications,
     procedures,
     rlsPolicies,
     roles,
@@ -164,6 +172,7 @@ export async function extractCatalog(sql: Sql) {
     extractExtensions(sql).then(listToRecord),
     extractIndexes(sql).then(listToRecord),
     extractMaterializedViews(sql).then(listToRecord),
+    extractPublications(sql).then(listToRecord),
     extractProcedures(sql).then(listToRecord),
     extractRlsPolicies(sql).then(listToRecord),
     extractRoles(sql).then(listToRecord),
@@ -195,6 +204,7 @@ export async function extractCatalog(sql: Sql) {
     procedures,
     indexes,
     materializedViews,
+    publications,
     rlsPolicies,
     roles,
     schemas,
