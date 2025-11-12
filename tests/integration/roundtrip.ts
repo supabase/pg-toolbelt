@@ -74,6 +74,7 @@ export async function roundtripFidelityTest(
     expectedOperationOrder,
     sortChangesCallback,
   } = options;
+  // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
   // Set up initial schema in BOTH databases
   if (initialSetup) {

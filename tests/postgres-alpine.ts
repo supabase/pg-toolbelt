@@ -22,6 +22,7 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });
+    // Enable logical replication to be able to create subscriptions
     this.withCommand(["postgres", "-c", "wal_level=logical"]);
   }
 
