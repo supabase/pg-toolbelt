@@ -20,7 +20,13 @@
  * avoiding brittle hand-maintained priority tables while still giving us hooks for
  * targeted overrides (for example, column-level ordering on a table).
  */
+
+import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  RevokeRoleDefaultPrivileges,
+} from "../objects/role/changes/role.privilege.ts";
 
 /** pg_depend rows that matter for ordering. */
 type PgDependRow = {
@@ -110,6 +116,60 @@ export function sortChangesByPhasedGraph(
   );
 
   return [...sortedDropPhase, ...sortedCreateAlterPhase];
+}
+
+/**
+ * High-level sort function that applies default privilege ordering constraints.
+ *
+ * This function encapsulates the domain knowledge about how ALTER DEFAULT PRIVILEGES
+ * statements should be ordered relative to CREATE statements, ensuring they run
+ * before object creation (except for CREATE ROLE and CREATE SCHEMA, which are
+ * dependencies of ALTER DEFAULT PRIVILEGES).
+ *
+ * @param catalogs - Main and branch catalogs containing dependency information
+ * @param changes - List of Change objects to order
+ * @returns Ordered list of Change objects
+ */
+export function sortChanges(
+  catalogs: { mainCatalog: Catalog; branchCatalog: Catalog },
+  changes: Change[],
+): Change[] {
+  // Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements in the final migration
+  // The dependency system handles role/schema dependencies automatically
+  // Privilege changes for CREATE statements are now generated during diffing using
+  // the default privileges state computed from role changes
+  const constraintSpecs: ConstraintSpec<Change>[] = [
+    {
+      pairwise: (a: Change, b: Change) => {
+        const aIsDefaultPriv =
+          a instanceof GrantRoleDefaultPrivileges ||
+          a instanceof RevokeRoleDefaultPrivileges;
+        const bIsCreate = b.operation === "create" && b.scope === "object";
+
+        // Exclude CREATE ROLE and CREATE SCHEMA from the constraint since they are
+        // dependencies of ALTER DEFAULT PRIVILEGES and must come before it
+        const bIsRoleOrSchema =
+          bIsCreate && (b.objectType === "role" || b.objectType === "schema");
+
+        // Default privilege changes should come before CREATE statements
+        // (but not CREATE ROLE or CREATE SCHEMA, which are dependencies)
+        // Note: pairwise is called for both (a,b) and (b,a), so we only need to check one direction
+        if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+          return "a_before_b";
+        }
+        return undefined;
+      },
+    },
+  ];
+
+  return sortChangesByPhasedGraph(
+    {
+      mainCatalog: { depends: catalogs.mainCatalog.depends },
+      branchCatalog: { depends: catalogs.branchCatalog.depends },
+    },
+    changes,
+    constraintSpecs,
+  );
 }
 
 /**
