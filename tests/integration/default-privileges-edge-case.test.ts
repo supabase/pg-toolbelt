@@ -229,16 +229,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("altering default privileges mid-migration should affect subsequent object creation", async ({
+    test("altering default privileges ensures correct final state regardless of creation order", async ({
       db,
     }) => {
-      // This test demonstrates the issue: when default privileges are altered
-      // in the migration script, subsequent object creations should use the
-      // updated default privileges, not the original ones from introspection.
+      // This test verifies that when default privileges are altered, the migration script
+      // correctly generates SQL to reach the final desired state, regardless of the order
+      // operations were performed in the branch database.
+      //
+      // The migration script runs ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+      // so all created objects use the final default privileges state. The script doesn't
+      // need to reproduce the exact sequence from the branch - it just needs to ensure
+      // the final state matches.
+      //
       // Expected behavior:
-      // - First table should use initial default privileges (ALL to anon)
-      // - ALTER DEFAULT PRIVILEGES should run early
-      // - Second table should use updated default privileges (no anon access)
+      // - ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec)
+      // - Both tables are created with final defaults (no anon)
+      // - No REVOKE statements needed since final state already matches
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
@@ -253,7 +259,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role;
         `,
         testSql: `
-          -- Create first table (should have ALL to anon from initial defaults)
+          -- Create first table (gets initial defaults: ALL to anon)
           CREATE TABLE public.first_table (
             id integer PRIMARY KEY,
             data text
@@ -263,26 +269,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER DEFAULT PRIVILEGES IN SCHEMA public 
             REVOKE ALL ON TABLES FROM anon;
           
-          -- Create second table (should NOT have anon access due to altered defaults)
+          -- Create second table (gets final defaults: no anon)
           CREATE TABLE public.second_table (
             id integer PRIMARY KEY,
             data text
           );
           
-          -- Explicitly revoke from first table to match desired state
+          -- Explicitly revoke from first table to match desired final state
           REVOKE ALL ON public.first_table FROM anon;
         `,
         expectedSqlTerms: [
           "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon",
           "CREATE TABLE public.first_table (id integer NOT NULL, data text)",
           "ALTER TABLE public.first_table ADD CONSTRAINT first_table_pkey PRIMARY KEY (id)",
-          "REVOKE ALL ON public.first_table FROM anon",
           "CREATE TABLE public.second_table (id integer NOT NULL, data text)",
           "ALTER TABLE public.second_table ADD CONSTRAINT second_table_pkey PRIMARY KEY (id)",
-          // Note: second_table should NOT have REVOKE ALL FROM anon because
-          // it was created after the default privileges were altered.
-          // The order of ALTER DEFAULT PRIVILEGES relative to CREATE TABLE may vary
-          // due to sorting, but the privileges are computed correctly based on effective defaults.
+          // Note: Since ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec),
+          // both tables are created with final defaults (no anon), which matches the branch state.
+          // No REVOKE statements are needed because the final state is already correct.
         ],
       });
     });

@@ -263,11 +263,15 @@ export function diffTables(
       }
     }
 
-    // PRIVILEGES: Compute default privileges from state and diff against desired privileges
+    // PRIVILEGES: For created objects, compare against default privileges state
+    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+    // so objects are created with the default privileges state in effect.
+    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+    // needed to reach the final desired state.
     const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
       ctx.currentUser,
       "table",
-      branchTable.schema,
+      branchTable.schema ?? "",
     );
     const desiredPrivileges = branchTable.privileges;
     const privilegeResults = diffPrivileges(

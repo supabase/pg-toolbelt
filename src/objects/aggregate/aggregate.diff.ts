@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   diffPrivileges,
   groupPrivilegesByGrantable,
@@ -23,7 +24,7 @@ export function diffAggregates(
   ctx: {
     version: number;
     currentUser?: string;
-    defaultPrivilegeState?: unknown;
+    defaultPrivilegeState?: DefaultPrivilegeState;
   },
   main: Record<string, Aggregate>,
   branch: Record<string, Aggregate>,

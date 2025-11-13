@@ -40,7 +40,10 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(...roleChanges);
 
-  // Step 2: Compute final default privileges state from role changes
+  // Step 2: Compute default privileges state from role changes
+  // This represents what defaults will be in effect after all ALTER DEFAULT PRIVILEGES
+  // Since ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec),
+  // all created objects will use these final defaults.
   const defaultPrivilegeState = new DefaultPrivilegeState(main.roles);
   for (const change of roleChanges) {
     if (change instanceof GrantRoleDefaultPrivileges) {
