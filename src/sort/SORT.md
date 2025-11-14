@@ -179,11 +179,26 @@ pg_depend row: {
 Meaning: posts table depends on users table
 
 Algorithm:
-  1. Find changes that create "table:public.users" → [Change A]
-  2. Find changes that create/require "table:public.posts" → [Change B]
-  3. Check if Change B accepts the dependency
-  4. Add edge: A → B (A must run before B)
+  1. Filter out cycle-breaking dependencies (e.g., sequence ownership)
+  2. Find changes that create "table:public.users" → [Change A]
+  3. Find changes that create/require "table:public.posts" → [Change B]
+  4. Check if Change B accepts the dependency
+  5. Add edge: A → B (A must run before B)
 ```
+
+**Cycle-Breaking Filters:**
+
+Some dependencies in `pg_depend` create cycles that would prevent valid ordering. We filter these out before building edges:
+
+- **Sequence Ownership Dependencies**: When a sequence is owned by a table column that also uses the sequence (via DEFAULT), `pg_depend` creates a cycle:
+  - `sequence → table/column` (ownership)
+  - `table/column → sequence` (column default)
+  
+  We filter out the ownership dependency because:
+  - **CREATE phase**: Sequences should be created before tables (ownership is set via `ALTER SEQUENCE OWNED BY` after both exist)
+  - **DROP phase**: Prevents cycles when dropping sequences owned by tables that aren't being dropped
+  
+  This filtering is done by `shouldFilterSequenceOwnershipDependency()` before edges are created.
 
 **Visualization:**
 
@@ -339,41 +354,9 @@ Error message includes:
 
 ## Key Concepts
 
-### acceptsDependency()
-
-Changes can override `acceptsDependency()` to filter dependencies:
-
-```typescript
-class CreateSequence extends Change {
-  override acceptsDependency(dependentId: string, referencedId: string): boolean {
-    // Sequences owned by tables shouldn't inherit dependencies on those tables
-    if (dependentId === this.sequence.stableId) {
-      const ownedByIds = [/* table IDs this sequence is owned by */];
-      if (ownedByIds.includes(referencedId)) {
-        return false;  // Reject this dependency
-      }
-    }
-    return true;
-  }
-}
-```
-
-**Why this matters:** Some dependencies in `pg_depend` are handled explicitly by ALTER statements, so we don't want them to affect ordering.
-
 ### Multiple Created IDs
 
-Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). When checking dependencies, we check **all created IDs**:
-
-```typescript
-// If ANY created ID accepts the dependency, the edge is added
-for (const createdId of consumerCreates) {
-  if (change.acceptsDependency(createdId, referencedId)) {
-    return true;  // Add edge
-  }
-}
-```
-
-This handles cases where different created IDs have different dependency acceptance logic.
+Some changes create multiple stable IDs (e.g., `CreateTable` creates the table + all columns). All dependencies are accepted - cycle-breaking filters are applied at the graph construction level before edges are created.
 
 ### Unknown Dependencies
 
@@ -613,7 +596,7 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
     
     edges = []
     
-    # Add edges from pg_depend
+    # Add edges from pg_depend (with cycle-breaking filters applied)
     buildEdgesFromCatalogDependencies(
         dependency_rows, changes, graph_data, edges
     )
@@ -646,12 +629,13 @@ The sorting algorithm:
 
 1. **Partitions** changes into DROP and CREATE/ALTER phases
 2. **Builds** a dependency graph from three sources:
-   - PostgreSQL's `pg_depend` catalog
+   - PostgreSQL's `pg_depend` catalog (with cycle-breaking filters applied)
    - Explicit `creates`/`requires` declarations
    - Custom constraint specs
-3. **Inverts** edges in the DROP phase
-4. **Sorts** topologically while preserving input order (stability)
-5. **Validates** for cycles and provides helpful error messages
+3. **Filters** cycle-causing dependencies before building edges (e.g., sequence ownership dependencies)
+4. **Inverts** edges in the DROP phase
+5. **Sorts** topologically while preserving input order (stability)
+6. **Validates** for cycles and provides helpful error messages
 
-This approach ensures migrations execute in the correct order while staying aligned with PostgreSQL's native dependency system.
+This approach ensures migrations execute in the correct order while staying aligned with PostgreSQL's native dependency system and handling edge cases that would create cycles.
 

@@ -150,33 +150,65 @@ export function findConsumerIndexes(
 }
 
 /**
- * Check if a change accepts a dependency relationship.
+ * Check if a dependency row represents a sequence ownership dependency that should be filtered out.
  *
- * For changes that create multiple IDs, we check if ANY of the created IDs
- * accept the dependency. This is because if any created ID depends on the
- * referenced ID, the change should run after the producer.
+ * When a sequence is owned by a table column that also uses the sequence (via DEFAULT),
+ * pg_depend creates a cycle:
+ * - sequence → table/column (ownership)
+ * - table/column → sequence (column default)
  *
- * If the change creates no IDs, we use the provided dependentId (which may
- * be from pg_depend or a placeholder).
+ * This cycle would occur in both CREATE and DROP phases:
+ * - CREATE: sequence → table (ownership) and table → sequence (column default)
+ * - DROP (inverted): table → sequence (ownership) and sequence → table (column default)
+ *
+ * We filter out the ownership dependency because:
+ * - CREATE phase: sequences should be created before tables (ownership set via ALTER SEQUENCE OWNED BY after both exist)
+ * - DROP phase: prevents cycles when dropping sequences owned by tables that aren't being dropped
+ *
+ * @param dependencyRow - The dependency row to check
+ * @param phaseChanges - All changes in the current phase
+ * @param graphData - Graph data structures for finding consumers
+ * @returns true if this dependency should be filtered out (skipped)
  */
-export function changeAcceptsDependency(
-  change: Change,
-  createdIds: Set<string>,
-  dependentId: string,
-  referencedId: string,
+function shouldFilterSequenceOwnershipDependency(
+  dependencyRow: PgDependRow,
+  phaseChanges: Change[],
+  graphData: GraphData,
 ): boolean {
-  // If the change creates no IDs, use the provided dependentId
-  if (createdIds.size === 0) {
-    return change.acceptsDependency(dependentId, referencedId);
+  // Pattern match: sequence → table/column
+  if (
+    !dependencyRow.dependent_stable_id.startsWith("sequence:") ||
+    (!dependencyRow.referenced_stable_id.startsWith("table:") &&
+      !dependencyRow.referenced_stable_id.startsWith("column:"))
+  ) {
+    return false;
   }
 
-  // Check if ANY of the created IDs accept the dependency
-  // This handles cases where different created IDs may have different
-  // dependency acceptance logic (e.g., CreateSequence only accepts
-  // dependencies for the sequence ID, not column IDs)
-  for (const createdId of createdIds) {
-    if (change.acceptsDependency(createdId, referencedId)) {
-      return true;
+  // Verify this is actually an ownership dependency by checking if any change
+  // (create or drop) involving this sequence has ownership matching the referenced ID.
+  const sequenceConsumers = findConsumerIndexes(
+    dependencyRow.dependent_stable_id,
+    graphData,
+  );
+
+  for (const consumerIndex of sequenceConsumers) {
+    const consumerChange = phaseChanges[consumerIndex];
+    // Check if this is a sequence change (create or drop) with ownership matching the referenced ID
+    if (
+      consumerChange.objectType === "sequence" &&
+      "sequence" in consumerChange
+    ) {
+      const seq = consumerChange.sequence;
+      if (seq.owned_by_schema && seq.owned_by_table && seq.owned_by_column) {
+        const ownedByTableId = `table:${seq.owned_by_schema}.${seq.owned_by_table}`;
+        const ownedByColumnId = `column:${seq.owned_by_schema}.${seq.owned_by_table}.${seq.owned_by_column}`;
+        if (
+          dependencyRow.referenced_stable_id === ownedByTableId ||
+          dependencyRow.referenced_stable_id === ownedByColumnId
+        ) {
+          return true;
+        }
+      }
     }
   }
 
@@ -187,9 +219,9 @@ export function changeAcceptsDependency(
  * Build edges from pg_depend catalog rows.
  *
  * For each dependency row, we:
- * 1. Find producers that create the referenced ID
- * 2. Find consumers that depend on the dependent ID
- * 3. Check if each consumer accepts the dependency
+ * 1. Filter out cycle-breaking dependencies (e.g., sequence ownership)
+ * 2. Find producers that create the referenced ID
+ * 3. Find consumers that depend on the dependent ID
  * 4. Add edges from producers to consumers
  */
 export function buildEdgesFromCatalogDependencies(
@@ -200,6 +232,16 @@ export function buildEdgesFromCatalogDependencies(
 ): void {
   const filteredDependencyRows = filterUnknownDependencies(dependencyRows);
   for (const dependencyRow of filteredDependencyRows) {
+    // Filter out sequence ownership dependencies to prevent cycles
+    if (
+      shouldFilterSequenceOwnershipDependency(
+        dependencyRow,
+        phaseChanges,
+        graphData,
+      )
+    ) {
+      continue;
+    }
     const referencedProducers = graphData.changeIndexesByCreatedId.get(
       dependencyRow.referenced_stable_id,
     );
@@ -212,18 +254,7 @@ export function buildEdgesFromCatalogDependencies(
     if (consumerIndexes.size === 0) continue;
 
     for (const consumerIndex of consumerIndexes) {
-      const consumerChange = phaseChanges[consumerIndex];
-      const consumerCreates = graphData.createdStableIdSets[consumerIndex];
-
-      // Use the actual dependent ID from pg_depend, not an arbitrary created ID
-      const acceptsDependency = changeAcceptsDependency(
-        consumerChange,
-        consumerCreates,
-        dependencyRow.dependent_stable_id,
-        dependencyRow.referenced_stable_id,
-      );
-
-      if (!acceptsDependency) continue;
+      // All dependencies are accepted (cycle-breaking filters are applied earlier)
 
       // Track that this consumer requires the referenced ID
       graphData.requirementSets[consumerIndex].add(
@@ -245,10 +276,6 @@ export function buildEdgesFromCatalogDependencies(
  * computed from default privileges that don't exist in the database yet).
  * We iterate through explicitRequirementSets to ensure we catch all explicit
  * requirements, not just those that were also in pg_depend.
- *
- * For each explicit requirement, we check if the consumer accepts the dependency
- * by checking ALL of its created IDs (not just the first one), since different
- * created IDs may have different dependency acceptance logic.
  */
 export function buildEdgesFromExplicitRequirements(
   phaseChanges: Change[],
@@ -260,9 +287,6 @@ export function buildEdgesFromExplicitRequirements(
     consumerIndex < phaseChanges.length;
     consumerIndex++
   ) {
-    const consumerChange = phaseChanges[consumerIndex];
-    const consumerCreates = graphData.createdStableIdSets[consumerIndex];
-
     for (const requiredId of graphData.explicitRequirementSets[consumerIndex]) {
       const producerIndexes =
         graphData.changeIndexesByCreatedId.get(requiredId);
@@ -271,25 +295,7 @@ export function buildEdgesFromExplicitRequirements(
       for (const producerIndex of producerIndexes) {
         if (producerIndex === consumerIndex) continue;
 
-        // Check if the consumer accepts the dependency by checking ALL created IDs.
-        // We use the required ID as the referenced ID, and check each created ID
-        // as a potential dependent. If ANY created ID accepts the dependency,
-        // we add the edge.
-        //
-        // For the dependentId parameter, we use a placeholder since we're checking
-        // all created IDs internally. The actual dependent ID will be one of the
-        // created IDs if the dependency is accepted.
-        const acceptsDependency = changeAcceptsDependency(
-          consumerChange,
-          consumerCreates,
-          consumerCreates.size > 0
-            ? Array.from(consumerCreates)[0]
-            : requiredId, // Fallback if no created IDs
-          requiredId,
-        );
-
-        if (!acceptsDependency) continue;
-
+        // All explicit requirements are accepted (cycle-breaking filters are applied earlier)
         registerEdge(producerIndex, consumerIndex);
       }
     }

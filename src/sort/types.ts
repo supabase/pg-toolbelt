@@ -10,6 +10,15 @@ export type PgDependRow = {
   dependent_stable_id: string;
   /** Object being depended upon. */
   referenced_stable_id: string;
+  /**
+   * Dependency type as defined in PostgreSQL's pg_depend.deptype.
+   *
+   * - "n" (normal): Ordinary dependency — if the referenced object is dropped, the dependent object is also dropped automatically.
+   * - "a" (auto): Automatically created dependency — the dependent object was created as a result of creating the referenced object,
+   *   and should be dropped automatically when the referenced object is dropped, but not otherwise treated as a strong link.
+   * - "i" (internal): Internal dependency — the dependent object is a low-level part of the referenced object.
+   */
+  deptype: "n" | "a" | "i";
 };
 
 /**

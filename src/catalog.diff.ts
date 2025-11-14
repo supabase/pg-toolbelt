@@ -104,7 +104,14 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   );
   changes.push(...diffRlsPolicies(main.rlsPolicies, branch.rlsPolicies));
   changes.push(...diffSchemas(diffContext, main.schemas, branch.schemas));
-  changes.push(...diffSequences(diffContext, main.sequences, branch.sequences));
+  changes.push(
+    ...diffSequences(
+      diffContext,
+      main.sequences,
+      branch.sequences,
+      branch.tables,
+    ),
+  );
   changes.push(...diffTables(diffContext, main.tables, branch.tables));
   changes.push(
     ...diffTriggers(main.triggers, branch.triggers, branch.indexableObjects),
