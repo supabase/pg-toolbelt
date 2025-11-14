@@ -8,7 +8,7 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import { sortChanges } from "../../src/sort/phased-graph-sort.ts";
+import { sortChanges } from "../../src/sort/sort-changes.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
