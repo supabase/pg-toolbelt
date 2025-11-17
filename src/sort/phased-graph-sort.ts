@@ -20,7 +20,13 @@
  * avoiding brittle hand-maintained priority tables while still giving us hooks for
  * targeted overrides (for example, column-level ordering on a table).
  */
+
+import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  RevokeRoleDefaultPrivileges,
+} from "../objects/role/changes/role.privilege.ts";
 
 /** pg_depend rows that matter for ordering. */
 type PgDependRow = {
@@ -34,6 +40,67 @@ type PgDependRow = {
 
 /** Sorting phases aligning with execution semantics. */
 type Phase = "drop" | "create_alter_object";
+
+/**
+ * Check if a stable ID represents metadata (ACL, default privileges, etc.)
+ * rather than an actual database object.
+ */
+function isMetadataStableId(stableId: string): boolean {
+  return (
+    stableId.startsWith("acl:") ||
+    stableId.startsWith("defacl:") ||
+    stableId.startsWith("aclcol:") ||
+    stableId.startsWith("membership:")
+  );
+}
+
+/**
+ * Determine the execution phase for a change based on its properties.
+ *
+ * This function inspects the change to determine which phase it belongs to,
+ * keeping Change classes unaware of sorting implementation details.
+ *
+ * Rules:
+ * - DROP operations → drop phase
+ * - CREATE operations → create_alter_object phase
+ * - ALTER operations with scope="privilege" → create_alter_object phase (metadata changes)
+ * - ALTER operations that drop actual objects → drop phase (destructive ALTER)
+ * - ALTER operations that don't drop objects → create_alter_object phase (non-destructive ALTER)
+ */
+function getExecutionPhase(change: Change): Phase {
+  // DROP operations always go to drop phase
+  if (change.operation === "drop") {
+    return "drop";
+  }
+
+  // CREATE operations always go to create_alter phase
+  if (change.operation === "create") {
+    return "create_alter_object";
+  }
+
+  // For ALTER operations, determine based on what they do
+  if (change.operation === "alter") {
+    // Privilege changes (metadata) always go to create_alter phase
+    if (change.scope === "privilege") {
+      return "create_alter_object";
+    }
+
+    // Check if this ALTER drops actual objects (not metadata)
+    const droppedIds = change.drops ?? [];
+    const dropsObjects = droppedIds.some((id) => !isMetadataStableId(id));
+
+    if (dropsObjects) {
+      // Destructive ALTER (DROP COLUMN, DROP CONSTRAINT, etc.) → drop phase
+      return "drop";
+    }
+
+    // Non-destructive ALTER (ADD COLUMN, GRANT, etc.) → create_alter phase
+    return "create_alter_object";
+  }
+
+  // Safe default
+  return "create_alter_object";
+}
 
 /** Predicate for selecting changes targeted by a constraint spec. */
 type ChangeFilter =
@@ -71,7 +138,7 @@ interface ConstraintSpec<TChange extends Change> {
  * @param constraintSpecs - optional additional edge providers
  * @returns ordered list of Change objects
  */
-export function sortChangesByPhasedGraph(
+function sortChangesByPhasedGraph(
   catalogContext: {
     mainCatalog: { depends: PgDependRow[] };
     branchCatalog: { depends: PgDependRow[] };
@@ -85,12 +152,11 @@ export function sortChangesByPhasedGraph(
   };
 
   // Partition changes into execution phases.
+  // The sorting algorithm determines phases by inspecting change properties,
+  // keeping Change classes unaware of sorting implementation details.
   for (const changeItem of changeList) {
-    if (changeItem.drops.length > 0) {
-      changesByPhase.drop.push(changeItem);
-    } else {
-      changesByPhase.create_alter_object.push(changeItem);
-    }
+    const phase = getExecutionPhase(changeItem);
+    changesByPhase[phase].push(changeItem);
   }
 
   // Phase 1: DROP — reverse dependency order, using dependencies from the main catalog.
@@ -110,6 +176,60 @@ export function sortChangesByPhasedGraph(
   );
 
   return [...sortedDropPhase, ...sortedCreateAlterPhase];
+}
+
+/**
+ * High-level sort function that applies default privilege ordering constraints.
+ *
+ * This function encapsulates the domain knowledge about how ALTER DEFAULT PRIVILEGES
+ * statements should be ordered relative to CREATE statements, ensuring they run
+ * before object creation (except for CREATE ROLE and CREATE SCHEMA, which are
+ * dependencies of ALTER DEFAULT PRIVILEGES).
+ *
+ * @param catalogs - Main and branch catalogs containing dependency information
+ * @param changes - List of Change objects to order
+ * @returns Ordered list of Change objects
+ */
+export function sortChanges(
+  catalogs: { mainCatalog: Catalog; branchCatalog: Catalog },
+  changes: Change[],
+): Change[] {
+  // Ensure ALTER DEFAULT PRIVILEGES comes before CREATE statements in the final migration
+  // The dependency system handles role/schema dependencies automatically
+  // Privilege changes for CREATE statements are now generated during diffing using
+  // the default privileges state computed from role changes
+  const constraintSpecs: ConstraintSpec<Change>[] = [
+    {
+      pairwise: (a: Change, b: Change) => {
+        const aIsDefaultPriv =
+          a instanceof GrantRoleDefaultPrivileges ||
+          a instanceof RevokeRoleDefaultPrivileges;
+        const bIsCreate = b.operation === "create" && b.scope === "object";
+
+        // Exclude CREATE ROLE and CREATE SCHEMA from the constraint since they are
+        // dependencies of ALTER DEFAULT PRIVILEGES and must come before it
+        const bIsRoleOrSchema =
+          bIsCreate && (b.objectType === "role" || b.objectType === "schema");
+
+        // Default privilege changes should come before CREATE statements
+        // (but not CREATE ROLE or CREATE SCHEMA, which are dependencies)
+        // Note: pairwise is called for both (a,b) and (b,a), so we only need to check one direction
+        if (aIsDefaultPriv && bIsCreate && !bIsRoleOrSchema) {
+          return "a_before_b";
+        }
+        return undefined;
+      },
+    },
+  ];
+
+  return sortChangesByPhasedGraph(
+    {
+      mainCatalog: { depends: catalogs.mainCatalog.depends },
+      branchCatalog: { depends: catalogs.branchCatalog.depends },
+    },
+    changes,
+    constraintSpecs,
+  );
 }
 
 /**
@@ -242,6 +362,40 @@ function sortPhaseChanges(
 
       requirementSets[consumerIndex].add(dependencyRow.referenced_stable_id);
       for (const producerIndex of referencedProducers) {
+        registerEdge(producerIndex, consumerIndex);
+      }
+    }
+  }
+
+  // Create edges directly from creates/requires relationships between changes
+  // This handles cases where dependencies aren't in pg_depend (e.g., privileges
+  // computed from default privileges that don't exist in the database yet)
+  // We iterate through explicitRequirementSets to ensure we catch all explicit
+  // requirements, not just those that were also in pg_depend
+  for (
+    let consumerIndex = 0;
+    consumerIndex < phaseChanges.length;
+    consumerIndex++
+  ) {
+    const consumerChange = phaseChanges[consumerIndex];
+    for (const requiredId of explicitRequirementSets[consumerIndex]) {
+      const producerIndexes = changeIndexesByCreatedId.get(requiredId);
+      if (!producerIndexes) continue;
+      for (const producerIndex of producerIndexes) {
+        if (producerIndex === consumerIndex) continue;
+        // For explicit requirements, we check if the consumer accepts the dependency
+        // using the consumer's created IDs as the dependent and the required ID as referenced
+        const consumerCreates = createdStableIdSets[consumerIndex];
+        let acceptsDependency = true;
+        if (consumerCreates.size > 0) {
+          // Use the first created ID as the dependent (or we could check all)
+          const dependentId = Array.from(consumerCreates)[0];
+          acceptsDependency = consumerChange.acceptsDependency(
+            dependentId,
+            requiredId,
+          );
+        }
+        if (!acceptsDependency) continue;
         registerEdge(producerIndex, consumerIndex);
       }
     }

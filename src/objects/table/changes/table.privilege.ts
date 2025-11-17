@@ -4,7 +4,7 @@ import {
 } from "../../base.privilege.ts";
 import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
-import { CreateTableChange, DropTableChange } from "./table.base.ts";
+import { AlterTableChange } from "./table.base.ts";
 
 export type TablePrivilege =
   | GrantTablePrivileges
@@ -26,7 +26,7 @@ export type TablePrivilege =
  *     [ GRANTED BY role_specification ]
  * ```
  */
-export class GrantTablePrivileges extends CreateTableChange {
+export class GrantTablePrivileges extends AlterTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -95,7 +95,7 @@ export class GrantTablePrivileges extends CreateTableChange {
  *     [ CASCADE | RESTRICT ]
  * ```
  */
-export class RevokeTablePrivileges extends DropTableChange {
+export class RevokeTablePrivileges extends AlterTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privileges: { privilege: string; grantable: boolean }[];
@@ -119,6 +119,8 @@ export class RevokeTablePrivileges extends DropTableChange {
   }
 
   get drops() {
+    // Return ACL ID for dependency tracking, even though this is an ALTER operation
+    // Phase assignment now uses operation type, so this won't affect phase placement
     return [stableId.acl(this.table.stableId, this.grantee)];
   }
 
@@ -150,7 +152,7 @@ export class RevokeTablePrivileges extends DropTableChange {
  *
  * @see https://www.postgresql.org/docs/17/sql-revoke.html
  */
-export class RevokeGrantOptionTablePrivileges extends DropTableChange {
+export class RevokeGrantOptionTablePrivileges extends AlterTableChange {
   public readonly table: Table;
   public readonly grantee: string;
   public readonly privilegeNames: string[];

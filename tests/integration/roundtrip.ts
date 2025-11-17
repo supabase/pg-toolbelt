@@ -8,7 +8,7 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
 import type { Change } from "../../src/change.types.ts";
 import type { PgDepend } from "../../src/depend.ts";
-import { sortChangesByPhasedGraph } from "../../src/sort/phased-graph-sort.ts";
+import { sortChanges } from "../../src/sort/phased-graph-sort.ts";
 import { DEBUG } from "../constants.ts";
 
 interface RoundtripTestOptions {
@@ -22,6 +22,7 @@ interface RoundtripTestOptions {
   sortChangesCallback?: (a: Change, b: Change) => number;
   // List of terms that must appear in the generated SQL.
   // If not provided, we expect the generated SQL to match the testSql.
+  // When defined, random sorting of changes is skipped to ensure deterministic order.
   expectedSqlTerms?: string[] | "same-as-test-sql";
   // List of dependencies that must be present in main catalog.
   expectedMainDependencies?: PgDepend[];
@@ -122,8 +123,10 @@ export async function roundtripFidelityTest(
     console.log(branchCatalog.depends);
   }
 
-  // Randomize changes order
-  changes = changes.sort(() => Math.random() - 0.5);
+  // Randomize changes order (skip if expectedSqlTerms is defined for deterministic testing)
+  if (!expectedSqlTerms) {
+    changes = changes.sort(() => Math.random() - 0.5);
+  }
 
   // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
@@ -137,10 +140,7 @@ export async function roundtripFidelityTest(
     }
   }
 
-  const sortedChanges = sortChangesByPhasedGraph(
-    { mainCatalog, branchCatalog },
-    changes,
-  );
+  const sortedChanges = sortChanges({ mainCatalog, branchCatalog }, changes);
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);

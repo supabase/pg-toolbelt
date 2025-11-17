@@ -28,7 +28,23 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "subscriptions": {},
   "publications": {},
   "rlsPolicies": {},
-  "roles": {},
+  "roles": {
+    "role:postgres": {
+      "name": "postgres",
+      "is_superuser": true,
+      "can_inherit": true,
+      "can_create_roles": true,
+      "can_create_databases": true,
+      "can_login": true,
+      "can_replicate": true,
+      "connection_limit": -1,
+      "can_bypass_rls": true,
+      "config": null,
+      "comment": null,
+      "members": [],
+      "default_privileges": []
+    }
+  },
   "schemas": {
     "schema:public": {
       "name": "public",
@@ -186,7 +202,23 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "subscriptions": {},
   "publications": {},
   "rlsPolicies": {},
-  "roles": {},
+  "roles": {
+    "role:postgres": {
+      "name": "postgres",
+      "is_superuser": true,
+      "can_inherit": true,
+      "can_create_roles": true,
+      "can_create_databases": true,
+      "can_login": true,
+      "can_replicate": true,
+      "connection_limit": -1,
+      "can_bypass_rls": true,
+      "config": null,
+      "comment": null,
+      "members": [],
+      "default_privileges": []
+    }
+  },
   "schemas": {
     "schema:public": {
       "name": "public",

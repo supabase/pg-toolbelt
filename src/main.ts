@@ -3,7 +3,7 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import { sortChangesByPhasedGraph } from "./sort/phased-graph-sort.ts";
+import { sortChanges } from "./sort/phased-graph-sort.ts";
 
 // Custom type handler for specifics corner cases
 export const postgresConfig: postgres.Options<
@@ -92,7 +92,7 @@ export async function main(
     return null;
   }
 
-  const sortedChanges = sortChangesByPhasedGraph(
+  const sortedChanges = sortChanges(
     { mainCatalog, branchCatalog },
     filteredChanges,
   );

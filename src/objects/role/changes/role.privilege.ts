@@ -260,6 +260,7 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
       `defacl:${this.role.name}:${this.objtype}:${scope}:grantee:${this.grantee}`,
       this.role.stableId,
       stableId.role(this.grantee),
+      ...(this.inSchema ? [stableId.schema(this.inSchema)] : []),
     ];
   }
 
