@@ -15,7 +15,10 @@ import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
-import { filterEdgesForCycleBreaking } from "./dependency-filter.ts";
+import {
+  filterEdgesForCycleBreaking,
+  getEdgesInCycle,
+} from "./dependency-filter.ts";
 import {
   buildGraphData,
   convertCatalogDependenciesToConstraints,
@@ -241,7 +244,11 @@ function sortPhaseChanges(
     const cycleSignature = normalizeCycle(cycleNodeIndexes);
     if (seenCycles.has(cycleSignature)) {
       // We've seen this cycle before - filtering didn't break it
-      throw new Error(formatCycleError(cycleNodeIndexes, phaseChanges));
+      // Get edges involved in the cycle for detailed error message
+      const cycleEdges = getEdgesInCycle(cycleNodeIndexes, uniqueEdges);
+      throw new Error(
+        formatCycleError(cycleNodeIndexes, phaseChanges, cycleEdges),
+      );
     }
 
     // Track this cycle

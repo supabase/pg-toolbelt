@@ -118,7 +118,10 @@ export function shouldFilterStableIdDependencyForCycleBreaking(
  * Given cycle node indices, returns edges where both source and target are in the cycle
  * and form consecutive nodes in the cycle path.
  */
-function getEdgesInCycle(cycleNodeIndexes: number[], edges: Edge[]): Edge[] {
+export function getEdgesInCycle(
+  cycleNodeIndexes: number[],
+  edges: Edge[],
+): Edge[] {
   const cycleEdges: Edge[] = [];
 
   // Create a map of edges for quick lookup

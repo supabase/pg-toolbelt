@@ -1,4 +1,5 @@
 import type { Change } from "../change.types.ts";
+import type { Constraint } from "./types.ts";
 
 /**
  * Stable topological sort. If multiple zero-indegree nodes exist, picks the
@@ -127,11 +128,12 @@ export function dedupeEdges(
 }
 
 /**
- * Format a cycle error message with details about the changes involved.
+ * Format a cycle error message with details about the changes involved and the edges forming the cycle.
  */
 export function formatCycleError(
   cycleNodeIndexes: number[],
   phaseChanges: Change[],
+  cycleEdges?: Array<{ sourceIndex: number; targetIndex: number; constraint: Constraint }>,
 ): string {
   const cycleChanges = cycleNodeIndexes.map((idx) => phaseChanges[idx]);
   const changeDescriptions = cycleChanges.map((change, i) => {
@@ -140,5 +142,50 @@ export function formatCycleError(
     return `  ${i + 1}. [${cycleNodeIndexes[i]}] ${className}${creates ? ` (creates: ${creates}${change.creates.length > 2 ? "..." : ""})` : ""}`;
   });
 
-  return `CycleError: dependency graph contains a cycle involving ${cycleNodeIndexes.length} changes:\n${changeDescriptions.join("\n")}\n\nThis usually indicates a circular dependency in the schema changes that cannot be resolved.`;
+  let message = `CycleError: dependency graph contains a cycle involving ${cycleNodeIndexes.length} changes:\n${changeDescriptions.join("\n")}`;
+
+  // Add cycle path information if edges are provided
+  if (cycleEdges && cycleEdges.length > 0) {
+    message += `\n\nCycle path (edges forming the cycle):`;
+    for (let i = 0; i < cycleNodeIndexes.length; i++) {
+      const sourceIndex = cycleNodeIndexes[i];
+      const targetIndex = cycleNodeIndexes[(i + 1) % cycleNodeIndexes.length];
+      const edge = cycleEdges.find(
+        (e) => e.sourceIndex === sourceIndex && e.targetIndex === targetIndex,
+      );
+      
+      if (edge) {
+        const constraint = edge.constraint;
+        let edgeInfo = `\n  [${sourceIndex}] → [${targetIndex}] (source: ${constraint.source})`;
+        
+        if (constraint.reason) {
+          if (constraint.reason.dependentStableId) {
+            edgeInfo += `\n    Dependency: ${constraint.reason.dependentStableId} → ${constraint.reason.referencedStableId}`;
+          } else {
+            edgeInfo += `\n    Requires: ${constraint.reason.referencedStableId}`;
+          }
+        }
+        
+        // Add why it wasn't filtered
+        if (constraint.source === "custom") {
+          edgeInfo += `\n    Reason: Custom constraint (never filtered)`;
+        } else if (!constraint.reason?.dependentStableId) {
+          edgeInfo += `\n    Reason: Explicit requirement without created IDs (not filtered)`;
+        } else {
+          edgeInfo += `\n    Reason: Cycle-breaking filter did not match (edge preserved)`;
+        }
+        
+        message += edgeInfo;
+      } else {
+        message += `\n  [${sourceIndex}] → [${targetIndex}] (edge not found)`;
+      }
+    }
+  }
+
+  message += `\n\nThis usually indicates a circular dependency in the schema changes that cannot be resolved.`;
+  if (cycleEdges && cycleEdges.length > 0) {
+    message += `\nThe cycle-breaking filters were unable to break this cycle.`;
+  }
+
+  return message;
 }
