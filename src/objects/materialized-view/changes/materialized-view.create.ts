@@ -46,6 +46,21 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     ];
   }
 
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Schema dependency
+    dependencies.add(stableId.schema(this.materializedView.schema));
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.materializedView.owner));
+
+    // Note: Materialized view definition dependencies are handled via pg_depend
+    // for existing objects. For new objects, parsing the SQL definition would be complex.
+
+    return Array.from(dependencies);
+  }
+
   serialize(): string {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 

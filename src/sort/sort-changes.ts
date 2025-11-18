@@ -30,9 +30,10 @@ import {
 import { generateConstraintEdges } from "./constraint-specs.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
 import {
-  buildEdgesFromCatalogDependencies,
-  buildEdgesFromExplicitRequirements,
+  buildEdgesFromDependencies,
   buildGraphData,
+  convertCatalogDependencies,
+  convertExplicitRequirements,
 } from "./graph-builder.ts";
 import {
   dedupeEdges,
@@ -247,17 +248,19 @@ function sortPhaseChanges(
     );
   };
 
-  // Add edges from pg_depend catalog rows
-  buildEdgesFromCatalogDependencies(
-    dependencyRows,
+  // Convert and merge all dependencies (catalog + explicit) into a single format
+  const catalogDeps = convertCatalogDependencies(dependencyRows);
+  const explicitDeps = convertExplicitRequirements(phaseChanges, graphData);
+  const allDependencies = [...catalogDeps, ...explicitDeps];
+
+  // Build edges from dependencies
+  // This processes both catalog and explicit dependencies uniformly
+  buildEdgesFromDependencies(
+    allDependencies,
     phaseChanges,
     graphData,
     registerEdge,
   );
-
-  // Add edges from explicit creates/requires relationships
-  // This handles cases where dependencies aren't in pg_depend
-  buildEdgesFromExplicitRequirements(phaseChanges, graphData, registerEdge);
 
   // Add edges from constraint specs
   if (constraintSpecs.length > 0) {

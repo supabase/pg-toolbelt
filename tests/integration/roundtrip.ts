@@ -142,6 +142,19 @@ export async function roundtripFidelityTest(
 
   const sortedChanges = sortChanges({ mainCatalog, branchCatalog }, changes);
 
+  if (process.env.DEPENDENCIES_DEBUG) {
+    console.log("\n==== Sorted Changes ====");
+    for (let i = 0; i < sortedChanges.length; i++) {
+      const change = sortedChanges[i];
+      console.log(
+        `[${i}] ${change.constructor.name}`,
+        `creates: ${JSON.stringify(change.creates)}`,
+        `requires: ${JSON.stringify(change.requires ?? [])}`,
+      );
+    }
+    console.log("==== End Sorted Changes ====\n");
+  }
+
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
   }

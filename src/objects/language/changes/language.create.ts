@@ -1,3 +1,7 @@
+import {
+  parseProcedureReference,
+  stableId,
+} from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange } from "./language.base.ts";
 
@@ -25,6 +29,51 @@ export class CreateLanguage extends CreateLanguageChange {
 
   get creates() {
     return [this.language.stableId];
+  }
+
+  get requires() {
+    const dependencies = new Set<string>();
+
+    // Owner dependency
+    dependencies.add(stableId.role(this.language.owner));
+
+    // Call handler function dependency
+    if (this.language.call_handler) {
+      const callHandlerProc = parseProcedureReference(
+        this.language.call_handler,
+      );
+      if (callHandlerProc) {
+        dependencies.add(
+          `procedure:${callHandlerProc.schema}.${callHandlerProc.name}()` as string,
+        );
+      }
+    }
+
+    // Inline handler function dependency
+    if (this.language.inline_handler) {
+      const inlineHandlerProc = parseProcedureReference(
+        this.language.inline_handler,
+      );
+      if (inlineHandlerProc) {
+        dependencies.add(
+          `procedure:${inlineHandlerProc.schema}.${inlineHandlerProc.name}()` as string,
+        );
+      }
+    }
+
+    // Validator function dependency
+    if (this.language.validator) {
+      const validatorProc = parseProcedureReference(
+        this.language.validator,
+      );
+      if (validatorProc) {
+        dependencies.add(
+          `procedure:${validatorProc.schema}.${validatorProc.name}()` as string,
+        );
+      }
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {

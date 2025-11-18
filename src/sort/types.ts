@@ -22,6 +22,24 @@ export type PgDependRow = {
 };
 
 /**
+ * Dependency representation that combines catalog dependencies and explicit requirements.
+ *
+ * This allows us to process both types of dependencies uniformly.
+ */
+export type Dependency = {
+  /** Object that depends on `referenced_stable_id`. */
+  dependent_stable_id: string;
+  /** Object being depended upon. */
+  referenced_stable_id: string;
+  /**
+   * Source of the dependency.
+   * - "catalog": From pg_depend (PostgreSQL catalog)
+   * - "explicit": From explicit requires declarations in Change objects
+   */
+  source: "catalog" | "explicit";
+};
+
+/**
  * Pairwise decision for additional constraint edges.
  */
 type PairwiseOrder = "a_before_b" | "b_before_a";
