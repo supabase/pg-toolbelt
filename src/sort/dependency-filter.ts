@@ -92,7 +92,7 @@ function shouldFilterSequenceOwnershipDependency(
  * Prevents cycles that would occur due to special PostgreSQL behaviors.
  * Delegates to specific filter functions for each type of cycle.
  */
-export function shouldFilterStableIdDependencyForCycleBreaking(
+function shouldFilterStableIdDependencyForCycleBreaking(
   dependentStableId: string,
   referencedStableId: string,
   phaseChanges: Change[],

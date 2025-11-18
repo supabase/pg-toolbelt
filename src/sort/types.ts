@@ -48,7 +48,7 @@ interface BaseConstraint {
  * Constraint from catalog dependencies (pg_depend).
  * Always has both dependent and referenced stable IDs.
  */
-export interface CatalogConstraint extends BaseConstraint {
+interface CatalogConstraint extends BaseConstraint {
   source: "catalog";
   /** The stable ID dependency that led to this constraint */
   reason: {
@@ -64,7 +64,7 @@ export interface CatalogConstraint extends BaseConstraint {
  * Always has referencedStableId, but dependentStableId is optional
  * if the change doesn't create anything.
  */
-export interface ExplicitConstraint extends BaseConstraint {
+interface ExplicitConstraint extends BaseConstraint {
   source: "explicit";
   /** The stable ID dependency that led to this constraint */
   reason: {
@@ -79,7 +79,7 @@ export interface ExplicitConstraint extends BaseConstraint {
  * Constraint from custom constraint functions.
  * No reason field since these are direct change-to-change ordering rules.
  */
-export interface CustomConstraint extends BaseConstraint {
+interface CustomConstraint extends BaseConstraint {
   source: "custom";
   /** Optional description for debugging */
   description?: string;
@@ -88,7 +88,7 @@ export interface CustomConstraint extends BaseConstraint {
 /**
  * Pairwise ordering decision for two changes.
  */
-export type PairwiseOrder = "a_before_b" | "b_before_a";
+type PairwiseOrder = "a_before_b" | "b_before_a";
 
 /**
  * Custom constraint function that decides ordering between two changes.

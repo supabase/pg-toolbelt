@@ -36,7 +36,7 @@ function defaultPrivilegesBeforeCreate(
  *
  * Add new constraints here to extend the sorting behavior.
  */
-export const customConstraints: CustomConstraintFunction[] = [
+const customConstraints: CustomConstraintFunction[] = [
   defaultPrivilegesBeforeCreate,
 ];
 

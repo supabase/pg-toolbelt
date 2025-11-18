@@ -111,29 +111,16 @@ export function findCycle(
 }
 
 /**
- * Deduplicate edges represented as index pairs.
- */
-export function dedupeEdges(
-  edges: Array<[number, number]>,
-): Array<[number, number]> {
-  const seenEdges = new Set<string>();
-  const uniqueEdges: Array<[number, number]> = [];
-  for (const [sourceIndex, targetIndex] of edges) {
-    const edgeKey = `${sourceIndex}->${targetIndex}`;
-    if (seenEdges.has(edgeKey)) continue;
-    seenEdges.add(edgeKey);
-    uniqueEdges.push([sourceIndex, targetIndex]);
-  }
-  return uniqueEdges;
-}
-
-/**
  * Format a cycle error message with details about the changes involved and the edges forming the cycle.
  */
 export function formatCycleError(
   cycleNodeIndexes: number[],
   phaseChanges: Change[],
-  cycleEdges?: Array<{ sourceIndex: number; targetIndex: number; constraint: Constraint }>,
+  cycleEdges?: Array<{
+    sourceIndex: number;
+    targetIndex: number;
+    constraint: Constraint;
+  }>,
 ): string {
   const cycleChanges = cycleNodeIndexes.map((idx) => phaseChanges[idx]);
   const changeDescriptions = cycleChanges.map((change, i) => {
@@ -153,28 +140,34 @@ export function formatCycleError(
       const edge = cycleEdges.find(
         (e) => e.sourceIndex === sourceIndex && e.targetIndex === targetIndex,
       );
-      
+
       if (edge) {
         const constraint = edge.constraint;
         let edgeInfo = `\n  [${sourceIndex}] → [${targetIndex}] (source: ${constraint.source})`;
-        
-        if (constraint.source === "catalog" || constraint.source === "explicit") {
+
+        if (
+          constraint.source === "catalog" ||
+          constraint.source === "explicit"
+        ) {
           if (constraint.reason.dependentStableId) {
             edgeInfo += `\n    Dependency: ${constraint.reason.dependentStableId} → ${constraint.reason.referencedStableId}`;
           } else {
             edgeInfo += `\n    Requires: ${constraint.reason.referencedStableId}`;
           }
         }
-        
+
         // Add why it wasn't filtered
         if (constraint.source === "custom") {
           edgeInfo += `\n    Reason: Custom constraint (never filtered)`;
-        } else if (constraint.source === "explicit" && !constraint.reason.dependentStableId) {
+        } else if (
+          constraint.source === "explicit" &&
+          !constraint.reason.dependentStableId
+        ) {
           edgeInfo += `\n    Reason: Explicit requirement without created IDs (not filtered)`;
         } else {
           edgeInfo += `\n    Reason: Cycle-breaking filter did not match (edge preserved)`;
         }
-        
+
         message += edgeInfo;
       } else {
         message += `\n  [${sourceIndex}] → [${targetIndex}] (edge not found)`;
