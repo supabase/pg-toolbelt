@@ -37,7 +37,19 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
         change instanceof AlterRoleSetOptions &&
         change.role.name === "postgres" &&
         change.options.includes("NOSUPERUSER");
-      return !isAlterRolePostgresWithNosuperuser;
+      // Extensions that are not built-in are not supported
+      const isExtension =
+        change.objectType === "extension" &&
+        change.extension.name !== "uuid-ossp";
+      const isPgSodiumTrigger =
+        change.objectType === "trigger" &&
+        change.trigger.name === "key_encrypt_secret_trigger_raw_key";
+
+      return (
+        !isAlterRolePostgresWithNosuperuser &&
+        !isExtension &&
+        !isPgSodiumTrigger
+      );
     },
   };
 
