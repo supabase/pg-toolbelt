@@ -56,19 +56,9 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     return null;
   }
 
-  // force messages_inserted_at_topic_index index to be first in the list of changes before sorting
-  filteredChanges = filteredChanges.sort((a, b) => {
-    const priority = (change: Change) => {
-      if (
-        change.objectType === "index" &&
-        change.index.name === "messages_inserted_at_topic_index"
-      ) {
-        return 0;
-      }
-      return 1;
-    };
-
-    return priority(a) - priority(b);
+  // randomly sort the changes to test the logical sorting
+  filteredChanges = filteredChanges.sort(() => {
+    return Math.random() - 0.5;
   });
 
   const sortedChanges = sortChanges(
