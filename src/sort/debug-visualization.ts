@@ -91,7 +91,7 @@ function generateMermaidDiagram(
  *
  * This reconstructs what requirements were inferred from constraints by looking at
  * the constraints that were processed. Only processes catalog/explicit constraints,
- * as constraint specs don't affect requirement sets.
+ * as custom constraints don't affect requirement sets.
  */
 function buildRequirementSets(
   explicitRequirementSets: Array<Set<string>>,
@@ -108,7 +108,7 @@ function buildRequirementSets(
   // For each constraint with a reason, if the referenced ID is created by some change,
   // then the target change requires the referenced ID
   for (const constraint of constraints) {
-    // Only process catalog/explicit constraints (constraint specs don't affect requirements)
+    // Only process catalog/explicit constraints (custom constraints don't affect requirements)
     if (constraint.source === "custom" || !constraint.reason) continue;
 
     const referencedProducers = changeIndexesByCreatedId.get(

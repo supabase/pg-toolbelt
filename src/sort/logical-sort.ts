@@ -71,12 +71,6 @@ const SCOPE_ORDER_DROP: Record<string, number> = {
 const SUB_ENTITY_TYPES = new Set(["index", "trigger", "rls_policy", "rule"]);
 
 /**
- * Extract the main stable ID that a change is touching.
- *
- * For sub-entities (indexes, triggers, constraints, etc.), returns the parent's stable ID.
- * For other changes, returns the primary stable ID being created/dropped/modified.
- */
-/**
  * Check if a stable ID is a metadata stable ID (comment, privilege, etc.)
  */
 function isMetadataStableId(stableId: string): boolean {
@@ -102,6 +96,12 @@ function findObjectStableId(stableIds: string[]): string | null {
   return stableIds.length > 0 ? stableIds[0] : null;
 }
 
+/**
+ * Extract the main stable ID that a change is touching.
+ *
+ * For sub-entities (indexes, triggers, constraints, etc.), returns the parent's stable ID.
+ * For other changes, returns the primary stable ID being created/dropped/modified.
+ */
 function getMainStableId(change: Change): string | null {
   // For sub-entities, extract parent stable ID from requires
   if (SUB_ENTITY_TYPES.has(change.objectType)) {

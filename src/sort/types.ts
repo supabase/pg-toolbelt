@@ -27,7 +27,7 @@ export type PgDependRow = {
  * Unified abstraction for all ordering requirements:
  * - Catalog dependencies (from pg_depend) → Constraints
  * - Explicit requirements (from Change.requires) → Constraints
- * - Constraint specs (change-to-change rules) → Constraints
+ * - Custom constraints (change-to-change rules) → Constraints
  */
 export type Constraint =
   | CatalogConstraint

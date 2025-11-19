@@ -8,7 +8,7 @@
  * Within each phase, changes are sorted using Constraints derived from:
  * - Catalog dependencies (from pg_depend)
  * - Explicit requirements (from Change.requires)
- * - Constraint specs (custom change-to-change ordering rules)
+ * - Custom constraints (change-to-change ordering rules)
  */
 
 import type { Catalog } from "../catalog.model.ts";
@@ -105,7 +105,7 @@ function getExecutionPhase(change: Change): Phase {
 }
 
 /**
- * Sort changes using dependency information from catalogs and custom constraint specs.
+ * Sort changes using dependency information from catalogs and custom constraints.
  *
  * First applies logical pre-sorting to group related changes together,
  * then applies dependency-based topological sorting to ensure correct execution order.
@@ -178,9 +178,10 @@ function sortChangesByPhasedGraph(
  *
  * Algorithm:
  * 1. Build graph data (change sets and reverse indexes)
- * 2. Convert all sources to Constraints (catalog, explicit, constraint specs)
+ * 2. Convert all sources to Constraints (catalog, explicit, custom constraints)
  * 3. Convert Constraints to edges
- * 4. Topologically sort the graph
+ * 4. Iteratively detect and break cycles (deduplicate edges, detect cycles, filter problematic edges)
+ * 5. Perform stable topological sort on the acyclic graph
  *
  * In DROP phase, edges are inverted so drops run in reverse dependency order.
  */
