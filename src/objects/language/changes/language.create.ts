@@ -40,7 +40,9 @@ export class CreateLanguage extends CreateLanguageChange {
         this.language.call_handler,
       );
       if (callHandlerProc) {
-        dependencies.add(stableId.procedure(callHandlerProc.schema, callHandlerProc.name));
+        dependencies.add(
+          stableId.procedure(callHandlerProc.schema, callHandlerProc.name),
+        );
       }
     }
 
@@ -50,7 +52,9 @@ export class CreateLanguage extends CreateLanguageChange {
         this.language.inline_handler,
       );
       if (inlineHandlerProc) {
-        dependencies.add(stableId.procedure(inlineHandlerProc.schema, inlineHandlerProc.name));
+        dependencies.add(
+          stableId.procedure(inlineHandlerProc.schema, inlineHandlerProc.name),
+        );
       }
     }
 
@@ -58,7 +62,9 @@ export class CreateLanguage extends CreateLanguageChange {
     if (this.language.validator) {
       const validatorProc = parseProcedureReference(this.language.validator);
       if (validatorProc) {
-        dependencies.add(stableId.procedure(validatorProc.schema, validatorProc.name));
+        dependencies.add(
+          stableId.procedure(validatorProc.schema, validatorProc.name),
+        );
       }
     }
 
