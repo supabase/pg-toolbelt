@@ -27,6 +27,7 @@ import {
   edgesToPairs,
 } from "./graph-builder.ts";
 import { dedupeEdges } from "./graph-utils.ts";
+import { logicalSort } from "./logical-sort.ts";
 import {
   findCycle,
   formatCycleError,
@@ -106,6 +107,9 @@ function getExecutionPhase(change: Change): Phase {
 /**
  * Sort changes using dependency information from catalogs and custom constraint specs.
  *
+ * First applies logical pre-sorting to group related changes together,
+ * then applies dependency-based topological sorting to ensure correct execution order.
+ *
  * @param catalogs - Main and branch catalogs containing dependency information
  * @param changes - List of Change objects to order
  * @returns Ordered list of Change objects
@@ -114,12 +118,16 @@ export function sortChanges(
   catalogs: { mainCatalog: Catalog; branchCatalog: Catalog },
   changes: Change[],
 ): Change[] {
+  // Step 1: Apply logical pre-sorting to group changes by object type, stable ID, and scope
+  const logicallySorted = logicalSort(changes);
+
+  // Step 2: Apply dependency-based topological sorting
   return sortChangesByPhasedGraph(
     {
       mainCatalog: { depends: catalogs.mainCatalog.depends },
       branchCatalog: { depends: catalogs.branchCatalog.depends },
     },
-    changes,
+    logicallySorted,
   );
 }
 

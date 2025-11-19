@@ -921,6 +921,289 @@ function sortPhaseChanges(changes, dependency_rows, invert=False):
     return [changes[i] for i in sorted_indices]
 ```
 
+## Logical Organization
+
+While dependency resolution ensures that changes execute in a valid order, **logical organization** makes migration scripts more readable and maintainable by grouping related operations together.
+
+### Two-Pass Sorting Strategy
+
+The sorting process operates in two passes:
+
+1. **First Pass: Logical Pre-Sorting** - Groups changes by object type and operation scope to create a logical structure
+2. **Second Pass: Dependency Resolution** - Applies the topological sort algorithm to ensure valid execution order
+
+This approach combines the benefits of:
+- **Human readability** - Related changes are grouped together
+- **Correctness** - Dependencies are still respected within and across groups
+
+### Object Type Ordering
+
+The logical order follows PostgreSQL's natural dependency hierarchy, from foundational objects to dependent ones. **Sub-entities are grouped immediately after their parent objects** to keep related changes together.
+
+#### Parent-Child Relationships
+
+Some object types are sub-entities that cannot exist without their parent objects:
+
+- **Indexes** (`index`) → belong to **Tables** or **Materialized Views**
+- **Triggers** (`trigger`) → belong to **Tables**
+- **RLS Policies** (`rls_policy`) → belong to **Tables**
+- **Rules** (`rule`) → belong to **Tables** or **Views**
+
+These sub-entities should be grouped immediately after their parent objects in the logical ordering, making it easier to see all changes related to a table or view together.
+
+#### DROP Phase Order (Reverse Dependency)
+
+When dropping objects, we must drop dependents before dependencies. Sub-entities are grouped with their parents:
+
+1. **Subscriptions** - Logical replication subscriptions (depend on publications)
+2. **Publications** - Logical replication publications (depend on tables/objects)
+3. **Event Triggers** - System-level event triggers
+4. **Materialized Views** - Materialized views (depend on tables/views)
+   - **Indexes** (on materialized views) - grouped with materialized views
+5. **Views** - Regular views (depend on tables/other views)
+   - **Rules** (on views) - grouped with views
+6. **Tables** - Core table objects (depend on types, sequences, etc.)
+   - **Rules** (on tables) - grouped with tables
+   - **RLS Policies** (on tables) - grouped with tables
+   - **Triggers** (on tables) - grouped with tables
+   - **Indexes** (on tables) - grouped with tables
+7. **Aggregates** - User-defined aggregates (depend on types/functions)
+8. **Procedures** - Functions/procedures (depend on types, languages)
+9. **Sequences** - Sequence objects (can be owned by tables)
+10. **Types** - Custom types (enum, composite, range) - used by tables/columns
+11. **Domains** - Domain types (used by tables/columns)
+12. **Collations** - Collation objects (used by types/columns)
+13. **Languages** - Procedural languages (used by functions)
+14. **Extensions** - PostgreSQL extensions (provide types/functions)
+15. **Roles** - Database roles/users (foundation for ownership)
+16. **Schemas** - Schema containers (foundation for all objects)
+
+#### CREATE/ALTER Phase Order (Forward Dependency)
+
+When creating objects, we must create dependencies before dependents. Sub-entities are grouped with their parents:
+
+1. **Schemas** - Schema containers (foundation for all objects)
+2. **Extensions** - PostgreSQL extensions (provide types/functions early)
+3. **Roles** - Database roles/users (needed for ownership and privileges)
+4. **Languages** - Procedural languages (needed for functions)
+5. **Collations** - Collation objects (used by types/columns)
+6. **Domains** - Domain types (used by tables/columns)
+7. **Types** - Custom types (enum, composite, range) - used by tables/columns
+8. **Sequences** - Sequence objects (often used by tables)
+9. **Procedures** - Functions/procedures (can be used by tables/triggers)
+10. **Aggregates** - User-defined aggregates (depend on types/functions)
+11. **Tables** - Core table objects (depend on types, sequences, etc.)
+    - **Indexes** (on tables) - grouped with tables
+    - **Triggers** (on tables) - grouped with tables
+    - **RLS Policies** (on tables) - grouped with tables
+    - **Rules** (on tables) - grouped with tables
+12. **Views** - Regular views (depend on tables/other views)
+    - **Rules** (on views) - grouped with views
+13. **Materialized Views** - Materialized views (depend on tables/views)
+    - **Indexes** (on materialized views) - grouped with materialized views
+14. **Event Triggers** - System-level event triggers
+15. **Publications** - Logical replication publications (depend on tables/objects)
+16. **Subscriptions** - Logical replication subscriptions (depend on publications)
+
+### Metadata Operation Ordering
+
+Within each object type, metadata operations follow a specific order:
+
+#### For CREATE/ALTER Phase:
+
+1. **Default Privileges** (`scope="default_privilege"`)
+   - `ALTER DEFAULT PRIVILEGES` statements
+   - Must come **before** all `CREATE` statements (enforced by custom constraint)
+   - Ensures newly created objects inherit the correct default privileges
+
+2. **Object Operations** (`scope="object"`)
+   - `CREATE`, `ALTER`, and `DROP` operations that modify object structure
+   - Grouped by object type according to the ordering above
+
+3. **Comments** (`scope="comment"`)
+   - `COMMENT ON` statements
+   - Applied after objects are created
+   - Grouped by object type
+
+4. **Privileges** (`scope="privilege"`)
+   - `GRANT` and `REVOKE` statements
+   - Applied after objects are created
+   - Grouped by object type
+
+5. **Role Membership** (`scope="membership"`)
+   - `GRANT ROLE` and `REVOKE ROLE` statements
+   - Applied after roles are created
+   - Grouped with role operations
+
+#### For DROP Phase:
+
+1. **Privileges** (`scope="privilege"`)
+   - `REVOKE` statements (if any)
+   - Applied before dropping objects
+
+2. **Comments** (`scope="comment"`)
+   - `COMMENT ON ... IS NULL` statements (if any)
+   - Applied before dropping objects
+
+3. **Object Operations** (`scope="object"`)
+   - `DROP` and destructive `ALTER` operations
+   - Grouped by object type according to reverse dependency order
+
+### Implementation Notes
+
+The logical pre-sorting function should:
+
+1. **Partition by phase** - Separate DROP and CREATE/ALTER phases first
+2. **Group by object type** - Within each phase, group by `objectType` property
+   - **Parent-child grouping**: Sub-entities (indexes, triggers, rls_policies, rules) should be grouped immediately after their parent objects (tables, views, materialized_views)
+   - For indexes: determine parent from the index's `table_name` property to group with either `table` or `materialized_view`
+   - For triggers, rls_policies, rules: determine parent from the object's table/view reference to group accordingly
+   - **Event triggers**: Group by their function's schema (event triggers don't have their own schema but always reference a function)
+3. **Group by schema** - Group objects by their schema first (ensures schemas are created before objects within them)
+   - For most objects: Use the object's schema property
+   - For event triggers: Use the function's schema (`change.eventTrigger.function_schema`)
+   - For default_privilege changes: Use the `inSchema` property
+   - For non-schema objects (roles, languages, etc.): These come first (sorted before schema objects)
+4. **Group by main stable ID** - Within each object type group, further group by the main stable ID being touched:
+   - **For CREATE operations**: Use the primary stable ID from `creates` (e.g., `table:public.users` for CreateTable)
+   - **For DROP operations**: Use the stable ID from `drops` (e.g., `table:public.users` for DropTable)
+   - **For ALTER operations**: Use the stable ID being altered (from `creates` if creating, or `requires` if modifying)
+   - **For metadata operations** (comment, privilege): Use the stable ID from `requires` (the object being commented/granted)
+   - **For sub-entities**: Group by their **parent's stable ID** instead of their own:
+     - Index on `table:public.users` → group by `table:public.users` (not `index:public.users.email_idx`)
+     - Trigger on `table:public.users` → group by `table:public.users` (not `trigger:public.users.updated`)
+     - RLS Policy on `table:public.users` → group by `table:public.users` (not `rlsPolicy:public.users.policy_name`)
+     - Rule on `table:public.users` → group by `table:public.users` (not `rule:public.users.rule_name`)
+5. **Order by scope** - Within each stable ID group, order by scope:
+   - CREATE/ALTER: `default_privilege` → `object` → `comment` → `privilege` → `membership`
+   - DROP: `privilege` → `comment` → `object`
+6. **Preserve relative order** - Within each scope group, preserve the original order (stability)
+7. **Pass to dependency resolver** - After logical pre-sorting, pass the array to `sortChanges()` for dependency resolution
+
+**Schema Extraction Details:**
+
+- **Extracting schema for grouping**:
+  - For most objects: Use `getSchema(change)` which accesses the object's schema property
+  - For event triggers: Use `change.eventTrigger.function_schema` (event triggers are grouped by their function's schema to ensure they appear after the functions they reference)
+  - For default_privilege changes: Use `change.inSchema` property
+  - For non-schema objects (roles, languages, publications, subscriptions): These are sorted first (before schema objects)
+
+**Stable ID Grouping Details:**
+
+- **Extracting the main stable ID**:
+  - For CREATE: Iterate through `change.creates` to find the first non-metadata stable ID (skips `comment:...`, `acl:...`, etc.)
+  - For DROP: Iterate through `change.drops` to find the first non-metadata stable ID
+  - For ALTER: Iterate through `change.creates` first (if creating), then `change.drops` (if dropping), then `change.requires` (the object being modified)
+  - For metadata (comments/privileges): For CREATE operations, iterate through `change.requires` to find the object stable ID (skips comment/privilege stable IDs). For DROP/ALTER operations, also iterate through `change.requires` to find the object stable ID. This ensures comments/privileges group with their target objects
+  
+- **Parent stable ID resolution** (for sub-entities):
+  - For indexes: Extract table stable ID from `change.requires` (look for `table:` or `materializedView:` prefix)
+  - For triggers: Extract table stable ID from `change.requires` (look for `table:` prefix)
+  - For RLS policies: Extract table stable ID from `change.requires` (look for `table:` prefix)
+  - For rules: Extract relation stable ID from `change.requires` (look for `table:`, `view:`, or `materializedView:` prefix)
+  - For event triggers: Group by their function's schema (ensures they appear after procedures in the same schema)
+
+- **Grouping hierarchy**:
+  ```
+  Phase (DROP vs CREATE/ALTER)
+    └─ Schema (public, auth, extensions, etc.)
+        └─ Object Type (table, index, trigger, etc.)
+            └─ Main Stable ID (table:public.users, table:public.posts, etc.)
+                └─ Scope (object, comment, privilege)
+                    └─ Original order (stability)
+  ```
+  
+  **Special cases:**
+  - Non-schema objects (roles, languages, publications, subscriptions) are sorted first (before schema objects)
+  - Event triggers are grouped by their function's schema (e.g., event triggers referencing `extensions.*` functions are grouped in the `extensions` schema)
+  - Default privileges are grouped by their `inSchema` property
+
+- The dependency resolver will still ensure correct execution order (e.g., tables must exist before their indexes), but the logical grouping keeps all changes for a specific object together, making migration scripts much more readable.
+
+### Example
+
+**Input (unsorted):**
+```typescript
+[
+  CreateTable(posts),                    // object
+  CreateIndex(posts_id_idx, posts),      // object (index on posts table)
+  AlterDefaultPrivileges(...),           // default_privilege
+  CreateRole(admin),                     // object
+  CreateTrigger(posts_updated, posts),   // object (trigger on posts table)
+  CommentOnTable(posts, "Posts table"),  // comment
+  GrantTablePrivileges(posts, admin),    // privilege
+  CreateSchema(public),                  // object
+  CreateTable(users),                    // object
+  CreateIndex(users_email_idx, users),  // object (index on users table)
+  CommentOnTable(users, "Users table"),  // comment
+  GrantTablePrivileges(users, admin),    // privilege
+]
+```
+
+**After Logical Pre-Sorting:**
+```typescript
+[
+  // Non-schema objects first (roles, languages, publications, subscriptions)
+  CreateRole(admin),                     // object (stableId: role:admin, schema: null)
+  
+  // Schema: public - all objects in this schema grouped together
+  CreateSchema(public),                  // object (stableId: schema:public)
+  
+  // Default privileges in schema:public (grouped by inSchema property)
+  AlterDefaultPrivileges(...),           // default_privilege (inSchema: public)
+  
+  // Tables in schema:public - grouped by stable ID
+  // All changes for table:public.users grouped together
+  CreateTable(users),                    // object (creates: table:public.users, schema: public)
+  CreateIndex(users_email_idx, users),    // object (parent: table:public.users, schema: public)
+  CommentOnTable(users, "Users table"),  // comment (requires: table:public.users, schema: public)
+  GrantTablePrivileges(users, admin),    // privilege (requires: table:public.users, schema: public)
+  
+  // All changes for table:public.posts grouped together
+  CreateTable(posts),                    // object (creates: table:public.posts, schema: public)
+  CreateIndex(posts_id_idx, posts),      // object (parent: table:public.posts, schema: public)
+  CreateTrigger(posts_updated, posts),   // object (parent: table:public.posts, schema: public)
+  CommentOnTable(posts, "Posts table"),  // comment (requires: table:public.posts, schema: public)
+  GrantTablePrivileges(posts, admin),    // privilege (requires: table:public.posts, schema: public)
+]
+```
+
+**After Dependency Resolution:**
+```typescript
+[
+  // Non-schema objects first
+  CreateRole(admin),                     // No dependencies (non-schema object)
+  
+  // Schema: public - all objects grouped together
+  CreateSchema(public),                  // No dependencies
+  AlterDefaultPrivileges(...),           // Custom constraint: before CREATE (grouped by schema:public)
+  
+  // Tables in schema:public - grouped by stable ID
+  // All changes for table:public.users grouped together
+  CreateTable(users),                    // Depends on schema, role (grouped by schema:public, stableId: table:public.users)
+  CreateIndex(users_email_idx, users),   // Depends on table (grouped by schema:public, stableId: table:public.users)
+  CommentOnTable(users, "Users table"),  // Depends on table (grouped by schema:public, stableId: table:public.users)
+  GrantTablePrivileges(users, admin),    // Depends on table, role (grouped by schema:public, stableId: table:public.users)
+  
+  // All changes for table:public.posts grouped together
+  CreateTable(posts),                    // Depends on schema, role, users (if FK) (grouped by schema:public, stableId: table:public.posts)
+  CreateIndex(posts_id_idx, posts),      // Depends on table (grouped by schema:public, stableId: table:public.posts)
+  CreateTrigger(posts_updated, posts),   // Depends on table, function (grouped by schema:public, stableId: table:public.posts)
+  CommentOnTable(posts, "Posts table"),  // Depends on table (grouped by schema:public, stableId: table:public.posts)
+  GrantTablePrivileges(posts, admin),    // Depends on table, role (grouped by schema:public, stableId: table:public.posts)
+]
+```
+
+**Key Benefits:**
+
+1. **All changes for `table:public.users` are grouped together**: CREATE TABLE, CREATE INDEX, COMMENT, and GRANT statements are all in one logical block
+2. **All changes for `table:public.posts` are grouped together**: Similarly, all related changes are co-located
+3. **Sub-entities grouped by parent**: Indexes and triggers are grouped with their parent table's stable ID, not their own
+4. **Scope ordering preserved**: Within each stable ID group, operations are ordered by scope (object → comment → privilege)
+5. **Dependency resolution maintained**: The dependency resolver ensures correct execution order (e.g., `users` table created before `posts` if there's a foreign key), but the logical grouping structure is preserved
+
+This makes migration scripts much more readable - developers can see all changes related to a specific database object in one place, making it easier to understand what's happening to each table, view, or other object.
+
 ## Summary
 
 The sorting algorithm:
