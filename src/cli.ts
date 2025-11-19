@@ -1,8 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import postgres from "postgres";
 import { type DbConnection, isPgliteConnection } from "./adapter.ts";
-import { diff, createMigrationFromDiff, postgresConfig } from "./main.ts";
-import { supabase } from "./integrations/supabase.ts";
+import { createMigrationFromDiff, diff, postgresConfig } from "./main.ts";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -40,7 +39,7 @@ async function main() {
   const branchConn = parseConnection(branchArg);
 
   // Run diff
-  const changes = await diff(mainConn, branchConn, supabase);
+  const changes = await diff(mainConn, branchConn);
 
   if (command === "diff") {
     if (outputSql) {
@@ -78,4 +77,10 @@ async function executeSql(conn: DbConnection, sql: string) {
   }
 }
 
-main().catch(console.error);
+await main()
+  .catch((e) => {
+    console.error(e);
+  })
+  .finally(() => {
+    process.exit(0);
+  });
