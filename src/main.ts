@@ -105,7 +105,7 @@ export async function main(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const migrationScript = [
+  const migrationScript = `${[
     ...sessionConfig,
     ...sortedChanges.map((change) => {
       return (
@@ -113,7 +113,7 @@ export async function main(
         change.serialize()
       );
     }),
-  ].join(";\n\n");
+  ].join(";\n\n")};`;
 
   console.log(migrationScript);
 
