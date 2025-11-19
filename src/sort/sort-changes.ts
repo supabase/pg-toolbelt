@@ -34,75 +34,7 @@ import {
   performStableTopologicalSort,
 } from "./topological-sort.ts";
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
-
-/**
- * Sorting phases aligning with execution semantics.
- *
- * - `drop`: Destructive operations that remove objects (executed first, in reverse dependency order)
- * - `create_alter_object`: All remaining changes including creates and alters (executed second, in forward dependency order)
- */
-type Phase = "drop" | "create_alter_object";
-
-/**
- * Check if a stable ID represents metadata (ACL, default privileges, etc.)
- * rather than an actual database object.
- */
-function isMetadataStableId(stableId: string): boolean {
-  return (
-    stableId.startsWith("acl:") ||
-    stableId.startsWith("defacl:") ||
-    stableId.startsWith("aclcol:") ||
-    stableId.startsWith("membership:")
-  );
-}
-
-/**
- * Determine the execution phase for a change based on its properties.
- *
- * This function inspects the change to determine which phase it belongs to,
- * keeping Change classes unaware of sorting implementation details.
- *
- * Rules:
- * - DROP operations → drop phase
- * - CREATE operations → create_alter_object phase
- * - ALTER operations with scope="privilege" → create_alter_object phase (metadata changes)
- * - ALTER operations that drop actual objects → drop phase (destructive ALTER)
- * - ALTER operations that don't drop objects → create_alter_object phase (non-destructive ALTER)
- */
-function getExecutionPhase(change: Change): Phase {
-  // DROP operations always go to drop phase
-  if (change.operation === "drop") {
-    return "drop";
-  }
-
-  // CREATE operations always go to create_alter phase
-  if (change.operation === "create") {
-    return "create_alter_object";
-  }
-
-  // For ALTER operations, determine based on what they do
-  if (change.operation === "alter") {
-    // Privilege changes (metadata) always go to create_alter phase
-    if (change.scope === "privilege") {
-      return "create_alter_object";
-    }
-
-    // Check if this ALTER drops actual objects (not metadata)
-    const droppedIds = change.drops ?? [];
-    const dropsObjects = droppedIds.some((id) => !isMetadataStableId(id));
-
-    if (dropsObjects) {
-      // Destructive ALTER (DROP COLUMN, DROP CONSTRAINT, etc.) → drop phase
-      return "drop";
-    }
-
-    // Non-destructive ALTER (ADD COLUMN, GRANT, etc.) → create_alter phase
-    return "create_alter_object";
-  }
-
-  // Safe default
-  return "create_alter_object";
-}
+import { type Phase, getExecutionPhase } from "./utils.ts";
 
 /**
  * Sort changes using dependency information from catalogs and custom constraints.
@@ -211,8 +143,8 @@ function sortPhaseChanges(
     ...customConstraintObjects,
   ];
 
-  // Step 3: Convert constraints to edges
-  let edges = convertConstraintsToEdges(allConstraints, options);
+  // Step 3: Convert constraints to edges and deduplicate immediately
+  let edges = dedupeEdges(convertConstraintsToEdges(allConstraints, options));
 
   // Step 4: Iteratively detect and break cycles
   // Track cycles we've seen to detect when filtering fails to break a cycle.
@@ -236,16 +168,14 @@ function sortPhaseChanges(
   }
 
   while (true) {
-    // Deduplicate edges (keep first occurrence)
-    const uniqueEdges = dedupeEdges(edges);
-    const edgePairs = edgesToPairs(uniqueEdges);
+    // Edge deduplication moved outside loop
+    const edgePairs = edgesToPairs(edges);
 
     // Detect cycles
     const cycleNodeIndexes = findCycle(phaseChanges.length, edgePairs);
 
     if (!cycleNodeIndexes) {
       // No cycles found, we're done
-      edges = uniqueEdges;
       break;
     }
 
@@ -254,7 +184,7 @@ function sortPhaseChanges(
     if (seenCycles.has(cycleSignature)) {
       // We've seen this cycle before - filtering didn't break it
       // Get edges involved in the cycle for detailed error message
-      const cycleEdges = getEdgesInCycle(cycleNodeIndexes, uniqueEdges);
+      const cycleEdges = getEdgesInCycle(cycleNodeIndexes, edges);
       throw new Error(
         formatCycleError(cycleNodeIndexes, phaseChanges, cycleEdges),
       );
@@ -265,7 +195,7 @@ function sortPhaseChanges(
 
     // Filter only edges involved in the cycle to break it
     edges = filterEdgesForCycleBreaking(
-      uniqueEdges,
+      edges,
       cycleNodeIndexes,
       phaseChanges,
       graphData,

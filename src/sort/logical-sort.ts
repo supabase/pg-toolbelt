@@ -11,11 +11,11 @@
 
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../filter/utils.ts";
-
-/**
- * Execution phases for changes.
- */
-type Phase = "drop" | "create_alter_object";
+import {
+  type Phase,
+  getExecutionPhase,
+  isMetadataStableId,
+} from "./utils.ts";
 
 /**
  * Object type ordering for logical grouping.
@@ -71,16 +71,10 @@ const SCOPE_ORDER_DROP: Record<string, number> = {
 const SUB_ENTITY_TYPES = new Set(["index", "trigger", "rls_policy", "rule"]);
 
 /**
- * Check if a stable ID is a metadata stable ID (comment, privilege, etc.)
+ * Regex for parsing stable IDs.
  */
-function isMetadataStableId(stableId: string): boolean {
-  return (
-    stableId.startsWith("comment:") ||
-    stableId.startsWith("acl:") ||
-    stableId.startsWith("defacl:") ||
-    stableId.startsWith("aclcol:")
-  );
-}
+const CONSTRAINT_REGEX = /^constraint:([^.]+)\.([^.]+)\./;
+const COLUMN_REGEX = /^column:([^.]+)\.([^.]+)\./;
 
 /**
  * Find the object stable ID from an array of stable IDs, skipping metadata stable IDs.
@@ -120,7 +114,7 @@ function getMainStableId(change: Change): string | null {
         if (objectId) {
           // Check if commenting on a constraint - extract table from it
           if (objectId.startsWith("constraint:")) {
-            const match = objectId.match(/^constraint:([^.]+)\.([^.]+)\./);
+            const match = objectId.match(CONSTRAINT_REGEX);
             if (match) {
               const [, schema, table] = match;
               return `table:${schema}.${table}`;
@@ -129,7 +123,7 @@ function getMainStableId(change: Change): string | null {
           // Check if commenting on a column - extract table from it
           // Format: column:schema.table.column
           if (objectId.startsWith("column:")) {
-            const match = objectId.match(/^column:([^.]+)\.([^.]+)\./);
+            const match = objectId.match(COLUMN_REGEX);
             if (match) {
               const [, schema, table] = match;
               return `table:${schema}.${table}`;
@@ -145,7 +139,7 @@ function getMainStableId(change: Change): string | null {
       if (objectId) {
         // Check if commenting on a constraint - extract table from it
         if (objectId.startsWith("constraint:")) {
-          const match = objectId.match(/^constraint:([^.]+)\.([^.]+)\./);
+          const match = objectId.match(CONSTRAINT_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -154,7 +148,7 @@ function getMainStableId(change: Change): string | null {
         // Check if commenting on a column - extract table from it
         // Format: column:schema.table.column
         if (objectId.startsWith("column:")) {
-          const match = objectId.match(/^column:([^.]+)\.([^.]+)\./);
+          const match = objectId.match(COLUMN_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -174,7 +168,7 @@ function getMainStableId(change: Change): string | null {
       if (createdId.startsWith("constraint:")) {
         // Extract table stable ID from constraint stable ID
         // Format: constraint:schema.table.constraint_name
-        const match = createdId.match(/^constraint:([^.]+)\.([^.]+)\./);
+        const match = createdId.match(CONSTRAINT_REGEX);
         if (match) {
           const [, schema, table] = match;
           return `table:${schema}.${table}`;
@@ -193,7 +187,7 @@ function getMainStableId(change: Change): string | null {
     if (droppedId) {
       if (droppedId.startsWith("constraint:")) {
         // Extract table stable ID from constraint stable ID
-        const match = droppedId.match(/^constraint:([^.]+)\.([^.]+)\./);
+        const match = droppedId.match(CONSTRAINT_REGEX);
         if (match) {
           const [, schema, table] = match;
           return `table:${schema}.${table}`;
@@ -238,7 +232,7 @@ function getMainStableId(change: Change): string | null {
       const createdId = findObjectStableId(change.creates);
       if (createdId) {
         if (createdId.startsWith("constraint:")) {
-          const match = createdId.match(/^constraint:([^.]+)\.([^.]+)\./);
+          const match = createdId.match(CONSTRAINT_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -247,7 +241,7 @@ function getMainStableId(change: Change): string | null {
         // Extract table stable ID from column stable IDs (for ALTER TABLE ADD COLUMN)
         // Format: column:schema.table.column
         if (createdId.startsWith("column:")) {
-          const match = createdId.match(/^column:([^.]+)\.([^.]+)\./);
+          const match = createdId.match(COLUMN_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -263,7 +257,7 @@ function getMainStableId(change: Change): string | null {
       const droppedId = findObjectStableId(change.drops);
       if (droppedId) {
         if (droppedId.startsWith("constraint:")) {
-          const match = droppedId.match(/^constraint:([^.]+)\.([^.]+)\./);
+          const match = droppedId.match(CONSTRAINT_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -280,7 +274,7 @@ function getMainStableId(change: Change): string | null {
       if (requiredId) {
         // Check if requiring a constraint - extract table from it
         if (requiredId.startsWith("constraint:")) {
-          const match = requiredId.match(/^constraint:([^.]+)\.([^.]+)\./);
+          const match = requiredId.match(CONSTRAINT_REGEX);
           if (match) {
             const [, schema, table] = match;
             return `table:${schema}.${table}`;
@@ -322,51 +316,6 @@ function getParentStableId(change: Change): string | null {
 
   // Fallback: return first requires if available
   return requires.length > 0 ? requires[0] : null;
-}
-
-/**
- * Determine the execution phase for a change.
- * This mirrors the logic in sort-changes.ts but is needed here for partitioning.
- */
-function getExecutionPhase(change: Change): Phase {
-  // DROP operations always go to drop phase
-  if (change.operation === "drop") {
-    return "drop";
-  }
-
-  // CREATE operations always go to create_alter phase
-  if (change.operation === "create") {
-    return "create_alter_object";
-  }
-
-  // For ALTER operations, determine based on what they do
-  if (change.operation === "alter") {
-    // Privilege changes (metadata) always go to create_alter phase
-    if (change.scope === "privilege") {
-      return "create_alter_object";
-    }
-
-    // Check if this ALTER drops actual objects (not metadata)
-    const droppedIds = change.drops ?? [];
-    const dropsObjects = droppedIds.some(
-      (id) =>
-        !id.startsWith("acl:") &&
-        !id.startsWith("defacl:") &&
-        !id.startsWith("aclcol:") &&
-        !id.startsWith("membership:"),
-    );
-
-    if (dropsObjects) {
-      // Destructive ALTER (DROP COLUMN, DROP CONSTRAINT, etc.) → drop phase
-      return "drop";
-    }
-
-    // Non-destructive ALTER (ADD COLUMN, GRANT, etc.) → create_alter phase
-    return "create_alter_object";
-  }
-
-  // Safe default
-  return "create_alter_object";
 }
 
 /**
