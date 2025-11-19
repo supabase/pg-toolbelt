@@ -8,6 +8,9 @@ export default defineConfig({
       // Also report coverage if some tests fail
       reportOnFailure: true,
       reporter: ["text", "lcov", "html"],
+      // Vitest 4.0: coverage.all and coverage.extensions removed
+      // Only include files that are loaded during test run (or specify include pattern)
+      // For integration tests, you typically don't need coverage, so this is fine
     },
     projects: [
       {
@@ -23,7 +26,7 @@ export default defineConfig({
       {
         extends: true,
         test: {
-          // Integration tests - run with single fork to share containers
+          // Integration tests - run with forks to share containers via ContainerManager
           name: "integration",
           globalSetup: ["./tests/global-setup.ts"],
           include: [
@@ -32,13 +35,9 @@ export default defineConfig({
           ],
           retry: process.env.CI ? 1 : 0,
           pool: "forks",
-          poolOptions: {
-            forks: {
-              singleFork: true, // Share containers across integration tests
-            },
-          },
+          isolate: false, // Share ContainerManager singleton across workers
           sequence: {
-            concurrent: true,
+            concurrent: true, // Run tests concurrently within each worker
           },
         },
       },
