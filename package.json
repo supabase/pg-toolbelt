@@ -4,7 +4,8 @@
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./run": "./dist/src/main.js"
   },
   "imports": {
     "#test": "./test.ts"
@@ -48,6 +49,8 @@
     "vitest": "4.0.7"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.3.12",
+    "graph-data-structure": "^4.5.0",
     "zod": "^4.1.12"
   }
 }

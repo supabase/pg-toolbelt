@@ -6,14 +6,23 @@ import {
   type PostgresVersion,
 } from "./constants.ts";
 import { containerManager } from "./container-manager.js";
+import { getPgliteTest } from "./pglite-utils.ts";
 import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
 
 /**
- * Default test utility using Alpine PostgreSQL containers with single container per version.
- * Uses CREATE/DROP DATABASE for isolation instead of creating new containers.
- * Fast and suitable for most tests.
+ * Default test utility using PGlite (in-memory WASM Postgres).
+ * Super fast, no Docker needed! Uses in-memory databases for each test.
+ * Perfect for most tests and CI/CD.
+ *
+ * To use Docker containers instead, set USE_DOCKER=true environment variable.
  */
 export function getTest(postgresVersion: PostgresVersion) {
+  // Use PGlite by default for speed, unless USE_DOCKER is set
+  if (!process.env.USE_DOCKER) {
+    return getPgliteTest();
+  }
+
+  // Fall back to Docker containers if explicitly requested
   return baseTest.extend<{
     db: { main: postgres.Sql; branch: postgres.Sql };
   }>({
@@ -30,11 +39,17 @@ export function getTest(postgresVersion: PostgresVersion) {
 }
 
 /**
- * Isolated test utility using Alpine PostgreSQL containers.
- * Creates fresh containers for each test, then removes them.
- * Slower but provides complete isolation.
+ * Isolated test utility.
+ * By default uses PGlite (each test gets fresh in-memory instances).
+ * Set USE_DOCKER=true to use Docker containers instead.
  */
 export function getTestIsolated(postgresVersion: PostgresVersion) {
+  // PGlite is always isolated (fresh instances per test), so just use the regular test
+  if (!process.env.USE_DOCKER) {
+    return getPgliteTest();
+  }
+
+  // Docker version: creates fresh containers for each test
   return baseTest.extend<{
     db: { main: postgres.Sql; branch: postgres.Sql };
   }>({

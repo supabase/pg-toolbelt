@@ -1,4 +1,10 @@
+import { PGlite } from "@electric-sql/pglite";
 import postgres from "postgres";
+import {
+  createPgliteAdapter,
+  type DbConnection,
+  isPgliteConnection,
+} from "./adapter.ts";
 import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
@@ -56,7 +62,7 @@ export type ChangeFilter = (ctx: DiffContext, change: Change) => boolean;
 
 export type ChangeSerializer = (
   ctx: DiffContext,
-  change: Change,
+  change: Change
 ) => string | undefined;
 
 export interface MainOptions {
@@ -64,42 +70,70 @@ export interface MainOptions {
   serialize?: ChangeSerializer;
 }
 
-export async function main(
-  mainDatabaseUrl: string,
-  branchDatabaseUrl: string,
-  options: MainOptions = {},
+export async function diff(
+  mainDatabaseConnection: DbConnection,
+  branchDatabaseConnection: DbConnection,
+  options: MainOptions = {}
 ) {
-  const mainSql = postgres(mainDatabaseUrl, postgresConfig);
-  const branchSql = postgres(branchDatabaseUrl, postgresConfig);
+  // Create adapters based on connection type
+  let mainAdapter: postgres.Sql;
+  let branchAdapter: postgres.Sql;
+
+  if (isPgliteConnection(mainDatabaseConnection)) {
+    mainAdapter = createPgliteAdapter(mainDatabaseConnection);
+  } else {
+    mainAdapter = postgres(mainDatabaseConnection, postgresConfig);
+  }
+
+  if (isPgliteConnection(branchDatabaseConnection)) {
+    branchAdapter = createPgliteAdapter(branchDatabaseConnection);
+  } else {
+    branchAdapter = postgres(branchDatabaseConnection, postgresConfig);
+  }
 
   const [mainCatalog, branchCatalog] = await Promise.all([
-    extractCatalog(mainSql),
-    extractCatalog(branchSql),
+    extractCatalog(mainAdapter),
+    extractCatalog(branchAdapter),
   ]);
 
-  await Promise.all([mainSql.end(), branchSql.end()]);
+  // await Promise.all([mainAdapter.end(), branchAdapter.end()]);
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
   const filteredChanges = options.filter
     ? changes.filter((change) =>
         // biome-ignore lint/style/noNonNullAssertion: options.filter is guaranteed to be defined
-        options.filter!({ mainCatalog, branchCatalog }, change),
+        options.filter!({ mainCatalog, branchCatalog }, change)
       )
     : changes;
 
   if (filteredChanges.length === 0) {
-    return null;
+    return [];
   }
 
   const sortedChanges = sortChanges(
     { mainCatalog, branchCatalog },
-    filteredChanges,
+    filteredChanges
   );
-
-  const hasRoutineChanges = sortedChanges.some(
+  // return sortedChanges;
+  // Filter out dropping of roles and creation of extensions
+  return sortedChanges.filter(
     (change) =>
-      change.objectType === "procedure" || change.objectType === "aggregate",
+      !(
+        (change.objectType === "role" && change.operation === "drop") ||
+        (change.objectType === "extension" && change.operation === "create")
+      )
+  );
+}
+
+export function createMigrationFromDiff(
+  changes: Change[],
+  ctx: DiffContext,
+  options: MainOptions = {}
+): string {
+  const hasRoutineChanges = changes.some(
+    (change) =>
+      change.objectType === "procedure" || change.objectType === "aggregate"
   );
   const sessionConfig = hasRoutineChanges
     ? ["SET check_function_bodies = false"]
@@ -107,15 +141,10 @@ export async function main(
 
   const migrationScript = [
     ...sessionConfig,
-    ...sortedChanges.map((change) => {
-      return (
-        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
-        change.serialize()
-      );
+    ...changes.map((change) => {
+      return options.serialize?.(ctx, change) ?? change.serialize();
     }),
   ].join(";\n\n");
-
-  console.log(migrationScript);
 
   return migrationScript;
 }

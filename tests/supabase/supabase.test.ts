@@ -8,7 +8,7 @@ import dedent from "dedent";
 import postgres from "postgres";
 import { test as baseTest, describe } from "vitest";
 import { supabase } from "../../src/integrations/supabase.ts";
-import { main } from "../../src/main.ts";
+import { diff } from "../../src/main.ts";
 
 const exec = promisify(baseExec);
 
@@ -22,7 +22,7 @@ async function saveErrorReport(
   migrationScript: string,
   error: unknown,
   postgresVersion: number | null,
-  generationTimeMs: number,
+  generationTimeMs: number
 ): Promise<void> {
   const errorDir = join(__dirname, "diff-reports");
   await mkdir(errorDir, { recursive: true });
@@ -71,7 +71,7 @@ async function saveSuccessReport(
   projectId: string,
   migrationScript: string,
   postgresVersion: number | null,
-  generationTimeMs: number,
+  generationTimeMs: number
 ): Promise<void> {
   const successDir = join(__dirname, "diff-reports");
   await mkdir(successDir, { recursive: true });
@@ -126,8 +126,8 @@ function normalizeStoredTestResult(entry: unknown): StoredTestResult | null {
     typeof record.projectId === "string"
       ? record.projectId
       : typeof record.projectRef === "string"
-        ? record.projectRef
-        : undefined;
+      ? record.projectRef
+      : undefined;
 
   const status =
     record.status === "success" || record.status === "error"
@@ -189,10 +189,10 @@ async function loadStoredTestResults(): Promise<StoredTestResult[]> {
 }
 
 async function _recordStoredTestResult(
-  result: StoredTestResult,
+  result: StoredTestResult
 ): Promise<void> {
   const existingResults = new Map(
-    (await loadStoredTestResults()).map((entry) => [entry.projectId, entry]),
+    (await loadStoredTestResults()).map((entry) => [entry.projectId, entry])
   );
   existingResults.set(result.projectId, result);
 
@@ -242,14 +242,14 @@ function getTest(remoteProject: Project) {
           join(supabaseDirPath, "config.toml"),
           dedent`
           [db]
-          major_version = ${remoteProject.postgres_major_version}`,
+          major_version = ${remoteProject.postgres_major_version}`
         );
         await exec(`npx --yes supabase@latest start`, { cwd: supabaseDirPath });
         const { stdout } = await exec(
           `npx supabase@latest status --output json`,
           {
             cwd: supabaseDirPath,
-          },
+          }
         );
         const { DB_URL } = JSON.parse(stdout) as { DB_URL: string };
 
@@ -272,17 +272,17 @@ describe.sequential(
   async () => {
     const remoteProjectsFile = await readFile(
       join(__dirname, "database-extraction-results.json"),
-      "utf-8",
+      "utf-8"
     );
     const remoteProjects = JSON.parse(remoteProjectsFile) as Project[];
 
     const storedResults = await loadStoredTestResults();
     const testedProjectIds = new Set(
-      storedResults.map((result) => result.projectId),
+      storedResults.map((result) => result.projectId)
     );
 
     let failedProjects = remoteProjects.filter(
-      (project) => !testedProjectIds.has(project.ref),
+      (project) => !testedProjectIds.has(project.ref)
     );
 
     failedProjects = failedProjects
@@ -305,14 +305,14 @@ describe.sequential(
         let _storedResult: StoredTestResult | null = null;
 
         try {
-          migrationScript = await main(db.local, db.remote, supabase);
+          migrationScript = await diff(db.local, db.remote, supabase);
           generationTimeMs = Math.round(
-            performance.now() - generationStartTime,
+            performance.now() - generationStartTime
           );
 
           if (!migrationScript) {
             console.log(
-              `No migrations needed for project ${remoteProject.ref}`,
+              `No migrations needed for project ${remoteProject.ref}`
             );
             _storedResult = {
               projectId: remoteProject.ref,
@@ -331,7 +331,7 @@ describe.sequential(
             remoteProject.ref,
             migrationScript,
             remoteProject.postgres_major_version,
-            generationTimeMs,
+            generationTimeMs
           );
 
           _storedResult = {
@@ -343,7 +343,7 @@ describe.sequential(
         } catch (error) {
           if (generationTimeMs === 0) {
             generationTimeMs = Math.round(
-              performance.now() - generationStartTime,
+              performance.now() - generationStartTime
             );
           }
 
@@ -364,11 +364,11 @@ describe.sequential(
               migrationScript ?? "",
               error,
               remoteProject.postgres_major_version,
-              generationTimeMs,
+              generationTimeMs
             );
           } catch (reportError) {
             console.error(
-              `Failed to write error report for project ${remoteProject.ref}: ${reportError}`,
+              `Failed to write error report for project ${remoteProject.ref}: ${reportError}`
             );
           }
 
@@ -384,7 +384,7 @@ describe.sequential(
                 await sql.end();
               } catch (endError) {
                 console.error(
-                  `Failed to close local database connection for project ${remoteProject.ref}: ${endError}`,
+                  `Failed to close local database connection for project ${remoteProject.ref}: ${endError}`
                 );
               }
             }
@@ -393,5 +393,5 @@ describe.sequential(
       });
     }
   },
-  3 * 60_000,
+  3 * 60_000
 );
