@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import dedent from "dedent";
 import postgres from "postgres";
 import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { extractCatalog } from "../../src/catalog.model.ts";
@@ -40,16 +39,9 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
       // Extensions that are not built-in are not supported
       const isExtension =
         change.objectType === "extension" &&
-        change.extension.name !== "uuid-ossp";
-      const isPgSodiumTrigger =
-        change.objectType === "trigger" &&
-        change.trigger.name === "key_encrypt_secret_trigger_raw_key";
+        change.extension.name !== '"uuid-ossp"';
 
-      return (
-        !isAlterRolePostgresWithNosuperuser &&
-        !isExtension &&
-        !isPgSodiumTrigger
-      );
+      return !isAlterRolePostgresWithNosuperuser && !isExtension;
     },
   };
 
@@ -102,30 +94,44 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
     }),
   ].join(";\n\n")};`;
 
+  const reportDir = join(__dirname, "diff-reports");
+  await mkdir(reportDir, { recursive: true });
+
   try {
     await main.unsafe(migrationScript);
+    // Save success report
+    const successFilename = `success-dump-empty-remote-supabase-into-vanilla-postgres.md`;
+    const successFilepath = join(reportDir, successFilename);
+    const successContent = `
+# Migration Success Report
+
+## Migration Script
+
+\`\`\`sql
+${migrationScript}
+\`\`\`
+`;
+    await writeFile(successFilepath, successContent);
   } catch (error) {
-    // save migration script and error to a file in markdown
-    const errorDir = join(__dirname, "diff-reports");
-    await mkdir(errorDir, { recursive: true });
-    const filename = `dump-empty-remote-supabase-into-vanilla-postgres-error.md`;
-    const filepath = join(errorDir, filename);
-    const fileContent = dedent`
-      # Migration Error Report
+    // Save error report
+    const errorFilename = `error-dump-empty-remote-supabase-into-vanilla-postgres.md`;
+    const errorFilepath = join(reportDir, errorFilename);
+    const errorContent = `
+# Migration Error Report
 
-      ## Error
+## Error
 
-      \`\`\`
-      ${error instanceof Error ? error.message : String(error)}
-      \`\`\`
+\`\`\`
+${error instanceof Error ? error.message : String(error)}
+\`\`\`
 
-      ## Migration Script
+## Migration Script
 
-      \`\`\`sql
-      ${migrationScript}
-      \`\`\`
-    `;
-    await writeFile(filepath, fileContent);
+\`\`\`sql
+${migrationScript}
+\`\`\`
+`;
+    await writeFile(errorFilepath, errorContent);
     throw error;
   } finally {
     await remote.end();
