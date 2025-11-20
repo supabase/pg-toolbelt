@@ -5,6 +5,7 @@ import { diffCatalogs } from "../../src/catalog.diff.ts";
 import { extractCatalog } from "../../src/catalog.model.ts";
 import type { MainOptions } from "../../src/main.ts";
 import { postgresConfig } from "../../src/main.ts";
+import { RevokeProcedurePrivileges } from "../../src/objects/procedure/changes/procedure.privilege.ts";
 import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
 import {
   GrantRoleDefaultPrivileges,
@@ -207,6 +208,62 @@ test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
             ),
           );
           indexDiffLog.push("```\n");
+        }
+      }
+
+      // Debug specific function: storage.add_prefixes
+      const procedureRevokes = filteredChangesAfter.filter((change) => {
+        if (change.objectType !== "procedure") return false;
+        const proc = change.procedure;
+        return proc.name === "add_prefixes" && proc.schema === "storage";
+      });
+      if (procedureRevokes.length > 0) {
+        const procedureId = "procedure:storage.add_prefixes(text, text)";
+        const mainProc = mainCatalogAfter.procedures[procedureId];
+        const branchProc = branchCatalogAfter.procedures[procedureId];
+
+        indexDiffLog.push("## Procedure Debug: storage.add_prefixes\n");
+        indexDiffLog.push("### Main Catalog (after migration)\n");
+        indexDiffLog.push("```json");
+        indexDiffLog.push(
+          JSON.stringify(
+            {
+              owner: mainProc?.owner,
+              privileges: mainProc?.privileges,
+            },
+            null,
+            2,
+          ),
+        );
+        indexDiffLog.push("```\n");
+
+        indexDiffLog.push("### Branch Catalog (target)\n");
+        indexDiffLog.push("```json");
+        indexDiffLog.push(
+          JSON.stringify(
+            {
+              owner: branchProc?.owner,
+              privileges: branchProc?.privileges,
+            },
+            null,
+            2,
+          ),
+        );
+        indexDiffLog.push("```\n");
+
+        indexDiffLog.push("### Remaining Changes\n");
+        for (const change of procedureRevokes) {
+          if (change.objectType !== "procedure") continue;
+          const proc = change.procedure;
+          if (proc.name === "add_prefixes" && proc.schema === "storage") {
+            if (change instanceof RevokeProcedurePrivileges) {
+              indexDiffLog.push(
+                `- ${change.serialize()} (grantee: ${change.grantee}, privileges: ${JSON.stringify(change.privileges)})\n`,
+              );
+            } else {
+              indexDiffLog.push(`- ${change.serialize()}\n`);
+            }
+          }
         }
       }
 

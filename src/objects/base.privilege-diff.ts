@@ -224,14 +224,34 @@ export function filterPublicBuiltInDefaults<T extends PrivilegeProps>(
 }
 
 /**
+ * Filter out owner privileges from a privilege list.
+ * Owner privileges are implicit (owner always has ALL) and shouldn't be compared.
+ */
+export function filterOwnerPrivileges<T extends PrivilegeProps>(
+  privileges: T[],
+  owner: string,
+): T[] {
+  return privileges.filter((p) => p.grantee !== owner);
+}
+
+/**
  * Generic privilege diffing function that works for any object type
  */
 export function diffPrivileges<T extends PrivilegeProps>(
   mainPrivileges: T[],
   branchPrivileges: T[],
+  owner?: string,
 ): Map<string, PrivilegeDiffResult<T>> {
-  const mainByGrantee = groupPrivilegesByGrantee(mainPrivileges);
-  const branchByGrantee = groupPrivilegesByGrantee(branchPrivileges);
+  // Filter out owner privileges if owner is provided
+  const mainFiltered = owner
+    ? filterOwnerPrivileges(mainPrivileges, owner)
+    : mainPrivileges;
+  const branchFiltered = owner
+    ? filterOwnerPrivileges(branchPrivileges, owner)
+    : branchPrivileges;
+
+  const mainByGrantee = groupPrivilegesByGrantee(mainFiltered);
+  const branchByGrantee = groupPrivilegesByGrantee(branchFiltered);
 
   // Get all grantees
   const allGrantees = new Set([

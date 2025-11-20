@@ -86,9 +86,13 @@ export function diffProcedures(
       "procedure",
       proc.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Note: we use the final owner (proc.owner), not the
+    // current user, because ownership change happens before privilege diffing.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      proc.owner,
     );
 
     // Generate grant changes
@@ -325,9 +329,12 @@ export function diffProcedures(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
         mainProcedure.privileges,
         branchProcedure.privileges,
+        branchProcedure.owner,
       );
 
       for (const [grantee, result] of privilegeResults) {
