@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
@@ -226,6 +227,7 @@ export function diffTables(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Table>,
   branch: Record<string, Table>,
@@ -258,9 +260,7 @@ export function diffTables(
 
     // FORCE ROW LEVEL SECURITY: If force RLS should be enabled, emit ALTER TABLE ... FORCE ROW LEVEL SECURITY
     if (branchTable.force_row_security) {
-      changes.push(
-        new AlterTableForceRowLevelSecurity({ table: branchTable }),
-      );
+      changes.push(new AlterTableForceRowLevelSecurity({ table: branchTable }));
     }
 
     changes.push(
@@ -300,9 +300,13 @@ export function diffTables(
       branchTable.schema ?? "",
     );
     const desiredPrivileges = branchTable.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the table owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      branchTable.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -719,6 +723,7 @@ export function diffTables(
       mainTable.privileges,
       branchTable.privileges,
       branchTable.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

@@ -58,7 +58,6 @@ export class PostgresAlpineContainer extends GenericContainer {
 }
 
 export class StartedPostgresAlpineContainer extends AbstractStartedContainer {
-  private snapshotName: string = "migrated_template";
   private readonly database: string;
   private readonly username: string;
   private readonly password: string;

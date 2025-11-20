@@ -33,6 +33,7 @@ const testContext = {
   version: 170000,
   currentUser: "postgres",
   defaultPrivilegeState: new DefaultPrivilegeState({}),
+  mainRoles: {},
 };
 
 describe.concurrent("sequence.diff", () => {

@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
@@ -38,6 +39,7 @@ export function diffMaterializedViews(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, MaterializedView>,
   branch: Record<string, MaterializedView>,
@@ -100,9 +102,13 @@ export function diffMaterializedViews(
       mv.schema ?? "",
     );
     const desiredPrivileges = mv.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the materialized view owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      mv.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -345,6 +351,7 @@ export function diffMaterializedViews(
         mainMaterializedView.privileges,
         branchMaterializedView.privileges,
         branchMaterializedView.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

@@ -70,6 +70,7 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     version: main.version,
     currentUser: main.currentUser,
     defaultPrivilegeState,
+    mainRoles: main.roles,
   };
 
   // Step 4: Diff all other objects with default privileges context

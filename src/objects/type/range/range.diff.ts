@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
+import type { Role } from "../../role/role.model.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import {
@@ -34,6 +35,7 @@ export function diffRanges(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Range>,
   branch: Record<string, Range>,
@@ -78,9 +80,12 @@ export function diffRanges(
       "range",
       createdRange.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the range owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      createdRange.owner,
     );
 
     // Generate grant changes
@@ -181,25 +186,26 @@ export function diffRanges(
         }
       }
 
-    // PRIVILEGES
-    // Filter out PUBLIC's built-in default USAGE privilege from main catalog
-    // (PostgreSQL grants it automatically, so we shouldn't compare it)
-    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
-      "range",
-      mainRange.privileges,
-    );
-    // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
-    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
-      "range",
-      branchRange.privileges,
-    );
-    // Filter out owner privileges - owner always has ALL privileges implicitly
-    // and shouldn't be compared. Use branch owner as the reference.
-    const privilegeResults = diffPrivileges(
-      mainPrivilegesFiltered,
-      branchPrivilegesFiltered,
-      branchRange.owner,
-    );
+      // PRIVILEGES
+      // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+      // (PostgreSQL grants it automatically, so we shouldn't compare it)
+      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "range",
+        mainRange.privileges,
+      );
+      // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "range",
+        branchRange.privileges,
+      );
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
+      const privilegeResults = diffPrivileges(
+        mainPrivilegesFiltered,
+        branchPrivilegesFiltered,
+        branchRange.owner,
+        ctx.mainRoles,
+      );
 
       for (const [grantee, result] of privilegeResults) {
         // Generate grant changes

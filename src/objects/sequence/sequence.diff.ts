@@ -4,6 +4,7 @@ import {
   diffPrivileges,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -38,6 +39,7 @@ export function diffSequences(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
@@ -82,9 +84,14 @@ export function diffSequences(
       createdSeq.schema ?? "",
     );
     const desiredPrivileges = createdSeq.privileges;
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the sequence owner as the reference.
+    // Superuser privileges are filtered inside diffPrivileges.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      createdSeq.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -285,14 +292,16 @@ export function diffSequences(
         }
       }
 
-    // PRIVILEGES
-    // Filter out owner privileges - owner always has ALL privileges implicitly
-    // and shouldn't be compared. Use branch owner as the reference.
-    const privilegeResults = diffPrivileges(
-      mainSequence.privileges,
-      branchSequence.privileges,
-      branchSequence.owner,
-    );
+      // PRIVILEGES
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
+      // Superuser privileges are filtered inside diffPrivileges.
+      const privilegeResults = diffPrivileges(
+        mainSequence.privileges,
+        branchSequence.privileges,
+        branchSequence.owner,
+        ctx.mainRoles,
+      );
 
       for (const [grantee, result] of privilegeResults) {
         // Generate grant changes

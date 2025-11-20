@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -42,6 +43,7 @@ export function diffProcedures(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
@@ -93,6 +95,7 @@ export function diffProcedures(
       effectiveDefaults,
       desiredPrivileges,
       proc.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -346,6 +349,7 @@ export function diffProcedures(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchProcedure.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

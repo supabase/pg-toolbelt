@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
@@ -29,7 +30,7 @@ import type { Language } from "./language.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffLanguages(
-  ctx: { version: number },
+  ctx: { version: number; mainRoles?: Record<string, Role> },
   main: Record<string, Language>,
   branch: Record<string, Language>,
 ): Change[] {
@@ -120,6 +121,7 @@ export function diffLanguages(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchLanguage.owner,
+        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

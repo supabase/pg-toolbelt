@@ -9,9 +9,7 @@ import { RevokeProcedurePrivileges } from "../../src/objects/procedure/changes/p
 import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
 import {
   GrantRoleDefaultPrivileges,
-  GrantRoleMembership,
   RevokeRoleDefaultPrivileges,
-  RevokeRoleMembership,
 } from "../../src/objects/role/changes/role.privilege.ts";
 import { sortChanges } from "../../src/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
@@ -263,6 +261,205 @@ test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
             } else {
               indexDiffLog.push(`- ${change.serialize()}\n`);
             }
+          }
+        }
+      }
+
+      // Debug specific sequence: auth.refresh_tokens_id_seq
+      const sequenceGrants = filteredChangesAfter.filter((change) => {
+        if (change.objectType !== "sequence") return false;
+        const seq = change.sequence;
+        return seq.name === "refresh_tokens_id_seq" && seq.schema === "auth";
+      });
+      if (sequenceGrants.length > 0) {
+        const sequenceId = "sequence:auth.refresh_tokens_id_seq";
+        const mainSeq = mainCatalogAfter.sequences[sequenceId];
+        const branchSeq = branchCatalogAfter.sequences[sequenceId];
+
+        indexDiffLog.push("## Sequence Debug: auth.refresh_tokens_id_seq\n");
+        indexDiffLog.push("### Main Catalog (after migration)\n");
+        indexDiffLog.push("```json");
+        indexDiffLog.push(
+          JSON.stringify(
+            {
+              owner: mainSeq?.owner,
+              privileges: mainSeq?.privileges,
+              owned_by: mainSeq?.owned_by_table
+                ? `${mainSeq.owned_by_schema}.${mainSeq.owned_by_table}.${mainSeq.owned_by_column}`
+                : null,
+            },
+            null,
+            2,
+          ),
+        );
+        indexDiffLog.push("```\n");
+
+        indexDiffLog.push("### Branch Catalog (target)\n");
+        indexDiffLog.push("```json");
+        indexDiffLog.push(
+          JSON.stringify(
+            {
+              owner: branchSeq?.owner,
+              privileges: branchSeq?.privileges,
+              owned_by: branchSeq?.owned_by_table
+                ? `${branchSeq.owned_by_schema}.${branchSeq.owned_by_table}.${branchSeq.owned_by_column}`
+                : null,
+            },
+            null,
+            2,
+          ),
+        );
+        indexDiffLog.push("```\n");
+
+        // Check what the first migration did
+        const firstMigrationGrants = changes.filter((change) => {
+          if (change.objectType !== "sequence") return false;
+          const seq = change.sequence;
+          return (
+            seq.name === "refresh_tokens_id_seq" &&
+            seq.schema === "auth" &&
+            change.operation === "alter" &&
+            "grantee" in change
+          );
+        });
+        indexDiffLog.push("### First Migration Grants\n");
+        if (firstMigrationGrants.length > 0) {
+          for (const change of firstMigrationGrants) {
+            if (change.objectType !== "sequence") continue;
+            const seq = change.sequence;
+            if (seq.name === "refresh_tokens_id_seq" && seq.schema === "auth") {
+              indexDiffLog.push(`- ${change.serialize()}\n`);
+            }
+          }
+        } else {
+          indexDiffLog.push("- No grants found in first migration\n");
+        }
+
+        indexDiffLog.push("### Remaining Changes\n");
+        for (const change of sequenceGrants) {
+          if (change.objectType !== "sequence") continue;
+          const seq = change.sequence;
+          if (seq.name === "refresh_tokens_id_seq" && seq.schema === "auth") {
+            if ("grantee" in change) {
+              indexDiffLog.push(
+                `- ${change.serialize()} (grantee: ${change.grantee}, operation: ${change.operation})\n`,
+              );
+            } else {
+              indexDiffLog.push(`- ${change.serialize()}\n`);
+            }
+          }
+        }
+
+        // Debug privilege diffing
+        if (mainSeq && branchSeq) {
+          const mainPrivsByGrantee = new Map<string, string[]>();
+          for (const p of mainSeq.privileges) {
+            const arr = mainPrivsByGrantee.get(p.grantee) || [];
+            arr.push(p.privilege);
+            mainPrivsByGrantee.set(p.grantee, arr);
+          }
+          const branchPrivsByGrantee = new Map<string, string[]>();
+          for (const p of branchSeq.privileges) {
+            const arr = branchPrivsByGrantee.get(p.grantee) || [];
+            arr.push(p.privilege);
+            branchPrivsByGrantee.set(p.grantee, arr);
+          }
+
+          indexDiffLog.push("### Privilege Comparison\n");
+          indexDiffLog.push("**Main privileges by grantee:**\n");
+          indexDiffLog.push("```json\n");
+          indexDiffLog.push(
+            JSON.stringify(Object.fromEntries(mainPrivsByGrantee), null, 2),
+          );
+          indexDiffLog.push("\n```\n");
+          indexDiffLog.push("**Branch privileges by grantee:**\n");
+          indexDiffLog.push("```json\n");
+          indexDiffLog.push(
+            JSON.stringify(Object.fromEntries(branchPrivsByGrantee), null, 2),
+          );
+          indexDiffLog.push("\n```\n");
+          indexDiffLog.push(
+            `**Owner:** ${branchSeq.owner} (filtering owner privileges)\n`,
+          );
+
+          // Direct database query to check what PostgreSQL actually stored
+          const directAclQuery = await main`
+            SELECT 
+              c.relname,
+              c.relacl::text as relacl_raw,
+              c.relowner::regrole::text as owner,
+              coalesce(
+                (
+                  select json_agg(
+                    json_build_object(
+                      'grantee', case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end,
+                      'privilege', x.privilege_type,
+                      'grantable', x.is_grantable
+                    )
+                    order by x.grantee, x.privilege_type
+                  )
+                  from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
+                ), '[]'
+              ) as privileges_json
+            FROM pg_catalog.pg_class c
+            INNER JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'auth'
+              AND c.relname = 'refresh_tokens_id_seq'
+              AND c.relkind = 'S'
+          `;
+
+          // Verify PostgreSQL behavior: superusers don't have explicit GRANTs stored in relacl
+          const postgresIsSuperuserMain = await main`
+            SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres'
+          `;
+          const isPostgresSuperuserMain =
+            postgresIsSuperuserMain[0]?.rolsuper === true;
+
+          // Check postgres superuser status in branch (remote Supabase)
+          const postgresRoleBranch = branchCatalogAfter.roles["role:postgres"];
+          const isPostgresSuperuserBranch =
+            postgresRoleBranch?.is_superuser === true;
+
+          const privilegesFromAcl = directAclQuery[0]?.privileges_json || [];
+          const hasPostgresInAcl = privilegesFromAcl.some(
+            (p: { grantee: string }) => p.grantee === "postgres",
+          );
+
+          indexDiffLog.push("### Direct PostgreSQL Query (relacl)\n");
+          indexDiffLog.push("```json\n");
+          indexDiffLog.push(
+            JSON.stringify(
+              directAclQuery.length > 0
+                ? {
+                    relname: directAclQuery[0].relname,
+                    relacl_raw: directAclQuery[0].relacl_raw,
+                    owner: directAclQuery[0].owner,
+                    privileges: directAclQuery[0].privileges_json,
+                    postgres_is_superuser_main: isPostgresSuperuserMain,
+                    postgres_is_superuser_branch: isPostgresSuperuserBranch,
+                    postgres_in_acl: hasPostgresInAcl,
+                    explanation:
+                      isPostgresSuperuserMain && !isPostgresSuperuserBranch
+                        ? "✓ Issue: postgres is superuser in main but NOT in branch. Branch has postgres privileges in relacl, but main doesn't store them (superuser). Our fix filters superuser privileges from branch before comparing."
+                        : isPostgresSuperuserMain && isPostgresSuperuserBranch
+                          ? "✓ Both are superusers - privileges shouldn't be in relacl in either"
+                          : !isPostgresSuperuserMain &&
+                              !isPostgresSuperuserBranch
+                            ? "✓ Both are NOT superusers - privileges should be in relacl in both"
+                            : "⚠ postgres is superuser in branch but NOT in main (unusual)",
+                  }
+                : { error: "Sequence not found" },
+              null,
+              2,
+            ),
+          );
+          indexDiffLog.push("\n```\n");
+
+          // Assert the behavior
+          if (isPostgresSuperuserMain && hasPostgresInAcl) {
+            throw new Error(
+              "PostgreSQL assertion failed: superuser 'postgres' should NOT have explicit GRANTs in relacl, but found them in ACL",
+            );
           }
         }
       }

@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
+import type { Role } from "../role/role.model.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainChangeOwner,
@@ -42,6 +43,7 @@ export function diffDomains(
     version: number;
     currentUser: string;
     defaultPrivilegeState: DefaultPrivilegeState;
+    mainRoles: Record<string, Role>;
   },
   main: Record<string, Domain>,
   branch: Record<string, Domain>,
@@ -104,9 +106,13 @@ export function diffDomains(
       "domain",
       newDomain.privileges,
     );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use the domain owner as the reference.
     const privilegeResults = diffPrivileges(
       effectiveDefaults,
       desiredPrivileges,
+      newDomain.owner,
+      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -298,6 +304,7 @@ export function diffDomains(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchDomain.owner,
+      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {
