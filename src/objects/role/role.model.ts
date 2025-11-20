@@ -6,8 +6,8 @@ const membershipInfoSchema = z.object({
   member: z.string(),
   grantor: z.string(),
   admin_option: z.boolean(),
-  inherit_option: z.boolean().optional(),
-  set_option: z.boolean().optional(),
+  inherit_option: z.boolean().nullish(),
+  set_option: z.boolean().nullish(),
 });
 
 const defaultPrivilegeSchema = z.object({
