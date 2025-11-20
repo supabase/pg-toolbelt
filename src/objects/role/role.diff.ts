@@ -51,6 +51,20 @@ export function diffRoles(
     if (role.comment !== null) {
       changes.push(new CreateCommentOnRole({ role }));
     }
+    // MEMBERSHIPS: Grant memberships immediately after role creation
+    for (const membership of role.members) {
+      changes.push(
+        new GrantRoleMembership({
+          role,
+          member: membership.member,
+          options: {
+            admin: membership.admin_option,
+            inherit: membership.inherit_option ?? null,
+            set: membership.set_option ?? null,
+          },
+        }),
+      );
+    }
   }
 
   for (const roleId of dropped) {

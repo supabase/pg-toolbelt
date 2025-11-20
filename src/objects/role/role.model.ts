@@ -127,119 +127,51 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
     const roleRows =
       capabilities?.has_inherit && capabilities?.has_set
         ? await sql`
-          WITH extension_role_oids AS (
-            SELECT objid
-            FROM pg_shdepend d
-            WHERE d.refclassid = 'pg_extension'::regclass
-              AND d.classid   = 'pg_authid'::regclass
-          ),
-          extension_object_oids AS (
-            SELECT classid, objid
-            FROM pg_depend d
-            WHERE d.refclassid = 'pg_extension'::regclass
-              AND d.deptype    = 'e'
-          ),
-          extension_grantee_roles AS (
-            SELECT DISTINCT g.grantee AS role_oid
-            FROM pg_init_privs p
-            JOIN extension_object_oids eo
-              ON eo.classid = p.classoid AND eo.objid = p.objoid
-            JOIN LATERAL aclexplode(p.initprivs) AS g ON TRUE
-            WHERE g.grantee NOT IN (
-              -- Exclude roles that own any objects (they have real purpose)
-              SELECT DISTINCT d.refobjid
-              FROM pg_shdepend d
-              WHERE d.deptype = 'o'
-                AND d.refclassid = 'pg_authid'::regclass
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles with significant attributes (superuser, login, etc.)
-              SELECT oid
-              FROM pg_roles
-              WHERE rolsuper
-                 OR rolcanlogin
-                 OR rolcreaterole
-                 OR rolcreatedb
-                 OR rolreplication
-                 OR rolbypassrls
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles that have members (they're real roles)
-              SELECT DISTINCT roleid
-              FROM pg_auth_members
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles with default privileges (they have real purpose)
-              SELECT DISTINCT defaclrole
-              FROM pg_default_acl
-            )
-          ),
-          role_owned_objects AS (
-            SELECT
-              d.refobjid AS role_oid,
-              d.classid  AS object_classid,
-              d.objid    AS object_oid,
-              (ed.objid IS NOT NULL) AS is_extension_owned
-            FROM pg_shdepend d
-            LEFT JOIN pg_depend ed
-              ON ed.classid = d.classid
-            AND ed.objid   = d.objid
-            AND ed.refclassid = 'pg_extension'::regclass
-            AND ed.deptype    = 'e'
-            WHERE d.deptype    = 'o'  -- ownership dependency
-              AND d.refclassid = 'pg_authid'::regclass
-          ),
-          roles_only_owning_extension_objects AS (
-            SELECT role_oid
-            FROM role_owned_objects
-            GROUP BY role_oid
-            HAVING COUNT(*) > 0 AND bool_and(is_extension_owned)
-          ),
-          role_memberships AS (
+          WITH role_memberships AS (
             SELECT 
               r.rolname AS role_name,
               json_agg(
                 json_build_object(
-                  'member', m.rolname,
-                  'grantor', g.rolname,
-                  'admin_option', am.admin_option,
+                  'member',   m.rolname,
+                  'grantor',  g.rolname,
+                  'admin_option',   am.admin_option,
                   'inherit_option', am.inherit_option,   -- PG16+
-                  'set_option', am.set_option            -- PG16+
+                  'set_option',     am.set_option        -- PG16+
                 )
               ) FILTER (WHERE m.rolname IS NOT NULL) AS members
             FROM pg_catalog.pg_roles r
-            LEFT JOIN pg_auth_members am ON am.roleid = r.oid  -- roles that are members of this role
-            LEFT JOIN pg_roles m ON m.oid = am.member
-            LEFT JOIN pg_roles g ON g.oid = am.grantor
+            LEFT JOIN pg_auth_members am ON am.roleid = r.oid       -- roles that are members of this role
+            LEFT JOIN pg_roles m          ON m.oid = am.member
+            LEFT JOIN pg_roles g          ON g.oid = am.grantor
             GROUP BY r.rolname
           )
           SELECT
             quote_ident(r.rolname) AS name,
-            r.rolsuper AS is_superuser,
-            r.rolinherit AS can_inherit,
+            r.rolsuper      AS is_superuser,
+            r.rolinherit    AS can_inherit,
             r.rolcreaterole AS can_create_roles,
-            r.rolcreatedb AS can_create_databases,
-            r.rolcanlogin AS can_login,
+            r.rolcreatedb   AS can_create_databases,
+            r.rolcanlogin   AS can_login,
             r.rolreplication AS can_replicate,
-            r.rolconnlimit AS connection_limit,
-            r.rolbypassrls AS can_bypass_rls,
-            r.rolconfig AS config,
+            r.rolconnlimit  AS connection_limit,
+            r.rolbypassrls  AS can_bypass_rls,
+            r.rolconfig     AS config,
             obj_description(r.oid, 'pg_authid') AS comment,
-            coalesce(rm.members, '[]') AS members,
+            COALESCE(rm.members, '[]') AS members,
             COALESCE(
               (
                 SELECT json_agg(
                         json_build_object(
                           'in_schema',
                             CASE WHEN s.defaclnamespace = 0
-                                  THEN NULL
-                                  ELSE s.defaclnamespace::regnamespace::text
+                                    THEN NULL
+                                    ELSE s.defaclnamespace::regnamespace::text
                             END,
-                          'objtype', s.defaclobjtype,
+                          'objtype',   s.defaclobjtype,
                           'grantee',
                             CASE WHEN s.grantee = 0
-                                  THEN 'PUBLIC'
-                                  ELSE s.grantee::regrole::text
+                                    THEN 'PUBLIC'
+                                    ELSE s.grantee::regrole::text
                             END,
                           'privileges', s.privileges
                         )
@@ -254,8 +186,8 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
                     x.grantee,
                     json_agg(
                       json_build_object(
-                        'privilege', x.privilege_type,
-                        'grantable', x.is_grantable
+                        'privilege',  x.privilege_type,
+                        'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
                     ) AS privileges
@@ -269,142 +201,71 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
               '[]'
             ) AS default_privileges
           FROM pg_catalog.pg_roles r
-          LEFT OUTER JOIN extension_role_oids e ON r.oid = e.objid
           LEFT JOIN role_memberships rm ON rm.role_name = r.rolname
-          WHERE r.rolname NOT IN (
-            'pg_checkpoint',
-            'pg_create_subscription', -- PG16+
-            'pg_database_owner',
-            'pg_execute_server_program',
-            'pg_maintain', -- PG17+
-            'pg_monitor',
-            'pg_read_all_data',
-            'pg_read_all_settings',
-            'pg_read_all_stats',
-            'pg_read_server_files',
-            'pg_signal_backend',
-            'pg_stat_scan_tables',
-            'pg_use_reserved_connections', -- PG16+
-            'pg_write_all_data',
-            'pg_write_server_files'
-          )
-            AND e.objid IS NULL
-            AND r.oid NOT IN (SELECT role_oid FROM roles_only_owning_extension_objects)
-            AND r.oid NOT IN (SELECT role_oid FROM extension_grantee_roles)
+          WHERE
+            -- 1) drop built-in/internal roles (anything starting with pg_)
+            r.rolname !~ '^pg_'
+            -- 2) drop the pgsodium helper roles we know are extension-internal
+            AND r.rolname !~ '^pgsodium_'
+            -- 3) drop roles directly tracked as extension members in pg_shdepend (if any)
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_shdepend d
+              WHERE d.classid     = 'pg_authid'::regclass
+                AND d.objid       = r.oid
+                AND d.refclassid  = 'pg_extension'::regclass
+                AND d.deptype     IN ('e','x')
+            )
           ORDER BY 1;
       `
         : await sql`
-          -- PG15: columns inherit_option and set_option do not exist
-          WITH extension_role_oids AS (
-            SELECT objid
-            FROM pg_shdepend d
-            WHERE d.refclassid = 'pg_extension'::regclass
-              AND d.classid   = 'pg_authid'::regclass
-          ),
-          extension_object_oids AS (
-            SELECT classid, objid
-            FROM pg_depend d
-            WHERE d.refclassid = 'pg_extension'::regclass
-              AND d.deptype    = 'e'
-          ),
-          extension_grantee_roles AS (
-            SELECT DISTINCT g.grantee AS role_oid
-            FROM pg_init_privs p
-            JOIN extension_object_oids eo
-              ON eo.classid = p.classoid AND eo.objid = p.objoid
-            JOIN LATERAL aclexplode(p.initprivs) AS g ON true
-            WHERE g.grantee NOT IN (
-              -- Exclude roles that own any objects (they have real purpose)
-              SELECT DISTINCT d.refobjid
-              FROM pg_shdepend d
-              WHERE d.deptype = 'o'
-                AND d.refclassid = 'pg_authid'::regclass
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles with significant attributes (superuser, login, etc.)
-              SELECT oid
-              FROM pg_roles
-              WHERE rolsuper
-                 OR rolcanlogin
-                 OR rolcreaterole
-                 OR rolcreatedb
-                 OR rolreplication
-                 OR rolbypassrls
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles that have members (they're real roles)
-              SELECT DISTINCT roleid
-              FROM pg_auth_members
-            )
-            AND g.grantee NOT IN (
-              -- Exclude roles with default privileges (they have real purpose)
-              SELECT DISTINCT defaclrole
-              FROM pg_default_acl
-            )
-          ),
-          role_owned_objects AS (
-            SELECT
-              d.refobjid AS role_oid,
-              d.classid  AS object_classid,
-              d.objid    AS object_oid,
-              (ed.objid IS NOT NULL) AS is_extension_owned
-            FROM pg_shdepend d
-            LEFT JOIN pg_depend ed
-              ON ed.classid = d.classid
-            AND ed.objid   = d.objid
-            AND ed.refclassid = 'pg_extension'::regclass
-            AND ed.deptype    = 'e'
-            WHERE d.deptype    = 'o'  -- ownership dependency
-              AND d.refclassid = 'pg_authid'::regclass
-          ),
-          roles_only_owning_extension_objects AS (
-            SELECT role_oid
-            FROM role_owned_objects
-            GROUP BY role_oid
-            HAVING COUNT(*) > 0 AND bool_and(is_extension_owned)
-          ),
-          role_memberships AS (
+          WITH role_memberships AS (
             SELECT 
               r.rolname AS role_name,
               json_agg(
                 json_build_object(
-                  'member', m.rolname,
-                  'grantor', g.rolname,
-                  'admin_option', am.admin_option
+                  'member',         m.rolname,
+                  'grantor',        g.rolname,
+                  'admin_option',   am.admin_option,
+                  -- PG15: these columns don't exist; emit them as nulls
+                  'inherit_option', NULL,
+                  'set_option',     NULL
                 )
               ) FILTER (WHERE m.rolname IS NOT NULL) AS members
             FROM pg_catalog.pg_roles r
-            LEFT JOIN pg_auth_members am ON am.roleid = r.oid
-            LEFT JOIN pg_roles m ON m.oid = am.member
-            LEFT JOIN pg_roles g ON g.oid = am.grantor
+            LEFT JOIN pg_auth_members am ON am.roleid = r.oid       -- roles that are members of this role
+            LEFT JOIN pg_roles m          ON m.oid = am.member
+            LEFT JOIN pg_roles g          ON g.oid = am.grantor
             GROUP BY r.rolname
           )
           SELECT
             quote_ident(r.rolname) AS name,
-            r.rolsuper AS is_superuser,
-            r.rolinherit AS can_inherit,
-            r.rolcreaterole AS can_create_roles,
-            r.rolcreatedb AS can_create_databases,
-            r.rolcanlogin AS can_login,
+            r.rolsuper       AS is_superuser,
+            r.rolinherit     AS can_inherit,
+            r.rolcreaterole  AS can_create_roles,
+            r.rolcreatedb    AS can_create_databases,
+            r.rolcanlogin    AS can_login,
             r.rolreplication AS can_replicate,
-            r.rolconnlimit AS connection_limit,
-            r.rolbypassrls AS can_bypass_rls,
-            r.rolconfig AS config,
+            r.rolconnlimit   AS connection_limit,
+            r.rolbypassrls   AS can_bypass_rls,
+            r.rolconfig      AS config,
             obj_description(r.oid, 'pg_authid') AS comment,
-            coalesce(rm.members, '[]') AS members,
+            COALESCE(rm.members, '[]') AS members,
             COALESCE(
               (
                 SELECT json_agg(
                         json_build_object(
-                          'in_schema', CASE WHEN s.defaclnamespace = 0
-                                            THEN NULL
-                                            ELSE s.defaclnamespace::regnamespace::text
-                                        END,
-                          'objtype', s.defaclobjtype,
-                          'grantee', CASE WHEN s.grantee = 0
-                                          THEN 'PUBLIC'
-                                          ELSE s.grantee::regrole::text
-                                      END,
+                          'in_schema',
+                            CASE WHEN s.defaclnamespace = 0
+                                    THEN NULL
+                                    ELSE s.defaclnamespace::regnamespace::text
+                            END,
+                          'objtype',   s.defaclobjtype,
+                          'grantee',
+                            CASE WHEN s.grantee = 0
+                                    THEN 'PUBLIC'
+                                    ELSE s.grantee::regrole::text
+                            END,
                           'privileges', s.privileges
                         )
                         ORDER BY s.defaclnamespace NULLS FIRST,
@@ -418,8 +279,8 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
                     x.grantee,
                     json_agg(
                       json_build_object(
-                        'privilege', x.privilege_type,
-                        'grantable', x.is_grantable
+                        'privilege',  x.privilege_type,
+                        'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
                     ) AS privileges
@@ -433,28 +294,21 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
               '[]'
             ) AS default_privileges
           FROM pg_catalog.pg_roles r
-          LEFT OUTER JOIN extension_role_oids e ON r.oid = e.objid
           LEFT JOIN role_memberships rm ON rm.role_name = r.rolname
-          WHERE r.rolname NOT IN (
-            'pg_checkpoint',
-            'pg_create_subscription', -- PG16+
-            'pg_database_owner',
-            'pg_execute_server_program',
-            'pg_maintain', -- PG17+
-            'pg_monitor',
-            'pg_read_all_data',
-            'pg_read_all_settings',
-            'pg_read_all_stats',
-            'pg_read_server_files',
-            'pg_signal_backend',
-            'pg_stat_scan_tables',
-            'pg_use_reserved_connections', -- PG16+
-            'pg_write_all_data',
-            'pg_write_server_files'
-          )
-            AND e.objid IS NULL
-            AND r.oid NOT IN (SELECT role_oid FROM roles_only_owning_extension_objects)
-            AND r.oid NOT IN (SELECT role_oid FROM extension_grantee_roles)
+          WHERE
+            -- drop built-in/internal roles
+            r.rolname !~ '^pg_'
+            -- drop pgsodium helper roles
+            AND r.rolname !~ '^pgsodium_'
+            -- drop roles directly tracked as extension members in pg_shdepend (if any)
+            AND NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_shdepend d
+              WHERE d.classid     = 'pg_authid'::regclass
+                AND d.objid       = r.oid
+                AND d.refclassid  = 'pg_extension'::regclass
+                AND d.deptype     IN ('e','x')
+            )
           ORDER BY 1;
       `;
     // Validate and parse each row using the Zod schema

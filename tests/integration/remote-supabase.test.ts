@@ -6,6 +6,12 @@ import { extractCatalog } from "../../src/catalog.model.ts";
 import type { MainOptions } from "../../src/main.ts";
 import { postgresConfig } from "../../src/main.ts";
 import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
+import {
+  GrantRoleDefaultPrivileges,
+  GrantRoleMembership,
+  RevokeRoleDefaultPrivileges,
+  RevokeRoleMembership,
+} from "../../src/objects/role/changes/role.privilege.ts";
 import { sortChanges } from "../../src/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
 
@@ -37,8 +43,25 @@ test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
       const isExtension =
         change.objectType === "extension" &&
         change.extension.name !== '"uuid-ossp"';
+      const extensionRoleNames = [
+        "pgsodium_keyiduser",
+        "pgsodium_keyholder",
+        "pgsodium_keymaker",
+      ];
+      // Filter out default privilege statements involving extension roles or extension schemas
+      const extensionSchemaNames = ["pgsodium", "pgsodium_masks"];
+      const isDefaultPrivilegeWithExtension =
+        (change instanceof GrantRoleDefaultPrivileges ||
+          change instanceof RevokeRoleDefaultPrivileges) &&
+        (extensionRoleNames.includes(change.grantee) ||
+          (change.inSchema !== null &&
+            extensionSchemaNames.includes(change.inSchema)));
 
-      return !isAlterRolePostgresWithNosuperuser && !isExtension;
+      return (
+        !isAlterRolePostgresWithNosuperuser &&
+        !isExtension &&
+        !isDefaultPrivilegeWithExtension
+      );
     },
   };
 
@@ -110,6 +133,83 @@ test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
 
     // Verify that there are no remaining changes
     if (filteredChangesAfter.length > 0) {
+      // Log index differences for debugging
+      const indexDrops = filteredChangesAfter.filter(
+        (change) =>
+          change.objectType === "index" && change.operation === "drop",
+      );
+      const indexCreates = filteredChangesAfter.filter(
+        (change) =>
+          change.objectType === "index" && change.operation === "create",
+      );
+
+      const indexDiffLog: string[] = [];
+      if (indexDrops.length > 0 || indexCreates.length > 0) {
+        indexDiffLog.push("## Index Catalog Differences\n");
+
+        for (const dropChange of indexDrops) {
+          if (dropChange.objectType !== "index") continue;
+          const indexId = dropChange.index.stableId;
+          const mainIndex = mainCatalogAfter.indexes[indexId];
+          const branchIndex = branchCatalogAfter.indexes[indexId];
+
+          indexDiffLog.push(`### Index: ${indexId}\n`);
+          indexDiffLog.push("**Main Catalog (after migration):**\n");
+          indexDiffLog.push("```json");
+          indexDiffLog.push(
+            JSON.stringify(
+              {
+                definition: mainIndex?.definition,
+                storage_params: mainIndex?.storage_params,
+                statistics_target: mainIndex?.statistics_target,
+                tablespace: mainIndex?.tablespace,
+                owner: mainIndex?.owner,
+                index_type: mainIndex?.index_type,
+                is_unique: mainIndex?.is_unique,
+                nulls_not_distinct: mainIndex?.nulls_not_distinct,
+                immediate: mainIndex?.immediate,
+                key_columns: mainIndex?.key_columns,
+                column_collations: mainIndex?.column_collations,
+                operator_classes: mainIndex?.operator_classes,
+                column_options: mainIndex?.column_options,
+                index_expressions: mainIndex?.index_expressions,
+                partial_predicate: mainIndex?.partial_predicate,
+              },
+              null,
+              2,
+            ),
+          );
+          indexDiffLog.push("```\n");
+
+          indexDiffLog.push("**Branch Catalog (target):**\n");
+          indexDiffLog.push("```json");
+          indexDiffLog.push(
+            JSON.stringify(
+              {
+                definition: branchIndex?.definition,
+                storage_params: branchIndex?.storage_params,
+                statistics_target: branchIndex?.statistics_target,
+                tablespace: branchIndex?.tablespace,
+                owner: branchIndex?.owner,
+                index_type: branchIndex?.index_type,
+                is_unique: branchIndex?.is_unique,
+                nulls_not_distinct: branchIndex?.nulls_not_distinct,
+                immediate: branchIndex?.immediate,
+                key_columns: branchIndex?.key_columns,
+                column_collations: branchIndex?.column_collations,
+                operator_classes: branchIndex?.operator_classes,
+                column_options: branchIndex?.column_options,
+                index_expressions: branchIndex?.index_expressions,
+                partial_predicate: branchIndex?.partial_predicate,
+              },
+              null,
+              2,
+            ),
+          );
+          indexDiffLog.push("```\n");
+        }
+      }
+
       // Generate second migration script for remaining changes
       const sortedChangesAfter = sortChanges(
         { mainCatalog: mainCatalogAfter, branchCatalog: branchCatalogAfter },
@@ -151,6 +251,8 @@ test("dump empty remote supabase into vanilla postgres", async ({ db }) => {
 \`\`\`
 Migration verification failed: Found ${filteredChangesAfter.length} remaining changes after migration
 \`\`\`
+
+${indexDiffLog.length > 0 ? indexDiffLog.join("\n") : ""}
 
 ## First Migration Script
 
