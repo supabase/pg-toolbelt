@@ -139,9 +139,12 @@ export function diffSchemas(
     }
 
     // PRIVILEGES
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
     const privilegeResults = diffPrivileges(
       mainSchema.privileges,
       branchSchema.privileges,
+      branchSchema.owner,
     );
 
     for (const [grantee, result] of privilegeResults) {

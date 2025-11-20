@@ -713,9 +713,12 @@ export function diffTables(
     }
 
     // PRIVILEGES (unified object and column privileges)
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
     const privilegeResults = diffPrivileges(
       mainTable.privileges,
       branchTable.privileges,
+      branchTable.owner,
     );
 
     for (const [grantee, result] of privilegeResults) {

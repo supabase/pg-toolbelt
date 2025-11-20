@@ -329,11 +329,22 @@ export function diffProcedures(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES
+      // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog
+      // (PostgreSQL grants it automatically, so we shouldn't compare it)
+      const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "procedure",
+        mainProcedure.privileges,
+      );
+      // Filter out PUBLIC's built-in default EXECUTE privilege from branch catalog
+      const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+        "procedure",
+        branchProcedure.privileges,
+      );
       // Filter out owner privileges - owner always has ALL privileges implicitly
       // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
-        mainProcedure.privileges,
-        branchProcedure.privileges,
+        mainPrivilegesFiltered,
+        branchPrivilegesFiltered,
         branchProcedure.owner,
       );
 

@@ -253,9 +253,12 @@ export function diffViews(
       // a name change would be handled as drop + create by diffObjects()
 
       // PRIVILEGES (unified object and column privileges)
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
         mainView.privileges,
         branchView.privileges,
+        branchView.owner,
       );
 
       for (const [grantee, result] of privilegeResults) {

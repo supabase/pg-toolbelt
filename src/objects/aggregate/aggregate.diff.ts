@@ -205,9 +205,24 @@ export function diffAggregates(
       }
     }
 
-    const privilegeResults = diffPrivileges(
+    // PRIVILEGES
+    // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "aggregate",
       mainAggregate.privileges,
+    );
+    // Filter out PUBLIC's built-in default EXECUTE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "aggregate",
       branchAggregate.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchAggregate.owner,
     );
 
     for (const [grantee, result] of privilegeResults) {

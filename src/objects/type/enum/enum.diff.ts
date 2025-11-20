@@ -163,9 +163,23 @@ export function diffEnums(
     }
 
     // PRIVILEGES
-    const privilegeResults = diffPrivileges(
+    // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "enum",
       mainEnum.privileges,
+    );
+    // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "enum",
       branchEnum.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchEnum.owner,
     );
 
     for (const [grantee, result] of privilegeResults) {

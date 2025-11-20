@@ -285,11 +285,14 @@ export function diffSequences(
         }
       }
 
-      // PRIVILEGES
-      const privilegeResults = diffPrivileges(
-        mainSequence.privileges,
-        branchSequence.privileges,
-      );
+    // PRIVILEGES
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainSequence.privileges,
+      branchSequence.privileges,
+      branchSequence.owner,
+    );
 
       for (const [grantee, result] of privilegeResults) {
         // Generate grant changes

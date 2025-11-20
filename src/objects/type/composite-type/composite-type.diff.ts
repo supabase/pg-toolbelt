@@ -290,11 +290,25 @@ export function diffCompositeTypes(
         }
       }
 
-      // PRIVILEGES
-      const privilegeResults = diffPrivileges(
-        mainCompositeType.privileges,
-        branchCompositeType.privileges,
-      );
+    // PRIVILEGES
+    // Filter out PUBLIC's built-in default USAGE privilege from main catalog
+    // (PostgreSQL grants it automatically, so we shouldn't compare it)
+    const mainPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "composite_type",
+      mainCompositeType.privileges,
+    );
+    // Filter out PUBLIC's built-in default USAGE privilege from branch catalog
+    const branchPrivilegesFiltered = filterPublicBuiltInDefaults(
+      "composite_type",
+      branchCompositeType.privileges,
+    );
+    // Filter out owner privileges - owner always has ALL privileges implicitly
+    // and shouldn't be compared. Use branch owner as the reference.
+    const privilegeResults = diffPrivileges(
+      mainPrivilegesFiltered,
+      branchPrivilegesFiltered,
+      branchCompositeType.owner,
+    );
 
       for (const [grantee, result] of privilegeResults) {
         // Generate grant changes

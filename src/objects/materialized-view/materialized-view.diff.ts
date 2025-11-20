@@ -339,9 +339,12 @@ export function diffMaterializedViews(
       }
 
       // PRIVILEGES (unified object and column privileges)
+      // Filter out owner privileges - owner always has ALL privileges implicitly
+      // and shouldn't be compared. Use branch owner as the reference.
       const privilegeResults = diffPrivileges(
         mainMaterializedView.privileges,
         branchMaterializedView.privileges,
+        branchMaterializedView.owner,
       );
 
       for (const [grantee, result] of privilegeResults) {
