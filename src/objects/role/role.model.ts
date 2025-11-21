@@ -205,9 +205,7 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           WHERE
             -- 1) drop built-in/internal roles (anything starting with pg_)
             r.rolname !~ '^pg_'
-            -- 2) drop the pgsodium helper roles we know are extension-internal
-            AND r.rolname !~ '^pgsodium_'
-            -- 3) drop roles directly tracked as extension members in pg_shdepend (if any)
+            -- 2) drop roles directly tracked as extension members in pg_shdepend (if any)
             AND NOT EXISTS (
               SELECT 1
               FROM pg_catalog.pg_shdepend d
@@ -298,8 +296,6 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           WHERE
             -- drop built-in/internal roles
             r.rolname !~ '^pg_'
-            -- drop pgsodium helper roles
-            AND r.rolname !~ '^pgsodium_'
             -- drop roles directly tracked as extension members in pg_shdepend (if any)
             AND NOT EXISTS (
               SELECT 1

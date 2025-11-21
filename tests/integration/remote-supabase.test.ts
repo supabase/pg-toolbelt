@@ -6,9 +6,12 @@ import { extractCatalog } from "../../src/catalog.model.ts";
 import type { MainOptions } from "../../src/main.ts";
 import { postgresConfig } from "../../src/main.ts";
 import { AlterRoleSetOptions } from "../../src/objects/role/changes/role.alter.ts";
+import { CreateRole } from "../../src/objects/role/changes/role.create.ts";
 import {
   GrantRoleDefaultPrivileges,
+  GrantRoleMembership,
   RevokeRoleDefaultPrivileges,
+  RevokeRoleMembership,
 } from "../../src/objects/role/changes/role.privilege.ts";
 import { sortChanges } from "../../src/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
@@ -48,6 +51,16 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
         "pgsodium_keyholder",
         "pgsodium_keymaker",
       ];
+      // Filter out CREATE ROLE statements for extension roles
+      const isCreateExtensionRole =
+        change instanceof CreateRole &&
+        extensionRoleNames.includes(change.role.name);
+      // Filter out GRANT/REVOKE membership statements involving extension roles
+      const isMembershipWithExtensionRole =
+        (change instanceof GrantRoleMembership ||
+          change instanceof RevokeRoleMembership) &&
+        (extensionRoleNames.includes(change.role.name) ||
+          extensionRoleNames.includes(change.member));
       // Filter out default privilege statements involving extension roles or extension schemas
       const extensionSchemaNames = ["pgsodium", "pgsodium_masks"];
       const isDefaultPrivilegeWithExtension =
@@ -60,6 +73,8 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
       return (
         !isAlterRolePostgresWithNosuperuser &&
         !isExtension &&
+        !isCreateExtensionRole &&
+        !isMembershipWithExtensionRole &&
         !isDefaultPrivilegeWithExtension
       );
     },
