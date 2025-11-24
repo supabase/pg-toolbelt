@@ -18,6 +18,7 @@ import type { TableChange } from "./objects/table/changes/table.types.ts";
 import type { TriggerChange } from "./objects/trigger/changes/trigger.types.ts";
 import type { TypeChange } from "./objects/type/type.types.ts";
 import type { ViewChange } from "./objects/view/changes/view.types.ts";
+import type { ForeignDataWrapperChange } from "./objects/foreign-data-wrapper/foreign-data-wrapper.types.ts";
 
 export type Change =
   | AggregateChange
@@ -39,4 +40,5 @@ export type Change =
   | EventTriggerChange
   | RuleChange
   | TypeChange
-  | ViewChange;
+  | ViewChange
+  | ForeignDataWrapperChange;

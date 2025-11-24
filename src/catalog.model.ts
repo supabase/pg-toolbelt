@@ -60,6 +60,22 @@ import {
 import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
 import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
 import { extractViews, type View } from "./objects/view/view.model.ts";
+import {
+  type ForeignDataWrapper,
+  extractForeignDataWrappers,
+} from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
+import {
+  type Server,
+  extractServers,
+} from "./objects/foreign-data-wrapper/server/server.model.ts";
+import {
+  type UserMapping,
+  extractUserMappings,
+} from "./objects/foreign-data-wrapper/user-mapping/user-mapping.model.ts";
+import {
+  type ForeignTable,
+  extractForeignTables,
+} from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
 
 interface CatalogProps {
   aggregates: Record<string, Aggregate>;
@@ -83,6 +99,10 @@ interface CatalogProps {
   rules: Record<string, Rule>;
   ranges: Record<string, Range>;
   views: Record<string, View>;
+  foreignDataWrappers: Record<string, ForeignDataWrapper>;
+  servers: Record<string, Server>;
+  userMappings: Record<string, UserMapping>;
+  foreignTables: Record<string, ForeignTable>;
   depends: PgDepend[];
   indexableObjects: Record<string, TableLikeObject>;
   version: number;
@@ -111,6 +131,10 @@ export class Catalog {
   public readonly rules: CatalogProps["rules"];
   public readonly ranges: CatalogProps["ranges"];
   public readonly views: CatalogProps["views"];
+  public readonly foreignDataWrappers: CatalogProps["foreignDataWrappers"];
+  public readonly servers: CatalogProps["servers"];
+  public readonly userMappings: CatalogProps["userMappings"];
+  public readonly foreignTables: CatalogProps["foreignTables"];
   public readonly depends: CatalogProps["depends"];
   public readonly indexableObjects: CatalogProps["indexableObjects"];
   public readonly version: CatalogProps["version"];
@@ -138,6 +162,10 @@ export class Catalog {
     this.rules = props.rules;
     this.ranges = props.ranges;
     this.views = props.views;
+    this.foreignDataWrappers = props.foreignDataWrappers;
+    this.servers = props.servers;
+    this.userMappings = props.userMappings;
+    this.foreignTables = props.foreignTables;
     this.depends = props.depends;
     this.indexableObjects = props.indexableObjects;
     this.version = props.version;
@@ -168,6 +196,10 @@ export async function extractCatalog(sql: Sql) {
     rules,
     ranges,
     views,
+    foreignDataWrappers,
+    servers,
+    userMappings,
+    foreignTables,
     depends,
     version,
     currentUser,
@@ -193,6 +225,10 @@ export async function extractCatalog(sql: Sql) {
     extractRules(sql).then(listToRecord),
     extractRanges(sql).then(listToRecord),
     extractViews(sql).then(listToRecord),
+    extractForeignDataWrappers(sql).then(listToRecord),
+    extractServers(sql).then(listToRecord),
+    extractUserMappings(sql).then(listToRecord),
+    extractForeignTables(sql).then(listToRecord),
     extractDepends(sql),
     extractVersion(sql),
     extractCurrentUser(sql),
@@ -225,6 +261,10 @@ export async function extractCatalog(sql: Sql) {
     rules,
     ranges,
     views,
+    foreignDataWrappers,
+    servers,
+    userMappings,
+    foreignTables,
     depends,
     indexableObjects,
     version,

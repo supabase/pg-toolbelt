@@ -89,6 +89,18 @@ export const stableId = {
   membership(role: string, member: string) {
     return `membership:${role}->${member}` as const;
   },
+  foreignDataWrapper(name: string) {
+    return `foreignDataWrapper:${name}` as const;
+  },
+  server(name: string) {
+    return `server:${name}` as const;
+  },
+  userMapping(server: string, user: string) {
+    return `userMapping:${server}:${user}` as const;
+  },
+  foreignTable(schema: string, name: string) {
+    return `foreignTable:${schema}.${name}` as const;
+  },
 };
 
 /**
