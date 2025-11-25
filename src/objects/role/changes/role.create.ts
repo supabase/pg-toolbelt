@@ -1,3 +1,4 @@
+import type { SensitiveInfo } from "../../../sensitive.types.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange } from "./role.base.ts";
 
@@ -41,11 +42,38 @@ export class CreateRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
+  get sensitiveInfo(): SensitiveInfo[] {
+    if (this.role.can_login) {
+      return [
+        {
+          type: "role_password",
+          objectType: "role",
+          objectName: this.role.name,
+          field: "password",
+          placeholder: "<your-password-here>",
+          instruction: `Role ${this.role.name} requires a password to be set manually. Run: ALTER ROLE ${this.role.name} PASSWORD '<your-password-here>';`,
+        },
+      ];
+    }
+    return [];
+  }
+
   serialize(): string {
-    const parts: string[] = ["CREATE ROLE"];
+    const commentParts: string[] = [];
+    const sqlParts: string[] = [];
+
+    // Add warning comment if role requires password
+    if (this.role.can_login) {
+      commentParts.push(
+        "-- WARNING: Role requires password to be set manually",
+        `-- Run: ALTER ROLE ${this.role.name} PASSWORD '<your-password-here>';`,
+      );
+    }
+
+    sqlParts.push("CREATE ROLE");
 
     // Add role name
-    parts.push(this.role.name);
+    sqlParts.push(this.role.name);
 
     // Add options (only non-default values)
     const options: string[] = [];
@@ -94,9 +122,10 @@ export class CreateRole extends CreateRoleChange {
     }
 
     if (options.length > 0) {
-      parts.push("WITH", options.join(" "));
+      sqlParts.push("WITH", options.join(" "));
     }
 
-    return parts.join(" ");
+    const sql = sqlParts.join(" ");
+    return commentParts.length > 0 ? `${commentParts.join("\n")}\n${sql}` : sql;
   }
 }

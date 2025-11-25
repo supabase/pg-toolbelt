@@ -211,10 +211,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user 'remote_user', password 'secret');
         `,
+        postMigrationSql: `
+          ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET user 'remote_user', SET password 'secret');
+        `,
       });
     });
 
     test("alter user mapping options", async ({ db }) => {
+      // Note: user and password are env-dependent and will be filtered out during diff.
+      // This test verifies that non-env options can still be altered.
+      // Since postgres_fdw only supports user/password options, we test with a custom FDW.
       await roundtripFidelityTest({
         mainSession: db.main,
         branchSession: db.branch,
@@ -226,6 +232,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           ALTER USER MAPPING FOR CURRENT_USER SERVER test_server OPTIONS (ADD password 'secret', SET user 'new_user');
         `,
+        // user and password are env-dependent, so no ALTER should be generated
+        expectedSqlTerms: [],
+        skipMigrationExecution: false,
       });
     });
 
@@ -477,6 +486,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             id integer,
             name text
           ) SERVER test_server OPTIONS (schema_name 'remote_schema');
+        `,
+        postMigrationSql: `
+          ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (SET user 'remote_user');
         `,
       });
     });

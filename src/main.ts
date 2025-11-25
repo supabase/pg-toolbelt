@@ -3,6 +3,7 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import type { Catalog } from "./catalog.model.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import type { SensitiveInfo } from "./sensitive.types.ts";
 import { sortChanges } from "./sort/sort-changes.ts";
 
 // Custom type handler for specifics corner cases
@@ -64,11 +65,16 @@ export interface MainOptions {
   serialize?: ChangeSerializer;
 }
 
+export interface DiffResult {
+  migrationScript: string;
+  sensitiveActions: SensitiveInfo[];
+}
+
 export async function main(
   mainDatabaseUrl: string,
   branchDatabaseUrl: string,
   options: MainOptions = {},
-) {
+): Promise<DiffResult | null> {
   const mainSql = postgres(mainDatabaseUrl, postgresConfig);
   const branchSql = postgres(branchDatabaseUrl, postgresConfig);
 
@@ -105,17 +111,48 @@ export async function main(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const migrationScript = `${[
-    ...sessionConfig,
-    ...sortedChanges.map((change) => {
-      return (
-        options.serialize?.({ mainCatalog, branchCatalog }, change) ??
-        change.serialize()
-      );
-    }),
-  ].join(";\n\n")};`;
+  // Collect sensitive information from all changes
+  const sensitiveActions: SensitiveInfo[] = [];
+  for (const change of sortedChanges) {
+    const sensitive = change.sensitiveInfo;
+    if (sensitive && sensitive.length > 0) {
+      sensitiveActions.push(...sensitive);
+    }
+  }
+
+  // Build migration script with optional summary comment
+  const scriptParts: string[] = [];
+
+  // Add summary comment if there are sensitive actions
+  if (sensitiveActions.length > 0) {
+    scriptParts.push(
+      "-- ========================================",
+      "-- SENSITIVE INFORMATION REQUIRES MANUAL ACTION",
+      "-- ========================================",
+      `-- This migration script contains ${sensitiveActions.length} sensitive field(s) that require manual handling.`,
+      "-- Please review the comments below and set passwords/credentials accordingly.",
+      "-- ========================================",
+      "",
+    );
+  }
+
+  scriptParts.push(...sessionConfig);
+
+  const changeStatements = sortedChanges.map((change) => {
+    return (
+      options.serialize?.({ mainCatalog, branchCatalog }, change) ??
+      change.serialize()
+    );
+  });
+
+  scriptParts.push(...changeStatements);
+
+  const migrationScript = `${scriptParts.join(";\n\n")};`;
 
   console.log(migrationScript);
 
-  return migrationScript;
+  return {
+    migrationScript,
+    sensitiveActions,
+  };
 }

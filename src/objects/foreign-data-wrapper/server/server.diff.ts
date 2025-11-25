@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
+import { filterServerEnvDependentOptions } from "../../../env-dependent.ts";
 import type { Role } from "../../role/role.model.ts";
 import {
   AlterServerChangeOwner,
@@ -169,9 +170,8 @@ export function diffServers(
     }
 
     // OPTIONS
-    const optionsChanged = diffOptions(
-      mainServer.options,
-      branchServer.options,
+    const optionsChanged = filterServerEnvDependentOptions(
+      diffOptions(mainServer.options, branchServer.options),
     );
     if (optionsChanged.length > 0) {
       changes.push(

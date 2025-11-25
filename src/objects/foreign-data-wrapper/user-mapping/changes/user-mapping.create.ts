@@ -1,3 +1,5 @@
+import { maskSensitiveOptions } from "../../../../sensitive.ts";
+import type { SensitiveInfo } from "../../../../sensitive.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
@@ -37,30 +39,58 @@ export class CreateUserMapping extends CreateUserMappingChange {
     return Array.from(dependencies);
   }
 
+  get sensitiveInfo(): SensitiveInfo[] {
+    const { sensitive } = maskSensitiveOptions(
+      this.userMapping.options,
+      "user_mapping",
+      `${this.userMapping.server}:${this.userMapping.user}`,
+    );
+    return sensitive;
+  }
+
   serialize(): string {
-    const parts: string[] = ["CREATE USER MAPPING FOR"];
+    const { masked: maskedOptions, sensitive } = maskSensitiveOptions(
+      this.userMapping.options,
+      "user_mapping",
+      `${this.userMapping.server}:${this.userMapping.user}`,
+    );
+
+    const commentParts: string[] = [];
+    const sqlParts: string[] = [];
+
+    // Add warning comment if sensitive options are present
+    if (sensitive.length > 0) {
+      const sensitiveKeys = sensitive.map((s) => s.field).join(", ");
+      commentParts.push(
+        `-- WARNING: User mapping contains sensitive options (${sensitiveKeys})`,
+        `-- Replace placeholders below or run ALTER USER MAPPING after this script`,
+      );
+    }
+
+    sqlParts.push("CREATE USER MAPPING FOR");
 
     // Add user (can be CURRENT_USER, PUBLIC, etc.)
-    parts.push(this.userMapping.user);
+    sqlParts.push(this.userMapping.user);
 
     // Add SERVER clause
-    parts.push("SERVER", this.userMapping.server);
+    sqlParts.push("SERVER", this.userMapping.server);
 
-    // Add OPTIONS clause
-    if (this.userMapping.options && this.userMapping.options.length > 0) {
+    // Add OPTIONS clause with masked values
+    if (maskedOptions && maskedOptions.length > 0) {
       const optionPairs: string[] = [];
-      for (let i = 0; i < this.userMapping.options.length; i += 2) {
-        if (i + 1 < this.userMapping.options.length) {
+      for (let i = 0; i < maskedOptions.length; i += 2) {
+        if (i + 1 < maskedOptions.length) {
           optionPairs.push(
-            `${this.userMapping.options[i]} ${quoteLiteral(this.userMapping.options[i + 1])}`,
+            `${maskedOptions[i]} ${quoteLiteral(maskedOptions[i + 1])}`,
           );
         }
       }
       if (optionPairs.length > 0) {
-        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
+        sqlParts.push(`OPTIONS (${optionPairs.join(", ")})`);
       }
     }
 
-    return parts.join(" ");
+    const sql = sqlParts.join(" ");
+    return commentParts.length > 0 ? `${commentParts.join("\n")}\n${sql}` : sql;
   }
 }

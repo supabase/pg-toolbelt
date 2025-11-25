@@ -20,7 +20,7 @@ describe.concurrent("user-mapping", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password 'secret')",
+        "-- WARNING: User mapping options contain sensitive values (user, password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user '__SENSITIVE_USER__', ADD password '__SENSITIVE_PASSWORD__')",
       );
     });
 
@@ -37,7 +37,7 @@ describe.concurrent("user-mapping", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password 'new_secret')",
+        "-- WARNING: User mapping options contain sensitive values (password)\n-- Replace placeholders below with actual values\nALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password '__SENSITIVE_PASSWORD__')",
       );
     });
 

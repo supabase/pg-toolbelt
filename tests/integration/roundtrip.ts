@@ -31,6 +31,12 @@ interface RoundtripTestOptions {
   // List of stable_ids in the order they should appear in the generated changes.
   // This validates dependency resolution ordering.
   expectedOperationOrder?: Change[];
+  // Skip applying the migration script (useful when it contains placeholders
+  // that can't be executed, like __SENSITIVE_PASSWORD__).
+  skipMigrationExecution?: boolean;
+  // SQL to execute after the migration script runs (useful for setting actual
+  // sensitive values after placeholders are created).
+  postMigrationSql?: string;
 }
 
 async function runOrDump(
@@ -74,6 +80,8 @@ export async function roundtripFidelityTest(
     expectedBranchDependencies,
     expectedOperationOrder,
     sortChangesCallback,
+    skipMigrationExecution,
+    postMigrationSql,
   } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
@@ -184,26 +192,52 @@ export async function roundtripFidelityTest(
   if (DEBUG) {
     console.log("migrationScript: ", migrationScript);
   }
-  // Apply migration to main database
-  if (migrationScript.trim()) {
-    await runOrDump(
-      () =>
-        mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
-      {
-        label: "migration",
-        diffScript: migrationScript,
-      },
-    );
-  }
 
-  // Extract final catalog from main database
-  if (DEBUG) {
-    console.log("mainCatalogAfter: ");
+  let mainCatalogAfter: Catalog;
+  if (skipMigrationExecution) {
+    // Skip execution when migration contains placeholders that can't be executed
+    // (e.g., __SENSITIVE_PASSWORD__). The assertions above already validated the SQL.
+    mainCatalogAfter = mainCatalog;
+  } else {
+    // Apply migration to main database
+    if (migrationScript.trim()) {
+      await runOrDump(
+        () =>
+          mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
+        {
+          label: "migration",
+          diffScript: migrationScript,
+        },
+      );
+    }
+
+    // Execute post-migration SQL (e.g., to set actual sensitive values)
+    if (postMigrationSql) {
+      await runOrDump(
+        () =>
+          mainSession.unsafe(
+            [...sessionConfig, postMigrationSql].join(";\n\n"),
+          ),
+        {
+          label: "postMigrationSql",
+        },
+      );
+    }
+
+    // Extract final catalog from main database
+    if (DEBUG) {
+      console.log("mainCatalogAfter: ");
+    }
+    mainCatalogAfter = await extractCatalog(mainSession);
   }
-  const mainCatalogAfter = await extractCatalog(mainSession);
 
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target
+  // Skip this check if we skipped execution (placeholders can't be executed)
+  if (skipMigrationExecution) {
+    return;
+  }
+
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
   if (changesAfter.length > 0) {

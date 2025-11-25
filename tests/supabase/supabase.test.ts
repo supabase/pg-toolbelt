@@ -305,12 +305,12 @@ describe.sequential(
         let _storedResult: StoredTestResult | null = null;
 
         try {
-          migrationScript = await main(db.local, db.remote, supabase);
+          const result = await main(db.local, db.remote, supabase);
           generationTimeMs = Math.round(
             performance.now() - generationStartTime,
           );
 
-          if (!migrationScript) {
+          if (!result) {
             console.log(
               `No migrations needed for project ${remoteProject.ref}`,
             );
@@ -324,6 +324,7 @@ describe.sequential(
             return;
           }
 
+          migrationScript = result.migrationScript;
           sql = postgres(db.local);
           await sql.unsafe(migrationScript);
 

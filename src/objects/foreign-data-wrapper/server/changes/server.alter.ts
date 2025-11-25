@@ -1,3 +1,4 @@
+import type { SensitiveInfo } from "../../../../sensitive.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -105,22 +106,73 @@ export class AlterServerSetOptions extends AlterServerChange {
     return [this.server.stableId];
   }
 
+  get sensitiveInfo(): SensitiveInfo[] {
+    const sensitive: SensitiveInfo[] = [];
+    for (const opt of this.options) {
+      if (
+        opt.action !== "DROP" &&
+        opt.value !== undefined &&
+        (opt.option.toLowerCase() === "password" ||
+          opt.option.toLowerCase() === "user" ||
+          opt.option.toLowerCase() === "sslpassword" ||
+          opt.option.toLowerCase() === "sslkey")
+      ) {
+        sensitive.push({
+          type: "server_option",
+          objectType: "server",
+          objectName: this.server.name,
+          field: opt.option,
+          placeholder: `__SENSITIVE_${opt.option.toUpperCase()}__`,
+          instruction: `Replace __SENSITIVE_${opt.option.toUpperCase()}__ with the actual ${opt.option} value for server ${this.server.name}.`,
+        });
+      }
+    }
+    return sensitive;
+  }
+
   serialize(): string {
     const optionParts: string[] = [];
+    const hasSensitive = this.sensitiveInfo.length > 0;
+
     for (const opt of this.options) {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`);
+        let value = opt.value !== undefined ? opt.value : "";
+        // Mask sensitive values
+        if (
+          opt.value !== undefined &&
+          (opt.option.toLowerCase() === "password" ||
+            opt.option.toLowerCase() === "user" ||
+            opt.option.toLowerCase() === "sslpassword" ||
+            opt.option.toLowerCase() === "sslkey")
+        ) {
+          value = `__SENSITIVE_${opt.option.toUpperCase()}__`;
+        }
+        optionParts.push(`${opt.action} ${opt.option} ${quoteLiteral(value)}`);
       }
     }
 
-    return [
+    const commentParts: string[] = [];
+    const sqlParts: string[] = [];
+
+    // Add warning comment if sensitive options are present
+    if (hasSensitive) {
+      const sensitiveKeys = this.sensitiveInfo.map((s) => s.field).join(", ");
+      commentParts.push(
+        `-- WARNING: Server options contain sensitive values (${sensitiveKeys})`,
+        `-- Replace placeholders below with actual values`,
+      );
+    }
+
+    sqlParts.push(
       "ALTER SERVER",
       this.server.name,
       "OPTIONS",
       `(${optionParts.join(", ")})`,
-    ].join(" ");
+    );
+
+    const sql = sqlParts.join(" ");
+    return commentParts.length > 0 ? `${commentParts.join("\n")}\n${sql}` : sql;
   }
 }

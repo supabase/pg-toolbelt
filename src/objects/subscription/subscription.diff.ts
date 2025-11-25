@@ -89,13 +89,16 @@ export function diffSubscriptions(
       continue;
     }
 
-    if (mainSubscription.conninfo !== branchSubscription.conninfo) {
-      changes.push(
-        new AlterSubscriptionSetConnection({
-          subscription: branchSubscription,
-        }),
-      );
-    }
+    // Skip conninfo comparison - it's environment-dependent
+    // Different environments will have different connection strings
+    // if (mainSubscription.conninfo !== branchSubscription.conninfo) {
+    //   changes.push(
+    //     new AlterSubscriptionSetConnection({
+    //       subscription: branchSubscription,
+    //     }),
+    //   );
+    // }
+
 
     const publicationsChanged =
       mainSubscription.publications.length !==

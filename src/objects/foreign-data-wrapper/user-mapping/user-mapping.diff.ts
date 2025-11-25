@@ -1,4 +1,5 @@
 import { diffObjects } from "../../base.diff.ts";
+import { filterUserMappingEnvDependentOptions } from "../../../env-dependent.ts";
 import { AlterUserMappingSetOptions } from "./changes/user-mapping.alter.ts";
 import { CreateUserMapping } from "./changes/user-mapping.create.ts";
 import { DropUserMapping } from "./changes/user-mapping.drop.ts";
@@ -34,9 +35,8 @@ export function diffUserMappings(
     const branchMapping = branch[mappingId];
 
     // OPTIONS
-    const optionsChanged = diffOptions(
-      mainMapping.options,
-      branchMapping.options,
+    const optionsChanged = filterUserMappingEnvDependentOptions(
+      diffOptions(mainMapping.options, branchMapping.options),
     );
     if (optionsChanged.length > 0) {
       changes.push(
