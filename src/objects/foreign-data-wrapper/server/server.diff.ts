@@ -1,4 +1,3 @@
-import { filterServerEnvDependentOptions } from "../../../env-dependent.ts";
 import type { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
@@ -170,8 +169,10 @@ export function diffServers(
     }
 
     // OPTIONS
-    const optionsChanged = filterServerEnvDependentOptions(
-      diffOptions(mainServer.options, branchServer.options),
+    // Env-dependent filtering is handled by integration transform
+    const optionsChanged = diffOptions(
+      mainServer.options,
+      branchServer.options,
     );
     if (optionsChanged.length > 0) {
       changes.push(

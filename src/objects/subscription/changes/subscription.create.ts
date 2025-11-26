@@ -1,7 +1,5 @@
 // src/objects/subscription/changes/subscription.create.ts
 
-import { maskConninfo } from "../../../sensitive.ts";
-import type { SensitiveInfo } from "../../../sensitive.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -25,44 +23,14 @@ export class CreateSubscription extends CreateSubscriptionChange {
     return [stableId.role(this.subscription.owner)];
   }
 
-  get sensitiveInfo(): SensitiveInfo[] {
-    const { hadPassword } = maskConninfo(this.subscription.conninfo);
-    if (hadPassword) {
-      return [
-        {
-          type: "subscription_conninfo",
-          objectType: "subscription",
-          objectName: this.subscription.name,
-          field: "conninfo",
-          placeholder: "__SENSITIVE_PASSWORD__",
-          instruction: `Replace __SENSITIVE_PASSWORD__ in the connection string for subscription ${this.subscription.name} with the actual password, or run ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION after this script.`,
-        },
-      ];
-    }
-    return [];
-  }
-
   serialize(): string {
-    const { masked: maskedConninfo, hadPassword } = maskConninfo(
-      this.subscription.conninfo,
-    );
-
-    const commentParts: string[] = [];
     const sqlParts: string[] = [];
-
-    // Add warning comment if conninfo contains password
-    if (hadPassword) {
-      commentParts.push(
-        "-- WARNING: Connection string contains sensitive password",
-        `-- Replace __SENSITIVE_PASSWORD__ with actual password or run ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION after this script`,
-      );
-    }
 
     sqlParts.push(
       "CREATE SUBSCRIPTION",
       this.subscription.name,
       "CONNECTION",
-      quoteLiteral(maskedConninfo),
+      quoteLiteral(this.subscription.conninfo),
       "PUBLICATION",
       this.subscription.publications.join(", "),
     );
@@ -99,7 +67,6 @@ export class CreateSubscription extends CreateSubscriptionChange {
       sqlParts.push("WITH", `(${withOptions.join(", ")})`);
     }
 
-    const sql = sqlParts.join(" ");
-    return commentParts.length > 0 ? `${commentParts.join("\n")}\n${sql}` : sql;
+    return sqlParts.join(" ");
   }
 }

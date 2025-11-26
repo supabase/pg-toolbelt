@@ -1,4 +1,3 @@
-import { filterUserMappingEnvDependentOptions } from "../../../env-dependent.ts";
 import { diffObjects } from "../../base.diff.ts";
 import { AlterUserMappingSetOptions } from "./changes/user-mapping.alter.ts";
 import { CreateUserMapping } from "./changes/user-mapping.create.ts";
@@ -35,8 +34,10 @@ export function diffUserMappings(
     const branchMapping = branch[mappingId];
 
     // OPTIONS
-    const optionsChanged = filterUserMappingEnvDependentOptions(
-      diffOptions(mainMapping.options, branchMapping.options),
+    // Env-dependent filtering is handled by integration transform
+    const optionsChanged = diffOptions(
+      mainMapping.options,
+      branchMapping.options,
     );
     if (optionsChanged.length > 0) {
       changes.push(

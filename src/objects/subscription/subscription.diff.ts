@@ -3,6 +3,7 @@ import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSubscriptionDisable,
   AlterSubscriptionEnable,
+  AlterSubscriptionSetConnection,
   AlterSubscriptionSetOptions,
   AlterSubscriptionSetOwner,
   AlterSubscriptionSetPublication,
@@ -88,15 +89,14 @@ export function diffSubscriptions(
       continue;
     }
 
-    // Skip conninfo comparison - it's environment-dependent
-    // Different environments will have different connection strings
-    // if (mainSubscription.conninfo !== branchSubscription.conninfo) {
-    //   changes.push(
-    //     new AlterSubscriptionSetConnection({
-    //       subscription: branchSubscription,
-    //     }),
-    //   );
-    // }
+    // Conninfo changes are handled by integration transform (env-dependent filtering)
+    if (mainSubscription.conninfo !== branchSubscription.conninfo) {
+      changes.push(
+        new AlterSubscriptionSetConnection({
+          subscription: branchSubscription,
+        }),
+      );
+    }
 
     const publicationsChanged =
       mainSubscription.publications.length !==

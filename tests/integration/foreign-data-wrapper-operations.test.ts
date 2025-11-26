@@ -233,10 +233,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER USER MAPPING FOR CURRENT_USER SERVER test_server OPTIONS (ADD password 'secret', SET user 'new_user');
         `,
         // SET actions are filtered out, but ADD actions generate ALTER
+        // Note: SET user is filtered out, but ADD password remains and is masked
         expectedSqlTerms: [
           dedent`
             -- WARNING: User mapping options contain values (password)
-            -- Replace placeholders below with actual values
+            -- Replace the placeholders in the OPTIONS clause with actual values before executing
             ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')
           `,
         ],

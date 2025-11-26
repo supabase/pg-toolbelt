@@ -1,5 +1,3 @@
-import type { SensitiveInfo } from "../sensitive.types.ts";
-
 type ChangeOperation = "create" | "alter" | "drop";
 
 export abstract class BaseChange {
@@ -47,15 +45,6 @@ export abstract class BaseChange {
    * Defaults to an empty array. Override in subclasses that have prerequisites.
    */
   get requires(): string[] {
-    return [];
-  }
-
-  /**
-   * Sensitive information that needs manual handling.
-   *
-   * Defaults to an empty array. Override in subclasses that contain sensitive data.
-   */
-  get sensitiveInfo(): SensitiveInfo[] {
     return [];
   }
 

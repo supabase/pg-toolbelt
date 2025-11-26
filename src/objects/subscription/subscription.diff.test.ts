@@ -61,7 +61,7 @@ describe.concurrent("subscription.diff", () => {
   });
 
   test("detect connection string change", () => {
-    // conninfo is environment-dependent and should be ignored during diff
+    // conninfo changes are detected by diff, but filtered by integration filter
     const mainSubscription = new Subscription(baseProps);
     const branchSubscription = new Subscription({
       ...baseProps,
@@ -72,12 +72,12 @@ describe.concurrent("subscription.diff", () => {
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
-    // conninfo changes are ignored, so no ALTER should be generated
+    // conninfo changes are detected (filtering happens at integration level)
     expect(
       changes.some(
         (change) => change instanceof AlterSubscriptionSetConnection,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("detect publication list change", () => {

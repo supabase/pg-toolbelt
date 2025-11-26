@@ -24,9 +24,7 @@ describe("role", () => {
       role,
     });
 
-    expect(change.serialize()).toBe(
-      "-- WARNING: Role requires password to be set manually\n-- Run: ALTER ROLE test_role PASSWORD '<your-password-here>';\nCREATE ROLE test_role WITH LOGIN",
-    );
+    expect(change.serialize()).toBe("CREATE ROLE test_role WITH LOGIN");
   });
 
   test("create with all options (non-defaults only)", () => {
@@ -48,7 +46,7 @@ describe("role", () => {
 
     const change = new CreateRole({ role });
     expect(change.serialize()).toBe(
-      "-- WARNING: Role requires password to be set manually\n-- Run: ALTER ROLE r_all PASSWORD '<your-password-here>';\nCREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
+      "CREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
     );
   });
 });

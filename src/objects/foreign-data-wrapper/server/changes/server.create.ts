@@ -1,5 +1,3 @@
-import { maskSensitiveOptions } from "../../../../sensitive.ts";
-import type { SensitiveInfo } from "../../../../sensitive.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -44,33 +42,8 @@ export class CreateServer extends CreateServerChange {
     return Array.from(dependencies);
   }
 
-  get sensitiveInfo(): SensitiveInfo[] {
-    const { sensitive } = maskSensitiveOptions(
-      this.server.options,
-      "server",
-      this.server.name,
-    );
-    return sensitive;
-  }
-
   serialize(): string {
-    const { masked: maskedOptions, sensitive } = maskSensitiveOptions(
-      this.server.options,
-      "server",
-      this.server.name,
-    );
-
-    const commentParts: string[] = [];
     const sqlParts: string[] = [];
-
-    // Add warning comment if options are present (all options are masked)
-    if (sensitive.length > 0) {
-      const optionKeys = sensitive.map((s) => s.field).join(", ");
-      commentParts.push(
-        `-- WARNING: Server contains options (${optionKeys})`,
-        `-- Replace placeholders below or run ALTER SERVER ${this.server.name} after this script`,
-      );
-    }
 
     sqlParts.push("CREATE SERVER");
 
@@ -90,13 +63,13 @@ export class CreateServer extends CreateServerChange {
     // Add FOREIGN DATA WRAPPER clause
     sqlParts.push("FOREIGN DATA WRAPPER", this.server.foreign_data_wrapper);
 
-    // Add OPTIONS clause with masked values
-    if (maskedOptions && maskedOptions.length > 0) {
+    // Add OPTIONS clause
+    if (this.server.options && this.server.options.length > 0) {
       const optionPairs: string[] = [];
-      for (let i = 0; i < maskedOptions.length; i += 2) {
-        if (i + 1 < maskedOptions.length) {
-          const key = maskedOptions[i];
-          const value = maskedOptions[i + 1];
+      for (let i = 0; i < this.server.options.length; i += 2) {
+        if (i + 1 < this.server.options.length) {
+          const key = this.server.options[i];
+          const value = this.server.options[i + 1];
           optionPairs.push(`${key} ${quoteLiteral(value)}`);
         }
       }
@@ -105,7 +78,6 @@ export class CreateServer extends CreateServerChange {
       }
     }
 
-    const sql = sqlParts.join(" ");
-    return commentParts.length > 0 ? `${commentParts.join("\n")}\n${sql}` : sql;
+    return sqlParts.join(" ");
   }
 }
