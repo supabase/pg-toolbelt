@@ -1,3 +1,4 @@
+import { filterServerEnvDependentOptions } from "../../../env-dependent.ts";
 import type { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
@@ -5,7 +6,6 @@ import {
   filterPublicBuiltInDefaults,
   groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
-import { filterServerEnvDependentOptions } from "../../../env-dependent.ts";
 import type { Role } from "../../role/role.model.ts";
 import {
   AlterServerChangeOwner,

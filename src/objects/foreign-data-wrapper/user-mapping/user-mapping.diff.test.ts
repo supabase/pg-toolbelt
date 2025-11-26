@@ -22,6 +22,9 @@ describe.concurrent("user-mapping.diff", () => {
   });
 
   test("alter: options changes", () => {
+    // Note: postgres_fdw user mappings only support 'user' and 'password' options,
+    // both of which are env-dependent and filtered out during diff.
+    // This test verifies that env-dependent options are correctly ignored.
     const main = new UserMapping({
       user: "u1",
       server: "srv1",
@@ -37,11 +40,11 @@ describe.concurrent("user-mapping.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
+    // user and password are env-dependent, so no ALTER should be generated
     const optionsChange = changes.find(
       (c) => c instanceof AlterUserMappingSetOptions,
     ) as AlterUserMappingSetOptions | undefined;
-    expect(optionsChange).toBeDefined();
-    expect(optionsChange?.options.length).toBeGreaterThan(0);
+    expect(optionsChange).toBeUndefined();
   });
 
   test("create with PUBLIC user", () => {

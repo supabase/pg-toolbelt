@@ -19,7 +19,7 @@ const ENV_DEPENDENT_USER_MAPPING_OPTIONS = ["user", "password"] as const;
 /**
  * Check if a server option key is environment-dependent.
  */
-export function isEnvDependentServerOption(key: string): boolean {
+function isEnvDependentServerOption(key: string): boolean {
   return ENV_DEPENDENT_SERVER_OPTIONS.some(
     (envKey) => envKey.toLowerCase() === key.toLowerCase(),
   );
@@ -28,7 +28,7 @@ export function isEnvDependentServerOption(key: string): boolean {
 /**
  * Check if a user mapping option key is environment-dependent.
  */
-export function isEnvDependentUserMappingOption(key: string): boolean {
+function isEnvDependentUserMappingOption(key: string): boolean {
   return ENV_DEPENDENT_USER_MAPPING_OPTIONS.some(
     (envKey) => envKey.toLowerCase() === key.toLowerCase(),
   );
@@ -49,9 +49,7 @@ export function filterServerEnvDependentOptions(
   option: string;
   value?: string;
 }> {
-  return options.filter(
-    (opt) => !isEnvDependentServerOption(opt.option),
-  );
+  return options.filter((opt) => !isEnvDependentServerOption(opt.option));
 }
 
 /**
@@ -69,8 +67,5 @@ export function filterUserMappingEnvDependentOptions(
   option: string;
   value?: string;
 }> {
-  return options.filter(
-    (opt) => !isEnvDependentUserMappingOption(opt.option),
-  );
+  return options.filter((opt) => !isEnvDependentUserMappingOption(opt.option));
 }
-

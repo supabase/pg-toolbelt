@@ -3,7 +3,6 @@ import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSubscriptionDisable,
   AlterSubscriptionEnable,
-  AlterSubscriptionSetConnection,
   AlterSubscriptionSetOptions,
   AlterSubscriptionSetOwner,
   AlterSubscriptionSetPublication,
@@ -98,7 +97,6 @@ export function diffSubscriptions(
     //     }),
     //   );
     // }
-
 
     const publicationsChanged =
       mainSubscription.publications.length !==

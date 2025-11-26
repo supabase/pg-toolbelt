@@ -1,5 +1,5 @@
-import { diffObjects } from "../../base.diff.ts";
 import { filterUserMappingEnvDependentOptions } from "../../../env-dependent.ts";
+import { diffObjects } from "../../base.diff.ts";
 import { AlterUserMappingSetOptions } from "./changes/user-mapping.alter.ts";
 import { CreateUserMapping } from "./changes/user-mapping.create.ts";
 import { DropUserMapping } from "./changes/user-mapping.drop.ts";

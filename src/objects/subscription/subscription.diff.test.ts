@@ -61,6 +61,7 @@ describe.concurrent("subscription.diff", () => {
   });
 
   test("detect connection string change", () => {
+    // conninfo is environment-dependent and should be ignored during diff
     const mainSubscription = new Subscription(baseProps);
     const branchSubscription = new Subscription({
       ...baseProps,
@@ -71,11 +72,12 @@ describe.concurrent("subscription.diff", () => {
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
+    // conninfo changes are ignored, so no ALTER should be generated
     expect(
       changes.some(
         (change) => change instanceof AlterSubscriptionSetConnection,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("detect publication list change", () => {
