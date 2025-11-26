@@ -72,6 +72,23 @@ function objectPrivilegeUniverse(
     case "TYPE":
     case "DOMAIN":
       return ["USAGE"];
+    case "FOREIGN DATA WRAPPER":
+      return ["USAGE"];
+    case "SERVER":
+      return ["USAGE"];
+    case "FOREIGN TABLE": {
+      const includesMaintain = (version ?? 170000) >= 170000;
+      return [
+        "DELETE",
+        "INSERT",
+        ...(includesMaintain ? (["MAINTAIN"] as const) : []),
+        "REFERENCES",
+        "SELECT",
+        "TRIGGER",
+        "TRUNCATE",
+        "UPDATE",
+      ];
+    }
     default:
       return [];
   }
@@ -144,6 +161,8 @@ export function getObjectKindPrefix(objectKind: string): string {
       return "ON DOMAIN";
     case "TYPE":
       return "ON TYPE";
+    case "FOREIGN TABLE":
+      return "ON FOREIGN TABLE";
     default:
       return "ON";
   }

@@ -76,6 +76,10 @@ exports[`extract empty catalog > catalog-empty-pg15 1`] = `
   "rules": {},
   "ranges": {},
   "views": {},
+  "foreignDataWrappers": {},
+  "servers": {},
+  "userMappings": {},
+  "foreignTables": {},
   "depends": [
     {
       "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",
@@ -250,6 +254,10 @@ exports[`extract empty catalog > catalog-empty-pg17 1`] = `
   "rules": {},
   "ranges": {},
   "views": {},
+  "foreignDataWrappers": {},
+  "servers": {},
+  "userMappings": {},
+  "foreignTables": {},
   "depends": [
     {
       "dependent_stable_id": "acl:schema:public::grantee:pg_database_owner",

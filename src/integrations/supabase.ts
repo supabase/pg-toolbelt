@@ -75,7 +75,8 @@ export const supabase: Integration = {
       change.operation === "create" &&
       change.scope === "object";
     const isSupabaseSchema = SUPABASE_SCHEMAS.includes(getSchema(change) ?? "");
-    const isSupabaseRole = SUPABASE_ROLES.includes(getOwner(change));
+    const owner = getOwner(change);
+    const isSupabaseRole = owner !== null && SUPABASE_ROLES.includes(owner);
     const isMembershipForSupabaseRole =
       change.objectType === "role" &&
       change.scope === "membership" &&
@@ -92,11 +93,13 @@ export const supabase: Integration = {
     return !isSupabaseSchema && !isSupabaseRole && !isMembershipForSupabaseRole;
   },
   serialize: (_ctx, change) => {
+    const owner = getOwner(change);
     const isCreateSchemaOwnedBySupabaseRole =
       change.objectType === "schema" &&
       change.operation === "create" &&
       change.scope === "object" &&
-      SUPABASE_ROLES.includes(getOwner(change));
+      owner !== null &&
+      SUPABASE_ROLES.includes(owner);
 
     if (isCreateSchemaOwnedBySupabaseRole) {
       return change.serialize({ skipAuthorization: true });

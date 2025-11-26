@@ -46,6 +46,14 @@ export function getSchema(change: Change) {
       return change.trigger.schema;
     case "view":
       return change.view.schema;
+    case "foreign_data_wrapper":
+      return null;
+    case "server":
+      return null;
+    case "user_mapping":
+      return null;
+    case "foreign_table":
+      return change.foreignTable.schema;
     default: {
       // exhaustiveness check
       const _exhaustive: never = change;
@@ -100,6 +108,14 @@ export function getOwner(change: Change) {
       return change.trigger.owner;
     case "view":
       return change.view.owner;
+    case "foreign_data_wrapper":
+      return change.foreignDataWrapper.owner;
+    case "server":
+      return change.server.owner;
+    case "user_mapping":
+      return null;
+    case "foreign_table":
+      return change.foreignTable.owner;
     default: {
       // exhaustiveness check
       const _exhaustive: never = change;

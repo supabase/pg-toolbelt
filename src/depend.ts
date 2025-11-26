@@ -58,7 +58,7 @@ with
     from pg_catalog.pg_class c
     join lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable) on true
     left join extension_rel_oids e on e.objid = c.oid
-    where c.relkind in ('r','p','v','m','S')
+    where c.relkind in ('r','p','v','m','S','f')
       and not c.relnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
       and e.objid is null
   ),
@@ -69,6 +69,7 @@ with
         when relkind = 'v' then format('view:%I.%I', schema_name, relname)
         when relkind = 'm' then format('materializedView:%I.%I', schema_name, relname)
         when relkind = 'S' then format('sequence:%I.%I', schema_name, relname)
+        when relkind = 'f' then format('foreignTable:%I.%I', schema_name, relname)
         else null
       end as target_stable_id,
       schema_name as target_schema,
@@ -181,7 +182,7 @@ with
            c.relname as relname
     from pg_catalog.pg_class c
     left join pg_depend de on de.classid='pg_class'::regclass and de.objid=c.oid and de.refclassid='pg_extension'::regclass
-    where c.relkind in ('r','p','v','m')
+    where c.relkind in ('r','p','v','m','f')
       and not c.relnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
       and de.objid is null
   ),
@@ -217,6 +218,52 @@ with
       end as schema_name
     from pg_default_acl d
     cross join lateral aclexplode(coalesce(d.defaclacl, ARRAY[]::aclitem[])) as x(grantor, grantee, privilege_type, is_grantable)
+  ),
+
+  -- OBJECT PRIVILEGES (Foreign Data Wrappers)
+  fdw_acls as (
+    select
+      format('foreignDataWrapper:%I', fdw.fdwname) as fdw_stable_id,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_foreign_data_wrapper fdw
+    join lateral aclexplode(fdw.fdwacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    where not fdw.fdwname like any(array['pg\\_%'])
+  ),
+
+  -- OBJECT PRIVILEGES (Servers)
+  server_acls as (
+    select
+      format('server:%I', srv.srvname) as server_stable_id,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_foreign_server srv
+    join pg_catalog.pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
+    join lateral aclexplode(srv.srvacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    where not fdw.fdwname like any(array['pg\\_%'])
+  ),
+
+  -- OBJECT PRIVILEGES (Foreign Tables)
+  foreign_table_acls as (
+    select
+      c.relnamespace::regnamespace::text as schema_name,
+      c.relname as relname,
+      case when x.grantee = 0 then 'PUBLIC' else x.grantee::regrole::text end as grantee
+    from pg_catalog.pg_class c
+    join pg_foreign_table ft on ft.ftrelid = c.oid
+    join pg_foreign_server srv on srv.oid = ft.ftserver
+    join pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
+    join lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable) on true
+    left join extension_rel_oids e on e.objid = c.oid
+    where c.relkind = 'f'
+      and not c.relnamespace::regnamespace::text like any(array['pg\\_%','information\\_schema'])
+      and e.objid is null
+      and not fdw.fdwname like any(array['pg\\_%'])
+  ),
+  foreign_table_targets as (
+    select
+      format('foreignTable:%I.%I', schema_name, relname) as target_stable_id,
+      schema_name as target_schema,
+      grantee
+    from foreign_table_acls
   ),
 
   -- ROLE MEMBERSHIPS
@@ -388,6 +435,62 @@ from (
     NULL::text as dep_schema,
     NULL::text as ref_schema
   from memberships
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', fdw_stable_id, grantee) as dependent_stable_id,
+    fdw_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from fdw_acls
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', fdw_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from fdw_acls
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', server_stable_id, grantee) as dependent_stable_id,
+    server_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from server_acls
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', server_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    NULL::text as dep_schema,
+    NULL::text as ref_schema
+  from server_acls
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    target_stable_id as referenced_stable_id,
+    'n'::char as deptype,
+    target_schema as dep_schema,
+    target_schema as ref_schema
+  from foreign_table_targets
+  where target_stable_id is not null
+
+  union all
+  select distinct
+    format('acl:%s::grantee:%s', target_stable_id, grantee) as dependent_stable_id,
+    format('role:%s', grantee) as referenced_stable_id,
+    'n'::char as deptype,
+    target_schema as dep_schema,
+    NULL::text as ref_schema
+  from foreign_table_targets
+  where target_stable_id is not null
 ) all_rows
 where dependent_stable_id <> referenced_stable_id
   and NOT (
@@ -440,6 +543,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
                 WHEN 'v' THEN format('view:%I.%I', ns.nspname, c.relname)
                 WHEN 'm' THEN format('materializedView:%I.%I', ns.nspname, c.relname)
                 WHEN 'S' THEN format('sequence:%I.%I', ns.nspname, c.relname)
+                WHEN 'f' THEN format('foreignTable:%I.%I', ns.nspname, c.relname)
                 WHEN 'i' THEN format('index:%I.%I.%I', ns.nspname, tbl.relname, c.relname)
                 WHEN 'c' THEN format('type:%I.%I', ns.nspname, c.relname)
                 ELSE format('unknown:%s.%s', 'pg_class', c.oid::text)
@@ -675,6 +779,36 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
      AND i.objid = s.oid
      AND COALESCE(i.objsubid,0) = 0
     WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+
+    UNION ALL
+    /* Foreign Data Wrappers */
+    SELECT 'pg_foreign_data_wrapper'::regclass, fdw.oid, 0::int2,
+          NULL::text,
+          format('foreignDataWrapper:%I', fdw.fdwname)
+    FROM pg_foreign_data_wrapper fdw
+    JOIN ids i ON i.classid = 'pg_foreign_data_wrapper'::regclass AND i.objid = fdw.oid AND COALESCE(i.objsubid,0) = 0
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+    /* Foreign Servers */
+    SELECT 'pg_foreign_server'::regclass, srv.oid, 0::int2,
+          NULL::text,
+          format('server:%I', srv.srvname)
+    FROM pg_foreign_server srv
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    JOIN ids i ON i.classid = 'pg_foreign_server'::regclass AND i.objid = srv.oid AND COALESCE(i.objsubid,0) = 0
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+    /* User Mappings */
+    SELECT 'pg_user_mapping'::regclass, um.oid, 0::int2,
+          NULL::text,
+          format('userMapping:%I:%s', srv.srvname, CASE WHEN um.umuser = 0 THEN 'PUBLIC' ELSE um.umuser::regrole::text END)
+    FROM pg_user_mapping um
+    JOIN pg_foreign_server srv ON srv.oid = um.umserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    JOIN ids i ON i.classid = 'pg_user_mapping'::regclass AND i.objid = um.oid AND COALESCE(i.objsubid,0) = 0
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   base AS (
     SELECT DISTINCT
@@ -702,6 +836,25 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
     JOIN pg_namespace n ON c.relnamespace = n.oid
     WHERE c.relkind IN ('r','p')
+
+    UNION ALL
+
+    -- Foreign table comments
+    SELECT DISTINCT
+      format('comment:%s', format('foreignTable:%I.%I', n.nspname, c.relname))         AS dependent_stable_id,
+      format('foreignTable:%I.%I', n.nspname, c.relname)                               AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_description d
+    JOIN pg_class c ON d.classoid = 'pg_class'::regclass AND d.objoid = c.oid AND d.objsubid = 0
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    JOIN pg_foreign_table ft ON ft.ftrelid = c.oid
+    JOIN pg_foreign_server srv ON srv.oid = ft.ftserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE c.relkind = 'f'
+      AND NOT n.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+      AND NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
 
     UNION ALL
 
@@ -1046,6 +1199,39 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     JOIN pg_class tbl ON con.conrelid = tbl.oid
     JOIN pg_namespace ns ON tbl.relnamespace = ns.oid
     WHERE con.conrelid <> 0
+
+    UNION ALL
+
+    -- Foreign Data Wrapper comments
+    SELECT DISTINCT
+      format('comment:%s', format('foreignDataWrapper:%I', fdw.fdwname)) AS dependent_stable_id,
+      format('foreignDataWrapper:%I', fdw.fdwname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_foreign_data_wrapper fdw
+      ON d.classoid = 'pg_foreign_data_wrapper'::regclass
+     AND d.objoid = fdw.oid
+     AND d.objsubid = 0
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- Server comments
+    SELECT DISTINCT
+      format('comment:%s', format('server:%I', srv.srvname)) AS dependent_stable_id,
+      format('server:%I', srv.srvname)                       AS referenced_stable_id,
+      'a'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_description d
+    JOIN pg_foreign_server srv
+      ON d.classoid = 'pg_foreign_server'::regclass
+     AND d.objoid = srv.oid
+     AND d.objsubid = 0
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   type_usage_deps AS (
     -- Composite type attribute dependencies on user-defined types (domain/enum/range/multirange/composite)
@@ -1501,6 +1687,48 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       NULL::text AS ref_schema
     FROM pg_collation c
     JOIN pg_namespace n ON c.collnamespace = n.oid
+
+    UNION ALL
+
+    -- Foreign Data Wrapper ownership dependencies
+    SELECT DISTINCT
+      format('foreignDataWrapper:%I', fdw.fdwname) AS dependent_stable_id,
+      format('role:%s', fdw.fdwowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_foreign_data_wrapper fdw
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- Server ownership dependencies
+    SELECT DISTINCT
+      format('server:%I', srv.srvname) AS dependent_stable_id,
+      format('role:%s', srv.srvowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_foreign_server srv
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- Foreign Table ownership dependencies
+    SELECT DISTINCT
+      format('foreignTable:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('role:%s', c.relowner::regrole::text) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    JOIN pg_foreign_table ft ON ft.ftrelid = c.oid
+    JOIN pg_foreign_server srv ON srv.oid = ft.ftserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE c.relkind = 'f'
+      AND NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   publication_deps AS (
     SELECT DISTINCT
@@ -1513,7 +1741,7 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     JOIN pg_publication_rel pr ON pr.prpubid = pub.oid
     JOIN pg_class cls ON cls.oid = pr.prrelid
     JOIN pg_namespace ns ON ns.oid = cls.relnamespace
-    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\_%','information\_schema'])
+    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
   ),
   publication_schema_deps AS (
     SELECT DISTINCT
@@ -1525,7 +1753,67 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     FROM pg_publication pub
     JOIN pg_publication_namespace pn ON pn.pnpubid = pub.oid
     JOIN pg_namespace ns ON ns.oid = pn.pnnspid
-    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\_%','information\_schema'])
+    WHERE NOT ns.nspname LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
+  ),
+  fdw_deps AS (
+    -- Servers depend on their Foreign Data Wrapper
+    SELECT DISTINCT
+      format('server:%I', srv.srvname) AS dependent_stable_id,
+      format('foreignDataWrapper:%I', fdw.fdwname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_foreign_server srv
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- User Mappings depend on their Server
+    SELECT DISTINCT
+      format('userMapping:%I:%s', srv.srvname, CASE WHEN um.umuser = 0 THEN 'PUBLIC' ELSE um.umuser::regrole::text END) AS dependent_stable_id,
+      format('server:%I', srv.srvname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      NULL::text AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_user_mapping um
+    JOIN pg_foreign_server srv ON srv.oid = um.umserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- Foreign Tables depend on their Server
+    SELECT DISTINCT
+      format('foreignTable:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('server:%I', srv.srvname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    JOIN pg_foreign_table ft ON ft.ftrelid = c.oid
+    JOIN pg_foreign_server srv ON srv.oid = ft.ftserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE c.relkind = 'f'
+      AND NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
+
+    UNION ALL
+
+    -- Foreign Tables depend on their Schema
+    SELECT DISTINCT
+      format('foreignTable:%I.%I', n.nspname, c.relname) AS dependent_stable_id,
+      format('schema:%I', n.nspname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      n.nspname AS dep_schema,
+      n.nspname AS ref_schema
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    JOIN pg_foreign_table ft ON ft.ftrelid = c.oid
+    JOIN pg_foreign_server srv ON srv.oid = ft.ftserver
+    JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
+    WHERE c.relkind = 'f'
+      AND NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   all_rows AS (
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM base
@@ -1549,6 +1837,8 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM publication_schema_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM fdw_deps
   )
   SELECT DISTINCT
     dependent_stable_id,

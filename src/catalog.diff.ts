@@ -7,6 +7,10 @@ import { diffCollations } from "./objects/collation/collation.diff.ts";
 import { diffDomains } from "./objects/domain/domain.diff.ts";
 import { diffEventTriggers } from "./objects/event-trigger/event-trigger.diff.ts";
 import { diffExtensions } from "./objects/extension/extension.diff.ts";
+import { diffForeignDataWrappers } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.diff.ts";
+import { diffForeignTables } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.diff.ts";
+import { diffServers } from "./objects/foreign-data-wrapper/server/server.diff.ts";
+import { diffUserMappings } from "./objects/foreign-data-wrapper/user-mapping/user-mapping.diff.ts";
 import { diffIndexes } from "./objects/index/index.diff.ts";
 import { diffMaterializedViews } from "./objects/materialized-view/materialized-view.diff.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
@@ -145,6 +149,19 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
   changes.push(...diffRules(main.rules, branch.rules));
   changes.push(...diffRanges(diffContext, main.ranges, branch.ranges));
   changes.push(...diffViews(diffContext, main.views, branch.views));
+  // Foreign Data Wrapper objects (in dependency order)
+  changes.push(
+    ...diffForeignDataWrappers(
+      diffContext,
+      main.foreignDataWrappers,
+      branch.foreignDataWrappers,
+    ),
+  );
+  changes.push(...diffServers(diffContext, main.servers, branch.servers));
+  changes.push(...diffUserMappings(main.userMappings, branch.userMappings));
+  changes.push(
+    ...diffForeignTables(diffContext, main.foreignTables, branch.foreignTables),
+  );
 
   // Filter privilege REVOKEs for objects that are being dropped
   // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
@@ -183,6 +200,14 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
           return !droppedObjectStableIds.has(change.table.stableId);
         case "view":
           return !droppedObjectStableIds.has(change.view.stableId);
+        case "foreign_data_wrapper":
+          return !droppedObjectStableIds.has(
+            change.foreignDataWrapper.stableId,
+          );
+        case "server":
+          return !droppedObjectStableIds.has(change.server.stableId);
+        case "foreign_table":
+          return !droppedObjectStableIds.has(change.foreignTable.stableId);
         default: {
           // exhaustiveness check
           const _exhaustive: never = change;
