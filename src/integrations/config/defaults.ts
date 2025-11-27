@@ -9,8 +9,8 @@ export const defaultConfig: IntegrationConfig = {
     filter: ["password"],
     mask: {
       password: (roleName) => ({
-        placeholder: "<your-password-here>",
-        instruction: `Set the password after migration execution using: ALTER ROLE ${roleName} PASSWORD '<your-password-here>';`,
+        placeholder: "__PASSWORD__",
+        instruction: `Set the password after migration execution using: ALTER ROLE ${roleName} PASSWORD '...';`,
       }),
     },
   },

@@ -74,7 +74,7 @@ export function createChangeSerializer(
         const maskConfig = config.role.mask.password(
           createRoleChange.role.name,
         );
-        warningComment = `-- WARNING: Role requires password to be set manually\n-- Set the password after migration execution using: ALTER ROLE ${createRoleChange.role.name} PASSWORD '${maskConfig.placeholder}';\n`;
+        warningComment = `-- WARNING: Role requires password to be set manually\n-- ${maskConfig.instruction}\n`;
         // No change instance needed - just add comment
       }
     }

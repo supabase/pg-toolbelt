@@ -28,7 +28,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expectedSqlTerms: [
               dedent`
                   -- WARNING: Role requires password to be set manually
-                  -- Set the password after migration execution using: ALTER ROLE test_login_role PASSWORD '<your-password-here>';
+                  -- Set the password after migration execution using: ALTER ROLE test_login_role PASSWORD '...';
                   CREATE ROLE test_login_role WITH LOGIN
                 `,
             ],
