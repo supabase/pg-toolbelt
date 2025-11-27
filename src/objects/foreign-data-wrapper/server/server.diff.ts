@@ -169,7 +169,6 @@ export function diffServers(
     }
 
     // OPTIONS
-    // Env-dependent filtering is handled by integration transform
     const optionsChanged = diffOptions(
       mainServer.options,
       branchServer.options,

@@ -52,8 +52,8 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`.trim());
+        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
+        optionParts.push(`${opt.action} ${opt.option} ${value}`);
       }
     }
 

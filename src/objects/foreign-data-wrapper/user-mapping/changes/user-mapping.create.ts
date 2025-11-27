@@ -38,15 +38,13 @@ export class CreateUserMapping extends CreateUserMappingChange {
   }
 
   serialize(): string {
-    const sqlParts: string[] = [];
-
-    sqlParts.push("CREATE USER MAPPING FOR");
+    const parts: string[] = ["CREATE USER MAPPING FOR"];
 
     // Add user (can be CURRENT_USER, PUBLIC, etc.)
-    sqlParts.push(this.userMapping.user);
+    parts.push(this.userMapping.user);
 
     // Add SERVER clause
-    sqlParts.push("SERVER", this.userMapping.server);
+    parts.push("SERVER", this.userMapping.server);
 
     // Add OPTIONS clause
     if (this.userMapping.options && this.userMapping.options.length > 0) {
@@ -59,10 +57,10 @@ export class CreateUserMapping extends CreateUserMappingChange {
         }
       }
       if (optionPairs.length > 0) {
-        sqlParts.push(`OPTIONS (${optionPairs.join(", ")})`);
+        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
       }
     }
 
-    return sqlParts.join(" ");
+    return parts.join(" ");
   }
 }

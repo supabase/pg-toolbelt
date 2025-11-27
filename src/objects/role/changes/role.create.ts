@@ -42,12 +42,10 @@ export class CreateRole extends CreateRoleChange {
   }
 
   serialize(): string {
-    const sqlParts: string[] = [];
-
-    sqlParts.push("CREATE ROLE");
+    const parts: string[] = ["CREATE ROLE"];
 
     // Add role name
-    sqlParts.push(this.role.name);
+    parts.push(this.role.name);
 
     // Add options (only non-default values)
     const options: string[] = [];
@@ -96,9 +94,9 @@ export class CreateRole extends CreateRoleChange {
     }
 
     if (options.length > 0) {
-      sqlParts.push("WITH", options.join(" "));
+      parts.push("WITH", options.join(" "));
     }
 
-    return sqlParts.join(" ");
+    return parts.join(" ");
   }
 }

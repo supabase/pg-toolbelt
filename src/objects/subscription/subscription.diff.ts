@@ -89,7 +89,6 @@ export function diffSubscriptions(
       continue;
     }
 
-    // Conninfo changes are handled by integration transform (env-dependent filtering)
     if (mainSubscription.conninfo !== branchSubscription.conninfo) {
       changes.push(
         new AlterSubscriptionSetConnection({

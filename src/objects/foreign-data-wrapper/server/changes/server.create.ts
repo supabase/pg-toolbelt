@@ -43,41 +43,39 @@ export class CreateServer extends CreateServerChange {
   }
 
   serialize(): string {
-    const sqlParts: string[] = [];
-
-    sqlParts.push("CREATE SERVER");
+    const parts: string[] = ["CREATE SERVER"];
 
     // Add server name
-    sqlParts.push(this.server.name);
+    parts.push(this.server.name);
 
     // Add TYPE clause
     if (this.server.type) {
-      sqlParts.push("TYPE", quoteLiteral(this.server.type));
+      parts.push("TYPE", quoteLiteral(this.server.type));
     }
 
     // Add VERSION clause
     if (this.server.version) {
-      sqlParts.push("VERSION", quoteLiteral(this.server.version));
+      parts.push("VERSION", quoteLiteral(this.server.version));
     }
 
     // Add FOREIGN DATA WRAPPER clause
-    sqlParts.push("FOREIGN DATA WRAPPER", this.server.foreign_data_wrapper);
+    parts.push("FOREIGN DATA WRAPPER", this.server.foreign_data_wrapper);
 
     // Add OPTIONS clause
     if (this.server.options && this.server.options.length > 0) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.server.options.length; i += 2) {
         if (i + 1 < this.server.options.length) {
-          const key = this.server.options[i];
-          const value = this.server.options[i + 1];
-          optionPairs.push(`${key} ${quoteLiteral(value)}`);
+          optionPairs.push(
+            `${this.server.options[i]} ${quoteLiteral(this.server.options[i + 1])}`,
+          );
         }
       }
       if (optionPairs.length > 0) {
-        sqlParts.push(`OPTIONS (${optionPairs.join(", ")})`);
+        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
       }
     }
 
-    return sqlParts.join(" ");
+    return parts.join(" ");
   }
 }

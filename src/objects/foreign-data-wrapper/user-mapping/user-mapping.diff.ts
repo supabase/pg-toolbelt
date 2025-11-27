@@ -34,7 +34,6 @@ export function diffUserMappings(
     const branchMapping = branch[mappingId];
 
     // OPTIONS
-    // Env-dependent filtering is handled by integration transform
     const optionsChanged = diffOptions(
       mainMapping.options,
       branchMapping.options,

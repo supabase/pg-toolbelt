@@ -1,5 +1,4 @@
 // src/objects/subscription/changes/subscription.create.ts
-
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -24,16 +23,14 @@ export class CreateSubscription extends CreateSubscriptionChange {
   }
 
   serialize(): string {
-    const sqlParts: string[] = [];
-
-    sqlParts.push(
+    const parts: string[] = [
       "CREATE SUBSCRIPTION",
       this.subscription.name,
       "CONNECTION",
       quoteLiteral(this.subscription.conninfo),
       "PUBLICATION",
       this.subscription.publications.join(", "),
-    );
+    ];
 
     const optionEntries = collectSubscriptionOptions(this.subscription, {
       includeTwoPhase: true,
@@ -64,9 +61,9 @@ export class CreateSubscription extends CreateSubscriptionChange {
     );
 
     if (withOptions.length > 0) {
-      sqlParts.push("WITH", `(${withOptions.join(", ")})`);
+      parts.push("WITH", `(${withOptions.join(", ")})`);
     }
 
-    return sqlParts.join(" ");
+    return parts.join(" ");
   }
 }
