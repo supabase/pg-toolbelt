@@ -33,9 +33,6 @@ interface RoundtripTestOptions {
   // List of stable_ids in the order they should appear in the generated changes.
   // This validates dependency resolution ordering.
   expectedOperationOrder?: Change[];
-  // SQL to execute after the migration script runs (useful for setting actual
-  // sensitive values after placeholders are created).
-  postMigrationSql?: string;
   // Integration to use for filtering and serialization
   integration?: Integration;
 }
@@ -81,7 +78,6 @@ export async function roundtripFidelityTest(
     expectedBranchDependencies,
     expectedOperationOrder,
     sortChangesCallback,
-    postMigrationSql,
     integration,
   } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
@@ -220,17 +216,6 @@ export async function roundtripFidelityTest(
       {
         label: "migration",
         diffScript: migrationScript,
-      },
-    );
-  }
-
-  // Execute post-migration SQL (e.g., to set actual sensitive values)
-  if (postMigrationSql) {
-    await runOrDump(
-      () =>
-        mainSession.unsafe([...sessionConfig, postMigrationSql].join(";\n\n")),
-      {
-        label: "postMigrationSql",
       },
     );
   }

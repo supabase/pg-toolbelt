@@ -212,9 +212,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         testSql: `
           CREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user 'remote_user', password 'secret');
         `,
-        postMigrationSql: `
-          ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET user 'remote_user', SET password 'secret');
-        `,
       });
     });
 
@@ -492,9 +489,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             id integer,
             name text
           ) SERVER test_server OPTIONS (schema_name 'remote_schema');
-        `,
-        postMigrationSql: `
-          ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (SET user 'remote_user');
         `,
       });
     });

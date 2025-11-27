@@ -75,9 +75,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 -- Set the connection string after migration execution using: ALTER SUBSCRIPTION sub_sensitive CONNECTION '...';
                 CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)`,
           ],
-          postMigrationSql: `
-              ALTER SUBSCRIPTION sub_sensitive CONNECTION 'dbname=${mainDbName} password=secret123';
-            `,
         });
       });
 
@@ -101,9 +98,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')
               `,
           ],
-          postMigrationSql: `
-              ALTER SERVER test_sensitive_server2 OPTIONS (SET password 'secret123', SET user 'testuser', SET host 'localhost');
-            `,
         });
       });
 
@@ -134,10 +128,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')
               `,
           ],
-          postMigrationSql: `
-              ALTER SERVER test_um_server OPTIONS (SET host 'localhost');
-              ALTER USER MAPPING FOR postgres SERVER test_um_server OPTIONS (SET user 'testuser', SET password 'secret456');
-            `,
         });
       });
     });
