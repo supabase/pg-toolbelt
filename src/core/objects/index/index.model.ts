@@ -115,7 +115,11 @@ export class Index extends BasePgModel {
     return `index:${this.schema}.${this.table_name}.${this.name}`;
   }
 
-  get tableStableId(): `table:${string}` {
+  get tableStableId(): `table:${string}` | `materializedView:${string}` {
+    // Materialized views use a different stableId prefix
+    if (this.table_relkind === "m") {
+      return `materializedView:${this.schema}.${this.table_name}`;
+    }
     return `table:${this.schema}.${this.table_name}`;
   }
 
