@@ -46,7 +46,7 @@ import {
   RevokeTablePrivileges,
 } from "./changes/table.privilege.ts";
 import type { TableChange } from "./changes/table.types.ts";
-import { Table } from "./table.model.js";
+import { Table } from "./table.model.ts";
 
 function createAlterConstraintChange(
   mainTable: Table,

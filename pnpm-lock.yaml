@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@stricli/core':
+        specifier: ^1.2.4
+        version: 1.2.4
+      postgres:
+        specifier: ^3.4.7
+        version: 3.4.7
       zod:
         specifier: ^4.1.13
         version: 4.1.13
@@ -33,9 +39,6 @@ importers:
       knip:
         specifier: ^5.71.0
         version: 5.71.0(@types/node@24.10.1)(typescript@5.9.3)
-      postgres:
-        specifier: ^3.4.7
-        version: 3.4.7
       testcontainers:
         specifier: ^11.9.0
         version: 11.9.0
@@ -577,6 +580,9 @@ packages:
 
   '@standard-schema/spec@1.0.0':
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
+
+  '@stricli/core@1.2.4':
+    resolution: {integrity: sha512-ujvJDQpC2FINWvlTjkFz+Qzw/vsB8p/LyZEW18idisqIyjXR6yb+sF3WTUPksl+5ZON5r4fHQnCqQWnJxeqSzg==}
 
   '@tsconfig/node-ts@23.6.2':
     resolution: {integrity: sha512-WcU3KR3tHB8XMotRBpUEGfPLT3W0gAhrHcTxU7mNQ4N1+fwF3LbjpWP07TuhZtN5ehK3bcK/R4Zzqp7Pqd7Nqg==}
@@ -1859,6 +1865,8 @@ snapshots:
     optional: true
 
   '@standard-schema/spec@1.0.0': {}
+
+  '@stricli/core@1.2.4': {}
 
   '@tsconfig/node-ts@23.6.2': {}
 

@@ -1,4 +1,4 @@
-import { DEBUG } from "../tests/constants.ts";
+import { DEBUG } from "../../tests/constants.ts";
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";

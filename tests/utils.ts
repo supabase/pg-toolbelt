@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { test as baseTest } from "vitest";
-import { postgresConfig } from "../src/main.ts";
+import { postgresConfig } from "../src/core/main.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,

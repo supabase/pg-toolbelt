@@ -1,10 +1,26 @@
 {
-  "name": "pg-diff",
+  "name": "@supabase/pg-diff",
   "version": "0.0.0",
   "description": "PostgreSQL migrations made easy",
   "type": "module",
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    }
+  },
+  "bin": {
+    "pg-diff": "./dist/src/cli/bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   },
   "imports": {
     "#test": "./test.ts"
@@ -41,12 +57,13 @@
     "@vitest/coverage-v8": "4.0.14",
     "dedent": "^1.7.0",
     "knip": "^5.71.0",
-    "postgres": "^3.4.7",
     "testcontainers": "^11.9.0",
     "typescript": "^5.9.3",
     "vitest": "4.0.14"
   },
   "dependencies": {
+    "@stricli/core": "^1.2.4",
+    "postgres": "^3.4.7",
     "zod": "^4.1.13"
   }
 }

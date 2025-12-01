@@ -1,5 +1,5 @@
 import { describe, expect } from "vitest";
-import { POSTGRES_VERSIONS } from "../tests/constants.ts";
+import { POSTGRES_VERSIONS } from "../../tests/constants.ts";
 import { getTest, getTestWithSupabaseIsolated } from "../tests/utils.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import { stringifyWithBigInt } from "./objects/utils.ts";

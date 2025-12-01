@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { postgresConfig } from "../src/main.ts";
+import { postgresConfig } from "../src/core/main.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   type PostgresVersion,
