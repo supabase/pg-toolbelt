@@ -5,7 +5,7 @@ import {
   groupPrivilegesByColumns,
 } from "../base.privilege-diff.ts";
 import type { Role } from "../role/role.model.ts";
-import { deepEqual } from "../utils.ts";
+import { deepEqual, stableId } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -48,11 +48,7 @@ import {
 import type { TableChange } from "./changes/table.types.ts";
 import { Table } from "./table.model.ts";
 
-function createAlterConstraintChange(
-  mainTable: Table,
-  branchTable: Table,
-  branchCatalog: Record<string, Table>,
-) {
+function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
   const changes: TableChange[] = [];
 
   // Note: Table renaming would also use ALTER TABLE ... RENAME TO ...
@@ -69,17 +65,11 @@ function createAlterConstraintChange(
 
   // Created constraints
   for (const [name, c] of branchByName) {
-    // Skip primary key creation on partitions if parent_table already has one
-    if (branchTable.is_partition && c.constraint_type === "p") {
-      const parent =
-        branchCatalog[
-          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
-        ];
-      const parentHasPrimaryKey = Boolean(
-        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
-      );
-      if (parentHasPrimaryKey) continue;
+    // Skip constraint clones on partitions - they are automatically created when the parent constraint is created
+    if (c.is_partition_clone) {
+      continue;
     }
+
     if (!mainByName.has(name)) {
       changes.push(
         new AlterTableAddConstraint({
@@ -109,17 +99,11 @@ function createAlterConstraintChange(
 
   // Dropped constraints
   for (const [name, c] of mainByName) {
-    // Skip primary key drop on partitions if parent_table already has one
-    if (branchTable.is_partition && c.constraint_type === "p") {
-      const parent =
-        branchCatalog[
-          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
-        ];
-      const parentHasPrimaryKey = Boolean(
-        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
-      );
-      if (parentHasPrimaryKey) continue;
+    // Skip constraint clones on partitions - they are automatically dropped when the parent constraint is dropped
+    if (c.is_partition_clone) {
+      continue;
     }
+
     if (!branchByName.has(name)) {
       changes.push(
         new AlterTableDropConstraint({ table: mainTable, constraint: c }),
@@ -131,17 +115,12 @@ function createAlterConstraintChange(
   for (const [name, mainC] of mainByName) {
     const branchC = branchByName.get(name);
     if (!branchC) continue;
-    // Skip any primary key alterations on partitions
-    if (branchTable.is_partition && branchC.constraint_type === "p") {
-      const parent =
-        branchCatalog[
-          `table:${branchTable.parent_schema}.${branchTable.parent_name}`
-        ];
-      const parentHasPrimaryKey = Boolean(
-        parent?.constraints?.some((pc) => pc.constraint_type === "p"),
-      );
-      if (parentHasPrimaryKey) continue;
+
+    // Skip constraint clones on partitions - they are automatically updated when the parent constraint is updated
+    if (mainC.is_partition_clone || branchC.is_partition_clone) {
+      continue;
     }
+
     const changed =
       mainC.constraint_type !== branchC.constraint_type ||
       mainC.deferrable !== branchC.deferrable ||
@@ -271,7 +250,6 @@ export function diffTables(
           constraints: [],
         }),
         branchTable,
-        branch,
       ),
     );
 
@@ -586,9 +564,7 @@ export function diffTables(
       }
     }
 
-    changes.push(
-      ...createAlterConstraintChange(mainTable, branchTable, branch),
-    );
+    changes.push(...createAlterConstraintChange(mainTable, branchTable));
 
     // COLUMNS
     const mainCols = new Map(mainTable.columns.map((c) => [c.name, c]));

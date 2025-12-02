@@ -52,10 +52,20 @@ const tableConstraintPropsSchema = z.object({
   validated: z.boolean(),
   is_local: z.boolean(),
   no_inherit: z.boolean(),
+  is_partition_clone: z.boolean(),
+  parent_constraint_schema: z.string().nullable(),
+  parent_constraint_name: z.string().nullable(),
+  parent_table_schema: z.string().nullable(),
+  parent_table_name: z.string().nullable(),
   key_columns: z.array(z.string()),
   foreign_key_columns: z.array(z.string()).nullable(),
   foreign_key_table: z.string().nullable(),
   foreign_key_schema: z.string().nullable(),
+  foreign_key_table_is_partition: z.boolean().nullable(),
+  foreign_key_parent_schema: z.string().nullable(),
+  foreign_key_parent_table: z.string().nullable(),
+  foreign_key_effective_schema: z.string().nullable(),
+  foreign_key_effective_table: z.string().nullable(),
   on_update: ForeignKeyActionSchema.nullable(),
   on_delete: ForeignKeyActionSchema.nullable(),
   match_type: ForeignKeyMatchTypeSchema.nullable(),
@@ -252,35 +262,68 @@ select
           'validated', c.convalidated,
           'is_local', c.conislocal,
           'no_inherit', c.connoinherit,
+
+          -- NEW: propagated-to-partition tagging (PG15+)
+          'is_partition_clone', (c.conparentid <> 0::oid),
+          'parent_constraint_schema', case when c.conparentid <> 0::oid then pc.connamespace::regnamespace::text end,
+          'parent_constraint_name',   case when c.conparentid <> 0::oid then quote_ident(pc.conname) end,
+          'parent_table_schema',      case when c.conparentid <> 0::oid then pc_rel.relnamespace::regnamespace::text end,
+          'parent_table_name',        case when c.conparentid <> 0::oid then quote_ident(pc_rel.relname) end,
+
           'key_columns',
-            CASE
-              WHEN c.conkey IS NOT NULL THEN (
-                SELECT json_agg(quote_ident(att.attname) ORDER BY pk.ordinality)
-                FROM unnest(c.conkey) WITH ORDINALITY AS pk(attnum, ordinality)
-                JOIN pg_attribute att
-                  ON att.attrelid = c.conrelid
-                  AND att.attnum = pk.attnum
-                  AND att.attisdropped = false
+            case
+              when c.conkey is not null then (
+                select json_agg(quote_ident(att.attname) order by pk.ordinality)
+                from unnest(c.conkey) with ordinality as pk(attnum, ordinality)
+                join pg_attribute att
+                  on att.attrelid = c.conrelid
+                and att.attnum = pk.attnum
+                and att.attisdropped = false
               )
-              ELSE '[]'::json
-            END,
+              else '[]'::json
+            end,
+
           'foreign_key_columns',
-            CASE
-              WHEN c.contype = 'f' THEN (
-                SELECT json_agg(quote_ident(att.attname) ORDER BY fk.ordinality)
-                FROM unnest(c.confkey) WITH ORDINALITY AS fk(attnum, ordinality)
-                JOIN pg_attribute att
-                  ON att.attrelid = c.confrelid
-                  AND att.attnum = fk.attnum
-                  AND att.attisdropped = false
+            case
+              when c.contype = 'f' then (
+                select json_agg(quote_ident(att.attname) order by fk.ordinality)
+                from unnest(c.confkey) with ordinality as fk(attnum, ordinality)
+                join pg_attribute att
+                  on att.attrelid = c.confrelid
+                and att.attnum = fk.attnum
+                and att.attisdropped = false
               )
-              ELSE NULL
-            END,
-          'foreign_key_table', quote_ident(ftc.relname),
+              else null
+            end,
+
+          -- existing FK target
+          'foreign_key_table',  quote_ident(ftc.relname),
           'foreign_key_schema', ftc.relnamespace::regnamespace::text,
-          'on_update', case when c.contype = 'f' then c.confupdtype else null end,
-          'on_delete', case when c.contype = 'f' then c.confdeltype else null end,
+
+          -- NEW: if FK points at a *partition*, expose its parent + an "effective" target
+          'foreign_key_table_is_partition',
+            case when c.contype = 'f' then coalesce(ftc.relispartition, false) else null end,
+          'foreign_key_parent_schema',
+            case when c.contype = 'f' and ftc.relispartition then ftc_parent.relnamespace::regnamespace::text else null end,
+          'foreign_key_parent_table',
+            case when c.contype = 'f' and ftc.relispartition then quote_ident(ftc_parent.relname) else null end,
+          'foreign_key_effective_schema',
+            case
+              when c.contype <> 'f' then null
+              when ftc.relispartition then ftc_parent.relnamespace::regnamespace::text
+              else ftc.relnamespace::regnamespace::text
+            end,
+          'foreign_key_effective_table',
+            case
+              when c.contype <> 'f' then null
+              when ftc.relispartition then quote_ident(ftc_parent.relname)
+              else quote_ident(ftc.relname)
+            end,
+
+          'on_update',  case when c.contype = 'f' then c.confupdtype   else null end,
+          'on_delete',  case when c.contype = 'f' then c.confdeltype   else null end,
           'match_type', case when c.contype = 'f' then c.confmatchtype else null end,
+
           'check_expression', pg_get_expr(c.conbin, c.conrelid),
           'owner', t.owner,
           'definition', pg_get_constraintdef(c.oid, true),
@@ -289,12 +332,26 @@ select
         order by c.conname
       )
       from pg_catalog.pg_constraint c
+
+      -- NEW: parent constraint/table lookup (for propagated constraints)
+      left join pg_catalog.pg_constraint pc on pc.oid = c.conparentid
+      left join pg_catalog.pg_class pc_rel on pc_rel.oid = pc.conrelid
+
+      -- FK referenced table + parent table if it’s a partition
       left join pg_catalog.pg_class ftc on ftc.oid = c.confrelid
-      left join pg_depend de on de.classid = 'pg_constraint'::regclass and de.objid = c.oid and de.refclassid = 'pg_extension'::regclass
+      left join pg_catalog.pg_inherits fi on fi.inhrelid = ftc.oid
+      left join pg_catalog.pg_class ftc_parent on ftc_parent.oid = fi.inhparent
+
+      left join pg_depend de
+        on de.classid = 'pg_constraint'::regclass
+      and de.objid = c.oid
+      and de.refclassid = 'pg_extension'::regclass
+
       where c.conrelid = t.oid
         and not c.connamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and de.objid is null
-    ), '[]'
+    ),
+    '[]'
   ) as constraints,
   coalesce(json_agg(
     case when a.attname is not null then
