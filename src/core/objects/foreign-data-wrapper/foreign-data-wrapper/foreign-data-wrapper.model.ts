@@ -83,6 +83,12 @@ export async function extractForeignDataWrappers(
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const fdwRows = await sql`
+      with extension_oids as (
+        select objid
+        from pg_depend d
+        where d.refclassid = 'pg_extension'::regclass
+          and d.classid = 'pg_foreign_data_wrapper'::regclass
+      )
       select
         quote_ident(fdw.fdwname) as name,
         fdw.fdwowner::regrole::text as owner,
@@ -113,8 +119,10 @@ export async function extractForeignDataWrappers(
         pg_catalog.pg_foreign_data_wrapper fdw
         left join pg_catalog.pg_proc p_handler on p_handler.oid = fdw.fdwhandler
         left join pg_catalog.pg_proc p_validator on p_validator.oid = fdw.fdwvalidator
+        left join extension_oids e on fdw.oid = e.objid
       where
         not fdw.fdwname like any(array['pg\\_%'])
+        and e.objid is null
       order by
         fdw.fdwname;
     `;
