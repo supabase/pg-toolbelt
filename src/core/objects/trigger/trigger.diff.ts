@@ -1,6 +1,6 @@
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
-import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
+import { deepEqual, hasNonAlterableChanges, stableId } from "../utils.ts";
 import { ReplaceTrigger } from "./changes/trigger.alter.ts";
 import {
   CreateCommentOnTrigger,
@@ -28,16 +28,22 @@ export function diffTriggers(
   const changes: TriggerChange[] = [];
 
   for (const triggerId of created) {
-    const trg = branch[triggerId];
-    const tableStableId = `table:${trg.schema}.${trg.table_name}` as const;
+    const trigger = branch[triggerId];
+
+    // Skip trigger clones on partitions - they are automatically created when the parent trigger is created
+    if (trigger.is_partition_clone) {
+      continue;
+    }
+
+    const tableStableId = stableId.table(trigger.schema, trigger.table_name);
     changes.push(
       new CreateTrigger({
-        trigger: trg,
+        trigger: trigger,
         indexableObject: branchIndexableObjects?.[tableStableId],
       }),
     );
-    if (trg.comment !== null) {
-      changes.push(new CreateCommentOnTrigger({ trigger: trg }));
+    if (trigger.comment !== null) {
+      changes.push(new CreateCommentOnTrigger({ trigger: trigger }));
     }
   }
 
@@ -72,8 +78,10 @@ export function diffTriggers(
       { column_numbers: deepEqual, arguments: deepEqual },
     );
     if (shouldReplace) {
-      const tableStableId =
-        `table:${branchTrigger.schema}.${branchTrigger.table_name}` as const;
+      const tableStableId = stableId.table(
+        branchTrigger.schema,
+        branchTrigger.table_name,
+      );
       changes.push(
         new ReplaceTrigger({
           trigger: branchTrigger,

@@ -21,6 +21,11 @@ describe("trigger", () => {
       when_condition: null,
       old_table: null,
       new_table: null,
+      is_partition_clone: false,
+      parent_trigger_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      is_on_partitioned_table: false,
       owner: "test",
       definition:
         "CREATE TRIGGER test_trigger BEFORE INSERT ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.test_function()",

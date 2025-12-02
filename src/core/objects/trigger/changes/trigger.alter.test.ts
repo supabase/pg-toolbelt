@@ -21,6 +21,11 @@ describe.concurrent("trigger", () => {
         when_condition: null,
         old_table: null,
         new_table: null,
+        is_partition_clone: false,
+        parent_trigger_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        is_on_partitioned_table: false,
         owner: "test",
         definition:
           "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
