@@ -20,6 +20,7 @@ import type { Index } from "./index.model.ts";
  *
  * @param main - The indexes in the main catalog.
  * @param branch - The indexes in the branch catalog.
+ * @param branchIndexableObjects - Table-like objects (tables, materialized views) in branch.
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffIndexes(
@@ -34,16 +35,23 @@ export function diffIndexes(
   for (const indexId of created) {
     const index = branch[indexId];
     // Skip indexes owned by constraints - they are automatically created by AlterTableAddConstraint
-    if (!index.is_owned_by_constraint) {
-      changes.push(
-        new CreateIndex({
-          index,
-          indexableObject: branchIndexableObjects[index.tableStableId],
-        }),
-      );
-      if (index.comment !== null) {
-        changes.push(new CreateCommentOnIndex({ index }));
-      }
+    if (index.is_owned_by_constraint) {
+      continue;
+    }
+
+    // Skip index partitions - they are automatically created when the parent partitioned index is created
+    if (index.is_index_partition) {
+      continue;
+    }
+
+    changes.push(
+      new CreateIndex({
+        index,
+        indexableObject: branchIndexableObjects[index.tableStableId],
+      }),
+    );
+    if (index.comment !== null) {
+      changes.push(new CreateCommentOnIndex({ index }));
     }
   }
 

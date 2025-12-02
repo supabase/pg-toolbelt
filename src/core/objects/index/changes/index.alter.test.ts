@@ -31,6 +31,9 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        is_partitioned_index: false,
+        is_index_partition: false,
+        parent_index_name: null,
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
@@ -75,6 +78,9 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        is_partitioned_index: false,
+        is_index_partition: false,
+        parent_index_name: null,
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
@@ -122,6 +128,9 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        is_partitioned_index: false,
+        is_index_partition: false,
+        parent_index_name: null,
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,
@@ -165,6 +174,9 @@ describe.concurrent("index", () => {
         index_expressions: null,
         partial_predicate: null,
         table_relkind: "r",
+        is_partitioned_index: false,
+        is_index_partition: false,
+        parent_index_name: null,
         definition:
           "CREATE INDEX test_index ON public.test_table USING btree (id)",
         comment: null,

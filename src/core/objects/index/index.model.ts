@@ -31,6 +31,9 @@ const indexPropsSchema = z.object({
   partial_predicate: z.string().nullable(),
   is_owned_by_constraint: z.boolean(),
   table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
+  is_partitioned_index: z.boolean(),
+  is_index_partition: z.boolean(),
+  parent_index_name: z.string().nullable(),
   definition: z.string(),
   comment: z.string().nullable(),
   owner: z.string(),
@@ -74,6 +77,9 @@ export class Index extends BasePgModel {
   public readonly partial_predicate: IndexProps["partial_predicate"];
   public readonly table_relkind: IndexProps["table_relkind"];
   public readonly is_owned_by_constraint: IndexProps["is_owned_by_constraint"];
+  public readonly is_partitioned_index: IndexProps["is_partitioned_index"];
+  public readonly is_index_partition: IndexProps["is_index_partition"];
+  public readonly parent_index_name: IndexProps["parent_index_name"];
   public readonly definition: IndexProps["definition"];
   public readonly comment: IndexProps["comment"];
   public readonly owner: IndexProps["owner"];
@@ -106,6 +112,9 @@ export class Index extends BasePgModel {
     this.partial_predicate = props.partial_predicate;
     this.table_relkind = props.table_relkind;
     this.is_owned_by_constraint = props.is_owned_by_constraint;
+    this.is_partitioned_index = props.is_partitioned_index;
+    this.is_index_partition = props.is_index_partition;
+    this.parent_index_name = props.parent_index_name;
     this.definition = props.definition;
     this.comment = props.comment;
     this.owner = props.owner;
@@ -154,6 +163,9 @@ export class Index extends BasePgModel {
       partial_predicate: this.partial_predicate,
       table_relkind: this.table_relkind,
       is_owned_by_constraint: this.is_owned_by_constraint,
+      is_partitioned_index: this.is_partitioned_index,
+      is_index_partition: this.is_index_partition,
+      parent_index_name: this.parent_index_name,
       definition: this.definition,
       comment: this.comment,
       owner: this.owner,
@@ -165,143 +177,160 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
   return sql.begin(async (sql) => {
     await sql`set search_path = ''`;
     const indexRows = await sql`
-    with extension_oids as (
-      select objid
-      from pg_depend d
-      where d.refclassid = 'pg_extension'::regclass
-        and d.classid   = 'pg_class'::regclass
-    ),
-    -- align every per-column array by ordinality (1..indnatts)
-    -- this is used to ensure that key_columns, column_collations, operator_classes, and column_options are aligned
-    idx_cols as (
-      select
-        i.indexrelid,
-        i.indrelid,
-        k.ord,
-        k.attnum,
-        -- collation: only for key cols; 0 for none/default
-        case when k.ord <= i.indnkeyatts then coalesce(coll.oid, 0) else 0 end as coll_oid,
-        -- opclass: one per column
-        coalesce(cls.oid, 0) as cls_oid,
-        -- options: only for key cols; 0 for include cols
-        case when k.ord <= i.indnkeyatts then coalesce(opt.val, 0) else 0 end::int2 as indopt
-      from pg_index i
-      join lateral unnest(i.indkey)      with ordinality as k(attnum, ord) on true
-      left join lateral unnest(i.indcollation) with ordinality as coll(oid, ordc) on ordc = k.ord
-      left join lateral unnest(i.indclass)     with ordinality as cls(oid, ordo) on ordo = k.ord
-      left join lateral unnest(i.indoption)    with ordinality as opt(val, ordi) on ordi = k.ord
-    )
-    select
-      c.relnamespace::regnamespace::text as schema,
-      quote_ident(tc.relname)          as table_name,
-      tc.relkind                       as table_relkind,
-      quote_ident(c.relname)           as name,
-      coalesce(c.reloptions, array[]::text[]) as storage_params,
-      am.amname                        as index_type,
-      quote_ident(ts.spcname)          as tablespace,
-      i.indisunique                    as is_unique,
-      i.indisprimary                   as is_primary,
-      i.indisexclusion                 as is_exclusion,
-      i.indnullsnotdistinct            as nulls_not_distinct,
-      i.indimmediate                   as immediate,
-      i.indisclustered                 as is_clustered,
-      i.indisreplident                 as is_replica_identity,
-      i.indkey                         as key_columns,
-
-      -- Foreign keys don’t create/own an index; their conindid points to the referenced PK/UNIQUE index. Mark as is_owned_by_constraint only when the owning constraint is PK/UNIQUE/EXCLUSION.
-      exists (
-        select 1
+      with extension_oids as (
+        select objid
         from pg_depend d
-        join pg_constraint pc on pc.oid = d.refobjid
-        where d.classid    = 'pg_class'::regclass
-          and d.objid      = i.indexrelid
-          and d.refclassid = 'pg_constraint'::regclass
-          and d.deptype    = 'i'
-          and pc.contype   IN ('p','u','x')
-      ) as is_owned_by_constraint,
-
-      -- per-column arrays from one pass over idx_cols
-      coalesce(agg.column_collations, array[]::text[]) as column_collations,
-      coalesce(agg.operator_classes, array[]::text[])  as operator_classes,
-      coalesce(agg.column_options,   array[]::int2[])  as column_options,
-
-      -- always an array (possibly empty), ordered by index attnum
-      coalesce(st.statistics_target, array[]::int4[])  as statistics_target,
-
-      pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
-      pg_get_expr(i.indpred,  i.indrelid) as partial_predicate,
-      pg_get_indexdef(i.indexrelid, 0, true) as definition,
-      obj_description(c.oid, 'pg_class') as comment,
-      c.relowner::regrole::text as owner
-
-    from pg_index i
-    join pg_class c  on c.oid  = i.indexrelid
-    join pg_class tc on tc.oid = i.indrelid
-    join pg_am am    on am.oid = c.relam
-    left join pg_tablespace ts on ts.oid = c.reltablespace
-    left join extension_oids e  on c.oid = e.objid
-    left join extension_oids e_table on tc.oid = e_table.objid
-
-    -- single lateral aggregate keeps order by ic2.ord
-    left join lateral (
+        where d.refclassid = 'pg_extension'::regclass
+          and d.classid   = 'pg_class'::regclass
+      ),
+      -- align every per-column array by ordinality (1..indnatts)
+      -- this is used to ensure that key_columns, column_collations, operator_classes, and column_options are aligned
+      idx_cols as (
+        select
+          i.indexrelid,
+          i.indrelid,
+          k.ord,
+          k.attnum,
+          -- collation: only for key cols; 0 for none/default
+          case when k.ord <= i.indnkeyatts then coalesce(coll.oid, 0) else 0 end as coll_oid,
+          -- opclass: one per column
+          coalesce(cls.oid, 0) as cls_oid,
+          -- options: only for key cols; 0 for include cols
+          case when k.ord <= i.indnkeyatts then coalesce(opt.val, 0) else 0 end::int2 as indopt
+        from pg_index i
+        join lateral unnest(i.indkey) with ordinality as k(attnum, ord) on true
+        left join lateral unnest(i.indcollation) with ordinality as coll(oid, ordc) on ordc = k.ord
+        left join lateral unnest(i.indclass)     with ordinality as cls(oid, ordo) on ordo = k.ord
+        left join lateral unnest(i.indoption)    with ordinality as opt(val, ordi) on ordi = k.ord
+      )
       select
-        array_agg(
-          case
-            when ic2.coll_oid = 0 then null
-            when col.collname = 'default'
-            and col.collnamespace = 'pg_catalog'::regnamespace then null
-            else quote_ident(ns_coll.nspname) || '.' || quote_ident(col.collname)
-          end
-          order by ic2.ord
-        ) as column_collations,
+        c.relnamespace::regnamespace::text as schema,
+        quote_ident(tc.relname)            as table_name,
+        tc.relkind                         as table_relkind,
+        quote_ident(c.relname)             as name,
+        coalesce(c.reloptions, array[]::text[]) as storage_params,
+        am.amname                          as index_type,
+        quote_ident(ts.spcname)            as tablespace,
+        i.indisunique                      as is_unique,
+        i.indisprimary                     as is_primary,
+        i.indisexclusion                   as is_exclusion,
+        i.indnullsnotdistinct              as nulls_not_distinct,
+        i.indimmediate                     as immediate,
+        i.indisclustered                   as is_clustered,
+        i.indisreplident                   as is_replica_identity,
+        i.indkey                           as key_columns,
 
-        -- 'default' when the AM's default opclass applies to the column's base type
-        array_agg(
-          case
-            when oc.oid is null then 'default'
-            when ic2.attnum = 0 then oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname) -- expression key: no column type
-            -- in the case where the opclass is the default for the column's base type
-            when oc.opcdefault and (
-                  (case when t.typtype = 'd' then t.typbasetype else a.atttypid end) = oc.opcintype
-                  or exists (
-                    select 1
-                    from pg_catalog.pg_cast pc
-                    where pc.castsource = (case when t.typtype = 'd' then t.typbasetype else a.atttypid end)
-                      and pc.casttarget = oc.opcintype
-                      and pc.castcontext = 'i'  -- implicit
-                  )
+        -- NEW: partitioned-index / index-partition tagging
+        (c.relkind = 'I')                  as is_partitioned_index,
+        (parent_idx.oid is not null)       as is_index_partition,
+        case
+          when parent_idx.oid is not null then
+            quote_ident(parent_idx_ns.nspname) || '.' || quote_ident(parent_idx.relname)
+        end                                as parent_index_name,
+
+        -- Foreign keys don’t create/own an index; their conindid points to the referenced PK/UNIQUE index.
+        -- Mark as is_owned_by_constraint only when the owning constraint is PK/UNIQUE/EXCLUSION.
+        exists (
+          select 1
+          from pg_depend d
+          join pg_constraint pc on pc.oid = d.refobjid
+          where d.classid    = 'pg_class'::regclass
+            and d.objid      = i.indexrelid
+            and d.refclassid = 'pg_constraint'::regclass
+            and d.deptype    = 'i'
+            and pc.contype   in ('p','u','x')
+        ) as is_owned_by_constraint,
+
+        -- per-column arrays from one pass over idx_cols
+        coalesce(agg.column_collations, array[]::text[]) as column_collations,
+        coalesce(agg.operator_classes, array[]::text[])  as operator_classes,
+        coalesce(agg.column_options,   array[]::int2[])  as column_options,
+
+        -- always an array (possibly empty), ordered by index attnum
+        coalesce(st.statistics_target, array[]::int4[])  as statistics_target,
+
+        pg_get_expr(i.indexprs, i.indrelid) as index_expressions,
+        pg_get_expr(i.indpred,  i.indrelid) as partial_predicate,
+        pg_get_indexdef(i.indexrelid, 0, true) as definition,
+        obj_description(c.oid, 'pg_class') as comment,
+        c.relowner::regrole::text as owner
+
+      from pg_index i
+      join pg_class c  on c.oid  = i.indexrelid
+      join pg_class tc on tc.oid = i.indrelid
+      join pg_am am    on am.oid = c.relam
+      left join pg_tablespace ts on ts.oid = c.reltablespace
+      left join extension_oids e  on c.oid = e.objid
+      left join extension_oids e_table on tc.oid = e_table.objid
+
+      -- NEW: detect whether this index is an attached partition of a partitioned index
+      left join pg_inherits inh_idx
+        on inh_idx.inhrelid = c.oid
+      left join pg_class parent_idx
+        on parent_idx.oid = inh_idx.inhparent
+      left join pg_namespace parent_idx_ns
+        on parent_idx_ns.oid = parent_idx.relnamespace
+
+      -- single lateral aggregate keeps order by ic2.ord
+      left join lateral (
+        select
+          array_agg(
+            case
+              when ic2.coll_oid = 0 then null
+              when col.collname = 'default'
+                and col.collnamespace = 'pg_catalog'::regnamespace then null
+              else quote_ident(ns_coll.nspname) || '.' || quote_ident(col.collname)
+            end
+            order by ic2.ord
+          ) as column_collations,
+
+          -- 'default' when the AM's default opclass applies to the column's base type
+          array_agg(
+            case
+              when oc.oid is null then 'default'
+              when ic2.attnum = 0 then oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname) -- expression key: no column type
+              -- in the case where the opclass is the default for the column's base type
+              when oc.opcdefault and (
+                (case when t.typtype = 'd' then t.typbasetype else a.atttypid end) = oc.opcintype
+                or exists (
+                  select 1
+                  from pg_catalog.pg_cast pc
+                  where pc.castsource = (case when t.typtype = 'd' then t.typbasetype else a.atttypid end)
+                    and pc.casttarget = oc.opcintype
+                    and pc.castcontext = 'i'  -- implicit
                 )
+              )
               then 'default'
-            else oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname)
-          end
-          order by ic2.ord
-        ) as operator_classes,
+              else oc.opcnamespace::regnamespace::text || '.' || quote_ident(oc.opcname)
+            end
+            order by ic2.ord
+          ) as operator_classes,
 
-        array_agg(coalesce(ic2.indopt, 0)::int2 order by ic2.ord) as column_options
+          array_agg(coalesce(ic2.indopt, 0)::int2 order by ic2.ord) as column_options
 
-      from idx_cols ic2
-      left join pg_collation  col     on col.oid = ic2.coll_oid
-      left join pg_namespace  ns_coll on ns_coll.oid = col.collnamespace
-      left join pg_opclass    oc      on oc.oid = ic2.cls_oid
-      -- base type for the underlying column (domain -> base); NULL for expressions
-      left join pg_attribute  a       on a.attrelid = ic2.indrelid and a.attnum = ic2.attnum
-      left join pg_type       t       on t.oid = a.atttypid
-      where ic2.indexrelid = i.indexrelid
-    ) as agg on true
+        from idx_cols ic2
+        left join pg_collation  col     on col.oid = ic2.coll_oid
+        left join pg_namespace  ns_coll on ns_coll.oid = col.collnamespace
+        left join pg_opclass    oc      on oc.oid = ic2.cls_oid
+        -- base type for the underlying column (domain -> base); NULL for expressions
+        left join pg_attribute  a       on a.attrelid = ic2.indrelid and a.attnum = ic2.attnum
+        left join pg_type       t       on t.oid = a.atttypid
+        where ic2.indexrelid = i.indexrelid
+      ) as agg on true
 
-    left join lateral (
-      select array_agg(coalesce(a2.attstattarget, -1) order by a2.attnum) as statistics_target
-      from pg_attribute a2
-      where a2.attrelid = i.indexrelid
-        and a2.attnum > 0
-    ) as st on true
+      left join lateral (
+        select array_agg(coalesce(a2.attstattarget, -1) order by a2.attnum) as statistics_target
+        from pg_attribute a2
+        where a2.attrelid = i.indexrelid
+          and a2.attnum > 0
+      ) as st on true
 
-    where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
-      and i.indislive is true
-      and e.objid is null
-      and e_table.objid is null
+      where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
+        and i.indislive is true
+        and e.objid is null
+        and e_table.objid is null
 
-    order by 1, 2;
+      order by 1, 2;
     `;
     // Validate and parse each row using the Zod schema
     const validatedRows = indexRows.map((row: unknown) =>

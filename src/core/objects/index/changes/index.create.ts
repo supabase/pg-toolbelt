@@ -52,7 +52,17 @@ export class CreateIndex extends CreateIndexChange {
   }
 
   serialize(): string {
+    let definition = this.index.definition;
+
     // btree being the default, we can omit it
-    return this.index.definition.replace(" USING btree", "");
+    definition = definition.replace(" USING btree", "");
+
+    // Remove "ON ONLY" for partitioned indexes to allow automatic propagation to partitions.
+    // Preserve "ON ONLY" for non-partitioned indexes on partitioned tables (explicit user intent).
+    if (this.index.is_partitioned_index) {
+      definition = definition.replace(/\s+ON\s+ONLY\s+/i, " ON ");
+    }
+
+    return definition;
   }
 }
