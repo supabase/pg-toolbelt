@@ -1,4 +1,4 @@
-# pg-diff
+# pg-delta
 
 PostgreSQL migrations made easy.
 
@@ -7,8 +7,8 @@ A modern alternative to `pg_dump` that generates migration scripts by diffing Po
 ## Quick Start
 
 ```bash
-npm install @supabase/pg-diff
-pg-diff diff postgresql://source postgresql://target
+npm install @supabase/pg-delta
+pg-delta diff postgresql://source postgresql://target
 ```
 
 ## Documentation

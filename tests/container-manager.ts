@@ -10,7 +10,7 @@ import {
   type StartedPostgresAlpineContainer,
 } from "./postgres-alpine.ts";
 
-const debugContainer = debug("pg-diff:container");
+const debugContainer = debug("pg-delta:container");
 
 class ContainerManager {
   private containers: Map<PostgresVersion, StartedPostgresAlpineContainer> =

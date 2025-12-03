@@ -1,17 +1,17 @@
 # CLI Reference
 
-The `pg-diff` CLI provides a command-line interface for generating migration scripts by comparing PostgreSQL databases.
+The `pg-delta` CLI provides a command-line interface for generating migration scripts by comparing PostgreSQL databases.
 
 ## Installation
 
 ```bash
-npm install -g @supabase/pg-diff
+npm install -g @supabase/pg-delta
 ```
 
 Or use with `npx`:
 
 ```bash
-npx @supabase/pg-diff diff <source> <target>
+npx @supabase/pg-delta diff <source> <target>
 ```
 
 ## Commands
@@ -23,7 +23,7 @@ Generate a migration script by comparing two databases.
 #### Usage
 
 ```bash
-pg-diff diff <source-url> <target-url> [options]
+pg-delta diff <source-url> <target-url> [options]
 ```
 
 #### Arguments
@@ -42,7 +42,7 @@ pg-diff diff <source-url> <target-url> [options]
 **Basic usage:**
 
 ```bash
-pg-diff diff \
+pg-delta diff \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db
 ```
@@ -50,7 +50,7 @@ pg-diff diff \
 **Save to file:**
 
 ```bash
-pg-diff diff \
+pg-delta diff \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db \
   --output migration.sql
@@ -59,7 +59,7 @@ pg-diff diff \
 **Use Supabase integration:**
 
 ```bash
-pg-diff diff \
+pg-delta diff \
   postgresql://user:pass@localhost:5432/source_db \
   postgresql://user:pass@localhost:5432/target_db \
   --integration supabase
@@ -69,7 +69,7 @@ pg-diff diff \
 
 ```bash
 SOURCE_DB="postgresql://..." TARGET_DB="postgresql://..." \
-  pg-diff diff "$SOURCE_DB" "$TARGET_DB"
+  pg-delta diff "$SOURCE_DB" "$TARGET_DB"
 ```
 
 ## Connection URLs
@@ -97,7 +97,7 @@ Examples:
 Get help for any command:
 
 ```bash
-pg-diff --help
-pg-diff diff --help
+pg-delta --help
+pg-delta diff --help
 ```
 

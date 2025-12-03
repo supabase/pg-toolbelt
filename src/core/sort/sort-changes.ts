@@ -17,7 +17,7 @@ import type { Change } from "../change.types.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
 
-const debugGraph = debug("pg-diff:graph");
+const debugGraph = debug("pg-delta:graph");
 
 import {
   filterEdgesForCycleBreaking,

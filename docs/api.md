@@ -1,11 +1,11 @@
 # API Reference
 
-The `@supabase/pg-diff` package provides a programmatic API for generating migration scripts.
+The `@supabase/pg-delta` package provides a programmatic API for generating migration scripts.
 
 ## Installation
 
 ```bash
-npm install @supabase/pg-diff
+npm install @supabase/pg-delta
 ```
 
 ## Main API
@@ -31,7 +31,7 @@ Generate a migration script by comparing two databases.
 #### Example
 
 ```typescript
-import { main } from "@supabase/pg-diff";
+import { main } from "@supabase/pg-delta";
 
 const result = await main(
   "postgresql://localhost:5432/source_db",
@@ -127,7 +127,7 @@ try {
 ### Basic Usage
 
 ```typescript
-import { main } from "@supabase/pg-diff";
+import { main } from "@supabase/pg-delta";
 import { writeFile } from "fs/promises";
 
 const result = await main(
@@ -146,8 +146,8 @@ if (result) {
 ### Using Integrations
 
 ```typescript
-import { main } from "@supabase/pg-diff";
-import { supabase } from "@supabase/pg-diff/integrations/supabase";
+import { main } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
 const result = await main(
   sourceUrl,
@@ -159,7 +159,7 @@ const result = await main(
 ### Custom Integration
 
 ```typescript
-import { main, type Integration } from "@supabase/pg-diff";
+import { main, type Integration } from "@supabase/pg-delta";
 
 const customIntegration: Integration = {
   filter: (ctx, change) => {

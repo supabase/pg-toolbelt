@@ -1,10 +1,10 @@
 # Sorting & Migration Safety
 
-`pg-diff` generates migration scripts that are both **safe to execute** and **easy to review**. This is achieved through a sophisticated sorting algorithm that balances database constraints with human readability.
+`pg-delta` generates migration scripts that are both **safe to execute** and **easy to review**. This is achieved through a sophisticated sorting algorithm that balances database constraints with human readability.
 
 ## Overview
 
-When generating a migration script, `pg-diff` organizes changes to satisfy two competing goals:
+When generating a migration script, `pg-delta` organizes changes to satisfy two competing goals:
 
 1. **Correctness**: Statements execute in the right order for PostgreSQL (e.g., create a table before its indexes)
 2. **Readability**: Related changes are grouped together for easier code review
@@ -36,7 +36,7 @@ Runs second, in **forward dependency order**:
 
 ## Dependency Sources
 
-`pg-diff` automatically handles dependencies from multiple sources:
+`pg-delta` automatically handles dependencies from multiple sources:
 
 | Source | Description | Example |
 |:-------|:------------|:--------|
@@ -48,14 +48,14 @@ Runs second, in **forward dependency order**:
 
 Real-world schemas sometimes contain circular dependencies (e.g., two tables with mutual foreign key references).
 
-`pg-diff` handles this by:
+`pg-delta` handles this by:
 
 1. Detecting the cycle
 2. Identifying if any constraint can be deferred (created separately via `ALTER TABLE`)
 3. Breaking the cycle by separating the constraint
 4. Re-sorting the changes
 
-If a cycle cannot be broken (only hard dependencies remain), `pg-diff` throws a detailed error explaining the cycle.
+If a cycle cannot be broken (only hard dependencies remain), `pg-delta` throws a detailed error explaining the cycle.
 
 ## Examples
 
@@ -101,7 +101,7 @@ Default privileges must be set before tables are created for them to inherit the
 
 ## Stable Identifiers
 
-`pg-diff` uses stable string identifiers to track objects across environments (since PostgreSQL OIDs change between databases):
+`pg-delta` uses stable string identifiers to track objects across environments (since PostgreSQL OIDs change between databases):
 
 | Object Type | Identifier Format | Example |
 |:------------|:------------------|:--------|

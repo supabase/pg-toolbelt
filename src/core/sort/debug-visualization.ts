@@ -3,7 +3,7 @@ import type { Change } from "../change.types.ts";
 import { findCycle } from "./topological-sort.ts";
 import type { Constraint, GraphData, PgDependRow } from "./types.ts";
 
-const debugGraph = debug("pg-diff:graph");
+const debugGraph = debug("pg-delta:graph");
 
 /**
  * Generate a Mermaid diagram representation of the dependency graph for debugging.

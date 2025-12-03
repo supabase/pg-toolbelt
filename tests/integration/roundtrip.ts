@@ -1,5 +1,5 @@
 /**
- * Test configuration and utilities for pg-diff integration tests.
+ * Test configuration and utilities for pg-delta integration tests.
  */
 
 import debug from "debug";
@@ -13,8 +13,8 @@ import { base } from "../../src/core/integrations/base.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 
-const debugTest = debug("pg-diff:test");
-const debugDependencies = debug("pg-diff:dependencies");
+const debugTest = debug("pg-delta:test");
+const debugDependencies = debug("pg-delta:dependencies");
 
 interface RoundtripTestOptions {
   mainSession: postgres.Sql;

@@ -1,6 +1,6 @@
 # Integrations
 
-Integrations allow you to customize how `pg-diff` handles platform-specific differences, sensitive data, and environment-dependent values.
+Integrations allow you to customize how `pg-delta` handles platform-specific differences, sensitive data, and environment-dependent values.
 
 ## Overview
 
@@ -21,7 +21,7 @@ The default integration with safe-by-default handling:
 **Usage:**
 
 ```typescript
-import { main, base } from "@supabase/pg-diff";
+import { main, base } from "@supabase/pg-delta";
 
 const result = await main(sourceUrl, targetUrl, base);
 ```
@@ -37,8 +37,8 @@ Supabase-specific integration that:
 **Usage:**
 
 ```typescript
-import { main } from "@supabase/pg-diff";
-import { supabase } from "@supabase/pg-diff/integrations/supabase";
+import { main } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
 const result = await main(sourceUrl, targetUrl, supabase);
 ```
@@ -46,7 +46,7 @@ const result = await main(sourceUrl, targetUrl, supabase);
 **CLI Usage:**
 
 ```bash
-pg-diff diff <source> <target> --integration supabase
+pg-delta diff <source> <target> --integration supabase
 ```
 
 ## Creating Custom Integrations
@@ -54,7 +54,7 @@ pg-diff diff <source> <target> --integration supabase
 ### Basic Integration
 
 ```typescript
-import type { Integration } from "@supabase/pg-diff";
+import type { Integration } from "@supabase/pg-delta";
 
 const myIntegration: Integration = {
   filter: (ctx, change) => {
@@ -139,7 +139,7 @@ const myIntegration: Integration = {
 For more advanced integrations, you can use the `IntegrationConfig` type to configure filtering and masking behavior:
 
 ```typescript
-import type { IntegrationConfig } from "@supabase/pg-diff/integrations/integration.types";
+import type { IntegrationConfig } from "@supabase/pg-delta/integrations/integration.types";
 
 const config: IntegrationConfig = {
   role: {
@@ -176,7 +176,7 @@ const config: IntegrationConfig = {
 5. **Compose integrations**: You can create integrations that build on top of existing ones:
 
 ```typescript
-import { base } from "@supabase/pg-diff";
+import { base } from "@supabase/pg-delta";
 
 const myIntegration: Integration = {
   filter: (ctx, change) => {

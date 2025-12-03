@@ -1,7 +1,7 @@
 import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
 
-const debugCatalog = debug("pg-diff:catalog");
+const debugCatalog = debug("pg-delta:catalog");
 
 import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
