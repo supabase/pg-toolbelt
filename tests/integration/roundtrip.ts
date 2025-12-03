@@ -1,17 +1,20 @@
 /**
- * Test configuration and utilities for pg-diff integration tests.
+ * Test configuration and utilities for pg-delta integration tests.
  */
 
+import debug from "debug";
 import type postgres from "postgres";
 import { expect } from "vitest";
-import { diffCatalogs } from "../../src/catalog.diff.ts";
-import { type Catalog, extractCatalog } from "../../src/catalog.model.ts";
-import type { Change } from "../../src/change.types.ts";
-import type { PgDepend } from "../../src/depend.ts";
-import { base } from "../../src/integrations/base.ts";
-import type { Integration } from "../../src/integrations/integration.types.ts";
-import { sortChanges } from "../../src/sort/sort-changes.ts";
-import { DEBUG } from "../constants.ts";
+import { diffCatalogs } from "../../src/core/catalog.diff.ts";
+import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
+import type { Change } from "../../src/core/change.types.ts";
+import type { PgDepend } from "../../src/core/depend.ts";
+import { base } from "../../src/core/integrations/base.ts";
+import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { sortChanges } from "../../src/core/sort/sort-changes.ts";
+
+const debugTest = debug("pg-delta:test");
+const debugDependencies = debug("pg-delta:dependencies");
 
 interface RoundtripTestOptions {
   mainSession: postgres.Sql;
@@ -100,13 +103,9 @@ export async function roundtripFidelityTest(
   }
 
   // Extract catalogs from both databases
-  if (DEBUG) {
-    console.log("mainCatalog: ");
-  }
+  debugTest("mainCatalog: ");
   const mainCatalog = await extractCatalog(mainSession);
-  if (DEBUG) {
-    console.log("branchCatalog: ");
-  }
+  debugTest("branchCatalog: ");
   const branchCatalog = await extractCatalog(branchSession);
 
   if (expectedMainDependencies && expectedBranchDependencies) {
@@ -121,12 +120,8 @@ export async function roundtripFidelityTest(
   // Generate migration from main to branch
   let changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  if (process.env.DEPENDENCIES_DEBUG) {
-    console.log("mainCatalog.depends: ");
-    console.log(mainCatalog.depends);
-    console.log("branchCatalog.depends: ");
-    console.log(branchCatalog.depends);
-  }
+  debugDependencies("mainCatalog.depends: %O", mainCatalog.depends);
+  debugDependencies("branchCatalog.depends: %O", branchCatalog.depends);
 
   // Randomize changes order (skip if expectedSqlTerms is defined for deterministic testing)
   if (!expectedSqlTerms) {
@@ -136,13 +131,11 @@ export async function roundtripFidelityTest(
   // Optional pre-sort to provide deterministic tie-breaking for the phased sort
   if (sortChangesCallback) {
     changes = changes.sort(sortChangesCallback);
-    if (DEBUG) {
-      // just print class names
-      console.log(
-        "sorted changes: ",
-        changes.map((change) => change.constructor.name),
-      );
-    }
+    // just print class names
+    debugTest(
+      "sorted changes: %O",
+      changes.map((change) => change.constructor.name),
+    );
   }
 
   // Use integration for filtering and serialization
@@ -163,18 +156,18 @@ export async function roundtripFidelityTest(
     filteredChanges,
   );
 
-  if (process.env.DEPENDENCIES_DEBUG) {
-    console.log("\n==== Sorted Changes ====");
-    for (let i = 0; i < sortedChanges.length; i++) {
-      const change = sortedChanges[i];
-      console.log(
-        `[${i}] ${change.constructor.name}`,
-        `creates: ${JSON.stringify(change.creates)}`,
-        `requires: ${JSON.stringify(change.requires ?? [])}`,
-      );
-    }
-    console.log("==== End Sorted Changes ====\n");
+  debugDependencies("\n==== Sorted Changes ====");
+  for (let i = 0; i < sortedChanges.length; i++) {
+    const change = sortedChanges[i];
+    debugDependencies(
+      "[%d] %s creates: %O requires: %O",
+      i,
+      change.constructor.name,
+      change.creates,
+      change.requires ?? [],
+    );
   }
+  debugDependencies("==== End Sorted Changes ====\n");
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
@@ -204,9 +197,7 @@ export async function roundtripFidelityTest(
     }
   }
 
-  if (DEBUG) {
-    console.log("migrationScript: ", migrationScript);
-  }
+  debugTest("migrationScript: %s", migrationScript);
 
   // Apply migration to main database
   if (migrationScript.trim()) {
@@ -221,9 +212,7 @@ export async function roundtripFidelityTest(
   }
 
   // Extract final catalog from main database
-  if (DEBUG) {
-    console.log("mainCatalogAfter: ");
-  }
+  debugTest("mainCatalogAfter: ");
   const mainCatalogAfter = await extractCatalog(mainSession);
 
   // Verify semantic equality by diffing the catalogs again
@@ -324,42 +313,36 @@ function validateDependencies(
     }, new Set<string>()),
   );
 
-  if (DEBUG) {
-    console.log(
-      "mainDependencies: ",
-      Array.from(mainDependencies).filter(
-        (dep) =>
-          !dep.includes("pg_") &&
-          !dep.includes("information_schema") &&
-          !dep.includes("pg_toast") &&
-          !dep.includes("storage") &&
-          !dep.includes("auth") &&
-          !dep.includes("secrets") &&
-          !dep.includes("vault") &&
-          !dep.includes("extensions") &&
-          !dep.includes("realtime") &&
-          !dep.includes("graphql") &&
-          !dep.includes("defaultAcl"),
-      ),
-    );
-    console.log(
-      "branchDependencies: ",
-      Array.from(branchDependencies).filter(
-        (dep) =>
-          !dep.includes("pg_") &&
-          !dep.includes("information_schema") &&
-          !dep.includes("pg_toast") &&
-          !dep.includes("storage") &&
-          !dep.includes("auth") &&
-          !dep.includes("secrets") &&
-          !dep.includes("vault") &&
-          !dep.includes("extensions") &&
-          !dep.includes("realtime") &&
-          !dep.includes("graphql") &&
-          !dep.includes("defaultAcl"),
-      ),
-    );
-  }
+  const filteredMainDeps = Array.from(mainDependencies).filter(
+    (dep) =>
+      !dep.includes("pg_") &&
+      !dep.includes("information_schema") &&
+      !dep.includes("pg_toast") &&
+      !dep.includes("storage") &&
+      !dep.includes("auth") &&
+      !dep.includes("secrets") &&
+      !dep.includes("vault") &&
+      !dep.includes("extensions") &&
+      !dep.includes("realtime") &&
+      !dep.includes("graphql") &&
+      !dep.includes("defaultAcl"),
+  );
+  const filteredBranchDeps = Array.from(branchDependencies).filter(
+    (dep) =>
+      !dep.includes("pg_") &&
+      !dep.includes("information_schema") &&
+      !dep.includes("pg_toast") &&
+      !dep.includes("storage") &&
+      !dep.includes("auth") &&
+      !dep.includes("secrets") &&
+      !dep.includes("vault") &&
+      !dep.includes("extensions") &&
+      !dep.includes("realtime") &&
+      !dep.includes("graphql") &&
+      !dep.includes("defaultAcl"),
+  );
+  debugTest("mainDependencies: %O", filteredMainDeps);
+  debugTest("branchDependencies: %O", filteredBranchDeps);
 
   // Extract dependencies from main catalog
   const expectedMainSet = new Set(

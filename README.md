@@ -1,8 +1,22 @@
-# pg-diff
+# pg-delta
 
-Postgres migrations made easy. :sparkles:
+PostgreSQL migrations made easy.
 
-A modern alternative to `pg_dump` that generates migrations by diffing PostgreSQL databases.
+A modern alternative to `pg_dump` that generates migration scripts by diffing PostgreSQL databases.
+
+## Quick Start
+
+```bash
+npm install @supabase/pg-delta
+pg-delta diff postgresql://source postgresql://target
+```
+
+## Documentation
+
+- [Overview and Installation](./docs/README.md)
+- [CLI Reference](./docs/cli.md)
+- [API Reference](./docs/api.md)
+- [Integrations](./docs/integrations.md)
 
 ## Features
 
@@ -10,24 +24,7 @@ A modern alternative to `pg_dump` that generates migrations by diffing PostgreSQ
 - 🚀 More powerful than traditional `pg_dump`
 - 🔒 Safe and reliable schema evolution
 - 🛠️ Developer-friendly workflow
-
-## Quick Start
-
-```bash
-npm install pg-diff
-pg-diff diff source_db target_db
-```
-
-## Use Cases
-
-- Generate migrations between environments
-- Compare database states
-- Automate migration creation
-- Maintain schema version control
-
-## Contributing
-
-Contributions welcome! Feel free to submit issues and pull requests.
+- 🎯 Integration system for platform-specific handling
 
 ## License
 
