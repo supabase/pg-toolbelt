@@ -11,10 +11,14 @@
  * - Custom constraints (change-to-change ordering rules)
  */
 
+import debug from "debug";
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
+
+const debugGraph = debug("pg-diff:graph");
+
 import {
   filterEdgesForCycleBreaking,
   getEdgesInCycle,
@@ -204,8 +208,8 @@ function sortPhaseChanges(
 
   const finalEdgePairs = edgesToPairs(edges);
 
-  if (process.env.GRAPH_DEBUG) {
-    // Debug visualization
+  // Debug visualization
+  if (debugGraph.enabled) {
     printDebugGraph(
       phaseChanges,
       graphData,

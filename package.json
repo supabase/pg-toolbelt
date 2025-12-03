@@ -64,6 +64,7 @@
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
+    "debug": "^4.3.7",
     "postgres": "^3.4.7",
     "zod": "^4.1.13"
   }

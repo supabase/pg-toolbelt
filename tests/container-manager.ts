@@ -1,3 +1,4 @@
+import debug from "debug";
 import postgres from "postgres";
 import { postgresConfig } from "../src/core/main.ts";
 import {
@@ -8,6 +9,8 @@ import {
   PostgresAlpineContainer,
   type StartedPostgresAlpineContainer,
 } from "./postgres-alpine.ts";
+
+const debugContainer = debug("pg-diff:container");
 
 class ContainerManager {
   private containers: Map<PostgresVersion, StartedPostgresAlpineContainer> =
@@ -66,20 +69,18 @@ class ContainerManager {
     const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
 
     try {
-      if (process.env.DEBUG) {
-        console.log(
-          `[ContainerManager] Starting container for PostgreSQL ${version}...`,
-        );
-      }
+      debugContainer(
+        "[ContainerManager] Starting container for PostgreSQL %d...",
+        version,
+      );
 
       const container = await new PostgresAlpineContainer(image).start();
       this.containers.set(version, container);
 
-      if (process.env.DEBUG) {
-        console.log(
-          `[ContainerManager] Successfully started container for PostgreSQL ${version}`,
-        );
-      }
+      debugContainer(
+        "[ContainerManager] Successfully started container for PostgreSQL %d",
+        version,
+      );
     } catch (error) {
       console.error(
         `Failed to start container for PostgreSQL ${version}:`,
@@ -109,11 +110,10 @@ class ContainerManager {
     branch: postgres.Sql;
     cleanup: () => Promise<void>;
   }> {
-    if (process.env.DEBUG) {
-      console.log(
-        `[ContainerManager] Getting database pair for PostgreSQL ${version}`,
-      );
-    }
+    debugContainer(
+      "[ContainerManager] Getting database pair for PostgreSQL %d",
+      version,
+    );
     await this.ensureInitialized([version]);
 
     const container = this.containers.get(version);

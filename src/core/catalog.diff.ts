@@ -1,5 +1,8 @@
-import { DEBUG } from "../../tests/constants.ts";
+import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
+
+const debugCatalog = debug("pg-diff:catalog");
+
 import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
@@ -218,12 +221,10 @@ export function diffCatalogs(main: Catalog, branch: Catalog) {
     return true;
   });
 
-  if (DEBUG) {
-    console.log(
-      "changes catalog diff: ",
-      stringifyWithBigInt(filteredChanges, 2),
-    );
-  }
+  debugCatalog(
+    "changes catalog diff: %O",
+    stringifyWithBigInt(filteredChanges, 2),
+  );
 
   return filteredChanges;
 }
