@@ -156,7 +156,11 @@ function matviewChildren(
 ): TreeGroup[] {
   const groups: TreeGroup[] = [];
   if (hasStructural(mv.indexes)) {
-    groups.push({ name: "indexes", items: toItems(mv.indexes) });
+    const items = toItems(mv.indexes);
+    groups.push({
+      name: items.length > 0 ? `indexes (${items.length})` : "indexes",
+      items,
+    });
   }
   return groups;
 }
@@ -186,7 +190,11 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   const groups: TreeGroup[] = [];
 
   const pushItems = (name: string, grp: ChangeGroup) => {
-    if (hasStructural(grp)) groups.push({ name, items: toItems(grp) });
+    if (hasStructural(grp)) {
+      const items = toItems(grp);
+      const label = items.length > 0 ? `${name} (${items.length})` : name;
+      groups.push({ name: label, items });
+    }
   };
 
   const tableNames = Object.keys(schema.tables).sort();
@@ -253,19 +261,35 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
 
   const typeGroups: TreeGroup[] = [];
   if (hasStructural(schema.types.enums)) {
-    typeGroups.push({ name: "enums", items: toItems(schema.types.enums) });
+    const items = toItems(schema.types.enums);
+    typeGroups.push({
+      name: items.length > 0 ? `enums (${items.length})` : "enums",
+      items,
+    });
   }
   if (hasStructural(schema.types.composites)) {
+    const items = toItems(schema.types.composites);
     typeGroups.push({
-      name: "composite-types",
-      items: toItems(schema.types.composites),
+      name:
+        items.length > 0
+          ? `composite-types (${items.length})`
+          : "composite-types",
+      items,
     });
   }
   if (hasStructural(schema.types.ranges)) {
-    typeGroups.push({ name: "ranges", items: toItems(schema.types.ranges) });
+    const items = toItems(schema.types.ranges);
+    typeGroups.push({
+      name: items.length > 0 ? `ranges (${items.length})` : "ranges",
+      items,
+    });
   }
   if (hasStructural(schema.types.domains)) {
-    typeGroups.push({ name: "domains", items: toItems(schema.types.domains) });
+    const items = toItems(schema.types.domains);
+    typeGroups.push({
+      name: items.length > 0 ? `domains (${items.length})` : "domains",
+      items,
+    });
   }
   if (typeGroups.length > 0) {
     groups.push({ name: `types (${typeGroups.length})`, groups: typeGroups });
@@ -303,7 +327,10 @@ export function buildPlanTree(plan: HierarchicalPlan): TreeGroup {
 
   const clusterGroups = buildCluster(plan.cluster);
   if (clusterGroups.length > 0) {
-    rootGroups.push({ name: "cluster", groups: clusterGroups });
+    rootGroups.push({
+      name: `cluster (${clusterGroups.length})`,
+      groups: clusterGroups,
+    });
   }
 
   const schemaNames = Object.keys(plan.schemas).sort();
@@ -323,11 +350,11 @@ export function buildPlanTree(plan: HierarchicalPlan): TreeGroup {
 
     if (schemaGroups.length > 0) {
       rootGroups.push({
-        name: "database",
-        groups: [{ name: "schemas", groups: schemaGroups }],
+        name: `schemas (${schemaGroups.length})`,
+        groups: schemaGroups,
       });
     }
   }
 
-  return { name: "Migration Plan", groups: rootGroups };
+  return { name: "Plan", groups: rootGroups };
 }

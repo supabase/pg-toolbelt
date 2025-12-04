@@ -5,6 +5,12 @@
 
 import chalk from "chalk";
 
+const CONNECTOR_MID = "├─";
+const CONNECTOR_LAST = "└─";
+const VERTICAL = "│";
+const INDENT_WITH_CHILD = `${VERTICAL}  `;
+const INDENT_LAST = "   ";
+
 /**
  * A single item in the tree (leaf node).
  */
@@ -48,11 +54,39 @@ export interface TreeGroup {
  */
 export function renderTree(root: TreeGroup): string {
   const lines: string[] = [];
-  // Root name (e.g., "Migration Plan") - bold
-  lines.push(chalk.bold(root.name));
+  if (root.name) {
+    lines.push(chalk.bold(root.name));
+  }
 
-  if (root.items || root.groups) {
-    renderGroup(root, "", true, lines);
+  const rootItems = root.items ?? [];
+  const rootGroups = root.groups ?? [];
+
+  // Render root items (rare)
+  for (let i = 0; i < rootItems.length; i++) {
+    const item = rootItems[i];
+    const isLast = i === rootItems.length - 1 && rootGroups.length === 0;
+    const connector = isLast ? CONNECTOR_LAST : CONNECTOR_MID;
+    const coloredConnector = colorizeConnector(connector);
+    const coloredName = colorizeName(item.name);
+    lines.push(`${coloredConnector} ${coloredName}`);
+  }
+
+  // Render root groups at top level (no extra wrapper indentation)
+  for (let i = 0; i < rootGroups.length; i++) {
+    const group = rootGroups[i];
+    const baseName = group.name.replace(/\s*\(\d+\)$/, "");
+    if (baseName === "cluster" || baseName === "schemas") {
+      // Top-level headers rendered without connectors
+      lines.push(colorizeName(group.name));
+      renderChildren(group.items, group.groups, "", lines);
+      // Add a blank line between top-level sections except after the last
+      if (i !== rootGroups.length - 1) {
+        lines.push("");
+      }
+    } else {
+      const isLast = i === rootGroups.length - 1;
+      renderGroup(group, "", isLast, lines);
+    }
   }
 
   return lines.join("\n");
@@ -138,7 +172,7 @@ function renderGroup(
     for (let i = 0; i < group.items.length; i++) {
       const item = group.items[i];
       const isLastItem = i === group.items.length - 1 && !hasGroups;
-      const connector = isLastItem && isLast ? "└─" : "├─";
+      const connector = isLastItem && isLast ? CONNECTOR_LAST : CONNECTOR_MID;
       const coloredConnector = colorizeConnector(connector);
       const coloredName = colorizeName(item.name);
       const coloredPrefix = colorizePrefix(prefix);
@@ -151,8 +185,9 @@ function renderGroup(
     for (let i = 0; i < group.groups.length; i++) {
       const childGroup = group.groups[i];
       const isLastGroup = i === group.groups.length - 1;
-      const connector = isLastGroup && isLast ? "└─" : "├─";
-      const childPrefix = isLastGroup && isLast ? "   " : "│  ";
+      const connector = isLastGroup && isLast ? CONNECTOR_LAST : CONNECTOR_MID;
+      const childPrefix =
+        isLastGroup && isLast ? INDENT_LAST : INDENT_WITH_CHILD;
       const coloredConnector = colorizeConnector(connector);
       const coloredPrefix = colorizePrefix(prefix);
       const coloredName = colorizeName(childGroup.name);
@@ -173,8 +208,51 @@ function renderGroup(
 }
 
 /**
+ * Render children of a (already printed) group without printing the group's own line.
+ */
+function renderChildren(
+  items: TreeItem[] | undefined,
+  groups: TreeGroup[] | undefined,
+  prefix: string,
+  lines: string[],
+): void {
+  const hasItems = items && items.length > 0;
+  const hasGroups = groups && groups.length > 0;
+
+  if (hasItems && items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const isLastItem = i === items.length - 1 && !hasGroups;
+      const connector = isLastItem ? CONNECTOR_LAST : CONNECTOR_MID;
+      const coloredConnector = colorizeConnector(connector);
+      const coloredName = colorizeName(item.name);
+      const coloredPrefix = colorizePrefix(prefix);
+      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
+    }
+  }
+
+  if (hasGroups && groups) {
+    for (let i = 0; i < groups.length; i++) {
+      const childGroup = groups[i];
+      const isLastGroup = i === groups.length - 1;
+      const connector = isLastGroup ? CONNECTOR_LAST : CONNECTOR_MID;
+      const childPrefix = isLastGroup ? INDENT_LAST : INDENT_WITH_CHILD;
+      const coloredConnector = colorizeConnector(connector);
+      const coloredPrefix = colorizePrefix(prefix);
+      const coloredName = colorizeName(childGroup.name);
+
+      lines.push(`${coloredPrefix}${coloredConnector} ${coloredName}`);
+
+      if (childGroup.items || childGroup.groups) {
+        renderGroup(childGroup, prefix + childPrefix, isLastGroup, lines);
+      }
+    }
+  }
+}
+
+/**
  * Colorize tree prefix (vertical lines).
  */
 function colorizePrefix(prefix: string): string {
-  return prefix.replace(/│/g, chalk.dim("│"));
+  return prefix.replace(new RegExp(VERTICAL, "g"), chalk.dim(VERTICAL));
 }
