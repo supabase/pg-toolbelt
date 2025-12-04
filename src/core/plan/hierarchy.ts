@@ -193,18 +193,12 @@ function isExistingPartition(
   // Check branchCatalog first (target state - where partitions should be)
   const branchTable = ctx.branchCatalog.tables[tableKey];
   if (branchTable && branchTable.is_partition && branchTable.parent_name) {
-    console.error(
-      `[isExistingPartition] Found partition in branchCatalog: ${tableName} -> ${branchTable.parent_name}`,
-    );
     return branchTable.parent_name;
   }
 
   // Also check mainCatalog (source state)
   const mainTable = ctx.mainCatalog.tables[tableKey];
   if (mainTable && mainTable.is_partition && mainTable.parent_name) {
-    console.error(
-      `[isExistingPartition] Found partition in mainCatalog: ${tableName} -> ${mainTable.parent_name}`,
-    );
     return mainTable.parent_name;
   }
 
@@ -240,23 +234,18 @@ export function groupChangesHierarchically(
   for (const change of changes) {
     const serialized = serializeChange(ctx, change, integration);
     const columnName = isColumnOperation(change);
-    // Check for partitions: either creating a new partition (CreateTable) or altering an existing one
+    // Check for partitions: either creating a new partition (CreateTable) or any change on an existing partition
     let partitionOf: string | null = null;
     if (serialized.objectType === "table" && serialized.schema) {
       // First check if this is a CreateTable creating a partition
       partitionOf = isPartitionTable(change);
-      // If not, check if this table is an existing partition (for AlterTable changes)
+      // If not, check if this table is an existing partition (for any table change including privilege changes)
       if (!partitionOf) {
         partitionOf = isExistingPartition(
           ctx,
           serialized.schema,
           serialized.name,
         );
-        if (partitionOf) {
-          console.error(
-            `[groupChangesHierarchically] Detected existing partition: ${serialized.name} is partition of ${partitionOf}`,
-          );
-        }
       }
     }
 
@@ -525,9 +514,6 @@ function addSchemaLevelChange(
         // which is already verified, so we can trust it
 
         const parentName = enrichment.partitionOf;
-        console.error(
-          `[addSchemaLevelChange] Routing ${serialized.name} as partition of ${parentName}`,
-        );
         if (!schema.tables[parentName]) {
           schema.tables[parentName] = emptyTableChildren();
         }

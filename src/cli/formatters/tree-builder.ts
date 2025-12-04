@@ -42,6 +42,62 @@ function getEntitySymbol(group: ChangeGroup): string {
 }
 
 /**
+ * Determines the primary operation symbol for a table based on its structural changes AND children changes.
+ * This ensures consistency - if a table has children being created/altered/dropped, it shows a symbol.
+ * Prioritizes create > alter > drop.
+ */
+function getTableSymbol(
+  table: HierarchicalPlan["schemas"][string]["tables"][string],
+): string {
+  // First check table-level structural changes
+  const tableStructural = filterStructuralChanges(table.changes);
+  if (tableStructural.create.length > 0) return "+";
+  if (tableStructural.alter.length > 0) return "~";
+  if (tableStructural.drop.length > 0) return "-";
+
+  // Then check children changes (columns, indexes, triggers, etc.)
+  // Check columns
+  const columnStructural = filterStructuralChanges(table.columns);
+  if (columnStructural.create.length > 0) return "+";
+  if (columnStructural.alter.length > 0) return "~";
+  if (columnStructural.drop.length > 0) return "-";
+
+  // Check indexes
+  const indexStructural = filterStructuralChanges(table.indexes);
+  if (indexStructural.create.length > 0) return "+";
+  if (indexStructural.alter.length > 0) return "~";
+  if (indexStructural.drop.length > 0) return "-";
+
+  // Check triggers
+  const triggerStructural = filterStructuralChanges(table.triggers);
+  if (triggerStructural.create.length > 0) return "+";
+  if (triggerStructural.alter.length > 0) return "~";
+  if (triggerStructural.drop.length > 0) return "-";
+
+  // Check rules
+  const ruleStructural = filterStructuralChanges(table.rules);
+  if (ruleStructural.create.length > 0) return "+";
+  if (ruleStructural.alter.length > 0) return "~";
+  if (ruleStructural.drop.length > 0) return "-";
+
+  // Check policies
+  const policyStructural = filterStructuralChanges(table.policies);
+  if (policyStructural.create.length > 0) return "+";
+  if (policyStructural.alter.length > 0) return "~";
+  if (policyStructural.drop.length > 0) return "-";
+
+  // Check partitions
+  for (const partition of Object.values(table.partitions)) {
+    const partitionSymbol = getTableSymbol(partition);
+    if (partitionSymbol === "+") return "+";
+    if (partitionSymbol === "~") return "~";
+    if (partitionSymbol === "-") return "-";
+  }
+
+  return ""; // No structural changes in table or children
+}
+
+/**
  * Get display name for a change entry.
  * Uses instanceof checks to extract column names for column operations.
  */
@@ -163,8 +219,7 @@ function buildTableChildrenTree(
     const partitionGroups: TreeGroup[] = [];
     for (const partitionName of partitionNames) {
       const partition = table.partitions[partitionName];
-      const structuralChanges = filterStructuralChanges(partition.changes);
-      const symbol = getEntitySymbol(structuralChanges);
+      const symbol = getTableSymbol(partition);
       partitionGroups.push({
         name: symbol ? `${symbol} ${partitionName}` : partitionName,
         groups: buildTableChildrenTree(partition),
@@ -177,6 +232,28 @@ function buildTableChildrenTree(
   }
 
   return groups;
+}
+
+/**
+ * Determines the primary operation symbol for a materialized view based on its structural changes AND children changes.
+ * Similar to getTableSymbol but for materialized views.
+ */
+function getMaterializedViewSymbol(
+  matview: HierarchicalPlan["schemas"][string]["materializedViews"][string],
+): string {
+  // First check view-level structural changes
+  const viewStructural = filterStructuralChanges(matview.changes);
+  if (viewStructural.create.length > 0) return "+";
+  if (viewStructural.alter.length > 0) return "~";
+  if (viewStructural.drop.length > 0) return "-";
+
+  // Then check children changes (indexes)
+  const indexStructural = filterStructuralChanges(matview.indexes);
+  if (indexStructural.create.length > 0) return "+";
+  if (indexStructural.alter.length > 0) return "~";
+  if (indexStructural.drop.length > 0) return "-";
+
+  return ""; // No structural changes in view or children
 }
 
 /**
@@ -321,19 +398,25 @@ function buildSchemaTree(
     const tableGroups: TreeGroup[] = [];
     for (const tableName of tableNames) {
       const table = schema.tables[tableName];
-      const structuralChanges = filterStructuralChanges(table.changes);
-      const symbol = getEntitySymbol(structuralChanges);
-      console.error(`[buildSchemaTree] Table: ${tableName}, symbol: "${symbol}", structural changes: create=${structuralChanges.create.length}, alter=${structuralChanges.alter.length}, drop=${structuralChanges.drop.length}`);
-      console.error(`[buildSchemaTree] Table ${tableName} total changes: create=${table.changes.create.length}, alter=${table.changes.alter.length}, drop=${table.changes.drop.length}`);
-      tableGroups.push({
-        name: symbol ? `${symbol} ${tableName}` : tableName,
-        groups: buildTableChildrenTree(table),
+      const symbol = getTableSymbol(table);
+      const childrenGroups = buildTableChildrenTree(table);
+      
+      // Only include table if it has structural changes OR has children with changes
+      const tableStructural = filterStructuralChanges(table.changes);
+      const hasTableChanges = tableStructural.create.length > 0 || tableStructural.alter.length > 0 || tableStructural.drop.length > 0;
+      if (hasTableChanges || childrenGroups.length > 0) {
+        tableGroups.push({
+          name: symbol ? `${symbol} ${tableName}` : tableName,
+          groups: childrenGroups,
+        });
+      }
+    }
+    if (tableGroups.length > 0) {
+      groups.push({
+        name: "tables",
+        groups: tableGroups,
       });
     }
-    groups.push({
-      name: "tables",
-      groups: tableGroups,
-    });
   }
 
   // Views
@@ -342,17 +425,25 @@ function buildSchemaTree(
     const viewGroups: TreeGroup[] = [];
     for (const viewName of viewNames) {
       const view = schema.views[viewName];
-      const structuralChanges = filterStructuralChanges(view.changes);
-      const symbol = getEntitySymbol(structuralChanges);
-      viewGroups.push({
-        name: `${symbol} ${viewName}`,
-        groups: buildTableChildrenTree(view),
+      const symbol = getTableSymbol(view);
+      const viewChildrenGroups = buildTableChildrenTree(view);
+      
+      // Only include view if it has structural changes OR has children with changes
+      const viewStructural = filterStructuralChanges(view.changes);
+      const hasViewChanges = viewStructural.create.length > 0 || viewStructural.alter.length > 0 || viewStructural.drop.length > 0;
+      if (hasViewChanges || viewChildrenGroups.length > 0) {
+        viewGroups.push({
+          name: symbol ? `${symbol} ${viewName}` : viewName,
+          groups: viewChildrenGroups,
+        });
+      }
+    }
+    if (viewGroups.length > 0) {
+      groups.push({
+        name: "views",
+        groups: viewGroups,
       });
     }
-    groups.push({
-      name: "views",
-      groups: viewGroups,
-    });
   }
 
   // Materialized Views
@@ -361,17 +452,25 @@ function buildSchemaTree(
     const matviewGroups: TreeGroup[] = [];
     for (const matviewName of matviewNames) {
       const matview = schema.materializedViews[matviewName];
-      const structuralChanges = filterStructuralChanges(matview.changes);
-      const symbol = getEntitySymbol(structuralChanges);
-      matviewGroups.push({
-        name: `${symbol} ${matviewName}`,
-        groups: buildMaterializedViewChildrenTree(matview),
+      const symbol = getMaterializedViewSymbol(matview);
+      const matviewChildrenGroups = buildMaterializedViewChildrenTree(matview);
+      
+      // Only include materialized view if it has structural changes OR has children with changes
+      const matviewStructural = filterStructuralChanges(matview.changes);
+      const hasMatviewChanges = matviewStructural.create.length > 0 || matviewStructural.alter.length > 0 || matviewStructural.drop.length > 0;
+      if (hasMatviewChanges || matviewChildrenGroups.length > 0) {
+        matviewGroups.push({
+          name: symbol ? `${symbol} ${matviewName}` : matviewName,
+          groups: matviewChildrenGroups,
+        });
+      }
+    }
+    if (matviewGroups.length > 0) {
+      groups.push({
+        name: "materialized-views",
+        groups: matviewGroups,
       });
     }
-    groups.push({
-      name: "materialized-views",
-      groups: matviewGroups,
-    });
   }
 
   // Functions
@@ -513,17 +612,25 @@ function buildSchemaTree(
     const ftGroups: TreeGroup[] = [];
     for (const ftName of foreignTableNames) {
       const ft = schema.foreignTables[ftName];
-      const structuralChanges = filterStructuralChanges(ft.changes);
-      const symbol = getEntitySymbol(structuralChanges);
-      ftGroups.push({
-        name: `${symbol} ${ftName}`,
-        groups: buildTableChildrenTree(ft),
+      const symbol = getTableSymbol(ft);
+      const ftChildrenGroups = buildTableChildrenTree(ft);
+      
+      // Only include foreign table if it has structural changes OR has children with changes
+      const ftStructural = filterStructuralChanges(ft.changes);
+      const hasFtChanges = ftStructural.create.length > 0 || ftStructural.alter.length > 0 || ftStructural.drop.length > 0;
+      if (hasFtChanges || ftChildrenGroups.length > 0) {
+        ftGroups.push({
+          name: symbol ? `${symbol} ${ftName}` : ftName,
+          groups: ftChildrenGroups,
+        });
+      }
+    }
+    if (ftGroups.length > 0) {
+      groups.push({
+        name: "foreign-tables",
+        groups: ftGroups,
       });
     }
-    groups.push({
-      name: "foreign-tables",
-      groups: ftGroups,
-    });
   }
 
   return groups;
