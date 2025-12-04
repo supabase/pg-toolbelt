@@ -173,7 +173,7 @@ function buildCluster(cluster: HierarchicalPlan["cluster"]): TreeGroup[] {
   const groups: Array<[string, ChangeGroup]> = [
     ["roles", cluster.roles],
     ["extensions", cluster.extensions],
-    ["event-triggers", cluster.eventTriggers],
+    ["event triggers", cluster.eventTriggers],
     ["publications", cluster.publications],
     ["subscriptions", cluster.subscriptions],
     ["foreign-data-wrappers", cluster.foreignDataWrappers],
