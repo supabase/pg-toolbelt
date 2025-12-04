@@ -22,18 +22,18 @@ const GROUP_NAMES = [
   "schemas",
   "tables",
   "views",
-  "materialized-views",
+  "materialized views",
   "functions",
   "procedures",
   "aggregates",
   "sequences",
   "types",
   "enums",
-  "composite-types",
+  "composite types",
   "ranges",
   "domains",
   "collations",
-  "foreign-tables",
+  "foreign tables",
   "columns",
   "indexes",
   "triggers",
@@ -42,12 +42,12 @@ const GROUP_NAMES = [
   "partitions",
   "roles",
   "extensions",
-  "event-triggers",
+  "event triggers",
   "publications",
   "subscriptions",
-  "foreign-data-wrappers",
+  "foreign data wrappers",
   "servers",
-  "user-mappings",
+  "user mappings",
 ];
 
 interface OpCounts {
@@ -159,27 +159,33 @@ export function renderTree(root: TreeGroup): string {
   }
 
   // Render root groups at top level (no extra wrapper indentation)
-  const flattenedGroups: TreeGroup[] = [];
+  const clusterEntries: TreeGroup[] = [];
+  const otherGroups: TreeGroup[] = [];
+  let schemasGroup: TreeGroup | undefined;
 
   for (const group of rootGroups) {
     const { base: label } = splitNameCount(group.name);
     if (label === "cluster") {
-      // Move cluster children to root
       if (group.items) {
-        flattenedGroups.push(...group.items.map((it) => ({ name: it.name })));
+        clusterEntries.push(...group.items.map((it) => ({ name: it.name })));
       }
       if (group.groups) {
-        flattenedGroups.push(...group.groups);
+        clusterEntries.push(...group.groups);
       }
+    } else if (label === "schemas") {
+      schemasGroup = group;
     } else {
-      flattenedGroups.push(group);
+      otherGroups.push(group);
     }
   }
 
-  const processedGroups = flattenedGroups;
+  const orderedRoot: TreeGroup[] = [
+    ...sortGroups(clusterEntries),
+    ...(schemasGroup ? [schemasGroup] : []),
+    ...sortGroups(otherGroups),
+  ];
 
-  for (let i = 0; i < processedGroups.length; i++) {
-    const group = processedGroups[i];
+  for (const group of orderedRoot) {
     renderFlatGroup(group, 0, lines);
   }
 

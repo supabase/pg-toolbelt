@@ -251,7 +251,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (mvGroups.length > 0) {
       groups.push({
-        name: withCount("materialized-views", mvGroups.length),
+        name: withCount("materialized views", mvGroups.length),
         groups: mvGroups,
       });
     }
@@ -275,8 +275,8 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     typeGroups.push({
       name:
         items.length > 0
-          ? `composite-types ${items.length}`
-          : "composite-types",
+          ? `composite types ${items.length}`
+          : "composite types",
       items,
     });
   }
@@ -313,7 +313,7 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
       .filter(Boolean) as TreeGroup[];
     if (ftGroups.length > 0) {
       groups.push({
-        name: withCount("foreign-tables", ftGroups.length),
+        name: withCount("foreign tables", ftGroups.length),
         groups: ftGroups,
       });
     }
