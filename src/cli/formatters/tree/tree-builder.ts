@@ -35,8 +35,13 @@ function structural(group: ChangeGroup): ChangeGroup {
 }
 
 function hasStructural(group: ChangeGroup): boolean {
-  const g = structural(group);
-  return g.create.length + g.alter.length + g.drop.length > 0;
+  const structuralGroup = structural(group);
+  return (
+    structuralGroup.create.length +
+      structuralGroup.alter.length +
+      structuralGroup.drop.length >
+    0
+  );
 }
 
 function symbol(group: ChangeGroup): string {
@@ -83,9 +88,9 @@ function tableChildren(
 ): TreeGroup[] {
   const groups: TreeGroup[] = [];
 
-  const pushGroup = (name: string, grp: ChangeGroup) => {
-    if (hasStructural(grp)) {
-      const items = toItems(grp);
+  const pushGroup = (name: string, changeGroup: ChangeGroup) => {
+    if (hasStructural(changeGroup)) {
+      const items = toItems(changeGroup);
       const label = items.length > 0 ? `${name} ${items.length}` : name;
       groups.push({ name: label, items });
     }
@@ -192,9 +197,9 @@ function buildCluster(cluster: HierarchicalPlan["cluster"]): TreeGroup[] {
 function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
   const groups: TreeGroup[] = [];
 
-  const pushItems = (name: string, grp: ChangeGroup) => {
-    if (hasStructural(grp)) {
-      const items = toItems(grp);
+  const pushItems = (name: string, changeGroup: ChangeGroup) => {
+    if (hasStructural(changeGroup)) {
+      const items = toItems(changeGroup);
       const label = items.length > 0 ? `${name} ${items.length}` : name;
       groups.push({ name: label, items });
     }
@@ -205,10 +210,13 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     const tableGroups = tableNames
       .map((name) => {
         const table = schema.tables[name];
-        const sym = tableSymbol(table);
+        const changeSymbol = tableSymbol(table);
         const children = tableChildren(table);
         if (!hasStructural(table.changes) && children.length === 0) return null;
-        return { name: sym ? `${sym} ${name}` : name, groups: children };
+        return {
+          name: changeSymbol ? `${changeSymbol} ${name}` : name,
+          groups: children,
+        };
       })
       .filter(Boolean) as TreeGroup[];
     if (tableGroups.length > 0) {
@@ -224,10 +232,13 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     const viewGroups = viewNames
       .map((name) => {
         const view = schema.views[name];
-        const sym = tableSymbol(view);
+        const changeSymbol = tableSymbol(view);
         const children = tableChildren(view);
         if (!hasStructural(view.changes) && children.length === 0) return null;
-        return { name: sym ? `${sym} ${name}` : name, groups: children };
+        return {
+          name: changeSymbol ? `${changeSymbol} ${name}` : name,
+          groups: children,
+        };
       })
       .filter(Boolean) as TreeGroup[];
     if (viewGroups.length > 0) {
@@ -243,10 +254,13 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     const mvGroups = mvNames
       .map((name) => {
         const mv = schema.materializedViews[name];
-        const sym = matviewSymbol(mv);
+        const changeSymbol = matviewSymbol(mv);
         const children = matviewChildren(mv);
         if (!hasStructural(mv.changes) && children.length === 0) return null;
-        return { name: sym ? `${sym} ${name}` : name, groups: children };
+        return {
+          name: changeSymbol ? `${changeSymbol} ${name}` : name,
+          groups: children,
+        };
       })
       .filter(Boolean) as TreeGroup[];
     if (mvGroups.length > 0) {
@@ -305,10 +319,13 @@ function buildSchema(schema: HierarchicalPlan["schemas"][string]): TreeGroup[] {
     const ftGroups = ftNames
       .map((name) => {
         const ft = schema.foreignTables[name];
-        const sym = tableSymbol(ft);
+        const changeSymbol = tableSymbol(ft);
         const children = tableChildren(ft);
         if (!hasStructural(ft.changes) && children.length === 0) return null;
-        return { name: sym ? `${sym} ${name}` : name, groups: children };
+        return {
+          name: changeSymbol ? `${changeSymbol} ${name}` : name,
+          groups: children,
+        };
       })
       .filter(Boolean) as TreeGroup[];
     if (ftGroups.length > 0) {
