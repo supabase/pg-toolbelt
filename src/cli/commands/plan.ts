@@ -4,6 +4,7 @@
 
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
+import chalk from "chalk";
 import postgres from "postgres";
 import { diffCatalogs } from "../../core/catalog.diff.ts";
 import { extractCatalog } from "../../core/catalog.model.ts";
@@ -19,74 +20,60 @@ import {
 } from "../../core/plan/index.ts";
 import { postgresConfig } from "../../core/postgres-config.ts";
 import { sortChanges } from "../../core/sort/sort-changes.ts";
-import { formatJson, formatTree } from "../formatters/index.ts";
+import { formatTree } from "../formatters/index.ts";
 
 export const planCommand = buildCommand({
   parameters: {
     flags: {
-      from: {
+      source: {
         kind: "parsed",
         brief: "Source database connection URL (current state)",
         parse: String,
       },
-      to: {
+      target: {
         kind: "parsed",
         brief: "Target database connection URL (desired state)",
         parse: String,
       },
       format: {
         kind: "enum",
-        brief: "Output format for human display",
-        values: ["tree", "json"] as const,
-        default: "tree",
+        brief: "Output format override: json (plan) or sql (script).",
+        values: ["json", "sql"] as const,
         optional: true,
       },
       output: {
         kind: "parsed",
         brief:
-          "Write display output to file (extension determines format: .sql = SQL only, otherwise uses --format)",
-        parse: String,
-        optional: true,
-      },
-      outPlan: {
-        kind: "parsed",
-        brief:
-          "Write plan artifact to file (JSON format, usable with 'apply' command). Defaults to .plan.json extension if no extension provided.",
+          "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
         parse: String,
         optional: true,
       },
     },
     aliases: {
-      f: "from",
-      t: "to",
+      s: "source",
+      t: "target",
       o: "output",
     },
   },
   docs: {
     brief: "Compute schema diff and preview changes",
     fullDescription: `
-Compute the schema diff between two PostgreSQL databases (from → to),
-and preview it for humans. Optionally write a reusable plan artifact
-and/or a migration SQL file.
-
-Exit codes:
-  0 - No changes detected
-  2 - Changes detected
-  1 - Error occurred
+Compute the schema diff between two PostgreSQL databases (source → target),
+and preview it for review or scripting. Defaults to tree display;
+json/sql outputs are available for artifacts or piping.
     `.trim(),
   },
   async func(
     this: CommandContext,
     flags: {
-      from: string;
-      to: string;
-      format?: "tree" | "json";
+      source: string;
+      target: string;
+      format?: "json" | "sql";
       output?: string;
-      outPlan?: string;
     },
   ) {
-    const fromSql = postgres(flags.from, postgresConfig);
-    const toSql = postgres(flags.to, postgresConfig);
+    const fromSql = postgres(flags.source, postgresConfig);
+    const toSql = postgres(flags.target, postgresConfig);
 
     try {
       // Extract catalogs
@@ -168,8 +155,8 @@ Exit codes:
       const plan: Plan = {
         version: 1,
         integration: { id: "base" },
-        source: { url: flags.from },
-        target: { url: flags.to },
+        source: { url: flags.source },
+        target: { url: flags.target },
         stableIds,
         fingerprintFrom,
         fingerprintTo,
@@ -178,44 +165,57 @@ Exit codes:
         stats,
       };
 
-      // Write plan artifact if requested (for use with 'apply' command)
-      if (flags.outPlan) {
-        const planPath =
-          flags.outPlan.endsWith(".json") || flags.outPlan.endsWith(".plan")
-            ? flags.outPlan
-            : `${flags.outPlan}.plan.json`;
-        const planJson = serializePlan(plan);
-        await writeFile(planPath, planJson, "utf-8");
-        this.process.stdout.write(`Plan artifact written to ${planPath}\n`);
-      }
-
-      // Determine output format based on file extension if output is specified
       const outputPath = flags.output;
-      const isSqlOutput = outputPath?.endsWith(".sql") ?? false;
-
-      // If outputting SQL, just write the SQL script
-      if (outputPath && isSqlOutput) {
-        await writeFile(outputPath, plan.sql, "utf-8");
-        this.process.stdout.write(`Migration SQL written to ${outputPath}\n`);
-        process.exitCode = 2;
-        return;
+      let effectiveFormat: "tree" | "json" | "sql";
+      if (flags.format) {
+        effectiveFormat = flags.format;
+      } else if (outputPath?.endsWith(".sql")) {
+        effectiveFormat = "sql";
+      } else if (outputPath?.endsWith(".json")) {
+        effectiveFormat = "json";
+      } else {
+        effectiveFormat = "tree";
       }
 
-      // Build hierarchical structure for display (needs original Change[] objects)
-      const hierarchy = groupChangesHierarchically(ctx, sortedChanges);
-
-      // Format output for display
-      const formatted =
-        flags.format === "json"
-          ? formatJson(plan, hierarchy)
-          : formatTree(hierarchy, plan.stats);
+      let content: string;
+      let writtenLabel: string;
+      switch (effectiveFormat) {
+        case "sql":
+          content = plan.sql;
+          writtenLabel = "Migration script";
+          break;
+        case "json":
+          content = serializePlan(plan);
+          writtenLabel = "Plan";
+          break;
+        default: {
+          const hierarchy = groupChangesHierarchically(ctx, sortedChanges);
+          const previousLevel = chalk.level;
+          if (outputPath) {
+            chalk.level = 0; // disable colors when writing to file
+          }
+          try {
+            content = formatTree(hierarchy, plan.stats);
+          } finally {
+            if (outputPath) {
+              chalk.level = previousLevel;
+            }
+          }
+          // add newline for nicer stdout when in tree mode
+          if (!outputPath && !content.endsWith("\n")) {
+            content = `${content}\n`;
+          }
+          writtenLabel = "Human-readable plan";
+          break;
+        }
+      }
 
       if (outputPath) {
-        await writeFile(outputPath, formatted, "utf-8");
-        this.process.stdout.write(`Plan display written to ${outputPath}\n`);
+        await writeFile(outputPath, content, "utf-8");
+        this.process.stdout.write(`${writtenLabel} written to ${outputPath}\n`);
       } else {
-        this.process.stdout.write(formatted);
-        if (flags.format !== "json") {
+        this.process.stdout.write(content);
+        if (!content.endsWith("\n")) {
           this.process.stdout.write("\n");
         }
       }

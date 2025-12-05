@@ -16,7 +16,7 @@ export const applyCommand = buildCommand({
         brief: "Path to plan file (JSON format)",
         parse: String,
       },
-      database: {
+      target: {
         kind: "parsed",
         brief: "Target database connection URL",
         parse: String,
@@ -29,7 +29,8 @@ export const applyCommand = buildCommand({
     },
     aliases: {
       p: "plan",
-      d: "database",
+      t: "target",
+      d: "target",
     },
   },
   docs: {
@@ -37,7 +38,7 @@ export const applyCommand = buildCommand({
     fullDescription: `
 Apply changes from a plan file to a target database.
 
-The plan file should be a JSON file created with "pgdelta plan --format json --output <file>".
+The plan file should be a JSON file created with "pgdelta plan --output <file>.plan.json" (or any .plan/.json path).
 
 Exit codes:
   0 - Success (changes applied)
@@ -48,7 +49,7 @@ Exit codes:
     this: CommandContext,
     flags: {
       plan: string;
-      database: string;
+      target: string;
       dryRun?: boolean;
     },
   ) {
@@ -90,7 +91,7 @@ Exit codes:
     }
 
     // Connect to target database
-    const sql = postgres(flags.database, postgresConfig);
+    const sql = postgres(flags.target, postgresConfig);
 
     try {
       // Execute the SQL script
