@@ -145,19 +145,10 @@ export function renderTree(root: TreeGroup): string {
   const lines: string[] = [];
   if (root.name) {
     lines.push(chalk.bold(root.name));
-    lines.push(chalk.hex("#4a4a4a")("│"));
   }
 
   const rootItems = root.items ?? [];
   const rootGroups = root.groups ?? [];
-
-  // Render root items (rare)
-  for (let i = 0; i < rootItems.length; i++) {
-    const item = rootItems[i];
-    const guide = buildGuide(0);
-    const coloredName = colorizeName(item.name);
-    lines.push(`${guide}${coloredName}`);
-  }
 
   // Render root groups at top level (no extra wrapper indentation)
   const clusterEntries: TreeGroup[] = [];
@@ -186,8 +177,22 @@ export function renderTree(root: TreeGroup): string {
     ...sortGroups(otherGroups),
   ];
 
-  for (const group of orderedRoot) {
-    renderFlatGroup(group, 0, lines);
+  const combinedRoot = [
+    ...sortItems(rootItems).map((it) => ({
+      kind: "item" as const,
+      name: it.name,
+    })),
+    ...orderedRoot.map((g) => ({ kind: "group" as const, group: g })),
+  ];
+
+  for (let i = 0; i < combinedRoot.length; i++) {
+    const node = combinedRoot[i];
+    const isLast = i === combinedRoot.length - 1;
+    if (node.kind === "item") {
+      renderItem(node.name, [], isLast, lines);
+    } else {
+      renderGroup(node.group, [], isLast, lines);
+    }
   }
 
   return lines.join("\n");
@@ -285,66 +290,64 @@ function colorizeName(name: string, isGroup = false): string {
 /**
  * Render a group with bullet-style indentation.
  */
-function renderFlatGroup(
+function buildPrefix(ancestors: boolean[]): string {
+  return ancestors
+    .map((hasSibling) =>
+      hasSibling ? chalk.hex("#4a4a4a")(GUIDE_UNIT) : "   ",
+    )
+    .join("");
+}
+
+function renderGroup(
   group: TreeGroup,
-  depth: number,
+  ancestors: boolean[],
+  isLast: boolean,
   lines: string[],
 ): void {
-  const guide = buildGuide(depth);
   const { base } = splitNameCount(group.name);
   const hasOp = /^[+~-]\s/.test(base);
   const summary =
     GROUP_NAMES.includes(base) && (group.items || group.groups)
       ? formatCounts(summarizeShallow(group.groups, group.items))
       : "";
-  // Use an angle connector for group rows without an op symbol
-  const extraGuide = !hasOp ? chalk.hex("#4a4a4a")("└ ") : "";
+  const childrenItems = sortItems(group.items ?? []);
+  const childrenGroups = sortGroups(group.groups ?? []);
+  const children = [
+    ...childrenItems.map((it) => ({ kind: "item" as const, name: it.name })),
+    ...childrenGroups.map((g) => ({ kind: "group" as const, group: g })),
+  ];
+
+  const prefix = buildPrefix(ancestors);
+  const connector = chalk.hex("#4a4a4a")(isLast ? "└ " : "├ ");
+  const extraGuide = hasOp ? "" : connector;
   const coloredName = colorizeName(base, true);
   lines.push(
     summary
-      ? `${guide}${extraGuide}${coloredName} ${summary}`
-      : `${guide}${extraGuide}${coloredName}`,
+      ? `${prefix}${extraGuide}${coloredName} ${summary}`
+      : `${prefix}${extraGuide}${coloredName}`,
   );
-  renderChildren(group.items, group.groups, depth + 1, lines);
+
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    const childIsLast = i === children.length - 1;
+    const childAncestors = [...ancestors, !isLast];
+    if (child.kind === "item") {
+      renderItem(child.name, childAncestors, childIsLast, lines);
+    } else {
+      renderGroup(child.group, childAncestors, childIsLast, lines);
+    }
+  }
 }
 
-/**
- * Render children of a (already printed) group without printing the group's own line.
- */
-function renderChildren(
-  items: TreeItem[] | undefined,
-  groups: TreeGroup[] | undefined,
-  depth: number,
+function renderItem(
+  name: string,
+  ancestors: boolean[],
+  isLast: boolean,
   lines: string[],
 ): void {
-  const hasItems = items && items.length > 0;
-  const hasGroups = groups && groups.length > 0;
-
-  if (hasItems && items) {
-    const sorted = sortItems(items);
-    for (let i = 0; i < sorted.length; i++) {
-      const item = items[i];
-      const guide = buildGuide(depth);
-      const coloredName = colorizeName(sorted[i].name);
-      const hasOp = /^[+~-]\s/.test(sorted[i].name);
-      const extraGuide = !hasOp ? chalk.hex("#4a4a4a")("│ ") : "";
-      lines.push(`${guide}${extraGuide}${coloredName}`);
-    }
-  }
-
-  if (hasGroups && groups) {
-    const sortedGroups = sortGroups(groups);
-    for (let i = 0; i < sortedGroups.length; i++) {
-      const childGroup = sortedGroups[i];
-      renderFlatGroup(childGroup, depth, lines);
-    }
-  }
-}
-
-/**
- * Build a dim vertical guide prefix for alignment.
- */
-function buildGuide(depth: number): string {
-  if (depth <= 0) return "";
-  return chalk.hex("#4a4a4a")(GUIDE_UNIT.repeat(depth));
+  const prefix = buildPrefix(ancestors);
+  const hasOp = /^[+~-]\s/.test(name);
+  const connector = hasOp ? "" : chalk.hex("#4a4a4a")(isLast ? "└ " : "├ ");
+  const coloredName = colorizeName(name);
+  lines.push(`${prefix}${connector}${coloredName}`);
 }
