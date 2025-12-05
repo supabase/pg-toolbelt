@@ -296,7 +296,8 @@ function renderFlatGroup(
     GROUP_NAMES.includes(base) && (group.items || group.groups)
       ? formatCounts(summarizeShallow(group.groups, group.items))
       : "";
-  const extraGuide = !hasOp ? chalk.hex("#4a4a4a")("│ ") : "";
+  // Use an angle connector for group rows without an op symbol
+  const extraGuide = !hasOp ? chalk.hex("#4a4a4a")("└ ") : "";
   const coloredName = colorizeName(base, true);
   lines.push(
     summary
@@ -324,7 +325,9 @@ function renderChildren(
       const item = items[i];
       const guide = buildGuide(depth);
       const coloredName = colorizeName(sorted[i].name);
-      lines.push(`${guide}${coloredName}`);
+      const hasOp = /^[+~-]\s/.test(sorted[i].name);
+      const extraGuide = !hasOp ? chalk.hex("#4a4a4a")("│ ") : "";
+      lines.push(`${guide}${extraGuide}${coloredName}`);
     }
   }
 
