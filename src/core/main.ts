@@ -3,7 +3,6 @@ import { diffCatalogs } from "./catalog.diff.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import type { DiffContext } from "./context.ts";
-import { base } from "./integrations/base.ts";
 import type { Integration } from "./integrations/integration.types.ts";
 import { postgresConfig } from "./postgres-config.ts";
 import { sortChanges } from "./sort/sort-changes.ts";
@@ -42,8 +41,8 @@ async function _main(
 
   const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-  // Use provided options as integration, or fall back to safe default
-  const integration = options ?? base;
+  // Use provided options as integration (optional)
+  const integration = options ?? {};
 
   // Apply filter if provided
   const ctx = { mainCatalog, branchCatalog };

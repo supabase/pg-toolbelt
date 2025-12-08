@@ -30,10 +30,9 @@ export {
 } from "./plan/index.ts";
 
 // =============================================================================
-// Integrations - Filtering and serialization presets
+// Integrations (optional)
 // =============================================================================
 
-export { base } from "./integrations/base.ts";
 export type {
   Integration,
   IntegrationConfig,

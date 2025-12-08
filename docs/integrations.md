@@ -11,27 +11,11 @@ An integration consists of two optional functions:
 
 ## Built-in Integrations
 
-### `base`
-
-The default integration with safe-by-default handling:
-
-- Masks all unknown options in foreign data wrapper configurations
-- Filters known environment-dependent fields (e.g., role passwords, subscription connection info)
-
-**Usage:**
-
-```typescript
-import { main, base } from "@supabase/pg-delta";
-
-const result = await main(sourceUrl, targetUrl, base);
-```
-
 ### `supabase`
 
 Supabase-specific integration that:
 
 - Filters out Supabase system schemas and roles
-- Applies base integration's masking and filtering
 - Handles Supabase-specific schema ownership
 
 **Usage:**

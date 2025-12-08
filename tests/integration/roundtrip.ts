@@ -9,7 +9,6 @@ import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
-import { base } from "../../src/core/integrations/base.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 
@@ -139,7 +138,7 @@ export async function roundtripFidelityTest(
   }
 
   // Use integration for filtering and serialization
-  const testIntegration = integration ?? base;
+  const testIntegration = integration ?? {};
   const ctx = { mainCatalog, branchCatalog };
 
   // Apply filter if provided (filters out env-dependent changes)

@@ -9,8 +9,6 @@ import { extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
-import { base } from "../integrations/base.ts";
-import type { Integration } from "../integrations/integration.types.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
@@ -58,13 +56,13 @@ export function buildPlanForCatalogs(
 ): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
   const changes = diffCatalogs(fromCatalog, toCatalog);
 
-  const integration = options.integration ?? base;
+  const integration = options.integration;
   const ctx: DiffContext = {
     mainCatalog: fromCatalog,
     branchCatalog: toCatalog,
   };
 
-  const integrationFilter = integration.filter;
+  const integrationFilter = integration?.filter;
   const filteredChanges = integrationFilter
     ? changes.filter((change) => integrationFilter(ctx, change))
     : changes;
@@ -89,7 +87,7 @@ export function buildPlanForCatalogs(
 function buildPlan(
   ctx: DiffContext,
   changes: Change[],
-  integration: Integration,
+  integration?: CreatePlanOptions["integration"],
 ): Plan {
   const statements = generateStatements(ctx, changes, integration);
 
@@ -113,7 +111,7 @@ function buildPlan(
 function generateStatements(
   ctx: DiffContext,
   changes: Change[],
-  integration: Integration,
+  integration?: CreatePlanOptions["integration"],
 ): string[] {
   const statements: string[] = [];
 
@@ -122,7 +120,7 @@ function generateStatements(
   }
 
   for (const change of changes) {
-    const sql = integration.serialize?.(ctx, change) ?? change.serialize();
+    const sql = integration?.serialize?.(ctx, change) ?? change.serialize();
     statements.push(sql);
   }
 

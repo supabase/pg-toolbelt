@@ -34,8 +34,8 @@ pg-delta diff <source-url> <target-url> [options]
 #### Options
 
 - `-o, --output <file>`: Write output to a file instead of stdout
-- `--integration <name>`: Use a specific integration (default: `base`)
-  - Available integrations: `base`, `supabase`
+- `--integration <name>`: Use a specific integration (optional)
+  - Available integrations: `supabase`
 
 #### Examples
 
