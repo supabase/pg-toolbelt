@@ -91,9 +91,9 @@ function summarizeShallow(
  */
 function formatCounts(counts: OperationCounts): string {
   const parts: string[] = [];
-  if (counts.create) parts.push(chalk.green(`+${counts.create}`));
-  if (counts.alter) parts.push(chalk.yellow(`~${counts.alter}`));
-  if (counts.drop) parts.push(chalk.red(`-${counts.drop}`));
+  if (counts.create) parts.push(chalk.green.dim(`+${counts.create}`));
+  if (counts.alter) parts.push(chalk.yellow.dim(`~${counts.alter}`));
+  if (counts.drop) parts.push(chalk.red.dim(`-${counts.drop}`));
   return parts.length > 0 ? parts.join(" ") : "";
 }
 
