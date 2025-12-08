@@ -140,48 +140,18 @@ export interface HierarchicalPlan {
 }
 
 /**
- * Statistics about the changes in a plan.
- */
-const PlanStatsSchema = z.object({
-  total: z.number(),
-  creates: z.number(),
-  alters: z.number(),
-  drops: z.number(),
-  byObjectType: z.record(z.string(), z.number()),
-});
-
-export type PlanStats = z.infer<typeof PlanStatsSchema>;
-
-/**
  * Plan schema for serialization/deserialization.
  */
 export const PlanSchema = z.object({
   version: z.number(),
   toolVersion: z.string().optional(),
-  integration: z
-    .object({
-      id: z.string(),
-      configHash: z.string().optional(),
-    })
-    .optional(),
-  source: z
-    .object({
-      url: z.string().optional(),
-      label: z.string().optional(),
-    })
-    .optional(),
-  target: z
-    .object({
-      url: z.string().optional(),
-      label: z.string().optional(),
-    })
-    .optional(),
-  stableIds: z.array(z.string()),
-  fingerprintFrom: z.string(),
-  fingerprintTo: z.string().optional(),
-  sqlHash: z.string(),
-  sql: z.string(),
-  stats: PlanStatsSchema,
+  source: z.object({
+    fingerprint: z.string(),
+  }),
+  target: z.object({
+    fingerprint: z.string(),
+  }),
+  statements: z.array(z.string()),
 });
 
 /**

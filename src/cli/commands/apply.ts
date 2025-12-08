@@ -15,14 +15,20 @@ export const applyCommand = buildCommand({
         brief: "Path to plan file (JSON format)",
         parse: String,
       },
+      source: {
+        kind: "parsed",
+        brief: "Source database connection URL (current state)",
+        parse: String,
+      },
       target: {
         kind: "parsed",
-        brief: "Target database connection URL",
+        brief: "Target database connection URL (desired state)",
         parse: String,
       },
     },
     aliases: {
       p: "plan",
+      s: "source",
       t: "target",
     },
   },
@@ -42,6 +48,7 @@ Exit codes:
     this: CommandContext,
     flags: {
       plan: string;
+      source: string;
       target: string;
     },
   ) {
@@ -68,7 +75,7 @@ Exit codes:
       return;
     }
 
-    const result = await applyPlan(plan, flags.target, {
+    const result = await applyPlan(plan, flags.source, flags.target, {
       verifyPostApply: true,
     });
 
@@ -100,8 +107,9 @@ Exit codes:
         process.exitCode = 1;
         return;
       case "applied": {
-        const total = plan.stats?.total ?? result.statements;
-        this.process.stdout.write(`Applying ${total} changes to database...\n`);
+        this.process.stdout.write(
+          `Applying ${result.statements} changes to database...\n`,
+        );
         this.process.stdout.write("Successfully applied all changes.\n");
         if (result.warnings?.length) {
           for (const warning of result.warnings) {

@@ -9,6 +9,7 @@ import postgres from "postgres";
 import { extractCatalog } from "../../core/catalog.model.ts";
 import { groupChangesHierarchically } from "../../core/plan/hierarchy.ts";
 import { buildPlanForCatalogs, serializePlan } from "../../core/plan/index.ts";
+import { formatSqlScript } from "../../core/plan/statements.ts";
 import { postgresConfig } from "../../core/postgres-config.ts";
 import { formatTree } from "../formatters/index.ts";
 
@@ -79,8 +80,6 @@ json/sql outputs are available for artifacts or piping.
       }
 
       const { plan, sortedChanges, ctx } = planResult;
-      plan.source ??= { url: flags.source };
-      plan.target ??= { url: flags.target };
 
       const outputPath = flags.output;
       let effectiveFormat: "tree" | "json" | "sql";
@@ -98,7 +97,7 @@ json/sql outputs are available for artifacts or piping.
       let writtenLabel: string;
       switch (effectiveFormat) {
         case "sql":
-          content = plan.sql;
+          content = formatSqlScript(plan.statements);
           writtenLabel = "Migration script";
           break;
         case "json":
@@ -112,7 +111,7 @@ json/sql outputs are available for artifacts or piping.
             chalk.level = 0; // disable colors when writing to file
           }
           try {
-            content = formatTree(hierarchy, plan.stats);
+            content = formatTree(hierarchy);
           } finally {
             if (outputPath) {
               chalk.level = previousLevel;

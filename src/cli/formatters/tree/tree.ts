@@ -3,21 +3,20 @@
  */
 
 import chalk from "chalk";
-import type { HierarchicalPlan, PlanStats } from "../../../core/plan/index.ts";
+import type { HierarchicalPlan } from "../../../core/plan/index.ts";
 import { buildPlanTree } from "./tree-builder.ts";
 import { renderTree } from "./tree-renderer.ts";
 
 /**
  * Format a plan as a tree structure (compact mode).
  */
-export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
+export function formatTree(plan: HierarchicalPlan): string {
   const lines: string[] = [];
 
   // Summary
+  const total = countTotalChanges(plan);
   lines.push(
-    chalk.bold(
-      `📋 Migration Plan: ${stats.total} change${stats.total !== 1 ? "s" : ""}`,
-    ),
+    chalk.bold(`📋 Migration Plan: ${total} change${total !== 1 ? "s" : ""}`),
   );
   const summary = buildSummaryLine(plan);
   if (summary) {
@@ -39,6 +38,19 @@ export function formatTree(plan: HierarchicalPlan, stats: PlanStats): string {
   );
 
   return lines.join("\n");
+}
+
+function countTotalChanges(plan: HierarchicalPlan): number {
+  const byType: Record<
+    string,
+    { create: number; alter: number; drop: number }
+  > = {};
+  countFromHierarchy(plan, byType);
+  let total = 0;
+  for (const counts of Object.values(byType)) {
+    total += counts.create + counts.alter + counts.drop;
+  }
+  return total;
 }
 
 /**

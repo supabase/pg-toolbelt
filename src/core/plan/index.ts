@@ -8,7 +8,7 @@
  * const plan = await createPlan(fromUrl, toUrl);
  * if (plan) {
  *   const hierarchy = groupChangesHierarchically(ctx, changes);
- *   console.log(plan.sql);
+ *   console.log(plan.statements);
  * }
  * ```
  */
@@ -33,7 +33,6 @@ export type {
   ObjectType,
   ParentType,
   Plan,
-  PlanStats,
   SchemaGroup,
   TableChildren,
   TypeGroup,

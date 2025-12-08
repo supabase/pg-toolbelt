@@ -1,7 +1,11 @@
 import postgres from "postgres";
+import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
-import { hashStableIds, sha256 } from "../fingerprint.ts";
+import type { DiffContext } from "../context.ts";
+import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
+import { base } from "../integrations/base.ts";
 import { postgresConfig } from "../postgres-config.ts";
+import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
 
 type ApplyPlanResult =
@@ -20,64 +24,69 @@ interface ApplyPlanOptions {
  */
 export async function applyPlan(
   plan: Plan,
+  sourceUrl: string,
   targetUrl: string,
   options: ApplyPlanOptions = {},
 ): Promise<ApplyPlanResult> {
-  if (!plan.sql || plan.sql.trim().length === 0) {
+  if (!plan.statements || plan.statements.length === 0) {
     return {
       status: "invalid_plan",
-      message: "Plan contains no SQL to execute.",
+      message: "Plan contains no SQL statements to execute.",
     };
   }
 
-  const computedSqlHash = sha256(plan.sql);
-  if (computedSqlHash !== plan.sqlHash) {
-    return {
-      status: "invalid_plan",
-      message:
-        "Plan SQL hash mismatch; aborting to avoid applying a tampered or outdated plan.",
-    };
-  }
-
-  const sql = postgres(targetUrl, postgresConfig);
+  const currentSql = postgres(sourceUrl, postgresConfig);
+  const desiredSql = postgres(targetUrl, postgresConfig);
 
   try {
-    // Pre-apply fingerprint validation
-    const currentCatalog = await extractCatalog(sql);
-    const currentFingerprint = hashStableIds(currentCatalog, plan.stableIds);
+    // Recompute stableIds and fingerprints from current and desired catalogs
+    const [currentCatalog, desiredCatalog] = await Promise.all([
+      extractCatalog(currentSql),
+      extractCatalog(desiredSql),
+    ]);
 
-    if (currentFingerprint === plan.fingerprintTo) {
+    const changes = diffCatalogs(currentCatalog, desiredCatalog);
+    const ctx: DiffContext = {
+      mainCatalog: currentCatalog,
+      branchCatalog: desiredCatalog,
+    };
+    const integration = base;
+    const filteredChanges = integration.filter
+      ? changes.filter((change) => integration.filter?.(ctx, change))
+      : changes;
+    const sortedChanges = sortChanges(ctx, filteredChanges);
+    const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+      ctx.mainCatalog,
+      sortedChanges,
+    );
+    // We intentionally recompute target fingerprint only after applying.
+
+    // Pre-apply fingerprint validation
+    if (fingerprintFrom === plan.target.fingerprint) {
       return { status: "already_applied" };
     }
 
-    if (currentFingerprint !== plan.fingerprintFrom) {
+    if (fingerprintFrom !== plan.source.fingerprint) {
       return {
         status: "fingerprint_mismatch",
-        current: currentFingerprint,
-        expected: plan.fingerprintFrom,
+        current: fingerprintFrom,
+        expected: plan.source.fingerprint,
       };
     }
 
     // Execute the SQL script
-    // TODO: Store the statements as an array in the plan object
     // TODO: mark statements that can't be run within a transaction
-    const statements = plan.sql
-      .split(";\n\n")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s !== ";");
+    const statements = plan.statements;
 
     let failedStatement: string | undefined;
 
     try {
-      await sql.begin(async (tx) => {
+      await currentSql.begin(async (tx) => {
         for (const statement of statements) {
-          const cleanStatement = statement.replace(/;\s*$/, "");
-          if (cleanStatement.length === 0) continue;
-
           try {
-            await tx.unsafe(cleanStatement);
+            await tx.unsafe(statement);
           } catch (error) {
-            failedStatement = cleanStatement;
+            failedStatement = statement;
             throw error;
           }
         }
@@ -90,12 +99,9 @@ export async function applyPlan(
 
     if (options.verifyPostApply !== false) {
       try {
-        const updatedCatalog = await extractCatalog(sql);
-        const updatedFingerprint = hashStableIds(
-          updatedCatalog,
-          plan.stableIds,
-        );
-        if (updatedFingerprint !== plan.fingerprintTo) {
+        const updatedCatalog = await extractCatalog(currentSql);
+        const updatedFingerprint = hashStableIds(updatedCatalog, stableIds);
+        if (updatedFingerprint !== plan.target.fingerprint) {
           warnings.push(
             "Post-apply fingerprint does not match the plan target fingerprint.",
           );
@@ -113,6 +119,6 @@ export async function applyPlan(
       warnings: warnings.length ? warnings : undefined,
     };
   } finally {
-    await sql.end();
+    await Promise.all([currentSql.end(), desiredSql.end()]);
   }
 }

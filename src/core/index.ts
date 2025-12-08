@@ -20,7 +20,6 @@ export type {
   ObjectType,
   ParentType,
   Plan,
-  PlanStats,
   SchemaGroup,
   TableChildren,
   TypeGroup,
