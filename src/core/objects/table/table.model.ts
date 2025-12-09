@@ -3,8 +3,10 @@ import z from "zod";
 import {
   BasePgModel,
   columnPropsSchema,
+  normalizeColumns,
   type TableLikeObject,
 } from "../base.model.ts";
+import { normalizePrivileges } from "../base.privilege.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
@@ -187,6 +189,26 @@ export class Table extends BasePgModel implements TableLikeObject {
       columns: this.columns,
       constraints: this.constraints,
       privileges: this.privileges,
+    };
+  }
+
+  override stableSnapshot() {
+    const normalizeConstraints = () =>
+      [...this.constraints].sort((a, b) => {
+        const nameA = (a.name as string | undefined) ?? "";
+        const nameB = (b.name as string | undefined) ?? "";
+        return nameA.localeCompare(nameB);
+      });
+
+    return {
+      identity: this.identityFields,
+      data: {
+        ...this.dataFields,
+        columns: normalizeColumns(this.columns),
+        options: this.options ? [...this.options].sort() : this.options,
+        constraints: normalizeConstraints(),
+        privileges: normalizePrivileges(this.privileges),
+      },
     };
   }
 }

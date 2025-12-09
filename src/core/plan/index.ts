@@ -5,8 +5,9 @@
  * ```ts
  * import { createPlan, groupChangesHierarchically } from "./plan";
  *
- * const plan = await createPlan(fromUrl, toUrl);
- * if (plan) {
+ * const planResult = await createPlan(fromUrl, toUrl);
+ * if (planResult) {
+ *   const { plan, sortedChanges, ctx } = planResult;
  *   const hierarchy = groupChangesHierarchically(ctx, changes);
  *   console.log(plan.statements);
  * }

@@ -35,10 +35,7 @@ export function hashStableIds(catalog: Catalog, stableIds: string[]): string {
     }
     projection.push({
       stableId,
-      snapshot: {
-        identity: record.identityFields,
-        data: record.dataFields,
-      },
+      snapshot: record.stableSnapshot(),
     });
   }
 
@@ -185,6 +182,9 @@ function buildCatalogLookup(catalog: Catalog): Record<string, BasePgModel> {
  */
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
+    if (typeof value === "bigint") {
+      return JSON.stringify(value.toString());
+    }
     return JSON.stringify(value);
   }
 

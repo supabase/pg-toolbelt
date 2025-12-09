@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
@@ -21,10 +21,12 @@ interface ApplyPlanOptions {
 /**
  * Apply a plan's SQL to a target database with integrity checks.
  */
+type ConnectionInput = string | Sql;
+
 export async function applyPlan(
   plan: Plan,
-  sourceUrl: string,
-  targetUrl: string,
+  source: ConnectionInput,
+  target: ConnectionInput,
   options: ApplyPlanOptions = {},
 ): Promise<ApplyPlanResult> {
   if (!plan.statements || plan.statements.length === 0) {
@@ -34,8 +36,16 @@ export async function applyPlan(
     };
   }
 
-  const currentSql = postgres(sourceUrl, postgresConfig);
-  const desiredSql = postgres(targetUrl, postgresConfig);
+  const currentSql =
+    typeof source === "string"
+      ? postgres(source, postgresConfig)
+      : (source as Sql);
+  const desiredSql =
+    typeof target === "string"
+      ? postgres(target, postgresConfig)
+      : (target as Sql);
+  const shouldCloseCurrent = typeof source === "string";
+  const shouldCloseDesired = typeof target === "string";
 
   try {
     // Recompute stableIds and fingerprints from current and desired catalogs
@@ -114,6 +124,11 @@ export async function applyPlan(
       warnings: warnings.length ? warnings : undefined,
     };
   } finally {
-    await Promise.all([currentSql.end(), desiredSql.end()]);
+    const closers: Promise<unknown>[] = [];
+    if (shouldCloseCurrent) closers.push(currentSql.end());
+    if (shouldCloseDesired) closers.push(desiredSql.end());
+    if (closers.length) {
+      await Promise.all(closers);
+    }
   }
 }

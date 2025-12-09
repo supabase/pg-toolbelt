@@ -25,13 +25,21 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
  * @param options - Optional configuration
  * @returns A Plan if there are changes, null if databases are identical
  */
+import type { Sql } from "postgres";
+
+type ConnectionInput = string | Sql;
+
 export async function createPlan(
-  fromUrl: string,
-  toUrl: string,
+  from: ConnectionInput,
+  to: ConnectionInput,
   options: CreatePlanOptions = {},
-): Promise<Plan | null> {
-  const fromSql = postgres(fromUrl, postgresConfig);
-  const toSql = postgres(toUrl, postgresConfig);
+): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> {
+  const fromSql =
+    typeof from === "string" ? postgres(from, postgresConfig) : (from as Sql);
+  const toSql =
+    typeof to === "string" ? postgres(to, postgresConfig) : (to as Sql);
+  const shouldCloseFrom = typeof from === "string";
+  const shouldCloseTo = typeof to === "string";
 
   try {
     const [fromCatalog, toCatalog] = await Promise.all([
@@ -39,10 +47,14 @@ export async function createPlan(
       extractCatalog(toSql),
     ]);
 
-    const result = buildPlanForCatalogs(fromCatalog, toCatalog, options);
-    return result?.plan ?? null;
+    return buildPlanForCatalogs(fromCatalog, toCatalog, options);
   } finally {
-    await Promise.all([fromSql.end(), toSql.end()]);
+    const closers: Promise<unknown>[] = [];
+    if (shouldCloseFrom) closers.push(fromSql.end());
+    if (shouldCloseTo) closers.push(toSql.end());
+    if (closers.length) {
+      await Promise.all(closers);
+    }
   }
 }
 
