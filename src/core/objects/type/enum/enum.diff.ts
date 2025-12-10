@@ -146,6 +146,90 @@ export function diffEnums(
     const mainEnum = main[enumId];
     const branchEnum = branch[enumId];
 
+    // If labels were removed (branch is missing labels present in main),
+    // recreate the enum to avoid relying on unsupported DROP VALUE operations.
+    const removedLabels = mainEnum.labels
+      .map((l) => l.label)
+      .filter((label) => !branchEnum.labels.some((b) => b.label === label));
+    if (removedLabels.length > 0) {
+      changes.push(new DropEnum({ enum: mainEnum }));
+      changes.push(new CreateEnum({ enum: branchEnum }));
+
+      if (branchEnum.owner !== ctx.currentUser) {
+        changes.push(
+          new AlterEnumChangeOwner({
+            enum: branchEnum,
+            owner: branchEnum.owner,
+          }),
+        );
+      }
+
+      if (branchEnum.comment !== null) {
+        changes.push(new CreateCommentOnEnum({ enum: branchEnum }));
+      }
+
+      const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+        ctx.currentUser,
+        "enum",
+        branchEnum.schema ?? "",
+      );
+      const desiredPrivileges = filterPublicBuiltInDefaults(
+        "enum",
+        branchEnum.privileges,
+      );
+      const privilegeResults = diffPrivileges(
+        effectiveDefaults,
+        desiredPrivileges,
+        branchEnum.owner,
+        ctx.mainRoles,
+      );
+
+      for (const [grantee, result] of privilegeResults) {
+        if (result.grants.length > 0) {
+          const grantGroups = groupPrivilegesByGrantable(result.grants);
+          for (const [grantable, list] of grantGroups) {
+            void grantable;
+            changes.push(
+              new GrantEnumPrivileges({
+                enum: branchEnum,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        if (result.revokes.length > 0) {
+          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
+          for (const [grantable, list] of revokeGroups) {
+            void grantable;
+            changes.push(
+              new RevokeEnumPrivileges({
+                enum: branchEnum,
+                grantee,
+                privileges: list,
+                version: ctx.version,
+              }),
+            );
+          }
+        }
+
+        if (result.revokeGrantOption.length > 0) {
+          changes.push(
+            new RevokeGrantOptionEnumPrivileges({
+              enum: branchEnum,
+              grantee,
+              privilegeNames: result.revokeGrantOption,
+              version: ctx.version,
+            }),
+          );
+        }
+      }
+
+      continue;
+    }
+
     // OWNER
     if (mainEnum.owner !== branchEnum.owner) {
       changes.push(
@@ -264,14 +348,40 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
     (label) => !mainLabelMap.has(label),
   );
 
-  for (const newValue of addedValues) {
-    const newValueSortOrder = branchLabelMap.get(newValue);
-    if (newValueSortOrder === undefined) {
-      continue;
-    }
+  // Maintain a working list of labels (by name) to calculate correct BEFORE/AFTER
+  // anchors as we simulate applying the additions in order.
+  const branchOrdered = [...branchEnum.labels].sort(
+    (a, b) => a.sort_order - b.sort_order,
+  );
+  const workingLabels = [...mainEnum.labels].map((l) => l.label);
 
-    // Find the correct position for the new value
-    const position = findEnumValuePosition(mainEnum.labels, newValueSortOrder);
+  for (const newValue of addedValues) {
+    const branchIdx = branchOrdered.findIndex((l) => l.label === newValue);
+    if (branchIdx === -1) continue;
+
+    const prevBranch = branchOrdered[branchIdx - 1]?.label;
+    const nextBranch = branchOrdered[branchIdx + 1]?.label;
+
+    let position: { before?: string; after?: string } | undefined;
+
+    if (prevBranch && workingLabels.includes(prevBranch)) {
+      position = { after: prevBranch };
+      // Insert after the previous label in our working list
+      const prevIdx = workingLabels.indexOf(prevBranch);
+      workingLabels.splice(prevIdx + 1, 0, newValue);
+    } else if (nextBranch) {
+      position = { before: nextBranch };
+      const nextIdx = workingLabels.indexOf(nextBranch);
+      if (nextIdx >= 0) {
+        workingLabels.splice(nextIdx, 0, newValue);
+      } else {
+        workingLabels.push(newValue);
+      }
+    } else {
+      // Fallback: append to the end
+      position = { after: workingLabels[workingLabels.length - 1] };
+      workingLabels.push(newValue);
+    }
 
     changes.push(new AlterEnumAddValue({ enum: mainEnum, newValue, position }));
   }
@@ -280,47 +390,4 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
   // We intentionally avoid emitting drop+create to prevent data loss.
 
   return changes;
-}
-
-/**
- * Find the correct position for a new enum value based on sort_order.
- * Returns position object with 'before' or 'after' clause, or undefined if no positioning needed.
- */
-function findEnumValuePosition(
-  mainLabels: Array<{ label: string; sort_order: number }>,
-  newValueSortOrder: number,
-): { before?: string; after?: string } | undefined {
-  // Sort main labels by sort_order to understand the current order
-  const sortedMainLabels = [...mainLabels].sort(
-    (a, b) => a.sort_order - b.sort_order,
-  );
-
-  // Find where the new value should be inserted
-  let insertIndex = 0;
-  for (let i = 0; i < sortedMainLabels.length; i++) {
-    if (newValueSortOrder > sortedMainLabels[i].sort_order) {
-      insertIndex = i + 1;
-    } else {
-      break;
-    }
-  }
-
-  // Determine the position clause
-  if (insertIndex === 0) {
-    // Insert at the beginning
-    if (sortedMainLabels.length > 0) {
-      return { before: sortedMainLabels[0].label };
-    }
-  } else if (insertIndex === sortedMainLabels.length) {
-    // Insert at the end
-    if (sortedMainLabels.length > 0) {
-      return { after: sortedMainLabels[sortedMainLabels.length - 1].label };
-    }
-  } else {
-    // Insert in the middle
-    return { before: sortedMainLabels[insertIndex].label };
-  }
-
-  // No positioning needed (empty enum or single value)
-  return undefined;
 }

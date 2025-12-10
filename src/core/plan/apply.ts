@@ -83,17 +83,20 @@ export async function applyPlan(
     // TODO: mark statements that can't be run within a transaction
     const statements = plan.statements;
 
+    const script = (() => {
+      const joined = statements.join(";\n");
+      return joined.endsWith(";") ? joined : `${joined};`;
+    })();
+
     let failedStatement: string | undefined;
 
     try {
       await currentSql.begin(async (tx) => {
-        for (const statement of statements) {
-          try {
-            await tx.unsafe(statement);
-          } catch (error) {
-            failedStatement = statement;
-            throw error;
-          }
+        try {
+          await tx.unsafe(script);
+        } catch (error) {
+          failedStatement = script;
+          throw error;
         }
       });
     } catch (error) {

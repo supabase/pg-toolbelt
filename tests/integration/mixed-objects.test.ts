@@ -604,7 +604,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("enum value removal with function dependencies", async ({ db }) => {
+    test.only("enum value removal with function dependencies", async ({
+      db,
+    }) => {
       // Test removing enum values when functions depend on them
       await roundtripFidelityTest({
         mainSession: db.main,

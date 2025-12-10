@@ -171,86 +171,164 @@ export async function roundtripFidelityTest(
     verifyPostApply: true,
   });
   if (applyResult.status !== "applied") {
+    if (applyResult.status === "failed") {
+      const errorMessage = [
+        "Apply failed:",
+        `status=${applyResult.status}`,
+        applyResult.failedStatement
+          ? `failedStatement=${applyResult.failedStatement}`
+          : undefined,
+        applyResult.error
+          ? `error=${applyResult.error instanceof Error ? applyResult.error.message : String(applyResult.error)}`
+          : undefined,
+        "message" in applyResult && applyResult.message
+          ? `message=${applyResult.message}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      throw new Error(errorMessage);
+    }
+
     throw new Error(
       `Apply failed: ${applyResult.status} ${
         "message" in applyResult ? applyResult.message : ""
       }`,
     );
   }
-  console.log(applyResult.warnings);
-  expect(applyResult.warnings ?? []).toHaveLength(0);
 
-  // Extract final catalog from main database
+  if (applyResult.warnings?.length) {
+    const debugMainCatalogAfter = await extractCatalog(mainSession);
+    const postApplyFingerprint = hashStableIds(
+      debugMainCatalogAfter,
+      stableIds,
+    );
+    console.error(
+      "[roundtrip] apply warnings: %o\n[targetFingerprint=%s postApplyFingerprint=%s]",
+      applyResult.warnings,
+      targetFingerprint,
+      postApplyFingerprint,
+    );
+    debugEnums("main-after", debugMainCatalogAfter);
+    debugEnums("branch", branchCatalog);
+  }
+
+  // Extra fingerprint assertion to make enum drift visible in CI output
+  if (applyResult.warnings?.length) {
+    const debugMainCatalogAfter = await extractCatalog(mainSession);
+    const postApplyFingerprint = hashStableIds(
+      debugMainCatalogAfter,
+      stableIds,
+    );
+    expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
+  } else {
+    const debugMainCatalogAfter = await extractCatalog(mainSession);
+    const postApplyFingerprint = hashStableIds(
+      debugMainCatalogAfter,
+      stableIds,
+    );
+    expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
+  }
+
+  expect(applyResult.warnings ?? []).toEqual([]);
+
+  await verifyNoRemainingChanges(
+    mainSession,
+    branchCatalog,
+    integrationFilter,
+    migrationScript,
+  );
+}
+
+function debugEnums(label: string, catalog: Catalog) {
+  const entries = Object.values(catalog.enums)
+    .map((enumObj) => ({
+      stableId: enumObj.stableId,
+      snapshot: enumObj.stableSnapshot(),
+    }))
+    .sort((a, b) => a.stableId.localeCompare(b.stableId));
+
+  console.error(
+    "[roundtrip] %s enums (count=%d): %s",
+    label,
+    entries.length,
+    JSON.stringify(entries, null, 2),
+  );
+}
+
+async function verifyNoRemainingChanges(
+  mainSession: postgres.Sql,
+  branchCatalog: Catalog,
+  integrationFilter: Integration["filter"] | undefined,
+  migrationScript: string,
+): Promise<void> {
   debugTest("mainCatalogAfter: ");
   const mainCatalogAfter = await extractCatalog(mainSession);
 
-  // Verify post-apply fingerprint against target
-  const postApplyFingerprint = hashStableIds(mainCatalogAfter, stableIds);
-  expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
-
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target
-
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
-  // Re-apply the filter to check for remaining changes (only changes that weren't filtered out)
-  let filteredChangesAfter = changesAfter;
-  if (integrationFilter) {
-    const ctxAfter = { mainCatalog: mainCatalogAfter, branchCatalog };
-    filteredChangesAfter = filteredChangesAfter.filter((change) =>
-      integrationFilter(ctxAfter, change),
-    );
+  const filteredChangesAfter = integrationFilter
+    ? changesAfter.filter((change) =>
+        integrationFilter(
+          { mainCatalog: mainCatalogAfter, branchCatalog },
+          change,
+        ),
+      )
+    : changesAfter;
+
+  if (filteredChangesAfter.length === 0) {
+    return;
   }
 
-  if (filteredChangesAfter.length > 0) {
-    // Sort the remaining changes for better debugging
-    const sortedChangesAfter = sortChanges(
-      { mainCatalog: mainCatalogAfter, branchCatalog },
-      filteredChangesAfter,
-    );
+  // Sort the remaining changes for better debugging
+  const sortedChangesAfter = sortChanges(
+    { mainCatalog: mainCatalogAfter, branchCatalog },
+    filteredChangesAfter,
+  );
 
-    const remainingSqlStatements = sortedChangesAfter.map((change) =>
-      change.serialize(),
-    );
-    const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
+  const remainingSqlStatements = sortedChangesAfter.map((change) =>
+    change.serialize(),
+  );
+  const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
 
-    // Build detailed error message
-    const changeDetails = sortedChangesAfter.map((change, idx) => {
-      const parts = [
-        `${idx + 1}. ${change.constructor.name}`,
-        `   Operation: ${change.operation}`,
-        `   Object Type: ${change.objectType}`,
-        `   Scope: ${change.scope || "object"}`,
-      ];
+  // Build detailed error message
+  const changeDetails = sortedChangesAfter.map((change, idx) => {
+    const parts = [
+      `${idx + 1}. ${change.constructor.name}`,
+      `   Operation: ${change.operation}`,
+      `   Object Type: ${change.objectType}`,
+      `   Scope: ${change.scope || "object"}`,
+    ];
 
-      if (change.creates.length > 0) {
-        parts.push(`   Creates: ${change.creates.join(", ")}`);
-      }
-      if (change.drops.length > 0) {
-        parts.push(`   Drops: ${change.drops.join(", ")}`);
-      }
-      if (change.requires.length > 0) {
-        parts.push(`   Requires: ${change.requires.join(", ")}`);
-      }
+    if (change.creates.length > 0) {
+      parts.push(`   Creates: ${change.creates.join(", ")}`);
+    }
+    if (change.drops.length > 0) {
+      parts.push(`   Drops: ${change.drops.join(", ")}`);
+    }
+    if (change.requires.length > 0) {
+      parts.push(`   Requires: ${change.requires.join(", ")}`);
+    }
 
-      return parts.join("\n");
-    });
+    return parts.join("\n");
+  });
 
-    const errorMessage = [
-      `Migration verification failed: Found ${changesAfter.length} remaining changes after migration`,
-      "",
-      "=== Remaining Changes ===",
-      ...changeDetails,
-      "",
-      "=== SQL for Remaining Changes ===",
-      remainingMigrationScript || "(no SQL generated)",
-      "",
-      "=== Original Migration Script ===",
-      migrationScript || "(no migration script)",
-    ].join("\n");
+  const errorMessage = [
+    `Migration verification failed: Found ${changesAfter.length} remaining changes after migration`,
+    "",
+    "=== Remaining Changes ===",
+    ...changeDetails,
+    "",
+    "=== SQL for Remaining Changes ===",
+    remainingMigrationScript || "(no SQL generated)",
+    "",
+    "=== Original Migration Script ===",
+    migrationScript || "(no migration script)",
+  ].join("\n");
 
-    throw new Error(errorMessage);
-  }
+  throw new Error(errorMessage);
 }
 
 function getDependencyStableId(depend: PgDepend): string {
