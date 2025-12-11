@@ -208,10 +208,7 @@ export function renderTree(root: TreeGroup): string {
       1,
       maxLeftWidth - visibleWidth(left) - visibleWidth(summary) - 1,
     );
-    const filler =
-      gap > 0
-        ? ` ${chalk.hex("#4a4a4a")("─".repeat(Math.max(0, gap - 1)))}`
-        : "";
+    const filler = gap > 0 ? " ".repeat(gap) : "";
 
     return `${left}${filler} ${summary}`;
   });
