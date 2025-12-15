@@ -113,7 +113,7 @@ describe.concurrent("enum.diff", () => {
     expect(add?.position?.after).toBeUndefined();
   });
 
-  test("add value in middle (BEFORE neighbor)", () => {
+  test("add value in middle (AFTER previous)", () => {
     const main = new Enum({
       schema: "public",
       name: "e1",
@@ -147,8 +147,8 @@ describe.concurrent("enum.diff", () => {
       | AlterEnumAddValue
       | undefined;
     expect(add).toBeDefined();
-    expect(add?.position?.before).toBe("c");
-    expect(add?.position?.after).toBeUndefined();
+    expect(add?.position?.after).toBe("a");
+    expect(add?.position?.before).toBeUndefined();
   });
 
   test("add value at end (AFTER last)", () => {

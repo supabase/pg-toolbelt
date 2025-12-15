@@ -364,19 +364,22 @@ function diffEnumLabels(mainEnum: Enum, branchEnum: Enum): EnumChange[] {
 
     let position: { before?: string; after?: string } | undefined;
 
+    // Prefer AFTER when prevBranch exists in workingLabels (more natural for sequential additions)
+    // Use BEFORE only when we need to insert before the first value or when prevBranch doesn't exist
     if (prevBranch && workingLabels.includes(prevBranch)) {
       position = { after: prevBranch };
       // Insert after the previous label in our working list
       const prevIdx = workingLabels.indexOf(prevBranch);
       workingLabels.splice(prevIdx + 1, 0, newValue);
-    } else if (nextBranch) {
+    } else if (nextBranch && workingLabels.includes(nextBranch)) {
+      // Insert before nextBranch when prevBranch doesn't exist (e.g., adding at beginning)
       position = { before: nextBranch };
       const nextIdx = workingLabels.indexOf(nextBranch);
-      if (nextIdx >= 0) {
-        workingLabels.splice(nextIdx, 0, newValue);
-      } else {
-        workingLabels.push(newValue);
-      }
+      workingLabels.splice(nextIdx, 0, newValue);
+    } else if (nextBranch) {
+      // nextBranch exists but not in workingLabels yet (shouldn't happen in normal flow)
+      position = { before: nextBranch };
+      workingLabels.push(newValue);
     } else {
       // Fallback: append to the end
       position = { after: workingLabels[workingLabels.length - 1] };

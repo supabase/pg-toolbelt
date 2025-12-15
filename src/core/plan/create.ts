@@ -142,13 +142,13 @@ function generateStatements(
   return statements;
 }
 
+/**
+ * Check if any changes involve routines (procedures or aggregates).
+ * Used to determine if we need to disable function body checking.
+ */
 function hasRoutineChanges(changes: Change[]): boolean {
   return changes.some(
     (change) =>
       change.objectType === "procedure" || change.objectType === "aggregate",
   );
 }
-
-// ============================================================================
-// Flat Organization Helpers
-// ============================================================================

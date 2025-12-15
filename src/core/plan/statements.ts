@@ -1,7 +1,12 @@
+/**
+ * SQL script formatting utilities.
+ */
+
 const STATEMENT_DELIMITER = ";\n\n";
 
 /**
- * Build a SQL script from normalized statements.
+ * Format an array of SQL statements into a single script string.
+ * Statements are joined with double newlines and the script ends with a semicolon.
  */
 export function formatSqlScript(statements: string[]): string {
   if (statements.length === 0) return "";

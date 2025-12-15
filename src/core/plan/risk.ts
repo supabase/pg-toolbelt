@@ -1,40 +1,28 @@
+/**
+ * Risk classification for migration plans.
+ * Identifies data-loss operations that require explicit confirmation.
+ */
+
 import type { Change } from "../change.types.ts";
 import { DropSequence } from "../objects/sequence/changes/sequence.drop.ts";
 import { AlterTableDropColumn } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
-import type { PlanRisk, PlanRiskEntry, PlanRiskLevel } from "./types.ts";
-
-export interface PlanRiskSummary extends PlanRisk {}
+import type { PlanRisk } from "./types.ts";
 
 /**
  * Classify a single change for data-loss risk.
  */
-export function classifyChangeRisk(change: Change): PlanRiskEntry | null {
+function classifyChangeRisk(change: Change): string | null {
   if (change instanceof DropTable) {
-    return {
-      changeId: change.changeId,
-      reason: `drop table ${change.table.schema}.${change.table.name}`,
-      object: `${change.table.schema}.${change.table.name}`,
-      sql: change.serialize(),
-    };
+    return `drop table ${change.table.schema}.${change.table.name}`;
   }
 
   if (change instanceof AlterTableDropColumn) {
-    return {
-      changeId: change.changeId,
-      reason: `drop column ${change.column.name} on ${change.table.schema}.${change.table.name}`,
-      object: `${change.table.schema}.${change.table.name}.${change.column.name}`,
-      sql: change.serialize(),
-    };
+    return `drop column ${change.column.name} on ${change.table.schema}.${change.table.name}`;
   }
 
   if (change instanceof DropSequence) {
-    return {
-      changeId: change.changeId,
-      reason: `drop sequence ${change.sequence.schema}.${change.sequence.name}`,
-      object: `${change.sequence.schema}.${change.sequence.name}`,
-      sql: change.serialize(),
-    };
+    return `drop sequence ${change.sequence.schema}.${change.sequence.name}`;
   }
 
   // Extend here if TRUNCATE or other data-loss operations are added.
@@ -45,14 +33,16 @@ export function classifyChangeRisk(change: Change): PlanRiskEntry | null {
  * Classify all changes for data-loss risk.
  */
 export function classifyChangesRisk(changes: Change[]): PlanRisk {
-  const dataLoss: PlanRiskEntry[] = [];
+  const statements: string[] = [];
 
   for (const change of changes) {
-    const entry = classifyChangeRisk(change);
-    if (entry) dataLoss.push(entry);
+    const reason = classifyChangeRisk(change);
+    if (reason) statements.push(reason);
   }
 
-  const level: PlanRiskLevel = dataLoss.length > 0 ? "data_loss" : "safe";
+  if (statements.length > 0) {
+    return { level: "data_loss", statements };
+  }
 
-  return { level, dataLoss };
+  return { level: "safe" };
 }

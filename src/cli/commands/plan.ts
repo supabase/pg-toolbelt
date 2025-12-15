@@ -88,7 +88,7 @@ json/sql outputs are available for artifacts or piping.
     switch (effectiveFormat) {
       case "sql":
         content = [
-          `-- Risk: ${risk.level === "data_loss" ? `data-loss (${risk.dataLoss.length})` : "safe"}`,
+          `-- Risk: ${risk.level === "data_loss" ? `data-loss (${risk.statements.length})` : "safe"}`,
           formatSqlScript(plan.statements),
         ].join("\n");
         writtenLabel = "Migration script";
@@ -109,8 +109,8 @@ json/sql outputs are available for artifacts or piping.
             const warningLines = [
               "",
               chalk.yellow("⚠ Data-loss operations detected:"),
-              ...risk.dataLoss.map((entry) =>
-                chalk.yellow(`- ${entry.reason}`),
+              ...risk.statements.map((statement) =>
+                chalk.yellow(`- ${statement}`),
               ),
               chalk.yellow(
                 "Use `pgdelta apply --unsafe` to allow applying these operations.",

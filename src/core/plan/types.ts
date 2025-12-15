@@ -9,19 +9,9 @@ import type { Change } from "../change.types.ts";
 // Core Types
 // ============================================================================
 
-export type PlanRiskLevel = "safe" | "data_loss";
-
-export interface PlanRiskEntry {
-  changeId: string;
-  reason: string;
-  object?: string;
-  sql?: string;
-}
-
-export interface PlanRisk {
-  level: PlanRiskLevel;
-  dataLoss: PlanRiskEntry[];
-}
+export type PlanRisk =
+  | { level: "safe" }
+  | { level: "data_loss"; statements: string[] };
 
 /**
  * All supported object types in the system.
@@ -167,17 +157,15 @@ export const PlanSchema = z.object({
   }),
   statements: z.array(z.string()),
   risk: z
-    .object({
-      level: z.enum(["safe", "data_loss"]),
-      dataLoss: z.array(
-        z.object({
-          changeId: z.string(),
-          reason: z.string(),
-          object: z.string().optional(),
-          sql: z.string().optional(),
-        }),
-      ),
-    })
+    .discriminatedUnion("level", [
+      z.object({
+        level: z.literal("safe"),
+      }),
+      z.object({
+        level: z.literal("data_loss"),
+        statements: z.array(z.string()),
+      }),
+    ])
     .optional(),
 });
 
@@ -194,5 +182,6 @@ export interface CreatePlanOptions {
   integration?: Integration;
 }
 
-// Re-import Integration type for CreatePlanOptions
+// Import Integration type for CreatePlanOptions
+// (placed at end to avoid circular dependency issues)
 import type { Integration } from "../integrations/integration.types.ts";

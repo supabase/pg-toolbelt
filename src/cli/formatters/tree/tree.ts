@@ -205,10 +205,10 @@ function countFromHierarchy(
       });
 
       // Apply rolled-up counts to table totals
-      if (!byType["table"]) {
-        byType["table"] = { create: 0, alter: 0, drop: 0 };
+      if (!byType.table) {
+        byType.table = { create: 0, alter: 0, drop: 0 };
       }
-      addCounts(byType["table"], tableCounts);
+      addCounts(byType.table, tableCounts);
 
       countGroup(table.indexes, "index");
       countGroup(table.triggers, "trigger");

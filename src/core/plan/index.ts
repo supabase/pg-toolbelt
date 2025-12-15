@@ -8,7 +8,7 @@
  * const planResult = await createPlan(fromUrl, toUrl);
  * if (planResult) {
  *   const { plan, sortedChanges, ctx } = planResult;
- *   const hierarchy = groupChangesHierarchically(ctx, changes);
+ *   const hierarchy = groupChangesHierarchically(ctx, sortedChanges);
  *   console.log(plan.statements);
  * }
  * ```
@@ -20,12 +20,6 @@ export { createPlan } from "./create.ts";
 export { groupChangesHierarchically } from "./hierarchy.ts";
 // Plan I/O
 export { deserializePlan, serializePlan } from "./io.ts";
-// Plan Risk
-export {
-  classifyChangeRisk,
-  classifyChangesRisk,
-  type PlanRiskSummary,
-} from "./risk.ts";
 // Types
 export type {
   ChangeEntry,
@@ -40,9 +34,6 @@ export type {
   ObjectType,
   ParentType,
   Plan,
-  PlanRisk,
-  PlanRiskEntry,
-  PlanRiskLevel,
   SchemaGroup,
   TableChildren,
   TypeGroup,

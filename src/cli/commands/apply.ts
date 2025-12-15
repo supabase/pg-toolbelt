@@ -96,8 +96,8 @@ Exit codes:
       if (plan.risk.level === "data_loss") {
         const warningLines = [
           chalk.yellow("⚠ Data-loss operations detected:"),
-          ...plan.risk.dataLoss.map((entry) =>
-            chalk.yellow(`- ${entry.reason}`),
+          ...plan.risk.statements.map((statement) =>
+            chalk.yellow(`- ${statement}`),
           ),
           chalk.yellow(
             "Use `pgdelta apply --unsafe` to allow applying these operations.",

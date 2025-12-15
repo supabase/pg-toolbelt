@@ -56,6 +56,7 @@ Exit codes:
       from: string;
       to: string;
       yes?: boolean;
+      unsafe?: boolean;
     },
   ) {
     // TODO: Implement sync logic

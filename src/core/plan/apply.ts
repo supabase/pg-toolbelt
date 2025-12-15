@@ -1,3 +1,7 @@
+/**
+ * Plan application - execute migration plans against target databases.
+ */
+
 import postgres, { type Sql } from "postgres";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
@@ -18,10 +22,12 @@ interface ApplyPlanOptions {
   verifyPostApply?: boolean;
 }
 
-/**
- * Apply a plan's SQL to a target database with integrity checks.
- */
 type ConnectionInput = string | Sql;
+
+/**
+ * Apply a plan's SQL statements to a target database with integrity checks.
+ * Validates fingerprints before and after application to ensure plan integrity.
+ */
 
 export async function applyPlan(
   plan: Plan,
