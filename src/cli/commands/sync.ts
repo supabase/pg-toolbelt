@@ -35,6 +35,13 @@ export const syncCommand = buildCommand({
         brief: "Allow data-loss operations (unsafe mode)",
         optional: true,
       },
+      role: {
+        kind: "parsed",
+        brief:
+          "Role to use when executing the migration (SET ROLE will be added to statements).",
+        parse: String,
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -65,10 +72,13 @@ Exit codes:
       target: string;
       yes?: boolean;
       unsafe?: boolean;
+      role?: string;
     },
   ) {
     // 1. Create the plan
-    const planResult = await createPlan(flags.source, flags.target);
+    const planResult = await createPlan(flags.source, flags.target, {
+      role: flags.role,
+    });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");
       process.exitCode = 0;
