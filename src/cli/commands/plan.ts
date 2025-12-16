@@ -80,6 +80,7 @@ json/sql outputs are available for artifacts or piping.
       effectiveFormat,
       {
         disableColors: !!outputPath,
+        showUnsafeFlagSuggestion: false,
       },
     );
 

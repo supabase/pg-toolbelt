@@ -29,6 +29,7 @@ type PlanResult = {
 
 interface FormatPlanOptions {
   disableColors?: boolean;
+  showUnsafeFlagSuggestion?: boolean;
 }
 
 /**
@@ -70,8 +71,14 @@ export function formatPlanForDisplay(
             ...risk.statements.map((statement: string) =>
               chalk.yellow(`- ${statement}`),
             ),
-            chalk.yellow("Use `--unsafe` to allow applying these operations."),
           ];
+          if (options.showUnsafeFlagSuggestion !== false) {
+            warningLines.push(
+              chalk.yellow(
+                "Use `--unsafe` to allow applying these operations.",
+              ),
+            );
+          }
           const treeLines = treeContent.split("\n");
           // Insert warning after the legend (at the end of the output)
           // Find the legend line which contains "create", "alter", and "drop"
@@ -139,9 +146,7 @@ export function validatePlanRisk(
           ...plan.risk.statements.map((statement: string) =>
             chalk.yellow(`- ${statement}`),
           ),
-          chalk.yellow(
-            "Use `pgdelta apply --unsafe` to allow applying these operations.",
-          ),
+          chalk.yellow("Use `--unsafe` to allow applying these operations."),
         ];
         context.process.stderr.write(`${warningLines.join("\n")}\n`);
       }
