@@ -112,6 +112,31 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       privileges: this.privileges,
     };
   }
+
+  override stableSnapshot() {
+    const normalizeColumns = () =>
+      [...this.columns]
+        .map((col) => {
+          const { position: _pos, ...rest } = col as unknown as Record<
+            string,
+            unknown
+          >;
+          return rest;
+        })
+        .sort((a, b) => {
+          const nameA = (a.name as string | undefined) ?? "";
+          const nameB = (b.name as string | undefined) ?? "";
+          return nameA.localeCompare(nameB);
+        });
+
+    return {
+      identity: this.identityFields,
+      data: {
+        ...this.dataFields,
+        columns: normalizeColumns(),
+      },
+    };
+  }
 }
 
 export async function extractMaterializedViews(

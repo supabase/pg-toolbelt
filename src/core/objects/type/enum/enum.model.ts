@@ -71,11 +71,39 @@ export class Enum extends BasePgModel {
   }
 
   get dataFields() {
+    const orderedLabels = [...this.labels]
+      .map((label) => ({ ...label }))
+      .sort(
+        (a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label),
+      );
+    // Normalize sort_order to a deterministic 1..N sequence to avoid float gaps
+    // that occur when adding multiple enum values with AFTER clauses.
+    const labels = orderedLabels.map((label, idx) => ({
+      sort_order: idx + 1,
+      label: label.label,
+    }));
+
+    const privileges = [...this.privileges]
+      .map((priv) => ({
+        ...priv,
+        columns: priv.columns ? [...priv.columns].sort() : priv.columns,
+      }))
+      .sort((a, b) => {
+        const byGrantee = a.grantee.localeCompare(b.grantee);
+        if (byGrantee !== 0) return byGrantee;
+        const byPriv = a.privilege.localeCompare(b.privilege);
+        if (byPriv !== 0) return byPriv;
+        if (a.grantable !== b.grantable) return a.grantable ? 1 : -1;
+        const colsA = (a.columns ?? []).join(",");
+        const colsB = (b.columns ?? []).join(",");
+        return colsA.localeCompare(colsB);
+      });
+
     return {
       owner: this.owner,
-      labels: this.labels,
+      labels,
       comment: this.comment,
-      privileges: this.privileges,
+      privileges,
     };
   }
 }

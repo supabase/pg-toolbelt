@@ -2,6 +2,7 @@
  * Test configuration and utilities for pg-delta integration tests.
  */
 
+import { inspect } from "node:util";
 import debug from "debug";
 import type postgres from "postgres";
 import { expect } from "vitest";
@@ -9,8 +10,13 @@ import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
-import { base } from "../../src/core/integrations/base.ts";
+import {
+  buildPlanScopeFingerprint,
+  hashStableIds,
+} from "../../src/core/fingerprint.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { applyPlan } from "../../src/core/plan/apply.ts";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 
 const debugTest = debug("pg-delta:test");
@@ -38,23 +44,6 @@ interface RoundtripTestOptions {
   expectedOperationOrder?: Change[];
   // Integration to use for filtering and serialization
   integration?: Integration;
-}
-
-async function runOrDump(
-  action: () => Promise<unknown>,
-  opts: { label?: string; diffScript?: string },
-) {
-  try {
-    await action();
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    const lbl = opts.label ?? "Context";
-    const dump = opts.diffScript
-      ? `\n\n==== ${lbl} diffScript (failed to apply) ====\n${opts.diffScript}\n==== end ====\n`
-      : "";
-    err.message += dump;
-    throw err;
-  }
 }
 
 /**
@@ -117,44 +106,21 @@ export async function roundtripFidelityTest(
     );
   }
 
-  // Generate migration from main to branch
-  let changes = diffCatalogs(mainCatalog, branchCatalog);
-
-  debugDependencies("mainCatalog.depends: %O", mainCatalog.depends);
-  debugDependencies("branchCatalog.depends: %O", branchCatalog.depends);
-
-  // Randomize changes order (skip if expectedSqlTerms is defined for deterministic testing)
-  if (!expectedSqlTerms) {
-    changes = changes.sort(() => Math.random() - 0.5);
+  // Generate plan using core workflow
+  const planResult = await createPlan(mainSession, branchSession, {
+    integration,
+  });
+  if (!planResult) {
+    return;
   }
 
-  // Optional pre-sort to provide deterministic tie-breaking for the phased sort
+  let { plan, sortedChanges } = planResult;
+  const integrationFilter = integration?.filter;
+
+  // Optional pre-sort for deterministic tie-breaking in tests
   if (sortChangesCallback) {
-    changes = changes.sort(sortChangesCallback);
-    // just print class names
-    debugTest(
-      "sorted changes: %O",
-      changes.map((change) => change.constructor.name),
-    );
+    sortedChanges = [...sortedChanges].sort(sortChangesCallback);
   }
-
-  // Use integration for filtering and serialization
-  const testIntegration = integration ?? base;
-  const ctx = { mainCatalog, branchCatalog };
-
-  // Apply filter if provided (filters out env-dependent changes)
-  let filteredChanges = changes;
-  const integrationFilter = testIntegration.filter;
-  if (integrationFilter) {
-    filteredChanges = filteredChanges.filter((change) =>
-      integrationFilter(ctx, change),
-    );
-  }
-
-  const sortedChanges = sortChanges(
-    { mainCatalog, branchCatalog },
-    filteredChanges,
-  );
 
   debugDependencies("\n==== Sorted Changes ====");
   for (let i = 0; i < sortedChanges.length; i++) {
@@ -177,13 +143,15 @@ export async function roundtripFidelityTest(
     (change) =>
       change.objectType === "procedure" || change.objectType === "aggregate",
   );
+  const { hash: targetFingerprint, stableIds } = buildPlanScopeFingerprint(
+    branchCatalog,
+    sortedChanges,
+  );
   const migrationSessionConfig = hasRoutineChanges
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const sqlStatements = sortedChanges.map((change) => {
-    return testIntegration.serialize?.(ctx, change) ?? change.serialize();
-  });
+  const sqlStatements = plan.statements;
   const migrationScript = `${[...migrationSessionConfig, ...sqlStatements].join(
     ";\n\n",
   )};`;
@@ -199,85 +167,143 @@ export async function roundtripFidelityTest(
 
   debugTest("migrationScript: %s", migrationScript);
 
-  // Apply migration to main database
-  if (migrationScript.trim()) {
-    await runOrDump(
-      () =>
-        mainSession.unsafe([...sessionConfig, migrationScript].join(";\n\n")),
-      {
-        label: "migration",
-        diffScript: migrationScript,
-      },
+  // Apply migration using core apply
+  const applyResult = await applyPlan(plan, mainSession, branchSession, {
+    verifyPostApply: true,
+  });
+  if (applyResult.status !== "applied") {
+    const prettyApplyResult = inspect(applyResult, {
+      depth: null,
+      colors: false,
+      compact: false,
+      breakLength: 120,
+    });
+    throw new Error(`Apply failed:\n${prettyApplyResult}`, {
+      cause: applyResult,
+    });
+  }
+
+  const debugMainCatalogAfter = await extractCatalog(mainSession);
+  const postApplyFingerprint = hashStableIds(debugMainCatalogAfter, stableIds);
+
+  if (applyResult.warnings?.length) {
+    console.error(
+      "[roundtrip] apply warnings: %o\n[targetFingerprint=%s postApplyFingerprint=%s]",
+      applyResult.warnings,
+      targetFingerprint,
+      postApplyFingerprint,
     );
   }
 
-  // Extract final catalog from main database
+  if (postApplyFingerprint !== targetFingerprint) {
+    const remainingChanges = diffCatalogs(debugMainCatalogAfter, branchCatalog);
+    const sortedRemaining = sortChanges(
+      { mainCatalog: debugMainCatalogAfter, branchCatalog },
+      remainingChanges,
+    );
+    const remainingSql = sortedRemaining.map((c) => c.serialize()).join(";\n");
+    const remainingSummary = sortedRemaining.map((c) => ({
+      change: c.constructor.name,
+      op: c.operation,
+      objectType: c.objectType,
+      scope: (c as { scope?: string }).scope ?? "object",
+      creates: c.creates,
+      drops: c.drops,
+      requires: c.requires,
+    }));
+    console.error(
+      "[roundtrip] fingerprint mismatch\n target=%s\n post=%s\n remainingSummary=%o\n remainingSql=%s",
+      targetFingerprint,
+      postApplyFingerprint,
+      remainingSummary,
+      remainingSql,
+    );
+  }
+
+  expect(postApplyFingerprint).toStrictEqual(targetFingerprint);
+  expect(applyResult.warnings ?? []).toEqual([]);
+
+  await verifyNoRemainingChanges(
+    mainSession,
+    branchCatalog,
+    integrationFilter,
+    migrationScript,
+  );
+}
+
+async function verifyNoRemainingChanges(
+  mainSession: postgres.Sql,
+  branchCatalog: Catalog,
+  integrationFilter: Integration["filter"] | undefined,
+  migrationScript: string,
+): Promise<void> {
   debugTest("mainCatalogAfter: ");
   const mainCatalogAfter = await extractCatalog(mainSession);
 
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target
-
   const changesAfter = diffCatalogs(mainCatalogAfter, branchCatalog);
 
-  // Re-apply the filter to check for remaining changes (only changes that weren't filtered out)
-  let filteredChangesAfter = changesAfter;
-  if (integrationFilter) {
-    const ctxAfter = { mainCatalog: mainCatalogAfter, branchCatalog };
-    filteredChangesAfter = filteredChangesAfter.filter((change) =>
-      integrationFilter(ctxAfter, change),
-    );
+  const filteredChangesAfter = integrationFilter
+    ? changesAfter.filter((change) =>
+        integrationFilter(
+          { mainCatalog: mainCatalogAfter, branchCatalog },
+          change,
+        ),
+      )
+    : changesAfter;
+
+  if (filteredChangesAfter.length === 0) {
+    return;
   }
 
-  if (filteredChangesAfter.length > 0) {
-    // Sort the remaining changes for better debugging
-    const sortedChangesAfter = sortChanges(
-      { mainCatalog: mainCatalogAfter, branchCatalog },
-      filteredChangesAfter,
-    );
+  // Sort the remaining changes for better debugging
+  const sortedChangesAfter = sortChanges(
+    { mainCatalog: mainCatalogAfter, branchCatalog },
+    filteredChangesAfter,
+  );
 
-    const remainingSqlStatements = sortedChangesAfter.map((change) =>
-      change.serialize(),
-    );
-    const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
+  const remainingSqlStatements = sortedChangesAfter.map((change) =>
+    change.serialize(),
+  );
+  const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
 
-    // Build detailed error message
-    const changeDetails = sortedChangesAfter.map((change, idx) => {
-      const parts = [
-        `${idx + 1}. ${change.constructor.name}`,
-        `   Operation: ${change.operation}`,
-        `   Object Type: ${change.objectType}`,
-        `   Scope: ${change.scope || "object"}`,
-      ];
+  // Build detailed error message
+  const changeDetails = sortedChangesAfter.map((change, idx) => {
+    const parts = [
+      `${idx + 1}. ${change.constructor.name}`,
+      `   Operation: ${change.operation}`,
+      `   Object Type: ${change.objectType}`,
+      `   Scope: ${change.scope || "object"}`,
+    ];
 
-      if (change.creates.length > 0) {
-        parts.push(`   Creates: ${change.creates.join(", ")}`);
-      }
-      if (change.drops.length > 0) {
-        parts.push(`   Drops: ${change.drops.join(", ")}`);
-      }
-      if (change.requires.length > 0) {
-        parts.push(`   Requires: ${change.requires.join(", ")}`);
-      }
+    if (change.creates.length > 0) {
+      parts.push(`   Creates: ${change.creates.join(", ")}`);
+    }
+    if (change.drops.length > 0) {
+      parts.push(`   Drops: ${change.drops.join(", ")}`);
+    }
+    if (change.requires.length > 0) {
+      parts.push(`   Requires: ${change.requires.join(", ")}`);
+    }
 
-      return parts.join("\n");
-    });
+    return parts.join("\n");
+  });
 
-    const errorMessage = [
-      `Migration verification failed: Found ${changesAfter.length} remaining changes after migration`,
-      "",
-      "=== Remaining Changes ===",
-      ...changeDetails,
-      "",
-      "=== SQL for Remaining Changes ===",
-      remainingMigrationScript || "(no SQL generated)",
-      "",
-      "=== Original Migration Script ===",
-      migrationScript || "(no migration script)",
-    ].join("\n");
+  const errorMessage = [
+    `Migration verification failed: Found ${changesAfter.length} remaining changes after migration`,
+    "",
+    "=== Remaining Changes ===",
+    ...changeDetails,
+    "",
+    "=== SQL for Remaining Changes ===",
+    remainingMigrationScript || "(no SQL generated)",
+    "",
+    "=== Original Migration Script ===",
+    migrationScript || "(no migration script)",
+  ].join("\n");
 
-    throw new Error(errorMessage);
-  }
+  throw new Error(errorMessage);
 }
 
 function getDependencyStableId(depend: PgDepend): string {

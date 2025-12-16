@@ -1,15 +1,25 @@
 import { buildApplication, buildRouteMap } from "@stricli/core";
-import { diffCommand } from "./commands/diff.ts";
+import { applyCommand } from "./commands/apply.ts";
+import { planCommand } from "./commands/plan.ts";
+import { syncCommand } from "./commands/sync.ts";
 
 const root = buildRouteMap({
   routes: {
-    diff: diffCommand,
+    plan: planCommand,
+    apply: applyCommand,
+    sync: syncCommand,
   },
-  defaultCommand: "diff",
+  defaultCommand: "sync",
   docs: {
     brief: "PostgreSQL migrations made easy",
-    fullDescription:
-      "pgdelta generates migration scripts by comparing two PostgreSQL databases.",
+    fullDescription: `
+pgdelta generates migration scripts by comparing two PostgreSQL databases.
+
+Commands:
+  plan   - Compute schema diff and preview changes
+  apply  - Apply a plan's migration script to a database
+  sync   - Plan and apply changes in one go
+    `.trim(),
   },
 });
 

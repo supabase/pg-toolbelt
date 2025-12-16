@@ -97,6 +97,29 @@ export class Publication extends BasePgModel {
       schemas: this.schemas,
     };
   }
+
+  override stableSnapshot() {
+    const normalizedTables = this.tables.map((table) => ({
+      schema: table.schema,
+      name: table.name,
+      columns: table.columns
+        ? [...table.columns].sort((a, b) => a.localeCompare(b))
+        : null,
+      row_filter: table.row_filter,
+    }));
+
+    return {
+      identity: this.identityFields,
+      data: {
+        ...this.dataFields,
+        tables: normalizedTables.sort(
+          (a, b) =>
+            a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name),
+        ),
+        schemas: [...this.schemas].sort((a, b) => a.localeCompare(b)),
+      },
+    };
+  }
 }
 
 /**

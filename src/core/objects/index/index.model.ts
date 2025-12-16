@@ -171,6 +171,37 @@ export class Index extends BasePgModel {
       owner: this.owner,
     };
   }
+
+  override stableSnapshot() {
+    const normalizeArray = (arr: unknown) => {
+      if (!Array.isArray(arr)) return arr;
+      return [...arr].map((v) => normalizeValue(v));
+    };
+
+    const normalizeValue = (v: unknown): unknown => {
+      if (Array.isArray(v)) return normalizeArray(v);
+      if (v && typeof v === "object") {
+        return Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).map(([k, val]) => [
+            k,
+            normalizeValue(val),
+          ]),
+        );
+      }
+      return v;
+    };
+
+    return {
+      identity: this.identityFields,
+      data: {
+        ...this.dataFields,
+        statistics_target: normalizeArray(this.statistics_target),
+        column_options: normalizeArray(this.column_options),
+        column_collations: normalizeArray(this.column_collations),
+        operator_classes: normalizeArray(this.operator_classes),
+      },
+    };
+  }
 }
 
 export async function extractIndexes(sql: Sql): Promise<Index[]> {

@@ -6,7 +6,6 @@
  * 2. Diff Filtering: Environment-dependent value changes are ignored during diff (SET actions filtered)
  */
 
-import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest, getTestIsolated } from "../utils.ts";
@@ -25,13 +24,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             mainSession: db.main,
             branchSession: db.branch,
             testSql: `CREATE ROLE test_login_role WITH LOGIN;`,
-            expectedSqlTerms: [
-              dedent`
-                  -- WARNING: Role requires password to be set manually
-                  -- Set the password after migration execution using: ALTER ROLE test_login_role PASSWORD '...';
-                  CREATE ROLE test_login_role WITH LOGIN
-                `,
-            ],
+            expectedSqlTerms: ["CREATE ROLE test_login_role WITH LOGIN"],
           });
         },
       );
@@ -70,10 +63,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 );
             `,
           expectedSqlTerms: [
-            dedent`
-                -- WARNING: Connection string is environment-dependent
-                -- Set the connection string after migration execution using: ALTER SUBSCRIPTION sub_sensitive CONNECTION '...';
-                CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)`,
+            "CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)",
           ],
         });
       });
@@ -92,11 +82,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
           expectedSqlTerms: [
             "CREATE FOREIGN DATA WRAPPER test_sensitive_fdw NO HANDLER NO VALIDATOR",
-            dedent`
-                -- WARNING: Server contains sensitive/environment-dependent options (password, user, host)
-                -- Set actual option values after migration execution using: ALTER SERVER test_sensitive_server2 OPTIONS (SET ...);
-                CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')
-              `,
+            "CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')",
           ],
         });
       });
@@ -117,16 +103,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 OPTIONS (user 'testuser', password 'secret456');
             `,
           expectedSqlTerms: [
-            dedent`
-                -- WARNING: Server contains sensitive/environment-dependent options (host)
-                -- Set actual option values after migration execution using: ALTER SERVER test_um_server OPTIONS (SET ...);
-                CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')
-              `,
-            dedent`
-                -- WARNING: User mapping contains sensitive/environment-dependent options (user, password)
-                -- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);
-                CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')
-              `,
+            "CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')",
+            "CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
           ],
         });
       });
@@ -284,11 +262,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
           // ADD actions are not filtered, so ALTER should be generated
           expectedSqlTerms: [
-            dedent`
-                -- WARNING: Server options contain sensitive/environment-dependent values (host, port)
-                -- Set actual option values after migration execution using: ALTER SERVER test_env_server OPTIONS (SET ...);
-                ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')
-              `,
+            "ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')",
           ],
         });
       });

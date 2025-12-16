@@ -2,7 +2,6 @@
  * Integration tests for PostgreSQL Foreign Data Wrapper operations.
  */
 
-import dedent from "dedent";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTestIsolated } from "../utils.ts";
@@ -232,11 +231,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // SET actions are filtered out, but ADD actions generate ALTER
         // Note: SET user is filtered out, but ADD password remains and is masked
         expectedSqlTerms: [
-          dedent`
-            -- WARNING: User mapping options contain sensitive/environment-dependent values (password)
-            -- Set actual option values after migration execution using: ALTER USER MAPPING ... OPTIONS (SET ...);
-            ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')
-          `,
+          "ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')",
         ],
       });
     });

@@ -22,6 +22,15 @@ export const columnPropsSchema = z.object({
 
 export type ColumnProps = z.infer<typeof columnPropsSchema>;
 
+export function normalizeColumns(columns: ColumnProps[]) {
+  return columns
+    .map((column) => {
+      const { position: _position, ...rest } = column;
+      return rest;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /**
  * Interface for table-like objects that have columns (tables, views, materialized views).
  * In PostgreSQL, these are relations with relkind in ('r', 'p', 'v', 'm').
@@ -58,5 +67,16 @@ export abstract class BasePgModel {
       this.stableId === other.stableId &&
       deepEqual(this.dataFields, other.dataFields)
     );
+  }
+
+  /**
+   * Stable representation used for equality/fingerprints.
+   * Subclasses can override to normalize unstable fields.
+   */
+  stableSnapshot() {
+    return {
+      identity: this.identityFields,
+      data: this.dataFields,
+    };
   }
 }

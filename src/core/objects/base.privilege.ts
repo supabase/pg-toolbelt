@@ -3,6 +3,8 @@
  * These functions support GRANT/REVOKE operations across different database objects.
  */
 
+import type { PrivilegeProps } from "./base.privilege-diff.ts";
+
 /**
  * Returns the complete set of available privileges for a given object kind.
  * This is used to determine whether a privilege list represents "ALL PRIVILEGES".
@@ -166,4 +168,17 @@ export function getObjectKindPrefix(objectKind: string): string {
     default:
       return "ON";
   }
+}
+
+export function normalizePrivileges(privileges: PrivilegeProps[]) {
+  return privileges
+    .map((privilege) => ({
+      grantee: privilege.grantee,
+      privilege: privilege.privilege,
+      grantable: privilege.grantable,
+    }))
+    .sort((a, b) => {
+      if (a.grantee !== b.grantee) return a.grantee.localeCompare(b.grantee);
+      return a.privilege.localeCompare(b.privilege);
+    });
 }
