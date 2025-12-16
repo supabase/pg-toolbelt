@@ -79,8 +79,10 @@ Exit codes:
     const { content } = formatPlanForDisplay(planResult, "tree");
     this.process.stdout.write(content);
 
-    // 3. Validate risk
-    const validation = validatePlanRisk(planResult.plan, !!flags.unsafe, this);
+    // 3. Validate risk (suppress warning since it's already shown in the plan)
+    const validation = validatePlanRisk(planResult.plan, !!flags.unsafe, this, {
+      suppressWarning: true,
+    });
     if (!validation.valid) {
       process.exitCode = validation.exitCode ?? 1;
       return;
