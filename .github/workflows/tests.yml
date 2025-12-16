@@ -97,7 +97,7 @@ jobs:
 
       - name: Run integration tests
         env:
-          PG_DIFF_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
+          PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
         run: pnpm test --project=integration --coverage
 
   release-preview:
