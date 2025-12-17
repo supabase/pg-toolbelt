@@ -1,14 +1,7 @@
-import type { Change } from "../../change.types.ts";
-import { getOwner, getSchema } from "../../filter/utils.ts";
-import type {
-  ChangeFilter,
-  ChangeSerializer,
-  DiffContext,
-} from "../../main.ts";
-import { defaultConfig } from "../config/defaults.ts";
-import { createChangeFilter } from "../core/filter.ts";
-import { createChangeSerializer } from "../core/serialize.ts";
-import type { Integration } from "../integration.types.ts";
+import type { Change } from "../change.types.ts";
+import { getOwner, getSchema } from "../filter/utils.ts";
+import type { ChangeFilter, ChangeSerializer, DiffContext } from "../main.ts";
+import type { Integration } from "./integration.types.ts";
 
 const _SUPABASE_EXTENSIONS_SCHEMAS = [
   "graphql",
@@ -74,12 +67,7 @@ const SUPABASE_ROLES = [
 ];
 
 // Supabase-specific filter (filters out Supabase system objects)
-const supabaseFilter: ChangeFilter = (ctx: DiffContext, change: Change) => {
-  // Apply env-dependent filter first (can mutate changes)
-  if (!envDependentFilter(ctx, change)) {
-    return false;
-  }
-
+const supabaseFilter: ChangeFilter = (_ctx: DiffContext, change: Change) => {
   // Then apply Supabase-specific filter
   const isCreateSchema =
     change.objectType === "schema" &&
@@ -108,18 +96,8 @@ const supabaseFilter: ChangeFilter = (ctx: DiffContext, change: Change) => {
   return !isSupabaseSchema && !isSupabaseRole && !isMembershipForSupabaseRole;
 };
 
-// Compose Supabase filter with env-dependent filter
-const envDependentFilter = createChangeFilter(defaultConfig);
-
-// Base serializer with masking and env-dependent option filtering
-const baseSerializer = createChangeSerializer(defaultConfig);
-
 // Supabase-specific serialize (applies masking + custom schema handling)
-const supabaseSerialize: ChangeSerializer = (ctx, change) => {
-  // First apply base serialization (masking + env-dependent filtering)
-  const serializedSql = baseSerializer(ctx, change);
-
-  // Then apply Supabase-specific customizations
+const supabaseSerialize: ChangeSerializer = (_ctx, change) => {
   const owner = getOwner(change);
   const isCreateSchemaOwnedBySupabaseRole =
     change.objectType === "schema" &&
@@ -129,12 +107,10 @@ const supabaseSerialize: ChangeSerializer = (ctx, change) => {
     SUPABASE_ROLES.includes(owner);
 
   if (isCreateSchemaOwnedBySupabaseRole) {
-    // Use the serialized SQL if available, otherwise serialize with skipAuthorization
-    return serializedSql ?? change.serialize({ skipAuthorization: true });
+    return change.serialize({ skipAuthorization: true });
   }
 
-  // Return serialized SQL if available, otherwise undefined (fall back to default)
-  return serializedSql;
+  return change.serialize();
 };
 
 export const supabase: Integration = {
