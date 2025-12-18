@@ -10,7 +10,15 @@ import { extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
-import { compileFilterDSL } from "../integrations/filter/dsl.ts";
+import {
+  compileFilterDSL,
+  type FilterDSL,
+} from "../integrations/filter/dsl.ts";
+import type { Integration } from "../integrations/integration.types.ts";
+import {
+  compileSerializeDSL,
+  type SerializeDSL,
+} from "../integrations/serialize/dsl.ts";
 import { postgresConfig } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import { classifyChangesRisk } from "./risk.ts";
@@ -214,21 +222,46 @@ function buildPlanForCatalogs(
     role: options.role,
   });
 
-  const integration = options.integration;
-  const filterDSL = options.filter;
+  const filterOption = options.filter;
+  const serializeOption = options.serialize;
   const ctx: DiffContext = {
     mainCatalog: fromCatalog,
     branchCatalog: toCatalog,
   };
 
-  // Compile filter DSL if provided, otherwise use integration filter
-  let filterFn = integration?.filter;
-  if (filterDSL) {
-    filterFn = compileFilterDSL(filterDSL);
+  // Determine if filter/serialize are DSL or functions, and extract DSL for storage
+  const isFilterDSL = filterOption && typeof filterOption !== "function";
+  const isSerializeDSL =
+    serializeOption && typeof serializeOption !== "function";
+  const filterDSL = isFilterDSL ? (filterOption as FilterDSL) : undefined;
+  const serializeDSL = isSerializeDSL
+    ? (serializeOption as SerializeDSL)
+    : undefined;
+
+  // Build final integration: compile DSL if needed, use functions directly otherwise
+  let finalIntegration: Integration | undefined;
+  if (filterOption || serializeOption) {
+    finalIntegration = {
+      filter:
+        typeof filterOption === "function"
+          ? filterOption
+          : filterDSL
+            ? compileFilterDSL(filterDSL)
+            : undefined,
+      serialize:
+        typeof serializeOption === "function"
+          ? serializeOption
+          : serializeDSL
+            ? compileSerializeDSL(serializeDSL)
+            : undefined,
+    };
   }
 
+  // Use filter from final integration
+  const filterFn = finalIntegration?.filter;
+
   const filteredChanges = filterFn
-    ? changes.filter((change) => filterFn!(change))
+    ? changes.filter((change) => filterFn(change))
     : changes;
 
   if (filteredChanges.length === 0) {
@@ -236,7 +269,14 @@ function buildPlanForCatalogs(
   }
 
   const sortedChanges = sortChanges(ctx, filteredChanges);
-  const plan = buildPlan(ctx, sortedChanges, options, filterDSL);
+  const plan = buildPlan(
+    ctx,
+    sortedChanges,
+    options,
+    filterDSL,
+    serializeDSL,
+    finalIntegration,
+  );
 
   return { plan, sortedChanges, ctx };
 }
@@ -252,11 +292,13 @@ function buildPlan(
   ctx: DiffContext,
   changes: Change[],
   options?: CreatePlanOptions,
-  filterDSL?: CreatePlanOptions["filter"],
+  filterDSL?: FilterDSL,
+  serializeDSL?: SerializeDSL,
+  integration?: Integration,
 ): Plan {
   const role = options?.role;
   const statements = generateStatements(changes, {
-    integration: options?.integration,
+    integration,
     role,
   });
   const risk = classifyChangesRisk(changes);
@@ -274,6 +316,7 @@ function buildPlan(
     statements,
     role,
     filter: filterDSL,
+    serialize: serializeDSL,
     risk,
   };
 }
@@ -284,7 +327,7 @@ function buildPlan(
 function generateStatements(
   changes: Change[],
   options?: {
-    integration?: CreatePlanOptions["integration"];
+    integration?: Integration;
     role?: string;
   },
 ): string[] {

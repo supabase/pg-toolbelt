@@ -82,7 +82,7 @@ export function getSchema(change: Change) {
   }
 }
 
-export function getOwner(change: Change) {
+function getOwner(change: Change) {
   switch (change.objectType) {
     case "aggregate":
       return change.aggregate.owner;

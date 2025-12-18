@@ -4,8 +4,11 @@
 
 import { buildCommand, type CommandContext } from "@stricli/core";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
+import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
+import type { ChangeFilter, ChangeSerializer } from "../../core/main.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
+import { loadIntegrationDSL } from "../utils/integrations.ts";
 import {
   formatPlanForDisplay,
   handleApplyResult,
@@ -58,6 +61,28 @@ export const syncCommand = buildCommand({
         },
         optional: true,
       },
+      serialize: {
+        kind: "parsed",
+        brief:
+          'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
+        parse: (value: string): SerializeDSL => {
+          try {
+            return JSON.parse(value) as SerializeDSL;
+          } catch (error) {
+            throw new Error(
+              `Invalid serialize JSON: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+        optional: true,
+      },
+      integration: {
+        kind: "parsed",
+        brief:
+          "Integration name (e.g., 'supabase') or path to integration JSON file. Loads from core/integrations/ or file path.",
+        parse: String,
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -90,12 +115,26 @@ Exit codes:
       unsafe?: boolean;
       role?: string;
       filter?: FilterDSL;
+      serialize?: SerializeDSL;
+      integration?: string;
     },
   ) {
+    // Load integration if provided and extract filter/serialize DSL
+    let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
+    let serializeOption: SerializeDSL | ChangeSerializer | undefined =
+      flags.serialize;
+    if (flags.integration) {
+      const integrationDSL = await loadIntegrationDSL(flags.integration);
+      // Use integration DSL if explicit flags not provided
+      filterOption = filterOption ?? integrationDSL.filter;
+      serializeOption = serializeOption ?? integrationDSL.serialize;
+    }
+
     // 1. Create the plan
     const planResult = await createPlan(flags.source, flags.target, {
       role: flags.role,
-      filter: flags.filter,
+      filter: filterOption,
+      serialize: serializeOption,
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");

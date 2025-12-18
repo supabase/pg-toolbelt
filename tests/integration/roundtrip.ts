@@ -108,7 +108,8 @@ export async function roundtripFidelityTest(
 
   // Generate plan using core workflow
   const planResult = await createPlan(mainSession, branchSession, {
-    integration,
+    filter: integration?.filter,
+    serialize: integration?.serialize,
   });
   if (!planResult) {
     return;

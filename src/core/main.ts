@@ -2,14 +2,9 @@ import postgres from "postgres";
 import { diffCatalogs } from "./catalog.diff.ts";
 import { extractCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import type { DiffContext } from "./context.ts";
 import type { Integration } from "./integrations/integration.types.ts";
 import { postgresConfig } from "./postgres-config.ts";
 import { sortChanges } from "./sort/sort-changes.ts";
-
-// Re-export for backwards compatibility
-export type { DiffContext } from "./context.ts";
-export { postgresConfig } from "./postgres-config.ts";
 
 export type ChangeFilter = (change: Change) => boolean;
 

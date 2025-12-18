@@ -4,7 +4,6 @@ import postgres from "postgres";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { MainOptions } from "../../src/core/main.ts";
-import { postgresConfig } from "../../src/core/main.ts";
 import { AlterRoleSetOptions } from "../../src/core/objects/role/changes/role.alter.ts";
 import { CreateRole } from "../../src/core/objects/role/changes/role.create.ts";
 import {
@@ -13,6 +12,7 @@ import {
   RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
 } from "../../src/core/objects/role/changes/role.privilege.ts";
+import { postgresConfig } from "../../src/core/postgres-config.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
 

@@ -11,7 +11,7 @@ import { evaluatePattern, type FilterPattern } from "../filter/dsl.ts";
 /**
  * Serialization options that can be passed to change.serialize().
  */
-export type SerializeOptions = {
+type SerializeOptions = {
   skipAuthorization?: boolean;
   // Can be extended with more options in the future
   [key: string]: unknown;
@@ -20,7 +20,7 @@ export type SerializeOptions = {
 /**
  * A serialization rule that applies options when a pattern matches.
  */
-export type SerializeRule = {
+type SerializeRule = {
   /**
    * Pattern to match against changes.
    * Uses the same pattern matching logic as filters.
