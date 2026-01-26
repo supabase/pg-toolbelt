@@ -202,10 +202,18 @@ export async function createPlan(
   let shouldCloseSource = false;
   let shouldCloseTarget = false;
 
+  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
+  const onError = (err: Error & { code?: string }) => {
+    if (err.code !== "57P01") {
+      console.error("Pool error:", err);
+    }
+  };
+
   if (typeof source === "string") {
     const sslConfig = await parseSslConfig(source, "source");
     sourcePool = createPool(sslConfig.cleanedUrl, {
       ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries
         await client.query("SET search_path = ''");
@@ -223,6 +231,7 @@ export async function createPlan(
     const sslConfig = await parseSslConfig(target, "target");
     targetPool = createPool(sslConfig.cleanedUrl, {
       ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries
         await client.query("SET search_path = ''");

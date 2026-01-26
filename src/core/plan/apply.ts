@@ -57,8 +57,16 @@ export async function applyPlan(
   let shouldCloseCurrent = false;
   let shouldCloseDesired = false;
 
+  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
+  const onError = (err: Error & { code?: string }) => {
+    if (err.code !== "57P01") {
+      console.error("Pool error:", err);
+    }
+  };
+
   if (typeof source === "string") {
     currentPool = createPool(source, {
+      onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries for fingerprint verification
         await client.query("SET search_path = ''");
@@ -74,6 +82,7 @@ export async function applyPlan(
 
   if (typeof target === "string") {
     desiredPool = createPool(target, {
+      onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries for fingerprint verification
         await client.query("SET search_path = ''");

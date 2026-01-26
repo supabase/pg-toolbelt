@@ -30,8 +30,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     testIsolated("extraction uses the specified role", async ({ db }) => {
-      // Create a role (cluster-level, shared between both databases)
-      // Use DO block to handle "role already exists" gracefully
+      // Create a role on both containers (isolated containers don't share roles)
       await db.main.query(`
         CREATE ROLE extraction_test_role WITH NOLOGIN;
         CREATE SCHEMA test_schema;
@@ -39,6 +38,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         GRANT CREATE ON SCHEMA test_schema TO extraction_test_role;
       `);
       await db.branch.query(`
+        CREATE ROLE extraction_test_role WITH NOLOGIN;
         CREATE SCHEMA test_schema;
         GRANT USAGE ON SCHEMA test_schema TO extraction_test_role;
         GRANT CREATE ON SCHEMA test_schema TO extraction_test_role;
