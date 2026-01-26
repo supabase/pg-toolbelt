@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -108,10 +109,16 @@ export class Enum extends BasePgModel {
   }
 }
 
-export async function extractEnums(sql: Sql): Promise<Enum[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const enumRows = await sql`
+export async function extractEnums(pool: Pool): Promise<Enum[]> {
+  const { rows: enumRows } = await pool.query<{
+    schema: string;
+    name: string;
+    sort_order: number;
+    label: string;
+    owner: string;
+    comment: string | null;
+    privileges: { grantee: string; privilege: string; grantable: boolean }[];
+  }>(sql`
 with extension_oids as (
   select
     objid
@@ -148,41 +155,40 @@ from
   where not t.typnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and ext.objid is null
 order by
-  1, 2, 3;
-  `;
-    const grouped: Record<
-      string,
-      {
-        schema: string;
-        name: string;
-        owner: string;
-        labels: { sort_order: number; label: string }[];
-        comment: string | null;
-        privileges: {
-          grantee: string;
-          privilege: string;
-          grantable: boolean;
-        }[];
-      }
-    > = {};
-    for (const e of enumRows) {
-      const key = `${e.schema}.${e.name}`;
-      if (!grouped[key]) {
-        grouped[key] = {
-          schema: e.schema,
-          name: e.name,
-          owner: e.owner,
-          labels: [],
-          comment: e.comment,
-          privileges: e.privileges,
-        };
-      }
-      grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
+  1, 2, 3
+  `);
+  const grouped: Record<
+    string,
+    {
+      schema: string;
+      name: string;
+      owner: string;
+      labels: { sort_order: number; label: string }[];
+      comment: string | null;
+      privileges: {
+        grantee: string;
+        privilege: string;
+        grantable: boolean;
+      }[];
     }
-    // Validate and parse each enum using the Zod schema
-    const validatedEnums = Object.values(grouped).map((e) =>
-      enumPropsSchema.parse(e),
-    );
-    return validatedEnums.map((e: EnumProps) => new Enum(e));
-  });
+  > = {};
+  for (const e of enumRows) {
+    const key = `${e.schema}.${e.name}`;
+    if (!grouped[key]) {
+      grouped[key] = {
+        schema: e.schema,
+        name: e.name,
+        owner: e.owner,
+        labels: [],
+        comment: e.comment,
+        privileges: e.privileges,
+      };
+    }
+    grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
+  }
+  // Validate and parse each enum using the Zod schema
+  const validatedEnums = Object.values(grouped).map((e) =>
+    enumPropsSchema.parse(e),
+  );
+  return validatedEnums.map((e: EnumProps) => new Enum(e));
 }

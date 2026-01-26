@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -128,14 +129,12 @@ export class Role extends BasePgModel {
   }
 }
 
-export async function extractRoles(sql: Sql): Promise<Role[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-
-    // Check PostgreSQL version capabilities for membership options
-    const [capabilities] = await sql<
-      { has_inherit: boolean; has_set: boolean }[]
-    >`
+export async function extractRoles(pool: Pool): Promise<Role[]> {
+  // Check PostgreSQL version capabilities for membership options
+  const { rows: capabilitiesRows } = await pool.query<{
+    has_inherit: boolean;
+    has_set: boolean;
+  }>(sql`
       select
         exists (
           select 1
@@ -149,25 +148,28 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           where attrelid = 'pg_auth_members'::regclass
             and attname = 'set_option'
         ) as has_set
-    `;
+  `);
 
-    const roleRows =
-      capabilities?.has_inherit && capabilities?.has_set
-        ? await sql`
+  const capabilities = capabilitiesRows[0];
+
+  let roleRows: RoleProps[];
+
+  if (capabilities?.has_inherit && capabilities?.has_set) {
+    const result = await pool.query<RoleProps>(sql`
           WITH role_memberships AS (
-            SELECT 
+            SELECT
               r.rolname AS role_name,
               json_agg(
                 json_build_object(
                   'member',   m.rolname,
                   'grantor',  g.rolname,
                   'admin_option',   am.admin_option,
-                  'inherit_option', am.inherit_option,   -- PG16+
-                  'set_option',     am.set_option        -- PG16+
+                  'inherit_option', am.inherit_option,
+                  'set_option',     am.set_option
                 )
               ) FILTER (WHERE m.rolname IS NOT NULL) AS members
             FROM pg_catalog.pg_roles r
-            LEFT JOIN pg_auth_members am ON am.roleid = r.oid       -- roles that are members of this role
+            LEFT JOIN pg_auth_members am ON am.roleid = r.oid
             LEFT JOIN pg_roles m          ON m.oid = am.member
             LEFT JOIN pg_roles g          ON g.oid = am.grantor
             GROUP BY r.rolname
@@ -230,9 +232,7 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           FROM pg_catalog.pg_roles r
           LEFT JOIN role_memberships rm ON rm.role_name = r.rolname
           WHERE
-            -- 1) drop built-in/internal roles (anything starting with pg_)
             r.rolname !~ '^pg_'
-            -- 2) drop roles directly tracked as extension members in pg_shdepend (if any)
             AND NOT EXISTS (
               SELECT 1
               FROM pg_catalog.pg_shdepend d
@@ -241,24 +241,25 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
                 AND d.refclassid  = 'pg_extension'::regclass
                 AND d.deptype     IN ('e','x')
             )
-          ORDER BY 1;
-      `
-        : await sql`
+          ORDER BY 1
+    `);
+    roleRows = result.rows;
+  } else {
+    const result = await pool.query<RoleProps>(sql`
           WITH role_memberships AS (
-            SELECT 
+            SELECT
               r.rolname AS role_name,
               json_agg(
                 json_build_object(
                   'member',         m.rolname,
                   'grantor',        g.rolname,
                   'admin_option',   am.admin_option,
-                  -- PG15: these columns don't exist; emit them as nulls
                   'inherit_option', NULL,
                   'set_option',     NULL
                 )
               ) FILTER (WHERE m.rolname IS NOT NULL) AS members
             FROM pg_catalog.pg_roles r
-            LEFT JOIN pg_auth_members am ON am.roleid = r.oid       -- roles that are members of this role
+            LEFT JOIN pg_auth_members am ON am.roleid = r.oid
             LEFT JOIN pg_roles m          ON m.oid = am.member
             LEFT JOIN pg_roles g          ON g.oid = am.grantor
             GROUP BY r.rolname
@@ -321,9 +322,7 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
           FROM pg_catalog.pg_roles r
           LEFT JOIN role_memberships rm ON rm.role_name = r.rolname
           WHERE
-            -- drop built-in/internal roles
             r.rolname !~ '^pg_'
-            -- drop roles directly tracked as extension members in pg_shdepend (if any)
             AND NOT EXISTS (
               SELECT 1
               FROM pg_catalog.pg_shdepend d
@@ -332,12 +331,14 @@ export async function extractRoles(sql: Sql): Promise<Role[]> {
                 AND d.refclassid  = 'pg_extension'::regclass
                 AND d.deptype     IN ('e','x')
             )
-          ORDER BY 1;
-      `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = roleRows.map((row: unknown) =>
-      rolePropsSchema.parse(row),
-    );
-    return validatedRows.map((row: RoleProps) => new Role(row));
-  });
+          ORDER BY 1
+    `);
+    roleRows = result.rows;
+  }
+
+  // Validate and parse each row using the Zod schema
+  const validatedRows = roleRows.map((row: unknown) =>
+    rolePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: RoleProps) => new Role(row));
 }

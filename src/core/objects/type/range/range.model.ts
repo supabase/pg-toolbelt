@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -116,10 +117,8 @@ export class Range extends BasePgModel {
  *  - MULTIRANGE_TYPE_NAME is not included (we currently do not attempt to infer
  *    whether it differs from the default auto-generated name)
  */
-export async function extractRanges(sql: Sql): Promise<Range[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const rows = await sql`
+export async function extractRanges(pool: Pool): Promise<Range[]> {
+  const { rows } = await pool.query<RangeProps>(sql`
 with extension_oids as (
   select objid from pg_depend d
   where d.refclassid = 'pg_extension'::regclass and d.classid = 'pg_type'::regclass
@@ -181,9 +180,8 @@ left join pg_catalog.pg_namespace pn_subdiff on pn_subdiff.oid = p_subdiff.prona
 left outer join extension_oids e on t.oid = e.objid
 where not t.typnamespace::regnamespace::text like any(array['pg\_%', 'information\_schema'])
   and e.objid is null
-order by 1, 2;
-    `;
-    const validated = rows.map((row: unknown) => rangePropsSchema.parse(row));
-    return validated.map((row: RangeProps) => new Range(row));
-  });
+order by 1, 2
+  `);
+  const validated = rows.map((row: unknown) => rangePropsSchema.parse(row));
+  return validated.map((row: RangeProps) => new Range(row));
 }

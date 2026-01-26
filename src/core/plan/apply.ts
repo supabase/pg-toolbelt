@@ -2,13 +2,13 @@
  * Plan application - execute migration plans against target databases.
  */
 
-import postgres, { type Sql } from "postgres";
+import type { Pool } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
-import { postgresConfig } from "../postgres-config.ts";
+import { createPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
 
@@ -23,7 +23,7 @@ interface ApplyPlanOptions {
   verifyPostApply?: boolean;
 }
 
-type ConnectionInput = string | Sql;
+type ConnectionInput = string | Pool;
 
 /**
  * Check if a statement is a session configuration statement (standalone SET statements).
@@ -51,22 +51,30 @@ export async function applyPlan(
     };
   }
 
-  const currentSql =
-    typeof source === "string"
-      ? postgres(source, postgresConfig)
-      : (source as Sql);
-  const desiredSql =
-    typeof target === "string"
-      ? postgres(target, postgresConfig)
-      : (target as Sql);
-  const shouldCloseCurrent = typeof source === "string";
-  const shouldCloseDesired = typeof target === "string";
+  let currentPool: Pool;
+  let desiredPool: Pool;
+  let shouldCloseCurrent = false;
+  let shouldCloseDesired = false;
+
+  if (typeof source === "string") {
+    currentPool = createPool(source);
+    shouldCloseCurrent = true;
+  } else {
+    currentPool = source;
+  }
+
+  if (typeof target === "string") {
+    desiredPool = createPool(target);
+    shouldCloseDesired = true;
+  } else {
+    desiredPool = target;
+  }
 
   try {
     // Recompute stableIds and fingerprints from current and desired catalogs
     const [currentCatalog, desiredCatalog] = await Promise.all([
-      extractCatalog(currentSql),
-      extractCatalog(desiredSql),
+      extractCatalog(currentPool),
+      extractCatalog(desiredPool),
     ]);
 
     const changes = diffCatalogs(currentCatalog, desiredCatalog);
@@ -112,7 +120,7 @@ export async function applyPlan(
     })();
 
     try {
-      await currentSql.unsafe(script);
+      await currentPool.query(script);
     } catch (error) {
       return { status: "failed", error, script };
     }
@@ -121,7 +129,7 @@ export async function applyPlan(
 
     if (options.verifyPostApply !== false) {
       try {
-        const updatedCatalog = await extractCatalog(currentSql);
+        const updatedCatalog = await extractCatalog(currentPool);
         const updatedFingerprint = hashStableIds(updatedCatalog, stableIds);
         if (updatedFingerprint !== plan.target.fingerprint) {
           warnings.push(
@@ -147,8 +155,8 @@ export async function applyPlan(
     };
   } finally {
     const closers: Promise<unknown>[] = [];
-    if (shouldCloseCurrent) closers.push(currentSql.end());
-    if (shouldCloseDesired) closers.push(desiredSql.end());
+    if (shouldCloseCurrent) closers.push(currentPool.end());
+    if (shouldCloseDesired) closers.push(desiredPool.end());
     if (closers.length) {
       await Promise.all(closers);
     }

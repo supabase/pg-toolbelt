@@ -1,5 +1,12 @@
 {
   "permissions": {
-    "allow": ["Bash(pnpm test:*)"]
+    "allow": [
+      "Bash(pnpm test:*)",
+      "Bash(pnpm check-types:*)",
+      "Bash(pnpm format-and-lint:*)",
+      "Bash(node -e:*)",
+      "Bash(pnpm vitest run:*)",
+      "Bash(PGDELTA_TEST_POSTGRES_VERSIONS=17 pnpm test:*)"
+    ]
   }
 }

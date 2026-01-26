@@ -6,6 +6,7 @@
  * 2. Diff Filtering: Environment-dependent value changes are ignored during diff (SET actions filtered)
  */
 
+import { sql } from "@ts-safeql/sql-tag";
 import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { getTest, getTestIsolated } from "../utils.ts";
@@ -44,8 +45,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       test("subscription with password in conninfo is masked", async ({
         db,
       }) => {
-        const [{ name: mainDbName }] =
-          await db.main`select current_database() as name`;
+        const {
+          rows: [{ name: mainDbName }],
+        } = await db.main.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
 
         await roundtripFidelityTest({
           mainSession: db.main,
@@ -132,8 +136,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       test("alter subscription connection with password is ignored", async ({
         db,
       }) => {
-        const [{ name: mainDbName }] =
-          await db.main`select current_database() as name`;
+        const {
+          rows: [{ name: mainDbName }],
+        } = await db.main.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
 
         await roundtripFidelityTest({
           mainSession: db.main,
@@ -162,8 +169,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       test("subscription: changing conninfo does not generate ALTER", async ({
         db,
       }) => {
-        const [{ name: mainDbName }] =
-          await db.main`select current_database() as name`;
+        const {
+          rows: [{ name: mainDbName }],
+        } = await db.main.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
 
         await roundtripFidelityTest({
           mainSession: db.main,
@@ -192,8 +202,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       test("subscription: changing non-conninfo properties still generates ALTER", async ({
         db,
       }) => {
-        const [{ name: mainDbName }] =
-          await db.main`select current_database() as name`;
+        const {
+          rows: [{ name: mainDbName }],
+        } = await db.main.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
 
         await roundtripFidelityTest({
           mainSession: db.main,

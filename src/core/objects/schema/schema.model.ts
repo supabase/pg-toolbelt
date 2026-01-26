@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -60,10 +61,8 @@ export class Schema extends BasePgModel {
   }
 }
 
-export async function extractSchemas(sql: Sql): Promise<Schema[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const schemaRows = await sql`
+export async function extractSchemas(pool: Pool): Promise<Schema[]> {
+  const { rows: schemaRows } = await pool.query<SchemaProps>(sql`
     with extension_oids as (
       select
         objid
@@ -98,12 +97,11 @@ export async function extractSchemas(sql: Sql): Promise<Schema[]> {
       and e.objid is null
       -- </EXCLUDE_INTERNAL>
     order by
-      1;
-  `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = schemaRows.map((row: unknown) =>
-      schemaPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: SchemaProps) => new Schema(row));
-  });
+      1
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = schemaRows.map((row: unknown) =>
+    schemaPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: SchemaProps) => new Schema(row));
 }

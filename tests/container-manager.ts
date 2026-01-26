@@ -1,6 +1,6 @@
 import debug from "debug";
-import postgres from "postgres";
-import { postgresConfig } from "../src/core/postgres-config.ts";
+import type { Pool } from "pg";
+import { createPool } from "../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   type PostgresVersion,
@@ -11,6 +11,18 @@ import {
 } from "./postgres-alpine.ts";
 
 const debugContainer = debug("pg-delta:container");
+
+/**
+ * Suppress expected shutdown errors from idle pool connections.
+ * Error code 57P01 = admin_shutdown (container stopped while connection open)
+ */
+function suppressShutdownError(err: Error & { code?: string }) {
+  if (err.code === "57P01") {
+    // Expected during container shutdown - ignore
+    return;
+  }
+  console.error("Pool error:", err);
+}
 
 class ContainerManager {
   private containers: Map<PostgresVersion, StartedPostgresAlpineContainer> =
@@ -106,8 +118,8 @@ class ContainerManager {
    * Get a database pair (main, branch) for testing from the container
    */
   async getDatabasePair(version: PostgresVersion): Promise<{
-    main: postgres.Sql;
-    branch: postgres.Sql;
+    main: Pool;
+    branch: Pool;
     cleanup: () => Promise<void>;
   }> {
     debugContainer(
@@ -132,19 +144,20 @@ class ContainerManager {
     ]);
 
     // Create SQL connections to both databases on the same container
-    const sqlMain = postgres(
+    // Use onError to suppress expected shutdown errors from idle connections
+    const poolMain = createPool(
       container.getConnectionUriForDatabase(dbNameMain),
-      postgresConfig,
+      { onError: suppressShutdownError },
     );
-    const sqlBranch = postgres(
+    const poolBranch = createPool(
       container.getConnectionUriForDatabase(dbNameBranch),
-      postgresConfig,
+      { onError: suppressShutdownError },
     );
 
     const cleanup = async () => {
       try {
         // Close connections
-        await Promise.all([sqlMain.end(), sqlBranch.end()]);
+        await Promise.all([poolMain.end(), poolBranch.end()]);
 
         // Drop databases
         await Promise.all([
@@ -156,15 +169,15 @@ class ContainerManager {
       }
     };
 
-    return { main: sqlMain, branch: sqlBranch, cleanup };
+    return { main: poolMain, branch: poolBranch, cleanup };
   }
 
   /**
    * Get isolated containers (creates new containers for the test)
    */
   async getIsolatedContainers(version: PostgresVersion): Promise<{
-    main: postgres.Sql;
-    branch: postgres.Sql;
+    main: Pool;
+    branch: Pool;
     cleanup: () => Promise<void>;
   }> {
     const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
@@ -174,22 +187,23 @@ class ContainerManager {
       new PostgresAlpineContainer(image).start(),
     ]);
 
-    const sqlMain = postgres(containerMain.getConnectionUri(), postgresConfig);
-    const sqlBranch = postgres(
-      containerBranch.getConnectionUri(),
-      postgresConfig,
-    );
+    const poolMain = createPool(containerMain.getConnectionUri(), {
+      onError: suppressShutdownError,
+    });
+    const poolBranch = createPool(containerBranch.getConnectionUri(), {
+      onError: suppressShutdownError,
+    });
 
     const cleanup = async () => {
       try {
-        await Promise.all([sqlMain.end(), sqlBranch.end()]);
+        await Promise.all([poolMain.end(), poolBranch.end()]);
         await Promise.all([containerMain.stop(), containerBranch.stop()]);
       } catch (error) {
         console.error("Error during isolated container cleanup:", error);
       }
     };
 
-    return { main: sqlMain, branch: sqlBranch, cleanup };
+    return { main: poolMain, branch: poolBranch, cleanup };
   }
 
   /**

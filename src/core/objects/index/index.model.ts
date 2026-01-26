@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -24,7 +25,7 @@ const indexPropsSchema = z.object({
   is_clustered: z.boolean(),
   is_replica_identity: z.boolean(),
   key_columns: z.array(z.number()),
-  column_collations: z.array(z.string()),
+  column_collations: z.array(z.string().nullable()),
   operator_classes: z.array(z.string()),
   column_options: z.array(z.number()),
   index_expressions: z.string().nullable(),
@@ -204,10 +205,8 @@ export class Index extends BasePgModel {
   }
 }
 
-export async function extractIndexes(sql: Sql): Promise<Index[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const indexRows = await sql`
+export async function extractIndexes(pool: Pool): Promise<Index[]> {
+  const { rows: indexRows } = await pool.query<IndexProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -361,12 +360,11 @@ export async function extractIndexes(sql: Sql): Promise<Index[]> {
         and e.objid is null
         and e_table.objid is null
 
-      order by 1, 2;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = indexRows.map((row: unknown) =>
-      indexPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: IndexProps) => new Index(row));
-  });
+      order by 1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = indexRows.map((row: unknown) =>
+    indexPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: IndexProps) => new Index(row));
 }

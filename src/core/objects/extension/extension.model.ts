@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -77,10 +78,8 @@ export class Extension extends BasePgModel {
 }
 
 // TODO: fetch extension dependencies so we can determine when to use CASCADE on creation
-export async function extractExtensions(sql: Sql): Promise<Extension[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const extensionRows = await sql`
+export async function extractExtensions(pool: Pool): Promise<Extension[]> {
+  const { rows: extensionRows } = await pool.query<ExtensionProps>(sql`
   with extension_rows as (
     select
       e.oid,
@@ -271,12 +270,11 @@ export async function extractExtensions(sql: Sql): Promise<Extension[]> {
     ) as members
   from extension_rows er
   order by
-    er.name;
-  `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = extensionRows.map((row: unknown) =>
-      extensionPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: ExtensionProps) => new Extension(row));
-  });
+    er.name
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = extensionRows.map((row: unknown) =>
+    extensionPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: ExtensionProps) => new Extension(row));
 }

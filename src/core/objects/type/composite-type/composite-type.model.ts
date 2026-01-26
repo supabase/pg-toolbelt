@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import {
   BasePgModel,
@@ -136,12 +137,9 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
 }
 
 export async function extractCompositeTypes(
-  sql: Sql,
+  pool: Pool,
 ): Promise<CompositeType[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-
-    const compositeTypeRows = await sql`
+  const { rows: compositeTypeRows } = await pool.query<CompositeTypeProps>(sql`
       WITH extension_oids AS (
         SELECT objid
         FROM pg_depend d
@@ -243,15 +241,12 @@ export async function extractCompositeTypes(
           AND NOT a.attisdropped
       ) cols ON TRUE
 
-      ORDER BY ct.schema, ct.name;
-    `;
+      ORDER BY ct.schema, ct.name
+  `);
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = compositeTypeRows.map((row: unknown) =>
-      compositeTypePropsSchema.parse(row),
-    );
-    return validatedRows.map(
-      (row: CompositeTypeProps) => new CompositeType(row),
-    );
-  });
+  // Validate and parse each row using the Zod schema
+  const validatedRows = compositeTypeRows.map((row: unknown) =>
+    compositeTypePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: CompositeTypeProps) => new CompositeType(row));
 }

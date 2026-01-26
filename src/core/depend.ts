@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 
 /**
  * Dependency type as defined in PostgreSQL's pg_depend.deptype.
@@ -40,9 +41,9 @@ export interface PgDepend {
  *  - membership:<role>-><member> -> role:<member>
  */
 async function extractPrivilegeAndMembershipDepends(
-  sql: Sql,
+  pool: Pool,
 ): Promise<PgDepend[]> {
-  const rows = await sql<PgDepend[]>`
+  const { rows } = await pool.query<PgDepend>(sql`
 with
   -- OBJECT PRIVILEGES (relations)
   extension_rel_oids as (
@@ -496,7 +497,7 @@ where dependent_stable_id <> referenced_stable_id
   and NOT (
     COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
   )
-  `;
+  `);
 
   return rows;
 }
@@ -507,8 +508,8 @@ where dependent_stable_id <> referenced_stable_id
  * @param params - Object containing arrays of OIDs for filtering (user_oids, user_namespace_oids, etc.)
  * @returns Array of dependency objects with class names.
  */
-export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
-  const dependsRows = await sql<PgDepend[]>`
+export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
+  const { rows: dependsRows } = await pool.query<PgDepend>(sql`
   WITH ids AS (
     -- only the objects that actually show up in dependencies (both sides)
     SELECT DISTINCT classid, objid, objsubid FROM pg_depend WHERE deptype IN ('n','a')
@@ -1853,10 +1854,10 @@ export async function extractDepends(sql: Sql): Promise<PgDepend[]> {
       COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
     )
   ORDER BY dependent_stable_id, referenced_stable_id;
-  `;
+  `);
 
   // Extract privilege and membership dependencies
-  const privilegeDepends = await extractPrivilegeAndMembershipDepends(sql);
+  const privilegeDepends = await extractPrivilegeAndMembershipDepends(pool);
 
   // Combine all dependency sources and remove duplicates
   const allDepends = new Set([...dependsRows, ...privilegeDepends]);

@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import {
   BasePgModel,
@@ -139,10 +140,8 @@ export class View extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractViews(sql: Sql): Promise<View[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const viewRows = await sql`
+export async function extractViews(pool: Pool): Promise<View[]> {
+  const { rows: viewRows } = await pool.query<ViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -267,12 +266,11 @@ from
 group by
   v.oid, v.schema, v.name, v.definition, v.row_security, v.force_row_security, v.has_indexes, v.has_rules, v.has_triggers, v.has_subclasses, v.is_populated, v.replica_identity, v.is_partition, v.options, v.partition_bound, v.owner, v.comment
 order by
-  v.schema, v.name;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = viewRows.map((row: unknown) =>
-      viewPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: ViewProps) => new View(row));
-  });
+  v.schema, v.name
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = viewRows.map((row: unknown) =>
+    viewPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: ViewProps) => new View(row));
 }
