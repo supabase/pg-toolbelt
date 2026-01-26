@@ -106,7 +106,7 @@ types.setTypeParser(1016, (val: string) => parseArray(val, parseIntElement)); //
 /**
  * Options for creating a Pool with event listeners.
  */
-export interface CreatePoolOptions extends Partial<PoolConfig> {
+interface CreatePoolOptions extends Partial<PoolConfig> {
   /** Called when a new client connects to the pool */
   onConnect?: (client: PoolClient) => void | Promise<void>;
   /** Called when an idle client emits an error */

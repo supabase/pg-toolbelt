@@ -6,7 +6,8 @@
       "Bash(pnpm format-and-lint:*)",
       "Bash(node -e:*)",
       "Bash(pnpm vitest run:*)",
-      "Bash(PGDELTA_TEST_POSTGRES_VERSIONS=17 pnpm test:*)"
+      "Bash(PGDELTA_TEST_POSTGRES_VERSIONS=17 pnpm test:*)",
+      "Bash(grep:*)"
     ]
   }
 }

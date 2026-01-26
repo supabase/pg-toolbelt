@@ -4,6 +4,7 @@
 
 import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
+import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import type { Catalog } from "../catalog.model.ts";
 import { extractCatalog } from "../catalog.model.ts";
@@ -205,6 +206,13 @@ export async function createPlan(
     const sslConfig = await parseSslConfig(source, "source");
     sourcePool = createPool(sslConfig.cleanedUrl, {
       ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
     });
     shouldCloseSource = true;
   } else {
@@ -215,6 +223,13 @@ export async function createPlan(
     const sslConfig = await parseSslConfig(target, "target");
     targetPool = createPool(sslConfig.cleanedUrl, {
       ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
     });
     shouldCloseTarget = true;
   } else {
@@ -362,7 +377,7 @@ function generateStatements(
   const statements: string[] = [];
 
   if (options?.role) {
-    statements.push(`SET ROLE "${options.role}"`);
+    statements.push(`SET ROLE ${escapeIdentifier(options.role)}`);
   }
 
   if (hasRoutineChanges(changes)) {

@@ -3,6 +3,7 @@
  */
 
 import type { Pool } from "pg";
+import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
@@ -57,14 +58,30 @@ export async function applyPlan(
   let shouldCloseDesired = false;
 
   if (typeof source === "string") {
-    currentPool = createPool(source);
+    currentPool = createPool(source, {
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries for fingerprint verification
+        await client.query("SET search_path = ''");
+        if (plan.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(plan.role)}`);
+        }
+      },
+    });
     shouldCloseCurrent = true;
   } else {
     currentPool = source;
   }
 
   if (typeof target === "string") {
-    desiredPool = createPool(target);
+    desiredPool = createPool(target, {
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries for fingerprint verification
+        await client.query("SET search_path = ''");
+        if (plan.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(plan.role)}`);
+        }
+      },
+    });
     shouldCloseDesired = true;
   } else {
     desiredPool = target;
