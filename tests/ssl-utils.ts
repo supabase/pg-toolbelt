@@ -15,11 +15,30 @@ export interface SslCertificates {
   cleanup: () => Promise<void>;
 }
 
+export interface SslCertificateOptions {
+  /**
+   * Common Name for the server certificate.
+   * Default: "localhost"
+   */
+  serverCN?: string;
+  /**
+   * Subject Alternative Names for the server certificate.
+   * Default: ["DNS:localhost", "IP:127.0.0.1"]
+   */
+  serverSAN?: string[];
+}
+
 /**
  * Generate self-signed SSL certificates for testing PostgreSQL SSL connections.
  * Creates a temporary directory with all necessary certificates.
+ *
+ * @param options - Optional configuration for certificate generation
  */
-export async function generateSslCertificates(): Promise<SslCertificates> {
+export async function generateSslCertificates(
+  options?: SslCertificateOptions,
+): Promise<SslCertificates> {
+  const serverCN = options?.serverCN ?? "localhost";
+  const serverSAN = options?.serverSAN ?? ["DNS:localhost", "IP:127.0.0.1"];
   const certDir = await mkdtemp(join(tmpdir(), "pg-delta-ssl-certs-"));
   const caKey = join(certDir, "ca-key.pem");
   const caCert = join(certDir, "ca-cert.pem");
@@ -42,14 +61,14 @@ export async function generateSslCertificates(): Promise<SslCertificates> {
 
     // Generate server certificate signing request
     await exec(
-      `openssl req -new -key "${serverKey}" -out "${certDir}/server.csr" -subj "/CN=localhost"`,
+      `openssl req -new -key "${serverKey}" -out "${certDir}/server.csr" -subj "/CN=${serverCN}"`,
     );
 
     // Create extfile for server certificate with SAN
     const extfile = join(certDir, "server-extfile.conf");
     await writeFile(
       extfile,
-      "[v3_req]\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n",
+      `[v3_req]\nsubjectAltName=${serverSAN.join(",")}\n`,
     );
 
     // Sign server certificate with CA

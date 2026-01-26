@@ -48,6 +48,12 @@ type SslConfig = {
         ca?: string;
         cert?: string;
         key?: string;
+        /**
+         * Custom server identity check function.
+         * Used to skip hostname verification for verify-ca mode.
+         * Returns undefined to indicate success (no error).
+         */
+        checkServerIdentity?: () => undefined;
       };
   cleanedUrl: string;
 };
@@ -88,18 +94,6 @@ async function parseSslConfig(
     sslmode === "verify-ca" ||
     sslmode === "verify-full"
   ) {
-    const rejectUnauthorized =
-      sslmode === "verify-ca" || sslmode === "verify-full";
-
-    const ssl: {
-      rejectUnauthorized: boolean;
-      ca?: string;
-      cert?: string;
-      key?: string;
-    } = {
-      rejectUnauthorized,
-    };
-
     // Helper function to get certificate value: query param (file path) takes precedence over env var (content)
     const getCertValue = async (
       queryParam: string | null,
@@ -120,16 +114,49 @@ async function parseSslConfig(
       return envValue || undefined;
     };
 
-    // Get CA certificate (required for verify-ca/verify-full)
-    if (rejectUnauthorized) {
-      const caEnvVar =
-        connectionType === "source"
-          ? "PGDELTA_SOURCE_SSLROOTCERT"
-          : "PGDELTA_TARGET_SSLROOTCERT";
-      const caValue = await getCertValue(sslrootcert, caEnvVar);
-      if (caValue) {
-        ssl.ca = caValue;
-      }
+    // Get CA certificate value (needed for verify-ca, verify-full, and libpq compatibility with require/prefer)
+    const caEnvVar =
+      connectionType === "source"
+        ? "PGDELTA_SOURCE_SSLROOTCERT"
+        : "PGDELTA_TARGET_SSLROOTCERT";
+    const caValue = await getCertValue(sslrootcert, caEnvVar);
+
+    // Determine if we should verify the CA chain
+    // - verify-ca and verify-full: always verify CA
+    // - require/prefer with CA cert provided: verify CA (libpq backward compatibility)
+    //   From PostgreSQL docs: "if a root CA file exists, the behavior of sslmode=require
+    //   will be the same as that of verify-ca"
+    const hasExplicitVerification =
+      sslmode === "verify-ca" || sslmode === "verify-full";
+    const hasLibpqCompatibility =
+      (sslmode === "require" || sslmode === "prefer") && caValue !== undefined;
+    const shouldVerifyCa = hasExplicitVerification || hasLibpqCompatibility;
+
+    // Determine if we should verify hostname
+    // - verify-full: verify both CA and hostname
+    // - verify-ca: verify CA only (skip hostname)
+    // - require/prefer with CA (libpq compat): behaves like verify-ca (skip hostname)
+    const shouldVerifyHostname = sslmode === "verify-full";
+
+    const ssl: {
+      rejectUnauthorized: boolean;
+      ca?: string;
+      cert?: string;
+      key?: string;
+      checkServerIdentity?: () => undefined;
+    } = {
+      rejectUnauthorized: shouldVerifyCa,
+    };
+
+    // Add CA certificate if verifying
+    if (shouldVerifyCa && caValue) {
+      ssl.ca = caValue;
+    }
+
+    // For verify-ca and libpq compatibility mode: skip hostname verification
+    // This matches PostgreSQL semantics where verify-ca only checks the CA chain
+    if (shouldVerifyCa && !shouldVerifyHostname) {
+      ssl.checkServerIdentity = () => undefined;
     }
 
     // Get client certificate (optional, for mutual TLS)
