@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -79,10 +80,8 @@ export class Server extends BasePgModel {
   }
 }
 
-export async function extractServers(sql: Sql): Promise<Server[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const serverRows = await sql`
+export async function extractServers(pool: Pool): Promise<Server[]> {
+  const { rows: serverRows } = await pool.query<ServerProps>(sql`
       select
         quote_ident(srv.srvname) as name,
         srv.srvowner::regrole::text as owner,
@@ -110,26 +109,25 @@ export async function extractServers(sql: Sql): Promise<Server[]> {
       where
         not fdw.fdwname like any(array['pg\\_%'])
       order by
-        srv.srvname;
-    `;
+        srv.srvname
+  `);
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = serverRows.map((row: unknown) => {
-      const parsed = serverPropsSchema.parse(row);
-      // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-      if (parsed.options && parsed.options.length > 0) {
-        const parsedOptions: string[] = [];
-        for (const opt of parsed.options) {
-          const eqIndex = opt.indexOf("=");
-          if (eqIndex > 0) {
-            parsedOptions.push(opt.substring(0, eqIndex));
-            parsedOptions.push(opt.substring(eqIndex + 1));
-          }
+  // Validate and parse each row using the Zod schema
+  const validatedRows = serverRows.map((row: unknown) => {
+    const parsed = serverPropsSchema.parse(row);
+    // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
+    if (parsed.options && parsed.options.length > 0) {
+      const parsedOptions: string[] = [];
+      for (const opt of parsed.options) {
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex > 0) {
+          parsedOptions.push(opt.substring(0, eqIndex));
+          parsedOptions.push(opt.substring(eqIndex + 1));
         }
-        parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
       }
-      return parsed;
-    });
-    return validatedRows.map((row: ServerProps) => new Server(row));
+      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+    }
+    return parsed;
   });
+  return validatedRows.map((row: ServerProps) => new Server(row));
 }

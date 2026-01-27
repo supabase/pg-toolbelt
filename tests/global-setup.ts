@@ -25,6 +25,7 @@ export async function setup() {
       containerRuntimeClient.image.pull(ImageName.fromString(image)),
     ),
   ]);
-  // Container manager will be initialized lazily when first needed
-  // and auto cleaned up after all tests are completed.
+  // Container manager will be initialized lazily when first needed.
+  // Idle pool connections may receive shutdown errors when containers stop,
+  // but these are suppressed by the onError handler in container-manager.ts
 }

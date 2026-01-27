@@ -1,3 +1,4 @@
+import { sql } from "@ts-safeql/sql-tag";
 import dedent from "dedent";
 import { describe } from "vitest";
 import type { Change } from "../../src/core/change.types.ts";
@@ -11,8 +12,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
   describe.concurrent(`subscription operations (pg${pgVersion})`, () => {
     test("create subscription without connecting", async ({ db }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -35,8 +39,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     testIsolated("alter subscription configuration", async ({ db }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -81,8 +88,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("drop subscription", async ({ db }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -104,8 +114,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("subscription comment creation", async ({ db }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -127,8 +140,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("subscription comment removal", async ({ db }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,
@@ -153,8 +169,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test("subscription comment creation depends on subscription create order", async ({
       db,
     }) => {
-      const [{ name: mainDbName }] =
-        await db.main`select current_database() as name`;
+      const {
+        rows: [{ name: mainDbName }],
+      } = await db.main.query<{ name: string }>(
+        sql`select current_database() as name`,
+      );
 
       await roundtripFidelityTest({
         mainSession: db.main,

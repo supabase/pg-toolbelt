@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -227,10 +228,8 @@ export class Aggregate extends BasePgModel {
   }
 }
 
-export async function extractAggregates(sql: Sql): Promise<Aggregate[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const aggregateRows = await sql`
+export async function extractAggregates(pool: Pool): Promise<Aggregate[]> {
+  const { rows: aggregateRows } = await pool.query<AggregateProps>(sql`
 with extension_oids as (
   select
     objid
@@ -308,12 +307,11 @@ where
   and not p.pronamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
   and e.objid is null
 order by
-  1, 2, 3;
-    `;
+  1, 2, 3
+  `);
 
-    const validatedRows = aggregateRows.map((row: unknown) =>
-      aggregatePropsSchema.parse(row),
-    );
-    return validatedRows.map((row: AggregateProps) => new Aggregate(row));
-  });
+  const validatedRows = aggregateRows.map((row: unknown) =>
+    aggregatePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: AggregateProps) => new Aggregate(row));
 }

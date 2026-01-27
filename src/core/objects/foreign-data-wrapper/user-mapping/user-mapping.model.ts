@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 
@@ -55,10 +56,8 @@ export class UserMapping extends BasePgModel {
   }
 }
 
-export async function extractUserMappings(sql: Sql): Promise<UserMapping[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const mappingRows = await sql`
+export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
+  const { rows: mappingRows } = await pool.query<UserMappingProps>(sql`
       select
         case
           when um.umuser = 0 then 'PUBLIC'
@@ -73,26 +72,25 @@ export async function extractUserMappings(sql: Sql): Promise<UserMapping[]> {
       where
         not fdw.fdwname like any(array['pg\\_%'])
       order by
-        srv.srvname, um.umuser;
-    `;
+        srv.srvname, um.umuser
+  `);
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = mappingRows.map((row: unknown) => {
-      const parsed = userMappingPropsSchema.parse(row);
-      // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-      if (parsed.options && parsed.options.length > 0) {
-        const parsedOptions: string[] = [];
-        for (const opt of parsed.options) {
-          const eqIndex = opt.indexOf("=");
-          if (eqIndex > 0) {
-            parsedOptions.push(opt.substring(0, eqIndex));
-            parsedOptions.push(opt.substring(eqIndex + 1));
-          }
+  // Validate and parse each row using the Zod schema
+  const validatedRows = mappingRows.map((row: unknown) => {
+    const parsed = userMappingPropsSchema.parse(row);
+    // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
+    if (parsed.options && parsed.options.length > 0) {
+      const parsedOptions: string[] = [];
+      for (const opt of parsed.options) {
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex > 0) {
+          parsedOptions.push(opt.substring(0, eqIndex));
+          parsedOptions.push(opt.substring(eqIndex + 1));
         }
-        parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
       }
-      return parsed;
-    });
-    return validatedRows.map((row: UserMappingProps) => new UserMapping(row));
+      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+    }
+    return parsed;
   });
+  return validatedRows.map((row: UserMappingProps) => new UserMapping(row));
 }

@@ -10,7 +10,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
   describe.concurrent(`catalog extraction (pg${pgVersion})`, () => {
     test("extract schemas and basic tables", async ({ db }) => {
       // Create schemas and tables
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE SCHEMA schema_a;
         CREATE SCHEMA schema_b;
@@ -70,7 +70,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract table structure and constraints", async ({ db }) => {
       // Create tables with various types, constraints, and ordering
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.type_test (
           col_int integer,
@@ -152,7 +152,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     testWithSupabase("extract type system and dependencies", async ({ db }) => {
       // Create types and check dependencies
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE TYPE test_schema.address AS (
           street varchar,
@@ -197,7 +197,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract view system", async ({ db }) => {
       // Create views and materialized views
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.users (id int, name text);
         CREATE VIEW test_schema.users_view AS SELECT id, name FROM test_schema.users;
@@ -223,7 +223,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract database objects", async ({ db }) => {
       // Create sequences, indexes, triggers, and procedures
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE TABLE test_schema.users (id int, name text);
         CREATE SEQUENCE test_schema.test_seq START 1 INCREMENT 1;
@@ -282,7 +282,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("extract event triggers", async ({ db }) => {
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE FUNCTION test_schema.log_ddl()
         RETURNS event_trigger
@@ -311,7 +311,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("extract advanced features", async ({ db }) => {
       // Create domains, extensions, collations, and RLS policies
-      await db.main.unsafe(`
+      await db.main.query(`
         CREATE SCHEMA test_schema;
         CREATE DOMAIN test_schema.email_address AS varchar(255) CHECK (value LIKE '%@%');
         CREATE COLLATION test_schema.test_collation (locale = 'en_US.utf8');
@@ -348,7 +348,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     testWithSupabase("extract system objects and filtering", async ({ db }) => {
       // Test system schema filtering and role extraction
-      await db.main.unsafe("CREATE TABLE public.test_table (id int)");
+      await db.main.query("CREATE TABLE public.test_table (id int)");
 
       const catalog = await extractCatalog(db.main);
 

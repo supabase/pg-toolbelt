@@ -9,7 +9,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
   describe.concurrent(`catalog diff (pg${pgVersion})`, () => {
     test("create schema then composite type", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create type test_schema.address as (
           street varchar,
@@ -46,7 +46,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create table with columns and constraints", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -144,7 +144,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create view", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -226,7 +226,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create sequence", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create sequence test_schema.user_id_seq
           start with 1000
@@ -264,7 +264,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create enum type", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create type test_schema.user_status as enum ('active', 'inactive', 'pending');
       `);
@@ -297,7 +297,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create domain", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create domain test_schema.email_address as varchar(255)
           constraint email_check check (value ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$');
@@ -331,7 +331,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create procedure", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create or replace procedure test_schema.create_user(
           p_username varchar(50),
@@ -373,7 +373,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create materialized view", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -460,7 +460,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create trigger", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -562,7 +562,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("create RLS policy", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -649,7 +649,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     });
 
     test("complex scenario with multiple entity creations", async ({ db }) => {
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         
         -- Create enum
@@ -785,7 +785,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complex scenario with multiple entity drops", async ({ db }) => {
       // Create entities in main database
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         
         -- Create enum
@@ -823,7 +823,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
 
       // Don't create any entities in branch database (they should be dropped)
-      await db.branch.unsafe(`
+      await db.branch.query(`
         -- Branch database is empty, all entities from main should be dropped
       `);
 
@@ -903,7 +903,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("complex scenario with multiple entity alter", async ({ db }) => {
       // Create entities in main database
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         
         -- Create enum with fewer values
@@ -939,7 +939,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
 
       // Create modified entities in branch database
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         
         -- Create enum with more values
@@ -1075,13 +1075,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("test enum modification - add new value", async ({ db }) => {
       // Create initial state in main
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         create type test_schema.status as enum ('active', 'inactive');
       `);
 
       // Add new value in branch
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create type test_schema.status as enum ('active', 'inactive', 'pending');
       `);
@@ -1104,13 +1104,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("test domain modification - add constraint", async ({ db }) => {
       // Create initial state in main
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         create domain test_schema.age as integer;
       `);
 
       // Add constraint in branch
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create domain test_schema.age as integer
           constraint age_check check (value >= 0 and value <= 150);
@@ -1140,7 +1140,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("test table modification - add column", async ({ db }) => {
       // Create initial state in main
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -1149,7 +1149,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
 
       // Add column in branch
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -1181,7 +1181,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test("test view modification - change definition", async ({ db }) => {
       // Create initial state in main
-      await db.main.unsafe(`
+      await db.main.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,
@@ -1193,7 +1193,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       `);
 
       // Change view definition in branch
-      await db.branch.unsafe(`
+      await db.branch.query(`
         create schema test_schema;
         create table test_schema.users (
           id serial primary key,

@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
@@ -101,15 +102,15 @@ export class Collation extends BasePgModel {
   }
 }
 
-export async function extractCollations(sql: Sql): Promise<Collation[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const version = await extractVersion(sql);
-    const isPostgres17OrGreater = version >= 170000;
-    const isPostgres16OrGreater = version >= 160000;
-    let collations: Collation[];
-    if (isPostgres17OrGreater) {
-      collations = await sql`
+export async function extractCollations(pool: Pool): Promise<Collation[]> {
+  const version = await extractVersion(pool);
+  const isPostgres17OrGreater = version >= 170000;
+  const isPostgres16OrGreater = version >= 160000;
+
+  let collationRows: CollationProps[];
+
+  if (isPostgres17OrGreater) {
+    const result = await pool.query<CollationProps>(sql`
       with extension_oids as (
         select
           objid
@@ -138,11 +139,12 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         where not c.collnamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and e.objid is null
       order by
-        1, 2;
-  `;
-    } else if (isPostgres16OrGreater) {
-      // On postgres 16 there colllocale column was named colliculocale
-      collations = await sql`
+        1, 2
+    `);
+    collationRows = result.rows;
+  } else if (isPostgres16OrGreater) {
+    // On postgres 16 there colllocale column was named colliculocale
+    const result = await pool.query<CollationProps>(sql`
       with extension_oids as (
         select
           objid
@@ -173,11 +175,12 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
-        1, 2;
-    `;
-    } else {
-      // On postgres 15 icu_rules does not exist
-      collations = await sql`
+        1, 2
+    `);
+    collationRows = result.rows;
+  } else {
+    // On postgres 15 icu_rules does not exist
+    const result = await pool.query<CollationProps>(sql`
       with extension_oids as (
         select
           objid
@@ -208,14 +211,14 @@ export async function extractCollations(sql: Sql): Promise<Collation[]> {
         and e.objid is null
         -- </EXCLUDE_INTERNAL>
       order by
-        1, 2;
-    `;
-    }
+        1, 2
+    `);
+    collationRows = result.rows;
+  }
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = collations.map((row: unknown) =>
-      collationPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: CollationProps) => new Collation(row));
-  });
+  // Validate and parse each row using the Zod schema
+  const validatedRows = collationRows.map((row: unknown) =>
+    collationPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: CollationProps) => new Collation(row));
 }

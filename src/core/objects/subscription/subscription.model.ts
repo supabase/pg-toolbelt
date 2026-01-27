@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import type { Pool } from "pg";
 import z from "zod";
 import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
@@ -108,15 +108,26 @@ export class Subscription extends BasePgModel {
   }
 }
 
-export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
-  return sql.begin(async (tx) => {
-    await tx`set search_path = ''`;
-    const version = await extractVersion(tx);
-    const isPostgres16OrGreater = version >= 160000;
-    const isPostgres17OrGreater = version >= 170000;
-    const isPostgres17_2OrGreater = version >= 170002; // failover added in 17.2 (170002)
-    const isPostgres17_3OrGreater = version >= 170003; // origin column added in 17.3
-    const rows = await tx`
+export async function extractSubscriptions(
+  pool: Pool,
+): Promise<Subscription[]> {
+  const version = await extractVersion(pool);
+  const isPostgres16OrGreater = version >= 160000;
+  const isPostgres17OrGreater = version >= 170000;
+  const isPostgres17_2OrGreater = version >= 170002; // failover added in 17.2 (170002)
+  const isPostgres17_3OrGreater = version >= 170003; // origin column added in 17.3
+
+  // Build the query dynamically based on PostgreSQL version
+  const passwordRequiredExpr = isPostgres16OrGreater
+    ? "s.subpasswordrequired"
+    : "true";
+  const runAsOwnerExpr = isPostgres17OrGreater ? "s.subrunasowner" : "false";
+  const failoverExpr = isPostgres17_2OrGreater ? "s.subfailover" : "false";
+  const originExpr = isPostgres17_3OrGreater
+    ? "case s.suborigin when 'none' then 'none' else 'any' end"
+    : "'any'";
+
+  const queryText = `
       with extension_oids as (
         select objid
         from pg_depend d
@@ -143,9 +154,9 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
         end as streaming,
         (s.subtwophasestate <> 'd') as two_phase,
         s.subdisableonerr as disable_on_error,
-        ${isPostgres16OrGreater ? tx` s.subpasswordrequired ` : tx` true `} as password_required,
-        ${isPostgres17OrGreater ? tx` s.subrunasowner ` : tx` false `} as run_as_owner,
-        ${isPostgres17_2OrGreater ? tx` s.subfailover ` : tx` false `} as failover,
+        ${passwordRequiredExpr} as password_required,
+        ${runAsOwnerExpr} as run_as_owner,
+        ${failoverExpr} as failover,
         s.subconninfo as conninfo,
         case
           when s.subslotname is null then null
@@ -162,21 +173,18 @@ export async function extractSubscriptions(sql: Sql): Promise<Subscription[]> {
           ),
           '[]'::json
         ) as publications,
-        ${
-          isPostgres17_3OrGreater
-            ? tx` case s.suborigin when 'none' then 'none' else 'any' end `
-            : tx` 'any' `
-        } as origin
+        ${originExpr} as origin
       from scoped_subscriptions s
       left join pg_replication_slots r
         on r.slot_name = s.subslotname
        and r.datoid = s.subdbid
       left join extension_oids e on e.objid = s.oid
       where e.objid is null
-      order by s.subname;
-    `;
+      order by s.subname
+  `;
 
-    const validated = rows.map((row) => subscriptionPropsSchema.parse(row));
-    return validated.map((row) => new Subscription(row));
-  });
+  const { rows } = await pool.query<SubscriptionProps>(queryText);
+
+  const validated = rows.map((row) => subscriptionPropsSchema.parse(row));
+  return validated.map((row) => new Subscription(row));
 }

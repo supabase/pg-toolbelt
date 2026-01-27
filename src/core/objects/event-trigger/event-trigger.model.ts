@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -71,10 +72,10 @@ export class EventTrigger extends BasePgModel {
   }
 }
 
-export async function extractEventTriggers(sql: Sql): Promise<EventTrigger[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const rows = await sql`
+export async function extractEventTriggers(
+  pool: Pool,
+): Promise<EventTrigger[]> {
+  const { rows } = await pool.query<EventTriggerProps>(sql`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -94,13 +95,12 @@ from pg_catalog.pg_event_trigger et
 join pg_catalog.pg_proc p on p.oid = et.evtfoid
 left join extension_oids e on e.objid = et.oid
 where e.objid is null
-order by 1;
-    `;
+order by 1
+  `);
 
-    const validatedRows = rows.map((row: unknown) =>
-      eventTriggerPropsSchema.parse(row),
-    );
+  const validatedRows = rows.map((row: unknown) =>
+    eventTriggerPropsSchema.parse(row),
+  );
 
-    return validatedRows.map((row: EventTriggerProps) => new EventTrigger(row));
-  });
+  return validatedRows.map((row: EventTriggerProps) => new EventTrigger(row));
 }

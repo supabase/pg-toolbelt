@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import {
   BasePgModel,
@@ -108,10 +109,10 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractForeignTables(sql: Sql): Promise<ForeignTable[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const tableRows = await sql`
+export async function extractForeignTables(
+  pool: Pool,
+): Promise<ForeignTable[]> {
+  const { rows: tableRows } = await pool.query<ForeignTableProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -217,26 +218,25 @@ export async function extractForeignTables(sql: Sql): Promise<ForeignTable[]> {
       group by
         ft.oid, ft.schema, ft.name, ft.owner, ft.server, ft.options
       order by
-        ft.schema, ft.name;
-    `;
+        ft.schema, ft.name
+  `);
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = tableRows.map((row: unknown) => {
-      const parsed = foreignTablePropsSchema.parse(row);
-      // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-      if (parsed.options && parsed.options.length > 0) {
-        const parsedOptions: string[] = [];
-        for (const opt of parsed.options) {
-          const eqIndex = opt.indexOf("=");
-          if (eqIndex > 0) {
-            parsedOptions.push(opt.substring(0, eqIndex));
-            parsedOptions.push(opt.substring(eqIndex + 1));
-          }
+  // Validate and parse each row using the Zod schema
+  const validatedRows = tableRows.map((row: unknown) => {
+    const parsed = foreignTablePropsSchema.parse(row);
+    // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
+    if (parsed.options && parsed.options.length > 0) {
+      const parsedOptions: string[] = [];
+      for (const opt of parsed.options) {
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex > 0) {
+          parsedOptions.push(opt.substring(0, eqIndex));
+          parsedOptions.push(opt.substring(eqIndex + 1));
         }
-        parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
       }
-      return parsed;
-    });
-    return validatedRows.map((row: ForeignTableProps) => new ForeignTable(row));
+      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+    }
+    return parsed;
   });
+  return validatedRows.map((row: ForeignTableProps) => new ForeignTable(row));
 }

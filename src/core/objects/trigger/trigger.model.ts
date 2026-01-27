@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -134,10 +135,8 @@ export class Trigger extends BasePgModel {
   }
 }
 
-export async function extractTriggers(sql: Sql): Promise<Trigger[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const triggerRows = await sql`
+export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
+  const { rows: triggerRows } = await pool.query<TriggerProps>(sql`
       with extension_trigger_oids as (
         select objid
         from pg_depend d
@@ -239,12 +238,11 @@ export async function extractTriggers(sql: Sql): Promise<Trigger[]> {
         and e_function.objid is null
         and not t.tgisinternal
 
-      order by 1, 2;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = triggerRows.map((row: unknown) =>
-      triggerPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: TriggerProps) => new Trigger(row));
-  });
+      order by 1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = triggerRows.map((row: unknown) =>
+    triggerPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: TriggerProps) => new Trigger(row));
 }

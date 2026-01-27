@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -80,10 +81,8 @@ export class RlsPolicy extends BasePgModel {
   }
 }
 
-export async function extractRlsPolicies(sql: Sql): Promise<RlsPolicy[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const policyRows = await sql`
+export async function extractRlsPolicies(pool: Pool): Promise<RlsPolicy[]> {
+  const { rows: policyRows } = await pool.query<RlsPolicyProps>(sql`
 with extension_policy_oids as (
   select
     objid
@@ -131,12 +130,11 @@ from
   and e_policy.objid is null
   and e_table.objid is null
 order by
-  1, 2;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = policyRows.map((row: unknown) =>
-      rlsPolicyPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: RlsPolicyProps) => new RlsPolicy(row));
-  });
+  1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = policyRows.map((row: unknown) =>
+    rlsPolicyPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: RlsPolicyProps) => new RlsPolicy(row));
 }

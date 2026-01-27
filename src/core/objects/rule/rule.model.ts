@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import { stableId } from "../utils.ts";
@@ -96,10 +97,8 @@ export class Rule extends BasePgModel {
   }
 }
 
-export async function extractRules(sql: Sql): Promise<Rule[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const ruleRows = await sql`
+export async function extractRules(pool: Pool): Promise<Rule[]> {
+  const { rows: ruleRows } = await pool.query<RuleProps>(sql`
       WITH extension_rule_oids AS (
         SELECT
           objid
@@ -163,13 +162,12 @@ export async function extractRules(sql: Sql): Promise<Rule[]> {
         AND e_rel.objid IS NULL
         AND r.rulename <> '_RETURN'
       ORDER BY
-        1, 3, 2;
-    `;
+        1, 3, 2
+  `);
 
-    const validatedRows = ruleRows.map((row: unknown) =>
-      rulePropsSchema.parse(row),
-    );
+  const validatedRows = ruleRows.map((row: unknown) =>
+    rulePropsSchema.parse(row),
+  );
 
-    return validatedRows.map((row) => new Rule(row));
-  });
+  return validatedRows.map((row) => new Rule(row));
 }

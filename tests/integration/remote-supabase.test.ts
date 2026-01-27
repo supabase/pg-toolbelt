@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import postgres from "postgres";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
@@ -13,7 +12,7 @@ import {
   RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
 } from "../../src/core/objects/role/changes/role.privilege.ts";
-import { postgresConfig } from "../../src/core/postgres-config.ts";
+import { createPool } from "../../src/core/postgres-config.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { getTest } from "../utils.ts";
 
@@ -27,7 +26,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   const { main } = db;
 
   // biome-ignore lint/style/noNonNullAssertion: DATABASE_URL is set in the environment
-  const remote = postgres(process.env.DATABASE_URL!, postgresConfig);
+  const remote = createPool(process.env.DATABASE_URL!);
 
   const [mainCatalog, branchCatalog] = await Promise.all([
     extractCatalog(main),
@@ -121,7 +120,7 @@ test.skip("dump empty remote supabase into vanilla postgres", async ({
   await mkdir(reportDir, { recursive: true });
 
   try {
-    await main.unsafe(migrationScript);
+    await main.query(migrationScript);
 
     // Verify that the migration was successful by diffing again
     const [mainCatalogAfter, branchCatalogAfter] = await Promise.all([

@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -91,10 +92,8 @@ export class Language extends BasePgModel {
   }
 }
 
-async function _extractLanguages(sql: Sql): Promise<Language[]> {
-  const languageRows = await sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    return sql<LanguageProps[]>`
+async function _extractLanguages(pool: Pool): Promise<Language[]> {
+  const { rows: languageRows } = await pool.query<LanguageProps>(sql`
     with extension_oids as (
       select
         objid
@@ -132,9 +131,8 @@ async function _extractLanguages(sql: Sql): Promise<Language[]> {
       -- <EXCLUDE_INTERNAL and default>
       where lan.lanname not in ('internal', 'c')
     order by
-      lan.lanname;
-  `;
-  });
+      lan.lanname
+  `);
 
   // Process rows to handle "-" as null values
   const processedRows = languageRows.map((row) => ({

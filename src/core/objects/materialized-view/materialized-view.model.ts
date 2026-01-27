@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import {
   BasePgModel,
@@ -140,11 +141,9 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
 }
 
 export async function extractMaterializedViews(
-  sql: Sql,
+  pool: Pool,
 ): Promise<MaterializedView[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const mvRows = await sql`
+  const { rows: mvRows } = await pool.query<MaterializedViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -247,14 +246,13 @@ where not c.relnamespace::regnamespace::text like any(array['pg\\_%', 'informati
 group by
   c.oid, c.relnamespace, c.relname, pg_get_viewdef(c.oid), c.relrowsecurity, c.relforcerowsecurity, c.relhasindex, c.relhasrules, c.relhastriggers, c.relhassubclass, c.relispopulated, c.relreplident, c.relispartition, c.reloptions, pg_get_expr(c.relpartbound, c.oid), c.relowner
 order by
-  c.relnamespace::regnamespace, c.relname;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = mvRows.map((row: unknown) =>
-      materializedViewPropsSchema.parse(row),
-    );
-    return validatedRows.map(
-      (row: MaterializedViewProps) => new MaterializedView(row),
-    );
-  });
+  c.relnamespace::regnamespace, c.relname
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = mvRows.map((row: unknown) =>
+    materializedViewPropsSchema.parse(row),
+  );
+  return validatedRows.map(
+    (row: MaterializedViewProps) => new MaterializedView(row),
+  );
 }

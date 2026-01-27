@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -78,11 +79,9 @@ export class ForeignDataWrapper extends BasePgModel {
 }
 
 export async function extractForeignDataWrappers(
-  sql: Sql,
+  pool: Pool,
 ): Promise<ForeignDataWrapper[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const fdwRows = await sql`
+  const { rows: fdwRows } = await pool.query<ForeignDataWrapperProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -124,28 +123,27 @@ export async function extractForeignDataWrappers(
         not fdw.fdwname like any(array['pg\\_%'])
         and e.objid is null
       order by
-        fdw.fdwname;
-    `;
+        fdw.fdwname
+  `);
 
-    // Validate and parse each row using the Zod schema
-    const validatedRows = fdwRows.map((row: unknown) => {
-      const parsed = foreignDataWrapperPropsSchema.parse(row);
-      // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-      if (parsed.options && parsed.options.length > 0) {
-        const parsedOptions: string[] = [];
-        for (const opt of parsed.options) {
-          const eqIndex = opt.indexOf("=");
-          if (eqIndex > 0) {
-            parsedOptions.push(opt.substring(0, eqIndex));
-            parsedOptions.push(opt.substring(eqIndex + 1));
-          }
+  // Validate and parse each row using the Zod schema
+  const validatedRows = fdwRows.map((row: unknown) => {
+    const parsed = foreignDataWrapperPropsSchema.parse(row);
+    // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
+    if (parsed.options && parsed.options.length > 0) {
+      const parsedOptions: string[] = [];
+      for (const opt of parsed.options) {
+        const eqIndex = opt.indexOf("=");
+        if (eqIndex > 0) {
+          parsedOptions.push(opt.substring(0, eqIndex));
+          parsedOptions.push(opt.substring(eqIndex + 1));
         }
-        parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
       }
-      return parsed;
-    });
-    return validatedRows.map(
-      (row: ForeignDataWrapperProps) => new ForeignDataWrapper(row),
-    );
+      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+    }
+    return parsed;
   });
+  return validatedRows.map(
+    (row: ForeignDataWrapperProps) => new ForeignDataWrapper(row),
+  );
 }

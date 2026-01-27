@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -116,10 +117,8 @@ export class Domain extends BasePgModel {
  * @param sql - The SQL client.
  * @returns A list of domains.
  */
-export async function extractDomains(sql: Sql): Promise<Domain[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const domainRows = await sql`
+export async function extractDomains(pool: Pool): Promise<Domain[]> {
+  const { rows: domainRows } = await pool.query<DomainProps>(sql`
       with extension_oids as (
         select
           objid
@@ -181,12 +180,11 @@ export async function extractDomains(sql: Sql): Promise<Domain[]> {
         and e.objid is null
         and t.typtype = 'd'
       order by
-        1, 2;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = domainRows.map((row: unknown) =>
-      domainPropsSchema.parse(row),
-    );
-    return validatedRows.map((row: DomainProps) => new Domain(row));
-  });
+        1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = domainRows.map((row: unknown) =>
+    domainPropsSchema.parse(row),
+  );
+  return validatedRows.map((row: DomainProps) => new Domain(row));
 }

@@ -4,7 +4,7 @@
 
 import { inspect } from "node:util";
 import debug from "debug";
-import type postgres from "postgres";
+import type { Pool } from "pg";
 import { expect } from "vitest";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
@@ -23,8 +23,8 @@ const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
 
 interface RoundtripTestOptions {
-  mainSession: postgres.Sql;
-  branchSession: postgres.Sql;
+  mainSession: Pool;
+  branchSession: Pool;
   name?: string;
   initialSetup?: string;
   testSql?: string;
@@ -77,17 +77,17 @@ export async function roundtripFidelityTest(
   // Set up initial schema in BOTH databases
   if (initialSetup) {
     await expect(
-      mainSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+      mainSession.query([...sessionConfig, initialSetup].join(";\n\n")),
     ).resolves.not.toThrow();
     await expect(
-      branchSession.unsafe([...sessionConfig, initialSetup].join(";\n\n")),
+      branchSession.query([...sessionConfig, initialSetup].join(";\n\n")),
     ).resolves.not.toThrow();
   }
 
   // Execute the test SQL in the BRANCH database only
   if (testSql) {
     await expect(
-      branchSession.unsafe([...sessionConfig, testSql].join(";\n\n")),
+      branchSession.query([...sessionConfig, testSql].join(";\n\n")),
     ).resolves.not.toThrow();
   }
 
@@ -233,7 +233,7 @@ export async function roundtripFidelityTest(
 }
 
 async function verifyNoRemainingChanges(
-  mainSession: postgres.Sql,
+  mainSession: Pool,
   branchCatalog: Catalog,
   integrationFilter: Integration["filter"] | undefined,
   migrationScript: string,

@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -182,10 +183,8 @@ export class Procedure extends BasePgModel {
   }
 }
 
-export async function extractProcedures(sql: Sql): Promise<Procedure[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const procedureRows = await sql`
+export async function extractProcedures(pool: Pool): Promise<Procedure[]> {
+  const { rows: procedureRows } = await pool.query<ProcedureProps>(sql`
 with extension_oids as (
   select
     objid
@@ -255,12 +254,11 @@ from
   and e.objid is null
   and l.lanname not in ('c', 'internal')
 order by
-  1, 2;
-    `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = procedureRows.map((row: unknown) =>
-      procedurePropsSchema.parse(row),
-    );
-    return validatedRows.map((row: ProcedureProps) => new Procedure(row));
-  });
+  1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = procedureRows.map((row: unknown) =>
+    procedurePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: ProcedureProps) => new Procedure(row));
 }

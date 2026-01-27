@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
@@ -125,10 +126,8 @@ export class Publication extends BasePgModel {
 /**
  * Extract all logical replication publications from the database.
  */
-export async function extractPublications(sql: Sql): Promise<Publication[]> {
-  return sql.begin(async (tx) => {
-    await tx`set search_path = ''`;
-    const rows = await tx`
+export async function extractPublications(pool: Pool): Promise<Publication[]> {
+  const { rows } = await pool.query<PublicationProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -199,10 +198,9 @@ export async function extractPublications(sql: Sql): Promise<Publication[]> {
       from pg_publication p
       left join extension_oids e on e.objid = p.oid
       where e.objid is null
-      order by 1;
-    `;
+      order by 1
+  `);
 
-    const validated = rows.map((row) => publicationPropsSchema.parse(row));
-    return validated.map((row) => new Publication(row));
-  });
+  const validated = rows.map((row) => publicationPropsSchema.parse(row));
+  return validated.map((row) => new Publication(row));
 }

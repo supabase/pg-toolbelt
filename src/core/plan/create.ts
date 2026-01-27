@@ -3,7 +3,8 @@
  */
 
 import { readFile } from "node:fs/promises";
-import postgres from "postgres";
+import type { Pool } from "pg";
+import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import type { Catalog } from "../catalog.model.ts";
 import { extractCatalog } from "../catalog.model.ts";
@@ -19,7 +20,7 @@ import {
   compileSerializeDSL,
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
-import { postgresConfig } from "../postgres-config.ts";
+import { createPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
@@ -36,9 +37,7 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
  * @param options - Optional configuration
  * @returns A Plan if there are changes, null if databases are identical
  */
-import type { Sql } from "postgres";
-
-type ConnectionInput = string | Sql;
+type ConnectionInput = string | Pool;
 
 type SslConfig = {
   ssl?:
@@ -198,39 +197,65 @@ export async function createPlan(
   target: ConnectionInput,
   options: CreatePlanOptions = {},
 ): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> {
-  const sourceSslConfig =
-    typeof source === "string" ? await parseSslConfig(source, "source") : null;
-  const targetSslConfig =
-    typeof target === "string" ? await parseSslConfig(target, "target") : null;
+  let sourcePool: Pool;
+  let targetPool: Pool;
+  let shouldCloseSource = false;
+  let shouldCloseTarget = false;
 
-  const sourceSql =
-    typeof source === "string" && sourceSslConfig
-      ? postgres(sourceSslConfig.cleanedUrl, {
-          ...postgresConfig,
-          ...(sourceSslConfig.ssl ? { ssl: sourceSslConfig.ssl } : {}),
-        })
-      : (source as Sql);
-  const targetSql =
-    typeof target === "string" && targetSslConfig
-      ? postgres(targetSslConfig.cleanedUrl, {
-          ...postgresConfig,
-          ...(targetSslConfig.ssl ? { ssl: targetSslConfig.ssl } : {}),
-        })
-      : (target as Sql);
-  const shouldCloseFrom = typeof source === "string";
-  const shouldCloseTo = typeof target === "string";
+  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
+  const onError = (err: Error & { code?: string }) => {
+    if (err.code !== "57P01") {
+      console.error("Pool error:", err);
+    }
+  };
+
+  if (typeof source === "string") {
+    const sslConfig = await parseSslConfig(source, "source");
+    sourcePool = createPool(sslConfig.cleanedUrl, {
+      ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onError,
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
+    });
+    shouldCloseSource = true;
+  } else {
+    sourcePool = source;
+  }
+
+  if (typeof target === "string") {
+    const sslConfig = await parseSslConfig(target, "target");
+    targetPool = createPool(sslConfig.cleanedUrl, {
+      ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      onError,
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
+    });
+    shouldCloseTarget = true;
+  } else {
+    targetPool = target;
+  }
 
   try {
     const [fromCatalog, toCatalog] = await Promise.all([
-      extractCatalog(sourceSql),
-      extractCatalog(targetSql),
+      extractCatalog(sourcePool),
+      extractCatalog(targetPool),
     ]);
 
     return buildPlanForCatalogs(fromCatalog, toCatalog, options);
   } finally {
     const closers: Promise<unknown>[] = [];
-    if (shouldCloseFrom) closers.push(sourceSql.end());
-    if (shouldCloseTo) closers.push(targetSql.end());
+    if (shouldCloseSource) closers.push(sourcePool.end());
+    if (shouldCloseTarget) closers.push(targetPool.end());
     if (closers.length) {
       await Promise.all(closers);
     }
@@ -361,7 +386,7 @@ function generateStatements(
   const statements: string[] = [];
 
   if (options?.role) {
-    statements.push(`SET ROLE "${options.role}"`);
+    statements.push(`SET ROLE ${escapeIdentifier(options.role)}`);
   }
 
   if (hasRoutineChanges(changes)) {

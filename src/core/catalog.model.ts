@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import type { Pool } from "pg";
 import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends, type PgDepend } from "./depend.ts";
 import {
@@ -176,7 +176,7 @@ export class Catalog {
   }
 }
 
-export async function extractCatalog(sql: Sql) {
+export async function extractCatalog(pool: Pool) {
   const [
     aggregates,
     collations,
@@ -207,34 +207,34 @@ export async function extractCatalog(sql: Sql) {
     version,
     currentUser,
   ] = await Promise.all([
-    extractAggregates(sql).then(listToRecord),
-    extractCollations(sql).then(listToRecord),
-    extractCompositeTypes(sql).then(listToRecord),
-    extractDomains(sql).then(listToRecord),
-    extractEnums(sql).then(listToRecord),
-    extractExtensions(sql).then(listToRecord),
-    extractIndexes(sql).then(listToRecord),
-    extractMaterializedViews(sql).then(listToRecord),
-    extractSubscriptions(sql).then(listToRecord),
-    extractPublications(sql).then(listToRecord),
-    extractProcedures(sql).then(listToRecord),
-    extractRlsPolicies(sql).then(listToRecord),
-    extractRoles(sql).then(listToRecord),
-    extractSchemas(sql).then(listToRecord),
-    extractSequences(sql).then(listToRecord),
-    extractTables(sql).then(listToRecord),
-    extractTriggers(sql).then(listToRecord),
-    extractEventTriggers(sql).then(listToRecord),
-    extractRules(sql).then(listToRecord),
-    extractRanges(sql).then(listToRecord),
-    extractViews(sql).then(listToRecord),
-    extractForeignDataWrappers(sql).then(listToRecord),
-    extractServers(sql).then(listToRecord),
-    extractUserMappings(sql).then(listToRecord),
-    extractForeignTables(sql).then(listToRecord),
-    extractDepends(sql),
-    extractVersion(sql),
-    extractCurrentUser(sql),
+    extractAggregates(pool).then(listToRecord),
+    extractCollations(pool).then(listToRecord),
+    extractCompositeTypes(pool).then(listToRecord),
+    extractDomains(pool).then(listToRecord),
+    extractEnums(pool).then(listToRecord),
+    extractExtensions(pool).then(listToRecord),
+    extractIndexes(pool).then(listToRecord),
+    extractMaterializedViews(pool).then(listToRecord),
+    extractSubscriptions(pool).then(listToRecord),
+    extractPublications(pool).then(listToRecord),
+    extractProcedures(pool).then(listToRecord),
+    extractRlsPolicies(pool).then(listToRecord),
+    extractRoles(pool).then(listToRecord),
+    extractSchemas(pool).then(listToRecord),
+    extractSequences(pool).then(listToRecord),
+    extractTables(pool).then(listToRecord),
+    extractTriggers(pool).then(listToRecord),
+    extractEventTriggers(pool).then(listToRecord),
+    extractRules(pool).then(listToRecord),
+    extractRanges(pool).then(listToRecord),
+    extractViews(pool).then(listToRecord),
+    extractForeignDataWrappers(pool).then(listToRecord),
+    extractServers(pool).then(listToRecord),
+    extractUserMappings(pool).then(listToRecord),
+    extractForeignTables(pool).then(listToRecord),
+    extractDepends(pool),
+    extractVersion(pool),
+    extractCurrentUser(pool),
   ]);
 
   const indexableObjects = {

@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -101,10 +102,8 @@ export class Sequence extends BasePgModel {
   }
 }
 
-export async function extractSequences(sql: Sql): Promise<Sequence[]> {
-  return sql.begin(async (sql) => {
-    await sql`set search_path = ''`;
-    const sequenceRows = await sql`
+export async function extractSequences(pool: Pool): Promise<Sequence[]> {
+  const { rows: sequenceRows } = await pool.query<SequenceProps>(sql`
 with extension_sequence_oids as (
   select
     objid
@@ -176,12 +175,11 @@ from
       and di.deptype = 'i'
   )
 order by
-  1, 2;
-  `;
-    // Validate and parse each row using the Zod schema
-    const validatedRows = sequenceRows.map((row: unknown) =>
-      sequencePropsSchema.parse(row),
-    );
-    return validatedRows.map((row: SequenceProps) => new Sequence(row));
-  });
+  1, 2
+  `);
+  // Validate and parse each row using the Zod schema
+  const validatedRows = sequenceRows.map((row: unknown) =>
+    sequencePropsSchema.parse(row),
+  );
+  return validatedRows.map((row: SequenceProps) => new Sequence(row));
 }

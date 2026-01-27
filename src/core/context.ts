@@ -1,4 +1,5 @@
-import type { Sql } from "postgres";
+import { sql } from "@ts-safeql/sql-tag";
+import type { Pool } from "pg";
 import type { Catalog } from "./catalog.model.ts";
 
 /**
@@ -9,17 +10,17 @@ export interface DiffContext {
   branchCatalog: Catalog;
 }
 
-export async function extractVersion(sql: Sql) {
-  const [{ version }] = await sql<{ version: number }[]>`
-    select current_setting('server_version_num')::int as version;
-  `;
+export async function extractVersion(pool: Pool) {
+  const { rows } = await pool.query<{ version: number }>(
+    sql`select current_setting('server_version_num')::int as version`,
+  );
 
-  return version;
+  return rows[0].version;
 }
 
-export async function extractCurrentUser(sql: Sql) {
-  const [{ current_user }] = await sql<{ current_user: string }[]>`
-    select quote_ident(current_user) as current_user;
-  `;
-  return current_user;
+export async function extractCurrentUser(pool: Pool) {
+  const { rows } = await pool.query<{ current_user: string }>(
+    sql`select quote_ident(current_user) as current_user`,
+  );
+  return rows[0].current_user;
 }
