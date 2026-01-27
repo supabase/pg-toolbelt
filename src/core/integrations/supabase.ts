@@ -54,6 +54,7 @@ const SUPABASE_SYSTEM_ROLES = [
   "supabase_realtime_admin",
   "supabase_replication_admin",
   "supabase_storage_admin",
+  "supabase_superuser",
 ] as const;
 
 export const supabase: IntegrationDSL = {
