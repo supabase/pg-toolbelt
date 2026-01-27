@@ -20,95 +20,95 @@ concurrency:
 
 jobs:
   test-type-check:
-    if: github.event.pull_request.draft == false
     name: Check types
     runs-on: ubuntu-latest
     steps:
+      - name: Log PR author
+        run: |
+         echo "PR author: ${{ github.event.pull_request.user.login }}"
+
       - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login == 'mandarini'
         run: |
           echo "✓ Skipping type check for release bot"
           exit 0
 
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: actions/checkout@v6
 
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: ./.github/actions/setup
 
       - name: Check types
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         run: pnpm check-types
 
   test-format-and-lint:
-    if: github.event.pull_request.draft == false
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
       - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login == 'mandarini'
         run: |
           echo "✓ Skipping format and lint for release bot"
           exit 0
 
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: actions/checkout@v6
 
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: ./.github/actions/setup
 
       - name: Format and lint
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         run: pnpm format-and-lint
 
   test-knip:
-    if: github.event.pull_request.draft == false
     name: Knip
     runs-on: ubuntu-latest
     steps:
       - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login == 'mandarini'
         run: |
           echo "✓ Skipping knip for release bot"
           exit 0
 
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: actions/checkout@v6
 
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: ./.github/actions/setup
 
       - name: Knip
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         run: pnpm knip
 
   test-unit:
-    if: github.event.pull_request.draft == false
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login == 'mandarini'
         run: |
           echo "✓ Skipping unit tests for release bot"
           exit 0
 
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: actions/checkout@v6
 
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: ./.github/actions/setup
 
       - name: Run unit tests
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         run: pnpm test --project=unit --coverage
 
       # TODO: Uncomment this when we have the repository made public
@@ -118,7 +118,6 @@ jobs:
       #     path-to-lcov: coverage/lcov.info
 
   test-integration:
-    if: github.event.pull_request.draft == false
     name: Integration tests (PostgreSQL ${{ matrix.postgres_version }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
@@ -126,21 +125,21 @@ jobs:
         postgres_version: [15, 17]
     steps:
       - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login == 'mandarini'
         run: |
           echo "✓ Skipping integration tests for release bot"
           exit 0
 
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: actions/checkout@v6
 
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         uses: ./.github/actions/setup
 
       - name: Run integration tests
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        if: github.event.pull_request.user.login != 'mandarini'
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
         run: pnpm test --project=integration --coverage
