@@ -4,5 +4,10 @@
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0"
   },
-  "changesets": ["eight-moles-throw", "slick-moons-turn"]
+  "changesets": [
+    "eight-moles-throw",
+    "kind-balloons-invite",
+    "slick-moons-turn",
+    "tall-canyons-add"
+  ]
 }
