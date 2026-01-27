@@ -20,10 +20,13 @@ concurrency:
 
 jobs:
   test-type-check:
-    if: github.event.pull_request.draft == false
     name: Check types
     runs-on: ubuntu-latest
     steps:
+      - name: Log PR author
+        run: |
+         echo "PR author: ${{ github.event.pull_request.user.login }}"
+
       - name: Skip if release bot
         if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
         run: |
@@ -43,7 +46,6 @@ jobs:
         run: pnpm check-types
 
   test-format-and-lint:
-    if: github.event.pull_request.draft == false
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
@@ -66,7 +68,6 @@ jobs:
         run: pnpm format-and-lint
 
   test-knip:
-    if: github.event.pull_request.draft == false
     name: Knip
     runs-on: ubuntu-latest
     steps:
@@ -89,7 +90,6 @@ jobs:
         run: pnpm knip
 
   test-unit:
-    if: github.event.pull_request.draft == false
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
@@ -118,7 +118,6 @@ jobs:
       #     path-to-lcov: coverage/lcov.info
 
   test-integration:
-    if: github.event.pull_request.draft == false
     name: Integration tests (PostgreSQL ${{ matrix.postgres_version }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
