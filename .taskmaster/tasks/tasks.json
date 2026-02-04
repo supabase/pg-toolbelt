@@ -1,0 +1,590 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Create TypeScript interfaces for declarative schema export",
+        "description": "Define DeclarativeSchemaOutput and FileEntry interfaces in src/core/export/types.ts",
+        "details": "Create src/core/export/types.ts with the following interfaces:\n\n```typescript\nexport interface DeclarativeSchemaOutput {\n  version: 1;\n  mode: \"declarative\";\n  generatedAt: string; // ISO 8601 timestamp\n  source: { fingerprint: string };\n  target: { fingerprint: string };\n  files: FileEntry[];\n}\n\nexport interface FileEntry {\n  path: string; // e.g., \"schemas/public/tables/users.sql\"\n  order: number; // Execution order (0-indexed)\n  statements: number; // Count of SQL statements\n  sql: string; // Actual SQL content\n  metadata: FileMetadata;\n}\n\nexport interface FileMetadata {\n  objectType: string; // e.g., \"table\", \"index\", \"view\"\n  schemaName?: string; // Present for schema-scoped objects\n  objectName?: string; // Present for named objects\n}\n\nexport type FileCategory =\n  | \"cluster\"\n  | \"schema\"\n  | \"types\"\n  | \"sequences\"\n  | \"tables\"\n  | \"foreign_tables\"\n  | \"views\"\n  | \"matviews\"\n  | \"functions\"\n  | \"procedures\"\n  | \"aggregates\"\n  | \"domains\"\n  | \"collations\"\n  | \"indexes\"\n  | \"policies\";\n\nexport const CATEGORY_PRIORITY: Record<FileCategory, number> = {\n  cluster: 0,\n  schema: 1,\n  types: 2,\n  sequences: 3,\n  tables: 4,\n  foreign_tables: 5,\n  views: 6,\n  matviews: 7,\n  functions: 8,\n  procedures: 9,\n  aggregates: 10,\n  domains: 11,\n  collations: 12,\n  indexes: 13,\n  policies: 14,\n};\n```\n\nFollow existing patterns in the codebase (e.g., src/core/plan/types.ts) for consistent type definitions.",
+        "testStrategy": "Create unit test in src/core/export/types.test.ts that validates:\n1. Type definitions compile without errors\n2. CATEGORY_PRIORITY contains all FileCategory values\n3. CATEGORY_PRIORITY values are sequential (no gaps)\n4. FileEntry validation with valid/invalid data",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create export directory and types.ts file",
+            "description": "Create the src/core/export directory structure and initialize types.ts file with basic boilerplate",
+            "dependencies": [],
+            "details": "Create src/core/export/ directory if it doesn't exist. Initialize types.ts with file header comment and necessary imports. This establishes the foundation for defining the declarative schema export interfaces.",
+            "status": "pending",
+            "testStrategy": "Manual verification that directory and file are created with proper structure"
+          },
+          {
+            "id": 2,
+            "title": "Define core DeclarativeSchemaOutput interface",
+            "description": "Implement the main DeclarativeSchemaOutput interface with version, mode, timestamps, fingerprints, and files array",
+            "dependencies": [
+              1
+            ],
+            "details": "Define the DeclarativeSchemaOutput interface with properties: version (literal type 1), mode (literal type 'declarative'), generatedAt (ISO 8601 string), source/target objects with fingerprint strings, and files array of FileEntry. Follow TypeScript strict mode conventions and match the pattern from src/core/plan/types.ts PlanSchema structure.",
+            "status": "pending",
+            "testStrategy": "Type compilation validation and structural comparison with existing Plan types"
+          },
+          {
+            "id": 3,
+            "title": "Define FileEntry and FileMetadata interfaces",
+            "description": "Implement FileEntry interface with path, order, statements count, SQL content, and metadata, plus FileMetadata interface",
+            "dependencies": [
+              1
+            ],
+            "details": "Create FileEntry interface with: path (string for file location), order (number for execution sequence), statements (count of SQL statements), sql (actual SQL content), and metadata (FileMetadata). Define FileMetadata with objectType (string), optional schemaName, and optional objectName. Use optional properties (?) for schema-scoped vs cluster-wide objects.",
+            "status": "pending",
+            "testStrategy": "Type validation tests ensuring optional fields work correctly for both cluster and schema objects"
+          },
+          {
+            "id": 4,
+            "title": "Define FileCategory type and CATEGORY_PRIORITY mapping",
+            "description": "Create FileCategory union type with all 15 categories and CATEGORY_PRIORITY constant object mapping categories to execution order",
+            "dependencies": [
+              1
+            ],
+            "details": "Define FileCategory as a discriminated union of string literals: 'cluster', 'schema', 'types', 'sequences', 'tables', 'foreign_tables', 'views', 'matviews', 'functions', 'procedures', 'aggregates', 'domains', 'collations', 'indexes', 'policies'. Create CATEGORY_PRIORITY as a const object with Record<FileCategory, number> type, mapping each category to its priority number (0-14). Use 'as const' assertion for type safety.",
+            "status": "pending",
+            "testStrategy": "Unit tests validating all FileCategory values are present in CATEGORY_PRIORITY and values are sequential without gaps"
+          },
+          {
+            "id": 5,
+            "title": "Add type exports and documentation comments",
+            "description": "Add TSDoc comments to all exported types and ensure proper export statements for external consumption",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Add comprehensive TSDoc comments explaining: purpose of DeclarativeSchemaOutput (declarative schema representation), FileEntry structure (individual SQL file metadata), FileMetadata (object identification), FileCategory (organization categories), and CATEGORY_PRIORITY (dependency ordering). Add @example tags where helpful. Ensure all types are exported with 'export' keyword and follow the documentation style from src/core/plan/types.ts.",
+            "status": "pending",
+            "testStrategy": "Documentation review and type compilation check to ensure all exports are accessible"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement file path mapper for all object types",
+        "description": "Create src/core/export/file-mapper.ts with getFilePath() function that maps Change objects to file paths and categories",
+        "details": "Implement file path mapping with exhaustive switch statements using TypeScript's never check (similar to src/core/plan/hierarchy.ts patterns):\n\n```typescript\nimport type { Change } from \"../change.types.ts\";\nimport type { FileCategory, FileMetadata } from \"./types.ts\";\nimport { getObjectSchema } from \"../plan/serialize.ts\";\n\nexport interface FilePath {\n  path: string;\n  category: FileCategory;\n  metadata: FileMetadata;\n}\n\nexport function getFilePath(change: Change): FilePath {\n  const schema = getObjectSchema(change);\n  const objectType = change.objectType;\n  \n  // Exhaustive switch with never check\n  switch (objectType) {\n    case \"role\":\n      return { path: \"cluster/roles.sql\", category: \"cluster\", metadata: { objectType: \"role\" } };\n    case \"extension\":\n      return { path: \"cluster/extensions.sql\", category: \"cluster\", metadata: { objectType: \"extension\" } };\n    // ... handle all 20+ object types\n    case \"table\": {\n      // Special handling for FK constraints, triggers → policies/\n      if (isTablePolicyChange(change)) {\n        return {\n          path: `schemas/${schema}/policies/${change.table.name}.sql`,\n          category: \"policies\",\n          metadata: { objectType: \"table\", schemaName: schema!, objectName: change.table.name }\n        };\n      }\n      return {\n        path: `schemas/${schema}/tables/${change.table.name}.sql`,\n        category: \"tables\",\n        metadata: { objectType: \"table\", schemaName: schema!, objectName: change.table.name }\n      };\n    }\n    case \"index\": {\n      const parent = getParentInfo(change);\n      return {\n        path: `schemas/${schema}/indexes/${parent.name}.sql`,\n        category: \"indexes\",\n        metadata: { objectType: \"index\", schemaName: schema!, objectName: parent.name }\n      };\n    }\n    // ... more cases\n    default: {\n      const _exhaustive: never = objectType;\n      throw new Error(`Unhandled object type: ${_exhaustive}`);\n    }\n  }\n}\n\nfunction isTablePolicyChange(change: Change): boolean {\n  // Detect FK constraints, triggers that should go to policies/\n  // Check change instanceof types or properties\n  return false; // Implementation details\n}\n```\n\nUse existing helpers from src/core/plan/serialize.ts: getObjectSchema(), getParentInfo().",
+        "testStrategy": "Create src/core/export/file-mapper.test.ts with:\n1. Unit tests for each object type mapping\n2. Test cluster-wide objects → cluster/ directory\n3. Test schema-scoped objects → schemas/{schema}/ directories\n4. Test child objects (indexes, triggers) → correct parent directories\n5. Test FK constraints, triggers → policies/ directory\n6. Mock Change objects (no database required)\n7. Verify exhaustive switch coverage by intentionally breaking it",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement core getFilePath function with cluster object mappings",
+            "description": "Create src/core/export/file-mapper.ts with the main getFilePath() function and implement exhaustive switch cases for cluster-wide objects (roles, extensions, settings, publications, subscriptions)",
+            "dependencies": [],
+            "details": "Create the file-mapper.ts file with FilePath interface and getFilePath() function. Implement switch statement with never check pattern for exhaustiveness. Add cases for cluster-wide objects that map to cluster/ directory: role → cluster/roles.sql, extension → cluster/extensions.sql, setting → cluster/settings.sql, publication → cluster/publications.sql, subscription → cluster/subscriptions.sql. Each case returns FilePath with appropriate category and metadata. Import types from ./types.ts and helpers from ../plan/serialize.ts (getObjectSchema).",
+            "status": "pending",
+            "testStrategy": "Create src/core/export/file-mapper.test.ts with unit tests for cluster objects. Test each cluster object type maps to correct cluster/ path. Test metadata contains correct objectType. Mock Change objects for each type."
+          },
+          {
+            "id": 2,
+            "title": "Add schema-scoped object mappings to getFilePath switch",
+            "description": "Extend the getFilePath switch statement to handle schema-scoped objects (schemas, tables, views, materialized views, functions, procedures, triggers, sequences, domains, types, operators, aggregates, foreign data wrappers, foreign servers, foreign tables, user mappings)",
+            "dependencies": [
+              1
+            ],
+            "details": "Add switch cases for schema-scoped objects that map to schemas/{schema}/ directories. Implement mappings: schema → schemas/{name}/schema.sql, table → schemas/{schema}/tables/{name}.sql, view → schemas/{schema}/views/{name}.sql, mview → schemas/{schema}/materialized_views/{name}.sql, function → schemas/{schema}/functions/{name}.sql, procedure → schemas/{schema}/procedures/{name}.sql, trigger → schemas/{schema}/triggers/{parent}.sql, sequence → schemas/{schema}/sequences/{name}.sql, domain → schemas/{schema}/domains/{name}.sql, type → schemas/{schema}/types/{name}.sql. Use getObjectSchema(change) to extract schema name. Set appropriate category and metadata for each type.",
+            "status": "pending",
+            "testStrategy": "Add unit tests for schema-scoped objects. Test each type maps to correct schemas/{schema}/ path with proper category. Test schema extraction using getObjectSchema. Test objects in different schemas map to different paths. Mock Change objects with schema properties."
+          },
+          {
+            "id": 3,
+            "title": "Implement child object mappings and special policy detection",
+            "description": "Add switch cases for child objects (indexes, constraints, policies, RLS, default privileges) and implement isTablePolicyChange() helper to detect FK constraints and triggers that belong in policies/ directory",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement isTablePolicyChange() helper function that detects FK constraints (ForeignKeyConstraintCreate/Alter/Drop) and certain triggers that should map to policies/ directory. Add switch cases: index → schemas/{schema}/indexes/{parent}.sql, constraint → check if policy-related or schemas/{schema}/constraints/{parent}.sql, policy → schemas/{schema}/policies/{table}.sql, default_privileges → schemas/{schema}/default_privileges.sql. For table changes, check isTablePolicyChange() and route to policies/ if true, otherwise to tables/. Use getParentInfo() helper from serialize.ts to extract parent table information for child objects. Ensure all cases return FilePath with correct category and metadata including schemaName and objectName.",
+            "status": "pending",
+            "testStrategy": "Add unit tests for child objects and policy detection. Test index maps to parent table in indexes/. Test FK constraints detected by isTablePolicyChange() map to policies/. Test regular constraints map to constraints/. Test policies map correctly. Test getParentInfo() integration. Mock Change objects with parent relationships."
+          },
+          {
+            "id": 4,
+            "title": "Complete exhaustive switch with remaining objects and never check",
+            "description": "Add remaining object type cases (collations, text search configurations, event triggers, casts, conversions, languages, operator classes/families, access methods, statistics) and finalize the exhaustive never check in default case",
+            "dependencies": [
+              3
+            ],
+            "details": "Add final switch cases for remaining PostgreSQL object types: collation → schemas/{schema}/collations/{name}.sql, tsconfig → schemas/{schema}/text_search/{name}.sql, event_trigger → cluster/event_triggers.sql, cast → schemas/{schema}/casts/{name}.sql, conversion → schemas/{schema}/conversions/{name}.sql, language → cluster/languages.sql, opclass → schemas/{schema}/operator_classes/{name}.sql, opfamily → schemas/{schema}/operator_families/{name}.sql, access_method → cluster/access_methods.sql, statistic → schemas/{schema}/statistics/{name}.sql. Implement default case with exhaustive never check: const _exhaustive: never = objectType; throw new Error(`Unhandled object type: ${_exhaustive}`). Ensure TypeScript compilation fails if any object type is missing from switch. Add JSDoc comments documenting the function behavior and special cases.",
+            "status": "pending",
+            "testStrategy": "Add unit tests for remaining object types. Test each maps to correct path and category. Test TypeScript exhaustiveness by temporarily commenting out a case and verifying compilation error. Test default case throws error with unhandled type message. Add integration-style test that validates all Change types from change.types.ts are handled. Ensure 100% coverage of object types."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement change grouping and file ordering logic",
+        "description": "Create src/core/export/grouper.ts to group changes by file path and order files by category priority and topological position",
+        "details": "Implement grouping logic that:\n1. Groups changes by file path\n2. Orders files by category priority (cluster → schemas → types → ... → policies)\n3. Within each category, orders by minimum topological position\n4. Preserves statement order within files\n\n```typescript\nimport type { Change } from \"../change.types.ts\";\nimport { getFilePath } from \"./file-mapper.ts\";\nimport { CATEGORY_PRIORITY } from \"./types.ts\";\nimport type { FilePath } from \"./file-mapper.ts\";\n\nexport interface FileGroup {\n  filePath: FilePath;\n  changes: Change[];\n  minTopoPosition: number; // Minimum topological position of changes in this file\n}\n\nexport function groupChangesByFile(sortedChanges: Change[]): FileGroup[] {\n  // Map to track file path → changes\n  const fileMap = new Map<string, FileGroup>();\n  \n  for (let i = 0; i < sortedChanges.length; i++) {\n    const change = sortedChanges[i];\n    const filePath = getFilePath(change);\n    \n    if (!fileMap.has(filePath.path)) {\n      fileMap.set(filePath.path, {\n        filePath,\n        changes: [],\n        minTopoPosition: i,\n      });\n    }\n    \n    const group = fileMap.get(filePath.path)!;\n    group.changes.push(change);\n    group.minTopoPosition = Math.min(group.minTopoPosition, i);\n  }\n  \n  // Sort by: 1) category priority, 2) minTopoPosition\n  return Array.from(fileMap.values()).sort((a, b) => {\n    const categoryDiff = CATEGORY_PRIORITY[a.filePath.category] - CATEGORY_PRIORITY[b.filePath.category];\n    if (categoryDiff !== 0) return categoryDiff;\n    return a.minTopoPosition - b.minTopoPosition;\n  });\n}\n```\n\nThis ensures correct execution order: cluster objects first, then schemas, types, tables, indexes, and finally policies (FK, triggers) last.",
+        "testStrategy": "Create src/core/export/grouper.test.ts with:\n1. Test grouping of changes by file path\n2. Test ordering by category priority (cluster before tables before policies)\n3. Test ordering within category by topological position\n4. Test statement order preservation within files\n5. Mock sortedChanges array with known topological positions\n6. Verify edge cases: single change, multiple files in same category",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement file grouping logic with Map structure",
+            "description": "Create the Map-based grouping mechanism that collects changes by file path and tracks minimum topological position",
+            "dependencies": [],
+            "details": "Implement the core grouping logic in groupChangesByFile() that:\n1. Creates a Map<string, FileGroup> to track file paths\n2. Iterates through sortedChanges array with index tracking\n3. Calls getFilePath(change) for each change to determine target file\n4. Initializes FileGroup with filePath, empty changes array, and current index as minTopoPosition\n5. Appends changes to existing groups and updates minTopoPosition using Math.min()\n6. Returns Array.from(fileMap.values()) for further processing\n\nThis establishes the data structure foundation before sorting is applied.",
+            "status": "pending",
+            "testStrategy": "Unit test in src/core/export/grouper.test.ts validating:\n1. Changes with same file path are grouped together\n2. Changes with different file paths create separate groups\n3. minTopoPosition correctly tracks the earliest index\n4. All changes are preserved in output groups"
+          },
+          {
+            "id": 2,
+            "title": "Implement two-level sorting by category priority and topological position",
+            "description": "Add sorting logic that orders FileGroup arrays first by CATEGORY_PRIORITY, then by minTopoPosition within each category",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement the sort() call on the FileGroup array that:\n1. Compares category priority using CATEGORY_PRIORITY[a.filePath.category] - CATEGORY_PRIORITY[b.filePath.category]\n2. Returns categoryDiff if non-zero (primary sort key)\n3. Falls back to a.minTopoPosition - b.minTopoPosition for same-category files (secondary sort key)\n4. Ensures cluster objects come first, then schemas, types, tables, indexes, and policies last\n\nThis implements the execution order guarantees: cluster → schemas → types → ... → policies.",
+            "status": "pending",
+            "testStrategy": "Unit test in src/core/export/grouper.test.ts validating:\n1. Files from different categories are ordered according to CATEGORY_PRIORITY\n2. Files from same category are ordered by minTopoPosition\n3. Cluster category appears before tables category\n4. Policies category appears after tables category\n5. Test with mixed categories and positions"
+          },
+          {
+            "id": 3,
+            "title": "Create comprehensive unit tests for grouping and ordering",
+            "description": "Write test suite validating file grouping, category ordering, topological ordering, and statement order preservation",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create src/core/export/grouper.test.ts with comprehensive test coverage:\n1. Mock Change objects with different types and schemas\n2. Mock getFilePath() to return controlled FilePath objects\n3. Test grouping: verify changes with same file path are grouped\n4. Test category ordering: verify CATEGORY_PRIORITY determines file order\n5. Test topological ordering: verify minTopoPosition breaks ties within categories\n6. Test statement order preservation: verify changes array maintains input order within each FileGroup\n7. Test edge cases: empty input, single change, all changes in one file\n\nUse vitest mocking for getFilePath() dependency.",
+            "status": "pending",
+            "testStrategy": "The tests themselves are the deliverable. Verify:\n1. All test cases pass with pnpm test\n2. Code coverage includes all branches in groupChangesByFile()\n3. Tests use descriptive names following vitest describe/it patterns\n4. Mocks are properly isolated and don't affect other tests"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement main exportDeclarativeSchema function",
+        "description": "Create src/core/export/index.ts with exportDeclarativeSchema() that filters changes, groups by file, and produces JSON output",
+        "details": "Implement the main export function following existing patterns from src/core/plan/create.ts:\n\n```typescript\nimport type { DiffContext } from \"../context.ts\";\nimport type { Change } from \"../change.types.ts\";\nimport type { Integration } from \"../integrations/integration.types.ts\";\nimport { buildPlanScopeFingerprint } from \"../fingerprint.ts\";\nimport { applySerializationOptions } from \"../integrations/serialize/dsl.ts\";\nimport { groupChangesByFile } from \"./grouper.ts\";\nimport type { DeclarativeSchemaOutput, FileEntry } from \"./types.ts\";\n\nexport interface ExportDeclarativeSchemaOptions {\n  integration?: Integration;\n}\n\nexport function exportDeclarativeSchema(\n  ctx: DiffContext,\n  sortedChanges: Change[],\n  options?: ExportDeclarativeSchemaOptions,\n): DeclarativeSchemaOutput {\n  // 1. Filter to CREATE operations only (final state, not migration)\n  const createChanges = sortedChanges.filter(\n    (change) => change.operation === \"create\"\n  );\n  \n  // 2. Group changes by file path\n  const fileGroups = groupChangesByFile(createChanges);\n  \n  // 3. Serialize to FileEntry objects\n  const files: FileEntry[] = fileGroups.map((group, index) => {\n    // Apply serialization options from integration DSL\n    const statements = group.changes.map((change) => {\n      const serializeOptions = options?.integration?.serialize\n        ? applySerializationOptions(change, options.integration.serialize)\n        : {};\n      return change.serialize(serializeOptions);\n    });\n    \n    const sql = statements.join(\"\\n\\n\");\n    \n    return {\n      path: group.filePath.path,\n      order: index,\n      statements: statements.length,\n      sql,\n      metadata: group.filePath.metadata,\n    };\n  });\n  \n  // 4. Build fingerprints\n  const sourceFingerprint = buildPlanScopeFingerprint(\n    ctx.mainCatalog,\n    createChanges,\n  );\n  const targetFingerprint = buildPlanScopeFingerprint(\n    ctx.branchCatalog,\n    createChanges,\n  );\n  \n  // 5. Return JSON output\n  return {\n    version: 1,\n    mode: \"declarative\",\n    generatedAt: new Date().toISOString(),\n    source: { fingerprint: sourceFingerprint.hash },\n    target: { fingerprint: targetFingerprint.hash },\n    files,\n  };\n}\n```\n\nReuse existing functions: buildPlanScopeFingerprint(), applySerializationOptions().",
+        "testStrategy": "Create src/core/export/index.test.ts with:\n1. Unit tests with mock ctx, sortedChanges, integration\n2. Test filtering to CREATE operations only\n3. Test JSON structure matches DeclarativeSchemaOutput interface\n4. Test fingerprint generation\n5. Test integration with serialization options\n6. Test file ordering is correct\n7. Snapshot tests for JSON output format",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement CREATE operation filtering logic",
+            "description": "Filter sortedChanges array to include only CREATE operations, excluding ALTER and DROP changes since declarative schema represents final state",
+            "dependencies": [],
+            "details": "Create the filtering logic in src/core/export/index.ts that processes the sortedChanges array and returns only changes where change.operation === 'create'. This is the first step in exportDeclarativeSchema() and differs from migration plans which include all operations. The filtered result represents the target database's final state rather than incremental changes.",
+            "status": "pending",
+            "testStrategy": "Unit test in src/core/export/index.test.ts: 1) Mock sortedChanges with mixed operations (create/alter/drop), 2) Verify only CREATE operations pass through, 3) Test empty array handling, 4) Test all-CREATE and no-CREATE edge cases"
+          },
+          {
+            "id": 2,
+            "title": "Integrate serialization DSL with grouped changes",
+            "description": "Apply integration serialization options to each change when generating SQL statements, using applySerializationOptions from existing DSL helpers",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement the serialization integration logic that maps over grouped changes and applies serialization options from options?.integration?.serialize using applySerializationOptions(). Each change.serialize() call receives the computed options. This reuses the existing DSL infrastructure from src/core/integrations/serialize/dsl.ts and follows patterns from createPlan() in src/core/plan/create.ts.",
+            "status": "pending",
+            "testStrategy": "Unit test: 1) Mock integration with serialize DSL rules (e.g., skipAuthorization), 2) Verify applySerializationOptions is called for each change, 3) Test with and without integration parameter, 4) Verify serialization options are passed to change.serialize(), 5) Mock Change objects with spy on serialize method"
+          },
+          {
+            "id": 3,
+            "title": "Generate source and target fingerprints",
+            "description": "Calculate cryptographic fingerprints for source (mainCatalog) and target (branchCatalog) using buildPlanScopeFingerprint with filtered CREATE changes",
+            "dependencies": [
+              1
+            ],
+            "details": "Use buildPlanScopeFingerprint() from src/core/fingerprint.ts to generate fingerprints for both ctx.mainCatalog and ctx.branchCatalog, passing the filtered createChanges array. These fingerprints enable detection of schema drift and verify that the declarative export matches the expected source/target state. Extract the .hash property from each fingerprint result.",
+            "status": "pending",
+            "testStrategy": "Unit test: 1) Mock DiffContext with mainCatalog and branchCatalog, 2) Mock buildPlanScopeFingerprint to return test hashes, 3) Verify function is called twice with correct catalogs and changes, 4) Verify fingerprint hashes are included in output under source.fingerprint and target.fingerprint"
+          },
+          {
+            "id": 4,
+            "title": "Assemble DeclarativeSchemaOutput JSON structure",
+            "description": "Construct the final JSON output object with metadata, fingerprints, and file entries, ensuring all fields match the DeclarativeSchemaOutput interface",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Build the complete DeclarativeSchemaOutput object by: 1) Setting version=1 and mode='declarative', 2) Adding generatedAt with new Date().toISOString(), 3) Including source/target fingerprints from subtask 3, 4) Mapping fileGroups to FileEntry objects with path, order, statements count, sql (joined with \\n\\n), and metadata. The order field should be the array index. This completes the exportDeclarativeSchema() function implementation.",
+            "status": "pending",
+            "testStrategy": "Unit test: 1) Mock all dependencies (filtered changes, file groups, fingerprints), 2) Verify output structure matches DeclarativeSchemaOutput interface, 3) Verify version=1 and mode='declarative', 4) Verify generatedAt is valid ISO 8601 timestamp, 5) Verify files array has correct order indices (0, 1, 2...), 6) Verify SQL statements are joined with double newlines, 7) Integration test with real groupChangesByFile() output"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Create integration test helper for declarative export",
+        "description": "Add testDeclarativeExport() helper to tests/integration/roundtrip.ts for end-to-end validation",
+        "details": "Add new test helper that validates declarative schema export can be executed without errors:\n\n```typescript\nimport { exportDeclarativeSchema } from \"../../src/core/export/index.ts\";\n\nexport interface DeclarativeExportTestOptions {\n  mainSession: Pool;\n  branchSession: Pool;\n  initialSetup?: string;\n  testSql?: string;\n  integration?: Integration;\n}\n\nexport async function testDeclarativeExport(\n  options: DeclarativeExportTestOptions,\n): Promise<void> {\n  const { mainSession, branchSession, initialSetup, testSql, integration } = options;\n  \n  // Setup initial state\n  if (initialSetup) {\n    await mainSession.query(initialSetup);\n    await branchSession.query(initialSetup);\n  }\n  \n  // Apply test schema to branch\n  if (testSql) {\n    await branchSession.query(testSql);\n  }\n  \n  // Extract catalogs\n  const mainCatalog = await extractCatalog(mainSession);\n  const branchCatalog = await extractCatalog(branchSession);\n  const ctx = { mainCatalog, branchCatalog };\n  \n  // Generate changes\n  const changes = diffCatalogs(mainCatalog, branchCatalog);\n  const sortedChanges = sortChanges(ctx, changes);\n  \n  // Export declarative schema\n  const output = exportDeclarativeSchema(ctx, sortedChanges, { integration });\n  \n  // Validate output structure\n  expect(output.version).toBe(1);\n  expect(output.mode).toBe(\"declarative\");\n  expect(output.files).toBeInstanceOf(Array);\n  expect(output.source.fingerprint).toBeTruthy();\n  expect(output.target.fingerprint).toBeTruthy();\n  \n  // Execute files in order on a fresh database\n  const testPool = await createFreshDatabase();\n  try {\n    for (const file of output.files) {\n      await expect(testPool.query(file.sql)).resolves.not.toThrow();\n    }\n    \n    // Verify final state matches branch catalog\n    const finalCatalog = await extractCatalog(testPool);\n    const finalFingerprint = buildPlanScopeFingerprint(finalCatalog, sortedChanges);\n    expect(finalFingerprint.hash).toBe(output.target.fingerprint);\n  } finally {\n    await testPool.end();\n  }\n}\n```\n\nThis helper validates that exported files execute correctly in order and produce the expected final state.",
+        "testStrategy": "The helper itself IS the test infrastructure. It will be used by integration tests in Task 6.",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Basic test helper structure with catalog extraction and change generation",
+            "description": "Create testDeclarativeExport() helper with basic structure: database setup, catalog extraction, change generation, and export invocation. Follow roundtrip.ts patterns for database management and catalog operations.",
+            "dependencies": [],
+            "details": "Add testDeclarativeExport() function to tests/integration/roundtrip.ts:\n\n1. Define DeclarativeExportTestOptions interface with mainSession, branchSession, initialSetup, testSql, and integration fields\n2. Implement database setup phase:\n   - Apply initialSetup SQL to both databases if provided (follow lines 78-85 pattern)\n   - Apply testSql to branch database only if provided (follow lines 88-92 pattern)\n3. Extract catalogs using extractCatalog() for main and branch (lines 95-98 pattern)\n4. Generate changes using diffCatalogs() and sortChanges() (lines 109-118 pattern)\n5. Call exportDeclarativeSchema() with context and sortedChanges\n6. Validate basic output structure:\n   - expect(output.version).toBe(1)\n   - expect(output.mode).toBe(\"declarative\")\n   - expect(output.files).toBeInstanceOf(Array)\n   - expect(output.source.fingerprint).toBeTruthy()\n   - expect(output.target.fingerprint).toBeTruthy()\n\nFollow existing import patterns and reuse containerManager utilities.",
+            "status": "pending",
+            "testStrategy": "This subtask creates the test infrastructure. Validation is basic structural checks only - execution tests come in subtask 2."
+          },
+          {
+            "id": 2,
+            "title": "File execution validation on fresh database",
+            "description": "Add file execution loop that creates a fresh database, executes exported files in order, and validates no SQL errors occur. Includes proper pool cleanup and error reporting.",
+            "dependencies": [
+              1
+            ],
+            "details": "Extend testDeclarativeExport() with execution validation:\n\n1. Create fresh database for execution testing:\n   - Use containerManager.getDatabasePair() to get a new isolated database\n   - Store cleanup function for proper resource management\n2. Execute files in order:\n   - Loop through output.files array\n   - For each file, await testPool.query(file.sql)\n   - Wrap in expect().resolves.not.toThrow() for clear error messages\n   - Include file.path in error context for debugging\n3. Handle routine changes (procedures/aggregates):\n   - Check if sortedChanges contains procedure or aggregate changes\n   - If yes, prepend 'SET check_function_bodies = false' before execution (pattern from lines 143-153)\n4. Add proper cleanup in try/finally block:\n   - Call cleanup() function from getDatabasePair()\n   - Ensure cleanup runs even if execution fails\n5. Enhanced error messages:\n   - Include file path, order number, and SQL content in failures\n   - Show which file failed and at what execution step\n\nFollow containerManager patterns from lines 120-173 for database lifecycle management.",
+            "status": "pending",
+            "testStrategy": "Validates that exported SQL files execute successfully without syntax errors or runtime failures. Tests correct file ordering and SQL correctness."
+          },
+          {
+            "id": 3,
+            "title": "Fingerprint verification of final state",
+            "description": "Add fingerprint comparison that extracts catalog from execution database, computes fingerprint from stableIds, and verifies it matches target fingerprint. Include detailed error reporting for mismatches.",
+            "dependencies": [
+              2
+            ],
+            "details": "Complete testDeclarativeExport() with fingerprint validation:\n\n1. Extract final catalog after file execution:\n   - Call extractCatalog(testPool) after all files execute\n   - Store as finalCatalog variable\n2. Compute fingerprint of final state:\n   - Use buildPlanScopeFingerprint(finalCatalog, sortedChanges) (pattern from lines 147-150)\n   - Extract hash from returned object\n   - Store as finalFingerprint\n3. Compare with target fingerprint:\n   - expect(finalFingerprint).toBe(output.target.fingerprint)\n   - This validates the exported files produce the expected final state\n4. Add detailed mismatch reporting (follow lines 199-222 pattern):\n   - If fingerprints don't match, extract remaining changes with diffCatalogs(finalCatalog, branchCatalog)\n   - Sort remaining changes with sortChanges()\n   - Generate SQL for remaining changes\n   - Log detailed error message showing:\n     - Expected vs actual fingerprints\n     - Summary of remaining changes (change type, operation, creates/drops/requires)\n     - SQL needed to reach target state\n5. Edge cases:\n   - Handle empty file arrays (no changes needed)\n   - Handle integration filter application\n   - Ensure error messages are actionable for debugging\n\nReuse fingerprint utilities from src/core/fingerprint.ts and error reporting patterns from roundtripFidelityTest.",
+            "status": "pending",
+            "testStrategy": "Validates semantic correctness - the executed files produce a database state matching the target catalog. Uses cryptographic fingerprints for deterministic comparison."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Write integration tests for simple schemas",
+        "description": "Create tests/integration/declarative-schema-export.test.ts with tests for tables, indexes, and basic object types",
+        "details": "Create comprehensive integration tests following the pattern in tests/integration/table-operations.test.ts:\n\n```typescript\nimport { describe } from \"vitest\";\nimport { POSTGRES_VERSIONS } from \"../constants.ts\";\nimport { getTest } from \"../utils.ts\";\nimport { testDeclarativeExport } from \"./roundtrip.ts\";\n\nfor (const pgVersion of POSTGRES_VERSIONS) {\n  const test = getTest(pgVersion);\n  \n  describe.concurrent(`declarative schema export (pg${pgVersion})`, () => {\n    test(\"simple table\", async ({ db }) => {\n      await testDeclarativeExport({\n        mainSession: db.main,\n        branchSession: db.branch,\n        initialSetup: \"CREATE SCHEMA test_schema;\",\n        testSql: `\n          CREATE TABLE test_schema.users (\n            id integer PRIMARY KEY,\n            name text NOT NULL\n          );\n        `,\n      });\n    });\n    \n    test(\"table with index\", async ({ db }) => {\n      await testDeclarativeExport({\n        mainSession: db.main,\n        branchSession: db.branch,\n        initialSetup: \"CREATE SCHEMA test_schema;\",\n        testSql: `\n          CREATE TABLE test_schema.users (\n            id integer PRIMARY KEY,\n            name text NOT NULL\n          );\n          CREATE INDEX users_name_idx ON test_schema.users (name);\n        `,\n      });\n    });\n    \n    test(\"multiple schemas\", async ({ db }) => {\n      await testDeclarativeExport({\n        mainSession: db.main,\n        branchSession: db.branch,\n        testSql: `\n          CREATE SCHEMA schema_a;\n          CREATE SCHEMA schema_b;\n          CREATE TABLE schema_a.table1 (id integer);\n          CREATE TABLE schema_b.table2 (id integer);\n        `,\n      });\n    });\n    \n    test(\"roles and extensions\", async ({ db }) => {\n      await testDeclarativeExport({\n        mainSession: db.main,\n        branchSession: db.branch,\n        testSql: `\n          CREATE ROLE test_role;\n          CREATE EXTENSION IF NOT EXISTS pg_trgm;\n        `,\n      });\n    });\n    \n    test(\"views and functions\", async ({ db }) => {\n      await testDeclarativeExport({\n        mainSession: db.main,\n        branchSession: db.branch,\n        initialSetup: \"CREATE SCHEMA test_schema;\",\n        testSql: `\n          CREATE TABLE test_schema.users (id integer, name text);\n          CREATE VIEW test_schema.user_view AS SELECT * FROM test_schema.users;\n          CREATE FUNCTION test_schema.get_users() RETURNS SETOF test_schema.users\n            AS $$ SELECT * FROM test_schema.users; $$ LANGUAGE sql;\n        `,\n      });\n    });\n  });\n}\n```\n\nRun with: `vitest tests/integration/declarative-schema-export.test.ts`",
+        "testStrategy": "Integration tests using testcontainers and real PostgreSQL databases. Validates:\n1. Files execute in correct order without errors\n2. Final database state matches target catalog fingerprint\n3. Coverage for cluster-wide objects (roles, extensions)\n4. Coverage for schema-scoped objects (tables, views, functions)\n5. Coverage for child objects (indexes)",
+        "priority": "high",
+        "dependencies": [
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create test file and implement basic object tests",
+            "description": "Create tests/integration/declarative-schema-export.test.ts with test structure and implement tests for simple tables, tables with indexes, and multiple schemas",
+            "dependencies": [],
+            "details": "Create the test file following the pattern from table-operations.test.ts. Import required dependencies (describe, POSTGRES_VERSIONS, getTest, testDeclarativeExport). Set up the describe.concurrent block that iterates over POSTGRES_VERSIONS. Implement three test cases: 1) 'simple table' - single table with primary key and NOT NULL constraint, 2) 'table with index' - table with a secondary index on a column, 3) 'multiple schemas' - two schemas with one table each. Each test uses testDeclarativeExport with mainSession, branchSession, optional initialSetup, and testSql parameters.",
+            "status": "pending",
+            "testStrategy": "Run with `vitest tests/integration/declarative-schema-export.test.ts` to verify tests execute across all PostgreSQL versions. Validate that testDeclarativeExport helper correctly verifies files execute without errors and final state matches catalog fingerprint."
+          },
+          {
+            "id": 2,
+            "title": "Add cluster-wide object tests",
+            "description": "Implement integration tests for cluster-wide objects including roles and extensions that are not schema-scoped",
+            "dependencies": [
+              1
+            ],
+            "details": "Add test case 'roles and extensions' to the existing describe.concurrent block. This test creates a custom role using CREATE ROLE and installs the pg_trgm extension using CREATE EXTENSION IF NOT EXISTS. These are cluster-wide objects that should be exported to the cluster/ directory. The test validates that declarative export handles objects without schema scope correctly and that they can be re-executed on a fresh database.",
+            "status": "pending",
+            "testStrategy": "Verify the test passes across all PostgreSQL versions. Validate that roles and extensions are correctly identified as cluster-wide objects and that the generated files execute without permission errors or conflicts."
+          },
+          {
+            "id": 3,
+            "title": "Add schema-scoped object tests for views and functions",
+            "description": "Implement integration tests for schema-scoped database objects including views, functions, and sequences",
+            "dependencies": [
+              1
+            ],
+            "details": "Add test case 'views and functions' to validate complex schema-scoped objects. Create a base table (test_schema.users), a view that queries it (test_schema.user_view), and a SQL function that returns a set of rows (test_schema.get_users). Use initialSetup to create the test_schema first, then testSql to create the dependent objects. This validates that declarative export correctly handles object dependencies (view depends on table, function depends on table and its type) and generates files in the correct schemas/{schema}/ directory structure.",
+            "status": "pending",
+            "testStrategy": "Run tests across all PostgreSQL versions to ensure views and functions are correctly exported and re-executable. Verify that dependency ordering is preserved (table created before view/function) and that SQL functions with LANGUAGE sql are properly serialized."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Write integration tests for complex dependencies",
+        "description": "Add tests for foreign keys, triggers, RLS policies, and other deferred dependencies",
+        "details": "Extend tests/integration/declarative-schema-export.test.ts with complex dependency scenarios:\n\n```typescript\ntest(\"foreign key constraints in policies/\", async ({ db }) => {\n  await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer PRIMARY KEY);\n      CREATE TABLE test_schema.posts (\n        id integer PRIMARY KEY,\n        user_id integer REFERENCES test_schema.users(id)\n      );\n    `,\n  });\n  \n  // Validate that FK appears in policies/ file, not tables/ file\n  const output = /* ... get output ... */;\n  const fkFile = output.files.find(f => f.path.includes(\"policies/posts.sql\"));\n  expect(fkFile).toBeDefined();\n  expect(fkFile!.sql).toContain(\"REFERENCES\");\n});\n\ntest(\"triggers in policies/\", async ({ db }) => {\n  await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer);\n      CREATE FUNCTION test_schema.trigger_fn() RETURNS trigger\n        AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql;\n      CREATE TRIGGER users_trigger\n        BEFORE INSERT ON test_schema.users\n        FOR EACH ROW EXECUTE FUNCTION test_schema.trigger_fn();\n    `,\n  });\n});\n\ntest(\"RLS policies in policies/\", async ({ db }) => {\n  await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer, owner_id integer);\n      ALTER TABLE test_schema.users ENABLE ROW LEVEL SECURITY;\n      CREATE POLICY user_policy ON test_schema.users\n        FOR SELECT USING (owner_id = current_user_id());\n    `,\n  });\n});\n\ntest(\"partitioned tables\", async ({ db }) => {\n  await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.measurements (\n        id integer,\n        date date\n      ) PARTITION BY RANGE (date);\n      CREATE TABLE test_schema.measurements_2024\n        PARTITION OF test_schema.measurements\n        FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');\n    `,\n  });\n});\n\ntest(\"materialized views with indexes\", async ({ db }) => {\n  await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer, name text);\n      CREATE MATERIALIZED VIEW test_schema.user_summary AS\n        SELECT * FROM test_schema.users;\n      CREATE INDEX user_summary_idx ON test_schema.user_summary (id);\n    `,\n  });\n});\n```",
+        "testStrategy": "Integration tests with Docker and real PostgreSQL. Validates:\n1. FK constraints appear in policies/ directory, not tables/\n2. Triggers appear in policies/ directory\n3. RLS policies appear in policies/ directory\n4. Partitioned tables execute correctly\n5. Materialized views and their indexes execute correctly\n6. Complex dependency chains resolve without errors",
+        "priority": "high",
+        "dependencies": [
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Write integration test for foreign key constraints in policies/",
+            "description": "Create integration test that validates foreign key constraints are correctly placed in the policies/ directory, not in the tables/ directory",
+            "dependencies": [],
+            "details": "Implement test case in tests/integration/declarative-schema-export.test.ts:\n\n```typescript\ntest(\"foreign key constraints in policies/\", async ({ db }) => {\n  const output = await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer PRIMARY KEY);\n      CREATE TABLE test_schema.posts (\n        id integer PRIMARY KEY,\n        user_id integer REFERENCES test_schema.users(id)\n      );\n    `,\n  });\n  \n  // Validate FK appears in policies/ directory\n  const fkFile = output.files.find(f => f.path.includes(\"policies/posts.sql\"));\n  expect(fkFile).toBeDefined();\n  expect(fkFile!.sql).toContain(\"REFERENCES\");\n  expect(fkFile!.sql).toContain(\"test_schema.users\");\n  \n  // Validate tables/ file does NOT contain FK\n  const tableFile = output.files.find(f => f.path.includes(\"tables/posts.sql\"));\n  if (tableFile) {\n    expect(tableFile.sql).not.toContain(\"REFERENCES\");\n  }\n});\n```\n\nThis validates the special routing logic that defers FK constraints to the policies/ directory for correct execution ordering.",
+            "status": "pending",
+            "testStrategy": "Integration test using Docker and real PostgreSQL via testcontainers. Validates: 1) FK constraint SQL appears in policies/ file, 2) FK does not appear in tables/ file, 3) Files execute without errors, 4) Final database state matches target"
+          },
+          {
+            "id": 2,
+            "title": "Write integration test for triggers in policies/",
+            "description": "Create integration test that validates triggers are correctly placed in the policies/ directory and execute after table and function creation",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement test case in tests/integration/declarative-schema-export.test.ts:\n\n```typescript\ntest(\"triggers in policies/\", async ({ db }) => {\n  const output = await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer);\n      CREATE FUNCTION test_schema.trigger_fn() RETURNS trigger\n        AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql;\n      CREATE TRIGGER users_trigger\n        BEFORE INSERT ON test_schema.users\n        FOR EACH ROW EXECUTE FUNCTION test_schema.trigger_fn();\n    `,\n  });\n  \n  // Validate trigger appears in policies/ directory\n  const triggerFile = output.files.find(f => f.path.includes(\"policies/users.sql\"));\n  expect(triggerFile).toBeDefined();\n  expect(triggerFile!.sql).toContain(\"CREATE TRIGGER\");\n  expect(triggerFile!.sql).toContain(\"users_trigger\");\n  \n  // Validate execution order: functions before policies\n  const functionFileIdx = output.files.findIndex(f => f.path.includes(\"functions/\"));\n  const policyFileIdx = output.files.findIndex(f => f.path.includes(\"policies/\"));\n  expect(functionFileIdx).toBeLessThan(policyFileIdx);\n});\n```\n\nValidates triggers execute after their dependencies (table and trigger function).",
+            "status": "pending",
+            "testStrategy": "Integration test with real PostgreSQL. Validates: 1) Trigger SQL in policies/ directory, 2) Execution order (functions before policies), 3) Trigger successfully executes, 4) Final state matches"
+          },
+          {
+            "id": 3,
+            "title": "Write integration test for RLS policies in policies/",
+            "description": "Create integration test that validates Row Level Security policies are correctly placed in the policies/ directory and execute after table creation and RLS enablement",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement test case in tests/integration/declarative-schema-export.test.ts:\n\n```typescript\ntest(\"RLS policies in policies/\", async ({ db }) => {\n  const output = await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer, owner_id integer);\n      ALTER TABLE test_schema.users ENABLE ROW LEVEL SECURITY;\n      CREATE POLICY user_policy ON test_schema.users\n        FOR SELECT USING (owner_id = current_setting('app.user_id')::integer);\n    `,\n  });\n  \n  // Validate RLS policy appears in policies/ directory\n  const policyFile = output.files.find(f => f.path.includes(\"policies/users.sql\"));\n  expect(policyFile).toBeDefined();\n  expect(policyFile!.sql).toContain(\"CREATE POLICY\");\n  expect(policyFile!.sql).toContain(\"user_policy\");\n  expect(policyFile!.sql).toContain(\"ENABLE ROW LEVEL SECURITY\");\n  \n  // Validate table exists before policy\n  const tableFileIdx = output.files.findIndex(f => f.path.includes(\"tables/users.sql\"));\n  const policyFileIdx = output.files.findIndex(f => f.path.includes(\"policies/users.sql\"));\n  expect(tableFileIdx).toBeLessThan(policyFileIdx);\n});\n```\n\nValidates RLS policies execute after table creation with correct ordering.",
+            "status": "pending",
+            "testStrategy": "Integration test with real PostgreSQL. Validates: 1) RLS policy in policies/ directory, 2) Execution order (tables before policies), 3) Both ALTER TABLE ENABLE RLS and CREATE POLICY execute, 4) Final state matches target"
+          },
+          {
+            "id": 4,
+            "title": "Write integration test for partitioned tables with dependencies",
+            "description": "Create integration test that validates partitioned tables and their partitions are correctly ordered and execute with proper parent-child relationships",
+            "dependencies": [
+              3
+            ],
+            "details": "Implement test case in tests/integration/declarative-schema-export.test.ts:\n\n```typescript\ntest(\"partitioned tables\", async ({ db }) => {\n  const output = await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.measurements (\n        id integer,\n        date date\n      ) PARTITION BY RANGE (date);\n      CREATE TABLE test_schema.measurements_2024\n        PARTITION OF test_schema.measurements\n        FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');\n    `,\n  });\n  \n  // Validate parent table appears before partition\n  const parentFile = output.files.find(f => f.path.includes(\"tables/measurements.sql\"));\n  const partitionFile = output.files.find(f => f.path.includes(\"tables/measurements_2024.sql\"));\n  expect(parentFile).toBeDefined();\n  expect(partitionFile).toBeDefined();\n  \n  const parentIdx = output.files.indexOf(parentFile!);\n  const partitionIdx = output.files.indexOf(partitionFile!);\n  expect(parentIdx).toBeLessThan(partitionIdx);\n  \n  // Validate partition SQL references parent\n  expect(partitionFile!.sql).toContain(\"PARTITION OF\");\n  expect(partitionFile!.sql).toContain(\"test_schema.measurements\");\n});\n```\n\nValidates the catalog lookup logic from hierarchy.ts (lines 180-200) correctly detects partitions and orders them after parent tables.",
+            "status": "pending",
+            "testStrategy": "Integration test with real PostgreSQL. Validates: 1) Partition detection via catalog, 2) Parent table executes before partition, 3) Partition SQL correctly references parent, 4) Both parent and partition execute successfully, 5) Final state matches"
+          },
+          {
+            "id": 5,
+            "title": "Write integration test for materialized views with indexes",
+            "description": "Create integration test that validates materialized views and their indexes are correctly ordered, with indexes executing after the materialized view creation",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement test case in tests/integration/declarative-schema-export.test.ts:\n\n```typescript\ntest(\"materialized views with indexes\", async ({ db }) => {\n  const output = await testDeclarativeExport({\n    mainSession: db.main,\n    branchSession: db.branch,\n    initialSetup: \"CREATE SCHEMA test_schema;\",\n    testSql: `\n      CREATE TABLE test_schema.users (id integer, name text);\n      CREATE MATERIALIZED VIEW test_schema.user_summary AS\n        SELECT * FROM test_schema.users;\n      CREATE INDEX user_summary_idx ON test_schema.user_summary (id);\n    `,\n  });\n  \n  // Validate execution order: table → view → index\n  const tableFileIdx = output.files.findIndex(f => f.path.includes(\"tables/users.sql\"));\n  const viewFileIdx = output.files.findIndex(f => f.path.includes(\"views/user_summary.sql\"));\n  const indexFile = output.files.find(f => f.path.includes(\"views/user_summary.sql\") && f.sql.includes(\"CREATE INDEX\"));\n  \n  expect(tableFileIdx).toBeLessThan(viewFileIdx);\n  expect(indexFile).toBeDefined();\n  expect(indexFile!.sql).toContain(\"user_summary_idx\");\n  \n  // Validate index appears in same file as view or after view file\n  const viewFile = output.files[viewFileIdx];\n  const hasIndexInViewFile = viewFile.sql.includes(\"CREATE INDEX\");\n  expect(hasIndexInViewFile).toBe(true);\n});\n```\n\nValidates complex dependency chains: table → materialized view → index on view. Tests the sorting engine's ability to handle multi-level dependencies.",
+            "status": "pending",
+            "testStrategy": "Integration test with real PostgreSQL. Validates: 1) Execution order (table before view before index), 2) Index grouped with materialized view (logical grouping), 3) All objects execute successfully, 4) Final state matches target catalog"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Handle edge cases for all object types",
+        "description": "Ensure comprehensive coverage for all 20+ PostgreSQL object types in file mapper",
+        "details": "Review and implement complete object type coverage in src/core/export/file-mapper.ts. Ensure handling for:\n\n**Cluster-wide objects:**\n- roles → cluster/roles.sql\n- extensions → cluster/extensions.sql\n- foreign_data_wrapper → cluster/foreign_data_wrappers.sql\n- server → cluster/foreign_data_wrappers.sql\n- user_mapping → cluster/foreign_data_wrappers.sql\n- publication → cluster/publications.sql\n- subscription → cluster/subscriptions.sql\n- event_trigger → cluster/event_triggers.sql\n- language → cluster/languages.sql (if needed)\n\n**Schema-scoped objects:**\n- schema → schemas/{schema}/schema.sql\n- enum, composite_type, range → schemas/{schema}/types.sql\n- domain → schemas/{schema}/domains/{domain}.sql\n- sequence → schemas/{schema}/sequences.sql\n- table → schemas/{schema}/tables/{table}.sql\n- foreign_table → schemas/{schema}/foreign_tables/{ftable}.sql\n- view → schemas/{schema}/views/{view}.sql\n- materialized_view → schemas/{schema}/materialized_views/{mview}.sql\n- procedure → schemas/{schema}/functions/{function}.sql\n- aggregate → schemas/{schema}/aggregates/{aggregate}.sql\n- collation → schemas/{schema}/collations/{collation}.sql\n\n**Child objects:**\n- index → schemas/{schema}/indexes/{parent}.sql\n- trigger → schemas/{schema}/policies/{table}.sql\n- rls_policy → schemas/{schema}/policies/{table}.sql\n- rule → schemas/{schema}/policies/{table}.sql\n\n**Special cases:**\n- Table FK constraints → policies/{table}.sql\n- Default privileges → schemas/{schema}/schema.sql\n- Comments and privileges handled inline with objects\n\nAdd unit tests for each object type mapping.",
+        "testStrategy": "Extend src/core/export/file-mapper.test.ts with:\n1. Test cases for each of 20+ object types\n2. Mock Change objects for each type\n3. Verify correct file paths and categories\n4. Test special cases (FK, triggers, default privileges)\n5. Ensure exhaustive switch coverage (TypeScript never check)\n6. Test with real Change objects from existing test fixtures",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement cluster-wide object mappings (roles, extensions, languages)",
+            "description": "Add comprehensive handling for cluster-scoped objects that don't belong to any schema: roles, extensions, and languages",
+            "dependencies": [],
+            "details": "Implement file path mappings in src/core/export/file-mapper.ts for:\n- roles → cluster/roles.sql (category: 'cluster')\n- extensions → cluster/extensions.sql (category: 'cluster')\n- language → cluster/languages.sql (category: 'cluster')\n\nUse exhaustive switch statements with TypeScript never checks. Reference change.types.ts for RoleCreate, RoleAlter, RoleDrop, ExtensionCreate, etc. Add helper function to detect cluster-wide objects. Include metadata with topological position.",
+            "status": "pending",
+            "testStrategy": "Add unit tests in file-mapper.test.ts:\n1. Mock RoleCreate/RoleAlter/RoleDrop changes → verify cluster/roles.sql\n2. Mock ExtensionCreate/ExtensionDrop → verify cluster/extensions.sql\n3. Mock LanguageCreate → verify cluster/languages.sql\n4. Test category='cluster' for all\n5. Verify metadata includes correct topological position"
+          },
+          {
+            "id": 2,
+            "title": "Implement foreign data wrapper ecosystem mappings",
+            "description": "Add handling for foreign data wrapper, server, and user_mapping objects that share the cluster/foreign_data_wrappers.sql file",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement file path mappings for:\n- foreign_data_wrapper → cluster/foreign_data_wrappers.sql\n- server → cluster/foreign_data_wrappers.sql\n- user_mapping → cluster/foreign_data_wrappers.sql\n\nAll three object types share the same file as they form a logical unit (FDW ecosystem). Category: 'cluster'. Reference ForeignDataWrapperCreate, ServerCreate, UserMappingCreate change types. Ensure proper ordering within the shared file based on topological positions.",
+            "status": "pending",
+            "testStrategy": "Add tests for FDW ecosystem:\n1. Mock ForeignDataWrapperCreate → cluster/foreign_data_wrappers.sql\n2. Mock ServerCreate → same file\n3. Mock UserMappingCreate → same file\n4. Test multiple changes route to same file\n5. Verify topological ordering within shared file"
+          },
+          {
+            "id": 3,
+            "title": "Implement cluster replication and event trigger mappings",
+            "description": "Add handling for publication, subscription, and event_trigger cluster-wide objects",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement file path mappings for:\n- publication → cluster/publications.sql (category: 'cluster')\n- subscription → cluster/subscriptions.sql (category: 'cluster')\n- event_trigger → cluster/event_triggers.sql (category: 'cluster')\n\nReference PublicationCreate, SubscriptionCreate, EventTriggerCreate change types from change.types.ts. These are cluster-level replication and event management objects. Include proper metadata and topological position tracking.",
+            "status": "pending",
+            "testStrategy": "Add unit tests:\n1. Mock PublicationCreate/PublicationAlter → cluster/publications.sql\n2. Mock SubscriptionCreate → cluster/subscriptions.sql\n3. Mock EventTriggerCreate/EventTriggerDrop → cluster/event_triggers.sql\n4. Verify category='cluster' for all\n5. Test alter operations route to correct files"
+          },
+          {
+            "id": 4,
+            "title": "Implement schema-scoped parent object mappings (tables, views, foreign tables)",
+            "description": "Add comprehensive handling for primary schema-scoped objects: tables, views, materialized_views, and foreign_tables",
+            "dependencies": [],
+            "details": "Implement file path mappings for:\n- table → schemas/{schema}/tables/{table}.sql (category: 'tables')\n- view → schemas/{schema}/views/{view}.sql (category: 'views')\n- materialized_view → schemas/{schema}/materialized_views/{mview}.sql (category: 'materialized_views')\n- foreign_table → schemas/{schema}/foreign_tables/{ftable}.sql (category: 'foreign_tables')\n\nUse getObjectSchema() from serialize.ts to extract schema name. Reference TableCreate, ViewCreate, MaterializedViewCreate, ForeignTableCreate. Each object gets its own file within the appropriate directory.",
+            "status": "pending",
+            "testStrategy": "Add extensive unit tests:\n1. Mock TableCreate with schema='public', name='users' → schemas/public/tables/users.sql\n2. Mock ViewCreate → schemas/{schema}/views/{view}.sql\n3. Mock MaterializedViewCreate → correct path with category='materialized_views'\n4. Mock ForeignTableCreate → schemas/{schema}/foreign_tables/{name}.sql\n5. Test multiple schemas route correctly"
+          },
+          {
+            "id": 5,
+            "title": "Implement type system and domain mappings",
+            "description": "Add handling for PostgreSQL type system objects: enums, composite_types, ranges, domains, sequences, and schema objects",
+            "dependencies": [
+              4
+            ],
+            "details": "Implement file path mappings for:\n- enum → schemas/{schema}/types.sql (category: 'types')\n- composite_type → schemas/{schema}/types.sql (category: 'types')\n- range → schemas/{schema}/types.sql (category: 'types')\n- domain → schemas/{schema}/domains/{domain}.sql (category: 'domains')\n- sequence → schemas/{schema}/sequences.sql (category: 'sequences')\n- schema → schemas/{schema}/schema.sql (category: 'schemas')\n\nNote: enum/composite_type/range share types.sql file. Domains get individual files. Reference EnumCreate, CompositeTypeCreate, RangeCreate, DomainCreate, SequenceCreate, SchemaCreate change types.",
+            "status": "pending",
+            "testStrategy": "Add unit tests:\n1. Mock EnumCreate/CompositeTypeCreate/RangeCreate → all route to schemas/{schema}/types.sql\n2. Mock DomainCreate with name='email' → schemas/{schema}/domains/email.sql\n3. Mock SequenceCreate → schemas/{schema}/sequences.sql\n4. Mock SchemaCreate → schemas/{schema}/schema.sql with category='schemas'\n5. Test type objects share file correctly"
+          },
+          {
+            "id": 6,
+            "title": "Implement child objects and special case mappings (indexes, triggers, policies, FK constraints)",
+            "description": "Add handling for child objects that require parent context and special routing cases like FK constraints and default privileges",
+            "dependencies": [
+              4,
+              5
+            ],
+            "details": "Implement file path mappings for:\n- index → schemas/{schema}/indexes/{parent}.sql (category: 'indexes')\n- trigger → schemas/{schema}/policies/{table}.sql (category: 'policies')\n- rls_policy → schemas/{schema}/policies/{table}.sql (category: 'policies')\n- rule → schemas/{schema}/policies/{table}.sql (category: 'policies')\n- FK constraints (TableAlter with addForeignKey) → schemas/{schema}/policies/{table}.sql\n- default_privilege → schemas/{schema}/schema.sql\n- procedure/aggregate/collation → schemas/{schema}/functions/{name}.sql, aggregates/{name}.sql, collations/{name}.sql\n\nReference hierarchy.ts lines 331-422 for parent detection logic. Child objects need parent name extraction.",
+            "status": "pending",
+            "testStrategy": "Add comprehensive tests:\n1. Mock IndexCreate with parent table → schemas/{schema}/indexes/{parent}.sql\n2. Mock TriggerCreate → policies/{table}.sql\n3. Mock RlsPolicyCreate → same policies file\n4. Mock TableAlter with addForeignKey → policies/{table}.sql (special case)\n5. Mock DefaultPrivilegeCreate → schema.sql\n6. Mock ProcedureCreate/AggregateCreate/CollationCreate → correct paths\n7. Test parent name extraction for child objects\n8. Verify category='policies' for triggers/RLS/rules/FK"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Export public API from package index",
+        "description": "Add exportDeclarativeSchema to src/index.ts public API exports",
+        "details": "Update src/index.ts to export the new declarative schema export functionality:\n\n```typescript\n// Existing exports\nexport type { IntegrationDSL } from \"./core/integrations/integration-dsl.ts\";\nexport { applyPlan } from \"./core/plan/apply.ts\";\nexport { createPlan } from \"./core/plan/create.ts\";\nexport type { CreatePlanOptions, Plan } from \"./core/plan/types.ts\";\n\n// New exports for declarative schema\nexport { exportDeclarativeSchema } from \"./core/export/index.ts\";\nexport type {\n  DeclarativeSchemaOutput,\n  FileEntry,\n  FileMetadata,\n  FileCategory,\n} from \"./core/export/types.ts\";\nexport type { ExportDeclarativeSchemaOptions } from \"./core/export/index.ts\";\n```\n\nUpdate package.json exports if needed:\n```json\n{\n  \"exports\": {\n    \".\": \"./dist/index.js\",\n    \"./integrations/supabase\": \"./dist/core/integrations/supabase.js\",\n    \"./export\": \"./dist/core/export/index.js\"\n  }\n}\n```\n\nVerify build succeeds: `pnpm build`\nVerify types are exported: Check dist/index.d.ts after build",
+        "testStrategy": "1. Run `pnpm build` and verify no errors\n2. Check dist/index.d.ts contains exported types\n3. Test importing in example TypeScript file:\n   ```typescript\n   import { exportDeclarativeSchema } from '@supabase/pg-delta';\n   import type { DeclarativeSchemaOutput } from '@supabase/pg-delta';\n   ```\n4. Run `pnpm check-types` to verify type exports\n5. Use `pnpm knip` to check for unused exports",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add declarative schema exports to src/index.ts",
+            "description": "Add the new exportDeclarativeSchema function and related type exports to the public API in src/index.ts following the existing export patterns",
+            "dependencies": [],
+            "details": "Add the following exports to src/index.ts after the existing exports:\n\n```typescript\n// Declarative schema export\nexport { exportDeclarativeSchema } from \"./core/export/index.ts\";\nexport type {\n  DeclarativeSchemaOutput,\n  FileEntry,\n  FileMetadata,\n  FileCategory,\n} from \"./core/export/types.ts\";\nexport type { ExportDeclarativeSchemaOptions } from \"./core/export/index.ts\";\n```\n\nMaintain the existing comment structure and organization. The exports should come after the existing plan-related exports to maintain logical grouping.",
+            "status": "pending",
+            "testStrategy": "Verify the file compiles without TypeScript errors using `pnpm check-types`. The actual module imports will be validated after the build step."
+          },
+          {
+            "id": 2,
+            "title": "Update package.json exports field with subpath export",
+            "description": "Add a new subpath export entry in package.json for './export' to allow consumers to import the declarative schema functionality directly",
+            "dependencies": [
+              1
+            ],
+            "details": "Update the \"exports\" field in package.json from:\n```json\n{\n  \".\": \"./dist/index.js\",\n  \"./integrations/supabase\": \"./dist/core/integrations/supabase.js\"\n}\n```\n\nTo:\n```json\n{\n  \".\": \"./dist/index.js\",\n  \"./integrations/supabase\": \"./dist/core/integrations/supabase.js\",\n  \"./export\": \"./dist/core/export/index.js\"\n}\n```\n\nThis allows users to import directly from '@supabase/pg-delta/export' for tree-shaking benefits while still exposing the API through the main entry point.",
+            "status": "pending",
+            "testStrategy": "After build, verify both import paths work:\n1. `import { exportDeclarativeSchema } from '@supabase/pg-delta'`\n2. `import { exportDeclarativeSchema } from '@supabase/pg-delta/export'`"
+          },
+          {
+            "id": 3,
+            "title": "Run TypeScript build and verify compilation",
+            "description": "Execute pnpm build to compile the TypeScript source to dist/ and ensure no compilation errors occur with the new exports",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Run the build command: `pnpm build`\n\nThis executes the TypeScript compiler with tsconfig.build.json configuration. The build must succeed without errors. Watch for:\n- Module resolution errors for new imports\n- Type definition generation errors\n- Any circular dependency warnings\n\nIf build fails, resolve issues in src/index.ts exports or package.json configuration before proceeding.",
+            "status": "pending",
+            "testStrategy": "Build succeeds with exit code 0 and no error messages in console output. The dist/ directory should be updated with new compiled files and type definitions."
+          },
+          {
+            "id": 4,
+            "title": "Verify generated type definitions in dist/index.d.ts",
+            "description": "Inspect the generated dist/index.d.ts file to confirm all exported types and functions are present with correct signatures",
+            "dependencies": [
+              3
+            ],
+            "details": "Read dist/index.d.ts and verify it contains:\n\n1. Function export: `export declare function exportDeclarativeSchema(...)`\n2. Type exports:\n   - `export type { DeclarativeSchemaOutput }`\n   - `export type { FileEntry }`\n   - `export type { FileMetadata }`\n   - `export type { FileCategory }`\n   - `export type { ExportDeclarativeSchemaOptions }`\n\nEnsure type definitions are properly re-exported (not duplicated) and maintain source file references for IDE navigation. Check that JSDoc comments from source files are preserved in the .d.ts output.",
+            "status": "pending",
+            "testStrategy": "Manual inspection of dist/index.d.ts file contents. Verify each exported symbol is present and has valid TypeScript type syntax. Test IDE intellisense by importing in a test file and checking autocomplete works."
+          },
+          {
+            "id": 5,
+            "title": "Create import validation test file",
+            "description": "Create a temporary TypeScript test file that imports all new exports to validate the public API works correctly for package consumers",
+            "dependencies": [
+              4
+            ],
+            "details": "Create a temporary file (e.g., test-exports.ts) in the project root with:\n\n```typescript\n// Test all new exports are accessible\nimport { exportDeclarativeSchema } from './dist/index.js';\nimport type {\n  DeclarativeSchemaOutput,\n  FileEntry,\n  FileMetadata,\n  FileCategory,\n  ExportDeclarativeSchemaOptions,\n} from './dist/index.js';\n\n// Type-check that imports are valid\nconst schema: DeclarativeSchemaOutput = null as any;\nconst file: FileEntry = null as any;\nconst metadata: FileMetadata = null as any;\nconst category: FileCategory = null as any;\nconst options: ExportDeclarativeSchemaOptions = null as any;\n\nconsole.log('All exports validated successfully');\n```\n\nRun `pnpm check-types` to validate. Delete the test file after verification.",
+            "status": "pending",
+            "testStrategy": "Run `pnpm check-types` with the test file present. Must pass with no type errors. Verify all type imports resolve correctly and have expected type definitions. Clean up test file after validation."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Write documentation and usage examples",
+        "description": "Add comprehensive documentation for the declarative schema export feature",
+        "details": "Create documentation showing how to use the declarative schema export feature:\n\n1. **Add JSDoc comments** to public API functions:\n   - exportDeclarativeSchema() with examples\n   - DeclarativeSchemaOutput interface\n   - FileEntry interface\n\n2. **Add code example** in a comment block or example file:\n   ```typescript\n   /**\n    * Export declarative schema from database diff.\n    * \n    * @example\n    * ```typescript\n    * import { Pool } from 'pg';\n    * import { extractCatalog, diffCatalogs, sortChanges, exportDeclarativeSchema } from '@supabase/pg-delta';\n    * \n    * const sourcePool = new Pool({ connectionString: SOURCE_URL });\n    * const targetPool = new Pool({ connectionString: TARGET_URL });\n    * \n    * // Extract catalogs\n    * const sourceCatalog = await extractCatalog(sourcePool);\n    * const targetCatalog = await extractCatalog(targetPool);\n    * const ctx = { mainCatalog: sourceCatalog, branchCatalog: targetCatalog };\n    * \n    * // Generate changes\n    * const changes = diffCatalogs(sourceCatalog, targetCatalog);\n    * const sortedChanges = sortChanges(ctx, changes);\n    * \n    * // Export declarative schema\n    * const output = exportDeclarativeSchema(ctx, sortedChanges);\n    * \n    * // Execute files in order\n    * for (const file of output.files) {\n    *   console.log(`Executing ${file.path}`);\n    *   await db.query(file.sql);\n    * }\n    * ```\n    */\n   ```\n\n3. **Update README.md** (if appropriate) with:\n   - Brief description of declarative schema export\n   - Link to API documentation\n   - Use case examples\n\n4. **Add inline code comments** explaining:\n   - Why FK/triggers go to policies/\n   - Category priority ordering rationale\n   - Topological sort preservation\n\nDo NOT create separate markdown documentation files unless explicitly requested by the user.",
+        "testStrategy": "1. Verify JSDoc renders correctly in IDE tooltips\n2. Run `pnpm build` and check generated .d.ts files include JSDoc\n3. Test example code compiles without errors\n4. Review documentation with user if applicable\n5. Check that inline comments explain non-obvious design decisions",
+        "priority": "low",
+        "dependencies": [
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add comprehensive JSDoc comments to public API",
+            "description": "Add JSDoc comments with examples to exportDeclarativeSchema(), DeclarativeSchemaOutput, FileEntry, and related public interfaces",
+            "dependencies": [],
+            "details": "Add TSDoc-compliant JSDoc comments to src/core/export/index.ts and src/core/export/types.ts:\n\n1. exportDeclarativeSchema() function:\n   - Add @description explaining what it does\n   - Add @param tags for ctx, sortedChanges, integration\n   - Add @returns describing DeclarativeSchemaOutput\n   - Add @example with complete working code showing: Pool setup, extractCatalog, diffCatalogs, sortChanges, exportDeclarativeSchema, iterating over output.files\n   - Include import statements in example\n\n2. DeclarativeSchemaOutput interface:\n   - Document each property (files, fingerprint, integration)\n   - Explain the output structure\n\n3. FileEntry interface:\n   - Document path, sql, category, metadata properties\n   - Explain ordering guarantees\n\n4. FileCategory type:\n   - Document each category value and what goes in it\n\nFollow existing JSDoc patterns in the codebase if any exist, otherwise use standard TSDoc format.",
+            "status": "pending",
+            "testStrategy": "1. Build project with `pnpm build` and verify JSDoc appears in generated .d.ts files\n2. Open files in VSCode and verify JSDoc renders in hover tooltips\n3. Extract example code from JSDoc and verify it compiles without errors\n4. Check that all public exports have documentation"
+          },
+          {
+            "id": 2,
+            "title": "Add inline code comments explaining design decisions",
+            "description": "Add inline comments in implementation files explaining non-obvious design choices and rationale",
+            "dependencies": [
+              1
+            ],
+            "details": "Add explanatory comments in src/core/export/file-mapper.ts and src/core/export/grouper.ts:\n\n1. In file-mapper.ts:\n   - Comment explaining why FK constraints map to policies/ directory (\"Foreign keys are grouped with policies as they represent cross-table relationships and access patterns\")\n   - Comment explaining why triggers map to policies/ (\"Triggers often implement row-level security and are logically grouped with policies\")\n   - Comment for any special-case mappings (default privileges, membership changes, etc.)\n\n2. In grouper.ts:\n   - Comment explaining category priority ordering rationale (\"Categories ordered to respect dependencies: cluster-wide objects → schemas → types → tables → ... → policies\")\n   - Comment explaining topological sort preservation (\"Within each category, files ordered by minimum topological position to preserve dependency order from sortChanges()\")\n   - Comment explaining why statement order is preserved within files\n\n3. In types.ts:\n   - Comment explaining CATEGORY_PRIORITY constant values\n\nKeep comments concise and focused on \"why\" not \"what\".",
+            "status": "pending",
+            "testStrategy": "1. Review comments with fresh eyes to ensure they explain rationale, not implementation\n2. Verify comments address the specific points mentioned in task requirements\n3. Check that comments are positioned near the relevant code\n4. Ensure comments follow project's commenting style"
+          },
+          {
+            "id": 3,
+            "title": "Validate documentation completeness and accuracy",
+            "description": "Verify all documentation compiles correctly, renders properly in IDEs, and examples are accurate",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Perform comprehensive validation:\n\n1. Build validation:\n   - Run `pnpm build` and verify no TypeScript errors\n   - Check dist/ output contains JSDoc in .d.ts files\n   - Verify JSDoc formatting is preserved\n\n2. IDE rendering validation:\n   - Open src/core/export/index.ts in VSCode\n   - Hover over exportDeclarativeSchema to verify JSDoc tooltip\n   - Hover over types to verify interface documentation\n   - Test autocomplete shows documentation\n\n3. Example accuracy:\n   - Extract example code from JSDoc @example blocks\n   - Create temporary test file with example code\n   - Verify it compiles with `tsc --noEmit`\n   - Check imports resolve correctly\n   - Verify example follows current API (not outdated)\n\n4. Coverage check:\n   - Verify all public exports in src/core/export/ have JSDoc\n   - Check that key design decisions have inline comments\n   - Ensure documentation addresses all points in task requirements\n\nIf any issues found, iterate on subtasks 1-2 until validation passes.",
+            "status": "pending",
+            "testStrategy": "1. Run `pnpm build` successfully\n2. Run `pnpm check-types` successfully\n3. Verify JSDoc renders in IDE hover tooltips\n4. Compile extracted example code in isolation\n5. Review checklist: JSDoc for all public APIs, inline comments for design decisions, examples compile, IDE rendering works"
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2026-02-02T18:46:41.271Z",
+      "updated": "2026-02-02T18:46:41.271Z",
+      "description": "Tasks for master context"
+    }
+  }
+}
