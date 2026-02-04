@@ -1,5 +1,12 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.3
+
+### Patch Changes
+
+- bbf13d3: fix: add 'supabase_superuser' to roles filter
+- f4b10f7: add cli_login_postgres to system roles
+
 ## 1.0.0-alpha.2
 
 ### Patch Changes
