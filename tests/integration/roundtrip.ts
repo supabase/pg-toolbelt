@@ -9,7 +9,10 @@ import { expect } from "vitest";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
+import { extractVersion } from "../../src/core/context.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
+import { exportDeclarativeSchema } from "../../src/core/export/index.ts";
+import type { DeclarativeSchemaOutput } from "../../src/core/export/types.ts";
 import {
   buildPlanScopeFingerprint,
   hashStableIds,
@@ -18,6 +21,11 @@ import type { Integration } from "../../src/core/integrations/integration.types.
 import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
+import {
+  POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
+  type PostgresVersion,
+} from "../constants.ts";
+import { containerManager } from "../container-manager.js";
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
@@ -43,6 +51,14 @@ interface RoundtripTestOptions {
   // This validates dependency resolution ordering.
   expectedOperationOrder?: Change[];
   // Integration to use for filtering and serialization
+  integration?: Integration;
+}
+
+export interface DeclarativeExportTestOptions {
+  mainSession: Pool;
+  branchSession: Pool;
+  initialSetup?: string;
+  testSql?: string;
   integration?: Integration;
 }
 
@@ -232,6 +248,130 @@ export async function roundtripFidelityTest(
   );
 }
 
+export async function testDeclarativeExport(
+  options: DeclarativeExportTestOptions,
+): Promise<DeclarativeSchemaOutput> {
+  const { mainSession, branchSession, initialSetup, testSql, integration } =
+    options;
+  // Silent warnings from PostgreSQL such as subscriptions created without a slot.
+  const sessionConfig = ["SET LOCAL client_min_messages = error"];
+
+  if (initialSetup) {
+    await expect(
+      mainSession.query([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
+    await expect(
+      branchSession.query([...sessionConfig, initialSetup].join(";\n\n")),
+    ).resolves.not.toThrow();
+  }
+
+  if (testSql) {
+    await expect(
+      branchSession.query([...sessionConfig, testSql].join(";\n\n")),
+    ).resolves.not.toThrow();
+  }
+
+  const mainCatalog = await extractCatalog(mainSession);
+  const branchCatalog = await extractCatalog(branchSession);
+  const ctx = { mainCatalog, branchCatalog };
+
+  const changes = diffCatalogs(mainCatalog, branchCatalog);
+  const integrationFilter = integration?.filter;
+  const filteredChanges = integrationFilter
+    ? changes.filter((change) => integrationFilter(change))
+    : changes;
+  const sortedChanges = sortChanges(ctx, filteredChanges);
+
+  const output = exportDeclarativeSchema(ctx, sortedChanges, { integration });
+
+  expect(output.version).toBe(1);
+  expect(output.mode).toBe("declarative");
+  expect(output.files).toBeInstanceOf(Array);
+  expect(output.source.fingerprint).toBeTruthy();
+  expect(output.target.fingerprint).toBeTruthy();
+
+  const pgVersion = await getPostgresMajorVersion(mainSession);
+  const { main: testPool, cleanup } =
+    await containerManager.getDatabasePair(pgVersion);
+
+  try {
+    await testPool.query("SET client_min_messages = error");
+
+    if (initialSetup) {
+      await expect(
+        testPool.query([...sessionConfig, initialSetup].join(";\n\n")),
+      ).resolves.not.toThrow();
+    }
+
+    const hasRoutineChanges = sortedChanges.some(
+      (change) =>
+        change.objectType === "procedure" || change.objectType === "aggregate",
+    );
+    if (hasRoutineChanges) {
+      await expect(
+        testPool.query("SET check_function_bodies = false"),
+      ).resolves.not.toThrow();
+    }
+
+    for (const file of output.files) {
+      if (!file.sql.trim()) {
+        continue;
+      }
+      try {
+        await testPool.query(file.sql);
+      } catch (error) {
+        throw new Error(
+          `Declarative export execution failed for ${file.path} (order ${file.order})`,
+          { cause: error },
+        );
+      }
+    }
+
+    const finalCatalog = await extractCatalog(testPool);
+    const exportChanges = sortedChanges.filter(
+      (change) => change.operation !== "drop",
+    );
+    const { hash: finalFingerprint } = buildPlanScopeFingerprint(
+      finalCatalog,
+      exportChanges,
+    );
+
+    if (finalFingerprint !== output.target.fingerprint) {
+      const remainingChanges = diffCatalogs(finalCatalog, branchCatalog);
+      const remainingFiltered = integrationFilter
+        ? remainingChanges.filter((change) => integrationFilter(change))
+        : remainingChanges;
+      const sortedRemaining = sortChanges(
+        { mainCatalog: finalCatalog, branchCatalog },
+        remainingFiltered,
+      );
+      const remainingSql = sortedRemaining.map((c) => c.serialize()).join(";\n");
+      const remainingSummary = sortedRemaining.map((c) => ({
+        change: c.constructor.name,
+        op: c.operation,
+        objectType: c.objectType,
+        scope: (c as { scope?: string }).scope ?? "object",
+        creates: c.creates,
+        drops: c.drops,
+        requires: c.requires,
+      }));
+      console.error(
+        "[declarative-export] fingerprint mismatch\n target=%s\n post=%s\n remainingSummary=%o\n remainingSql=%s",
+        output.target.fingerprint,
+        finalFingerprint,
+        remainingSummary,
+        remainingSql,
+      );
+    }
+
+    expect(finalFingerprint).toStrictEqual(output.target.fingerprint);
+  } finally {
+    await cleanup();
+  }
+
+  return output;
+}
+
 async function verifyNoRemainingChanges(
   mainSession: Pool,
   branchCatalog: Catalog,
@@ -300,6 +440,19 @@ async function verifyNoRemainingChanges(
   ].join("\n");
 
   throw new Error(errorMessage);
+}
+
+async function getPostgresMajorVersion(
+  session: Pool,
+): Promise<PostgresVersion> {
+  const versionNum = await extractVersion(session);
+  const major = Math.floor(versionNum / 10000) as PostgresVersion;
+  if (!POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[major]) {
+    throw new Error(
+      `Unsupported PostgreSQL version: ${versionNum} (major=${major})`,
+    );
+  }
+  return major;
 }
 
 function getDependencyStableId(depend: PgDepend): string {

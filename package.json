@@ -6,6 +6,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./dist/index.js",
+    "./export": "./dist/core/export/index.js",
     "./integrations/supabase": "./dist/core/integrations/supabase.js"
   },
   "bin": {
