@@ -39,6 +39,7 @@ const SUPABASE_SYSTEM_ROLES = [
   "anon",
   "authenticated",
   "authenticator",
+  "cli_login_postgres",
   "dashboard_user",
   "pgbouncer",
   "pgsodium_keyholder",
