@@ -1,0 +1,101 @@
+{
+	"meta": {
+		"generatedAt": "2026-02-02T18:48:42.746Z",
+		"tasksAnalyzed": 11,
+		"totalTasks": 11,
+		"analysisCount": 11,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Create Core Formatter Module",
+			"complexityScore": 3,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down the core formatter module creation into: (1) Create directory structure and format.types.ts with SqlFormatOptions interface and DEFAULT_FORMAT_OPTIONS, (2) Implement SqlFormatter class with keyword(), indent(), and simple helper methods, (3) Implement list() method with comma style logic, (4) Create comprehensive unit tests covering all methods and edge cases",
+			"reasoning": "This is a greenfield implementation with no existing dependencies. The module is self-contained with clear interfaces (keyword case transformation, indentation, list formatting, parentheses wrapping). No database interaction or complex business logic. Testing is straightforward with Vitest. Score: 3/10 - Low complexity, foundational work."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Extend SerializeOptions with Format Support",
+			"complexityScore": 2,
+			"recommendedSubtasks": 0,
+			"expansionPrompt": "No expansion needed - this is a straightforward type extension task",
+			"reasoning": "Minimal code changes required. The SerializeOptions type already uses Record<string, unknown> (line 14-18 in serialize/dsl.ts), so it naturally accommodates the format field. Just need to: (1) Import SqlFormatOptions type, (2) Add format?: SqlFormatOptions to type definition, (3) Type checking verifies correctness. No runtime logic changes. Score: 2/10 - Trivial type-level change."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Add Format Options to Plan Schema",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down plan schema updates into: (1) Update types.ts with SqlFormatOptions in CreatePlanOptions and PlanSchema (similar to existing filter/serialize pattern), (2) Update create.ts to accept, store, and pass format options through the plan lifecycle, (3) Add unit tests for plan creation with format options and verify serialization/deserialization",
+			"reasoning": "Requires understanding plan lifecycle and existing patterns for filter/serialize DSL (lines 135-136 in plan/types.ts show similar z.any().optional() pattern). Need to modify CreatePlanOptions interface, PlanSchema Zod schema, and createPlan function logic. Must ensure format options flow through generateStatements. Existing patterns provide clear template. Score: 4/10 - Moderate complexity due to plan serialization logic."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Implement CREATE TABLE Formatting",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down CREATE TABLE formatting into: (1) Update serialize() signature and add format enabled check, (2) Implement serializeFormatted() for regular tables with column formatting and indentation, (3) Add formatting for INHERITS, PARTITION BY, and WITH clauses, (4) Add formatting for partition tables (PARTITION OF ... FOR VALUES), (5) Create comprehensive unit tests for all table types and format options",
+			"reasoning": "The CreateTable class is complex with multiple cases: regular tables, partitioned tables, partition children, inherited tables, storage parameters (lines 92-187 in table.create.ts). The serialize() method has 95 lines with conditional logic for persistence types, partition bounds, column definitions with identity/generated/defaults, and various clauses. Need to preserve all logic while adding multiline formatting. Testing requires covering all combinations. Score: 6/10 - Medium-high complexity due to many table variants."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "Implement CREATE TYPE ENUM Formatting",
+			"complexityScore": 3,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down CREATE TYPE ENUM formatting into: (1) Update serialize() with format enabled check and add serializeFormatted() method, (2) Implement enum label formatting with indentation and proper list() usage for multiline output, (3) Add unit tests for formatted enum output with various options and edge cases (empty enums, single/multiple values)",
+			"reasoning": "The CreateEnum class is simple with only 15 lines of serialize() logic (lines 41-55 in enum.create.ts). Straightforward pattern: CREATE TYPE schema.name AS ENUM with label list. Similar to aggregate but simpler - only labels to format, no complex clauses. Testing is simple with quoteLiteral edge cases. Score: 3/10 - Low complexity, straightforward formatting."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Implement CREATE TYPE COMPOSITE and Other Type Formatting",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down CREATE TYPE COMPOSITE formatting into: (1) Update serialize() with format check and create serializeFormatted() method, (2) Implement attribute formatting with name, data_type_str, and optional COLLATE on separate lines with proper indentation, (3) Add unit tests covering empty composites, single/multiple attributes with various data types and collations",
+			"reasoning": "Composite types have moderate complexity with attributes containing name, data_type_str, and optional collations. Need to format multiple attributes on separate lines similar to table columns but simpler (no constraints, defaults, identity). Pattern similar to enum but with structured attributes instead of simple labels. Score: 4/10 - Low-medium complexity, slightly more complex than enums."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Implement CREATE AGGREGATE Formatting",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down CREATE AGGREGATE formatting into: (1) Update serialize() signature and add format enabled check, (2) Implement serializeFormatted() with keyword formatting for head (CREATE [OR REPLACE] AGGREGATE), (3) Format all clauses (SFUNC, STYPE, FINALFUNC, COMBINEFUNC, etc.) on separate lines with proper indentation, (4) Add unit tests for minimal and complex aggregates with various clause combinations",
+			"reasoning": "The CreateAggregate serialize() method has 124 lines (lines 169-293 in aggregate.create.ts) with many optional clauses: SFUNC, STYPE, SSPACE, FINALFUNC, FINALFUNC_EXTRA, FINALFUNC_MODIFY, COMBINEFUNC, SERIALFUNC, DESERIALFUNC, INITCOND, MSFUNC, MINVFUNC, MSTYPE, MSSPACE, MFINALFUNC, MFINALFUNC_EXTRA, MFINALFUNC_MODIFY, MINITCOND, SORTOP, PARALLEL, STRICT, HYPOTHETICAL. Currently uses clauses.join(', ') (line 290). Need to change to newline-separated with indentation. Score: 5/10 - Medium complexity due to many clauses but straightforward transformation."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "Implement CREATE POLICY Formatting",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down CREATE POLICY formatting into: (1) Update serialize() with format check and create serializeFormatted() method, (2) Implement multiline formatting with CREATE POLICY name ON table on first line, then AS/FOR/TO/USING/WITH CHECK on subsequent lines at same indentation level, (3) Add unit tests for permissive/restrictive policies with all clause combinations",
+			"reasoning": "The CreateRlsPolicy serialize() method is 49 lines (lines 50-99 in rls-policy.create.ts) with straightforward conditional logic for AS RESTRICTIVE, FOR command, TO roles, USING, WITH CHECK. Currently uses parts.join(' '). Need to format with first line for CREATE POLICY name ON table, then subsequent clauses on separate lines (not indented per spec). Simpler than aggregate but requires careful clause ordering. Score: 4/10 - Low-medium complexity."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "Implement CREATE VIEW and CREATE MATERIALIZED VIEW Formatting",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down view formatting into: (1) Update CreateView serialize() with format check and serializeFormatted() method for CREATE [OR REPLACE] VIEW with WITH options and AS on separate lines, (2) Update CreateMaterializedView serialize() similarly with additional TABLESPACE clause support, (3) Implement query body indentation for both view types, (4) Add unit tests for both view types with/without options and various format settings",
+			"reasoning": "CreateView serialize() is simple (23 lines, lines 55-72 in view.create.ts). Need to format as: Line 1: CREATE [OR REPLACE] VIEW name, Line 2 (if options): WITH (...), Line 3: AS, Line 4+: indented query. CreateMaterializedView likely similar with TABLESPACE. Query body indentation requires careful whitespace handling. Need to read materialized-view.create.ts to confirm structure. Two classes to modify with similar patterns. Score: 5/10 - Medium complexity due to two classes and query indentation."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "Add CLI Flags for SQL Formatting",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down CLI flag implementation into: (1) Add formatSql, keywordCase, lineWidth, indentWidth, commaStyle flags to plan.ts following existing pattern from lines 17-84, (2) Construct SqlFormatOptions object from flags and pass to createPlan(), (3) Apply same flags to sync.ts command, (4) Add CLI integration tests to verify flags are parsed and passed through correctly",
+			"reasoning": "The plan command already has flags infrastructure using @stricli/core (lines 17-84 in plan.ts). Need to add 5 new flags following existing patterns (filter/serialize flags show complex parsing). Must construct SqlFormatOptions from flags and pass through CreatePlanOptions. Need to update both plan.ts and sync.ts commands consistently. CLI flag parsing is straightforward with stricli. Testing requires integration tests with actual CLI invocation. Score: 5/10 - Medium complexity due to dual command updates and integration testing."
+		},
+		{
+			"taskId": 11,
+			"taskTitle": "Integration Tests for Formatted SQL Output",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down integration testing into: (1) Set up integration test file following existing patterns in tests/integration/ with testcontainers, (2) Create test cases for CREATE TABLE formatting with all variants (regular, partitioned, inherited), (3) Create test cases for CREATE TYPE (enum, composite), (4) Create test cases for CREATE AGGREGATE, CREATE POLICY, CREATE VIEW, CREATE MATERIALIZED VIEW, (5) Test all format option combinations (keywordCase, commaStyle, indentWidth) for each statement type, (6) Verify formatted SQL executes successfully and produces identical database state as unformatted SQL",
+			"reasoning": "Integration tests must use testcontainers (already configured in vitest.config.ts lines 26-39). Need to test 6 different statement types (table, enum, composite, aggregate, policy, view/materialized view) with multiple format option combinations (3 keyword cases × 2 comma styles × 2 indent widths = 12 combinations minimum). Must verify SQL is syntactically valid AND produces identical results. Existing integration tests in tests/integration/ show pattern with globalSetup. Need database fixtures for each object type. Must verify plan JSON serialization preserves format options. Score: 7/10 - Medium-high complexity due to comprehensive coverage and database validation."
+		}
+	]
+}
