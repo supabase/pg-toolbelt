@@ -73,10 +73,11 @@ export class CreateTrigger extends CreateTriggerChange {
 
   serialize(): string {
     let definition = this.trigger.definition.trim();
+    const isConstraintTrigger = this.trigger.isConstraintTrigger;
 
     definition = definition.replace(
       /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
-      `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
+      `CREATE ${this.orReplace && !isConstraintTrigger ? "OR REPLACE " : ""}`,
     );
 
     return definition;

@@ -47,6 +47,7 @@ const tableConstraintPropsSchema = z.object({
     "c", // CHECK constraint
     "f", // FOREIGN KEY constraint
     "p", // PRIMARY KEY constraint
+    "t", // TRIGGER constraint
     "u", // UNIQUE constraint
     "x", // EXCLUDE constraint
   ]),
@@ -369,6 +370,8 @@ select
       and de.refclassid = 'pg_extension'::regclass
 
       where c.conrelid = t.oid
+        -- Skip constraint triggers; they are modeled as triggers, not table constraints
+        and c.contype <> 't'
         and not c.connamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and de.objid is null
     ),
