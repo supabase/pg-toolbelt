@@ -5,8 +5,10 @@
     "@supabase/pg-delta": "0.0.0"
   },
   "changesets": [
+    "curvy-buckets-collect",
     "eight-moles-throw",
     "kind-balloons-invite",
+    "major-cities-lose",
     "slick-moons-turn",
     "tall-canyons-add"
   ]
