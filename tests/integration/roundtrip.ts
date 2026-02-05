@@ -345,7 +345,9 @@ export async function testDeclarativeExport(
         { mainCatalog: finalCatalog, branchCatalog },
         remainingFiltered,
       );
-      const remainingSql = sortedRemaining.map((c) => c.serialize()).join(";\n");
+      const remainingSql = sortedRemaining
+        .map((c) => c.serialize())
+        .join(";\n");
       const remainingSummary = sortedRemaining.map((c) => ({
         change: c.constructor.name,
         op: c.operation,
