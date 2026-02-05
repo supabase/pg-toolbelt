@@ -65,6 +65,26 @@ describe("aggregate.create", () => {
     );
   });
 
+  test("serialize formatted aggregate", () => {
+    const aggregate = makeAggregate();
+    const change = new CreateAggregate({ aggregate });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE AGGREGATE public.agg_sum(integer) (
+        SFUNC = pg_catalog.int4pl,
+        STYPE = integer
+      )"
+    `,
+    );
+  });
+
   test("serialize aggregate with optional clauses and or replace", () => {
     const aggregate = makeAggregate({
       name: "agg_full",

@@ -71,4 +71,38 @@ describe("rls-policy", () => {
       "CREATE POLICY test_policy_all ON public.test_table AS RESTRICTIVE FOR UPDATE TO role1, role2 USING (expr1) WITH CHECK (expr2)",
     );
   });
+
+  test("create formatted with all options", () => {
+    const policy = new RlsPolicy({
+      schema: "public",
+      name: "test_policy_all",
+      table_name: "test_table",
+      command: "w",
+      permissive: false,
+      roles: ["role1", "role2"],
+      using_expression: "expr1",
+      with_check_expression: "expr2",
+      owner: "test",
+      comment: null,
+    });
+
+    const change = new CreateRlsPolicy({ policy });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE POLICY test_policy_all ON public.test_table
+      AS RESTRICTIVE
+      FOR UPDATE
+      TO role1, role2
+      USING (expr1)
+      WITH CHECK (expr2)"
+    `,
+    );
+  });
 });

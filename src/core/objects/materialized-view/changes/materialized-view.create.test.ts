@@ -61,4 +61,45 @@ describe("materialized-view", () => {
       "CREATE MATERIALIZED VIEW public.test_mv WITH (fillfactor=90, autovacuum_enabled=false) AS SELECT * FROM test_table WITH DATA",
     );
   });
+
+  test("create formatted", () => {
+    const mv = new MaterializedView({
+      schema: "public",
+      name: "test_mv",
+      definition: "SELECT * FROM test_table",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: ["fillfactor=90", "autovacuum_enabled=false"],
+      partition_bound: null,
+      owner: "test",
+      columns: [],
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateMaterializedView({ materializedView: mv });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE MATERIALIZED VIEW public.test_mv
+      WITH (fillfactor=90, autovacuum_enabled=false)
+      AS
+        SELECT * FROM test_table
+      WITH DATA"
+    `,
+    );
+  });
 });

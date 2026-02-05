@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange } from "./table.base.ts";
@@ -89,7 +91,12 @@ export class CreateTable extends CreateTableChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE"];
 
     // Add TEMPORARY/UNLOGGED based on persistence
@@ -184,5 +191,122 @@ export class CreateTable extends CreateTableChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const parts: string[] = [formatter.keyword("CREATE")];
+
+    if (this.table.persistence === "t") {
+      parts.push(formatter.keyword("TEMPORARY"));
+    } else if (this.table.persistence === "u") {
+      parts.push(formatter.keyword("UNLOGGED"));
+    }
+
+    parts.push(formatter.keyword("TABLE"));
+    parts.push(`${this.table.schema}.${this.table.name}`);
+
+    const head = parts.join(" ");
+
+    if (
+      this.table.parent_schema &&
+      this.table.parent_name &&
+      this.table.partition_bound
+    ) {
+      const lines = [
+        head,
+        `${formatter.keyword("PARTITION")} ${formatter.keyword("OF")} ${this.table.parent_schema}.${this.table.parent_name}`,
+        this.table.partition_bound,
+      ];
+      return lines.join("\n");
+    }
+
+    const lines: string[] = [];
+    lines.push(`${head} ${this.formatColumns(formatter)}`);
+
+    if (
+      this.table.parent_schema &&
+      this.table.parent_name &&
+      !this.table.partition_bound
+    ) {
+      lines.push(
+        `${formatter.keyword("INHERITS")} (${this.table.parent_schema}.${this.table.parent_name})`,
+      );
+    }
+
+    if (this.table.partition_by) {
+      lines.push(
+        `${formatter.keyword("PARTITION")} ${formatter.keyword("BY")} ${this.table.partition_by}`,
+      );
+    }
+
+    if (this.table.options && this.table.options.length > 0) {
+      lines.push(
+        `${formatter.keyword("WITH")} (${this.table.options.join(", ")})`,
+      );
+    }
+
+    return lines.join("\n");
+  }
+
+  private formatColumns(formatter: SqlFormatter): string {
+    if (this.table.columns.length === 0) {
+      return "()";
+    }
+
+    const rows = this.table.columns.map((col) => {
+      const typeTokens: string[] = [col.data_type_str];
+      if (col.collation) {
+        typeTokens.push(formatter.keyword("COLLATE"), col.collation);
+      }
+      const typeString = typeTokens.join(" ");
+
+      const constraintTokens: string[] = [];
+
+      if (col.is_identity) {
+        if (col.is_identity_always) {
+          constraintTokens.push(
+            formatter.keyword("GENERATED"),
+            formatter.keyword("ALWAYS"),
+            formatter.keyword("AS"),
+            formatter.keyword("IDENTITY"),
+          );
+        } else {
+          constraintTokens.push(
+            formatter.keyword("GENERATED"),
+            formatter.keyword("BY"),
+            formatter.keyword("DEFAULT"),
+            formatter.keyword("AS"),
+            formatter.keyword("IDENTITY"),
+          );
+        }
+      } else if (col.is_generated && col.default) {
+        constraintTokens.push(
+          formatter.keyword("GENERATED"),
+          formatter.keyword("ALWAYS"),
+          formatter.keyword("AS"),
+          `(${col.default})`,
+          formatter.keyword("STORED"),
+        );
+      } else if (col.default) {
+        constraintTokens.push(formatter.keyword("DEFAULT"), col.default);
+      }
+
+      if (col.not_null) {
+        constraintTokens.push(
+          formatter.keyword("NOT"),
+          formatter.keyword("NULL"),
+        );
+      }
+
+      if (constraintTokens.length > 0) {
+        return [col.name, typeString, constraintTokens.join(" ")];
+      }
+
+      return [col.name, typeString];
+    });
+
+    const aligned = formatter.alignColumns(rows);
+    const list = formatter.list(aligned, 1);
+    return formatter.parens(`${formatter.indent(1)}${list}`, true);
   }
 }

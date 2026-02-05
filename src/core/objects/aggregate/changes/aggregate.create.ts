@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../base.change.ts";
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   parseProcedureReference,
   parseTypeString,
@@ -166,7 +168,12 @@ export class CreateAggregate extends CreateAggregateChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const head = [
@@ -291,6 +298,184 @@ export class CreateAggregate extends CreateAggregateChange {
 
     return `${head} ${body}`;
   }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const signature = this.aggregate.identityArguments;
+    const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
+    const headTokens: string[] = [formatter.keyword("CREATE")];
+
+    if (this.orReplace) {
+      headTokens.push(
+        formatter.keyword("OR"),
+        formatter.keyword("REPLACE"),
+      );
+    }
+
+    headTokens.push(
+      formatter.keyword("AGGREGATE"),
+      `${qualifiedName}${signature ? `(${signature})` : "()"}`,
+    );
+
+    const clauses: string[] = [];
+
+    clauses.push(
+      `${formatter.keyword("SFUNC")} = ${formatProc(
+        this.aggregate.transition_function,
+      )}`,
+    );
+    clauses.push(
+      `${formatter.keyword("STYPE")} = ${this.aggregate.state_data_type}`,
+    );
+
+    if (this.aggregate.state_data_space > 0) {
+      clauses.push(
+        `${formatter.keyword("SSPACE")} = ${this.aggregate.state_data_space}`,
+      );
+    }
+
+    if (this.aggregate.final_function) {
+      clauses.push(
+        `${formatter.keyword("FINALFUNC")} = ${formatProc(
+          this.aggregate.final_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.final_function_extra_args) {
+      clauses.push(formatter.keyword("FINALFUNC_EXTRA"));
+    }
+    if (
+      this.aggregate.final_function_modify &&
+      this.aggregate.final_function_modify !== "r"
+    ) {
+      clauses.push(
+        `${formatter.keyword("FINALFUNC_MODIFY")} = ${formatModifyWithCase(
+          this.aggregate.final_function_modify,
+          formatter,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.combine_function) {
+      clauses.push(
+        `${formatter.keyword("COMBINEFUNC")} = ${formatProc(
+          this.aggregate.combine_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.serial_function) {
+      clauses.push(
+        `${formatter.keyword("SERIALFUNC")} = ${formatProc(
+          this.aggregate.serial_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.deserial_function) {
+      clauses.push(
+        `${formatter.keyword("DESERIALFUNC")} = ${formatProc(
+          this.aggregate.deserial_function,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.initial_condition !== null) {
+      clauses.push(
+        `${formatter.keyword("INITCOND")} = ${quoteLiteral(
+          this.aggregate.initial_condition,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.moving_transition_function) {
+      clauses.push(
+        `${formatter.keyword("MSFUNC")} = ${formatProc(
+          this.aggregate.moving_transition_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.moving_inverse_function) {
+      clauses.push(
+        `${formatter.keyword("MINVFUNC")} = ${formatProc(
+          this.aggregate.moving_inverse_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.moving_state_data_type) {
+      clauses.push(
+        `${formatter.keyword("MSTYPE")} = ${this.aggregate.moving_state_data_type}`,
+      );
+    }
+    if (
+      this.aggregate.moving_state_data_space &&
+      this.aggregate.moving_state_data_space > 0
+    ) {
+      clauses.push(
+        `${formatter.keyword("MSSPACE")} = ${this.aggregate.moving_state_data_space}`,
+      );
+    }
+    if (this.aggregate.moving_final_function) {
+      clauses.push(
+        `${formatter.keyword("MFINALFUNC")} = ${formatProc(
+          this.aggregate.moving_final_function,
+        )}`,
+      );
+    }
+    if (this.aggregate.moving_final_function_extra_args) {
+      clauses.push(formatter.keyword("MFINALFUNC_EXTRA"));
+    }
+    if (
+      this.aggregate.moving_final_function_modify &&
+      this.aggregate.moving_final_function_modify !== "r"
+    ) {
+      clauses.push(
+        `${formatter.keyword("MFINALFUNC_MODIFY")} = ${formatModifyWithCase(
+          this.aggregate.moving_final_function_modify,
+          formatter,
+        )}`,
+      );
+    }
+    if (this.aggregate.moving_initial_condition !== null) {
+      clauses.push(
+        `${formatter.keyword("MINITCOND")} = ${quoteLiteral(
+          this.aggregate.moving_initial_condition,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.sort_operator) {
+      clauses.push(
+        `${formatter.keyword("SORTOP")} = ${formatOperatorWithCase(
+          this.aggregate.sort_operator,
+          formatter,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.parallel_safety !== "u") {
+      clauses.push(
+        `${formatter.keyword("PARALLEL")} ${formatParallelWithCase(
+          this.aggregate.parallel_safety,
+          formatter,
+        )}`,
+      );
+    }
+
+    if (this.aggregate.is_strict) {
+      clauses.push(formatter.keyword("STRICT"));
+    }
+
+    if (this.aggregate.aggkind === "h") {
+      clauses.push(formatter.keyword("HYPOTHETICAL"));
+    }
+
+    const body = clauses.length
+      ? formatter.parens(
+          `${formatter.indent(1)}${formatter.list(clauses, 1)}`,
+          true,
+        )
+      : "()";
+
+    return `${headTokens.join(" ")} ${body}`;
+  }
 }
 
 function formatProc(proc: string): string {
@@ -325,5 +510,35 @@ function formatParallel(code: string): string {
       return "RESTRICTED";
     default:
       return "UNSAFE";
+  }
+}
+
+function formatOperatorWithCase(op: string, formatter: SqlFormatter): string {
+  const idx = op.indexOf("(");
+  const qualified = idx === -1 ? op : op.slice(0, idx);
+  return `${formatter.keyword("OPERATOR")}(${qualified})`;
+}
+
+function formatModifyWithCase(code: string, formatter: SqlFormatter): string {
+  switch (code) {
+    case "r":
+      return formatter.keyword("READ_ONLY");
+    case "s":
+      return formatter.keyword("SHAREABLE");
+    case "w":
+      return formatter.keyword("READ_WRITE");
+    default:
+      return formatter.keyword(code);
+  }
+}
+
+function formatParallelWithCase(code: string, formatter: SqlFormatter): string {
+  switch (code) {
+    case "s":
+      return formatter.keyword("SAFE");
+    case "r":
+      return formatter.keyword("RESTRICTED");
+    default:
+      return formatter.keyword("UNSAFE");
   }
 }

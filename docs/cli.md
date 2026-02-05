@@ -36,6 +36,12 @@ pg-delta --source <source-url> --target <target-url> [options]
 - `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
 - `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
 - `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
+- `--format-sql`: Enable SQL formatting (opt-in)
+- `--keyword-case <preserve|upper|lower>`: Keyword case transformation
+- `--line-width <n>`: Maximum line width for formatted output
+- `--indent-width <n>`: Spaces per indentation level
+- `--comma-style <trailing|leading>`: Comma placement style in multi-line lists
+- `--align-columns`: Align column definitions in `CREATE TABLE` (default: true when formatting is enabled)
 - `-y, --yes`: Skip confirmation prompt and apply changes automatically
 - `-u, --unsafe`: Allow data-loss operations (unsafe mode)
 
@@ -85,6 +91,18 @@ pg-delta sync \
   --filter '{"schema":"public"}'
 ```
 
+**Format SQL output:**
+
+```bash
+pg-delta sync \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
+  --format-sql \
+  --keyword-case=lower \
+  --indent-width=4 \
+  --comma-style=leading
+```
+
 #### Exit Codes
 
 - `0`: Success (changes applied or no changes detected)
@@ -113,6 +131,12 @@ pg-delta plan --source <source-url> --target <target-url> [options]
 - `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
 - `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
 - `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
+- `--format-sql`: Enable SQL formatting (opt-in)
+- `--keyword-case <preserve|upper|lower>`: Keyword case transformation
+- `--line-width <n>`: Maximum line width for formatted output
+- `--indent-width <n>`: Spaces per indentation level
+- `--comma-style <trailing|leading>`: Comma placement style in multi-line lists
+- `--align-columns`: Align column definitions in `CREATE TABLE` (default: true when formatting is enabled)
 
 #### Examples
 
@@ -141,6 +165,19 @@ pg-delta plan \
   --target postgresql://user:pass@localhost:5432/target_db \
   --format sql \
   --output migration.sql
+```
+
+**Generate formatted SQL script:**
+
+```bash
+pg-delta plan \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
+  --format sql \
+  --output migration.sql \
+  --format-sql \
+  --indent-width=4 \
+  --keyword-case=upper
 ```
 
 **Use integration:**

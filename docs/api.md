@@ -164,6 +164,7 @@ interface Plan {
   role?: string;
   filter?: FilterDSL;
   serialize?: SerializeDSL;
+  format?: SqlFormatOptions;
   risk?: { level: "safe" } | { level: "data_loss"; statements: string[] };
 }
 ```
@@ -178,8 +179,25 @@ interface CreatePlanOptions {
   filter?: FilterDSL | ChangeFilter;
   /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
   serialize?: SerializeDSL | ChangeSerializer;
+  /** Format options stored in the plan for reproducibility */
+  format?: SqlFormatOptions;
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
+}
+```
+
+### `SqlFormatOptions`
+
+Options for formatting generated SQL (opt-in).
+
+```typescript
+interface SqlFormatOptions {
+  enabled?: boolean; // default: false
+  keywordCase?: "preserve" | "upper" | "lower"; // default: "upper"
+  lineWidth?: number; // default: 80
+  indentWidth?: number; // default: 2
+  commaStyle?: "trailing" | "leading"; // default: "trailing"
+  alignColumns?: boolean; // default: true
 }
 ```
 

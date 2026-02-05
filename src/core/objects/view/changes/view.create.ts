@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange } from "./view.base.ts";
@@ -52,7 +54,12 @@ export class CreateView extends CreateViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = [
       `CREATE${this.orReplace ? " OR REPLACE" : ""} VIEW`,
     ];
@@ -69,5 +76,39 @@ export class CreateView extends CreateViewChange {
     parts.push("AS", this.view.definition.trim());
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [];
+    const headTokens = [formatter.keyword("CREATE")];
+
+    if (this.orReplace) {
+      headTokens.push(
+        formatter.keyword("OR"),
+        formatter.keyword("REPLACE"),
+      );
+    }
+
+    headTokens.push(formatter.keyword("VIEW"));
+    headTokens.push(`${this.view.schema}.${this.view.name}`);
+    lines.push(headTokens.join(" "));
+
+    if (this.view.options && this.view.options.length > 0) {
+      lines.push(
+        `${formatter.keyword("WITH")} (${this.view.options.join(", ")})`,
+      );
+    }
+
+    lines.push(formatter.keyword("AS"));
+
+    const definition = this.view.definition.trim();
+    const indent = formatter.indent(1);
+    const indented = definition
+      .split("\n")
+      .map((line) => `${indent}${line}`)
+      .join("\n");
+    lines.push(indented);
+
+    return lines.join("\n");
   }
 }

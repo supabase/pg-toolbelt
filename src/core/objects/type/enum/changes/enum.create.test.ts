@@ -25,4 +25,37 @@ describe("enum", () => {
       "CREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",
     );
   });
+
+  test("create formatted with leading commas", () => {
+    const enumType = new Enum({
+      schema: "public",
+      name: "test_enum",
+      owner: "test",
+      labels: [
+        { sort_order: 1, label: "value1" },
+        { sort_order: 2, label: "value2" },
+      ],
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateEnum({ enum: enumType });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+          commaStyle: "leading",
+          keywordCase: "lower",
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "create type public.test_enum as enum (
+        'value1'
+        , 'value2'
+      )"
+    `,
+    );
+  });
 });

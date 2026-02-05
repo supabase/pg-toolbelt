@@ -147,4 +147,85 @@ describe.concurrent("table.create", () => {
     const change = new CreateTable({ table: t });
     expect(change.serialize()).toBe("CREATE UNLOGGED TABLE public.t ()");
   });
+
+  test("formatted create with aligned columns", () => {
+    const t = new Table({
+      ...base,
+      name: "t_fmt",
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "bigint",
+          data_type_str: "bigint",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+        {
+          name: "status",
+          position: 2,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: "'pending'",
+          comment: null,
+        },
+        {
+          name: "a_very_long_column_name",
+          position: 3,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: "'some-default-value'",
+          comment: null,
+        },
+      ],
+    });
+
+    const change = new CreateTable({ table: t });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE TABLE public.t_fmt (
+        id                      bigint NOT NULL,
+        status                  text   DEFAULT 'pending',
+        a_very_long_column_name text   DEFAULT 'some-default-value' NOT NULL
+      )"
+    `,
+    );
+  });
 });

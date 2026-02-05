@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicyChange } from "./rls-policy.base.ts";
@@ -47,7 +49,12 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE POLICY"];
 
     // Add policy name
@@ -96,5 +103,59 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [];
+    const head = [
+      formatter.keyword("CREATE"),
+      formatter.keyword("POLICY"),
+      this.policy.name,
+      formatter.keyword("ON"),
+      `${this.policy.schema}.${this.policy.table_name}`,
+    ].join(" ");
+    lines.push(head);
+
+    if (!this.policy.permissive) {
+      lines.push(
+        `${formatter.keyword("AS")} ${formatter.keyword("RESTRICTIVE")}`,
+      );
+    }
+
+    const commandMap: Record<string, string> = {
+      r: formatter.keyword("SELECT"),
+      a: formatter.keyword("INSERT"),
+      w: formatter.keyword("UPDATE"),
+      d: formatter.keyword("DELETE"),
+      "*": formatter.keyword("ALL"),
+    };
+    if (this.policy.command && this.policy.command !== "*") {
+      lines.push(
+        `${formatter.keyword("FOR")} ${commandMap[this.policy.command]}`,
+      );
+    }
+
+    if (this.policy.roles && this.policy.roles.length > 0) {
+      const onlyPublic =
+        this.policy.roles.length === 1 &&
+        this.policy.roles[0].toLowerCase() === "public";
+      if (!onlyPublic) {
+        lines.push(`${formatter.keyword("TO")} ${this.policy.roles.join(", ")}`);
+      }
+    }
+
+    if (this.policy.using_expression) {
+      lines.push(
+        `${formatter.keyword("USING")} (${this.policy.using_expression})`,
+      );
+    }
+
+    if (this.policy.with_check_expression) {
+      lines.push(
+        `${formatter.keyword("WITH")} ${formatter.keyword("CHECK")} (${this.policy.with_check_expression})`,
+      );
+    }
+
+    return lines.join("\n");
   }
 }

@@ -7,6 +7,7 @@ import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
+import type { SqlFormatOptions } from "../../core/format/index.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
@@ -84,6 +85,52 @@ export const syncCommand = buildCommand({
         parse: String,
         optional: true,
       },
+      formatSql: {
+        kind: "boolean",
+        brief: "Enable SQL formatting",
+        optional: true,
+      },
+      keywordCase: {
+        kind: "enum",
+        brief: "Keyword case transformation",
+        values: ["preserve", "upper", "lower"] as const,
+        optional: true,
+      },
+      lineWidth: {
+        kind: "parsed",
+        brief: "Maximum line width",
+        parse: (value: string): number => {
+          const parsed = Number(value);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            throw new Error("line-width must be a positive number");
+          }
+          return parsed;
+        },
+        optional: true,
+      },
+      indentWidth: {
+        kind: "parsed",
+        brief: "Spaces per indentation level",
+        parse: (value: string): number => {
+          const parsed = Number(value);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            throw new Error("indent-width must be a positive number");
+          }
+          return parsed;
+        },
+        optional: true,
+      },
+      commaStyle: {
+        kind: "enum",
+        brief: "Comma placement style",
+        values: ["trailing", "leading"] as const,
+        optional: true,
+      },
+      alignColumns: {
+        kind: "boolean",
+        brief: "Align column definitions in CREATE TABLE",
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -118,6 +165,12 @@ Exit codes:
       filter?: FilterDSL;
       serialize?: SerializeDSL;
       integration?: string;
+      formatSql?: boolean;
+      keywordCase?: "preserve" | "upper" | "lower";
+      lineWidth?: number;
+      indentWidth?: number;
+      commaStyle?: "trailing" | "leading";
+      alignColumns?: boolean;
     },
   ) {
     // Load integration if provided and extract filter/serialize DSL
@@ -131,11 +184,31 @@ Exit codes:
       serializeOption = serializeOption ?? integrationDSL.serialize;
     }
 
+    const hasFormatFlags =
+      flags.formatSql ||
+      flags.keywordCase !== undefined ||
+      flags.lineWidth !== undefined ||
+      flags.indentWidth !== undefined ||
+      flags.commaStyle !== undefined ||
+      flags.alignColumns !== undefined;
+
+    const formatOptions: SqlFormatOptions | undefined = hasFormatFlags
+      ? {
+          enabled: flags.formatSql ?? true,
+          keywordCase: flags.keywordCase,
+          lineWidth: flags.lineWidth,
+          indentWidth: flags.indentWidth,
+          commaStyle: flags.commaStyle,
+          alignColumns: flags.alignColumns,
+        }
+      : undefined;
+
     // 1. Create the plan
     const planResult = await createPlan(flags.source, flags.target, {
       role: flags.role,
       filter: filterOption,
       serialize: serializeOption,
+      format: formatOptions,
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");

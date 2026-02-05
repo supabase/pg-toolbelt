@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
 import { CreateEnumChange } from "./enum.base.ts";
@@ -38,7 +40,12 @@ export class CreateEnum extends CreateEnumChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
@@ -52,5 +59,28 @@ export class CreateEnum extends CreateEnumChange {
     parts.push(`(${labels.join(", ")})`);
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const head = [
+      formatter.keyword("CREATE"),
+      formatter.keyword("TYPE"),
+      `${this.enum.schema}.${this.enum.name}`,
+      formatter.keyword("AS"),
+      formatter.keyword("ENUM"),
+    ].join(" ");
+
+    const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
+    if (labels.length === 0) {
+      return `${head} ()`;
+    }
+
+    const list = formatter.list(labels, 1);
+    const body = formatter.parens(
+      `${formatter.indent(1)}${list}`,
+      true,
+    );
+
+    return `${head} ${body}`;
   }
 }

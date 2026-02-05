@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
@@ -62,7 +64,12 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 
     // Add schema and name
@@ -89,5 +96,48 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword(
+        "MATERIALIZED",
+      )} ${formatter.keyword("VIEW")} ${this.materializedView.schema}.${this.materializedView.name}`,
+    ];
+
+    if (
+      this.materializedView.options &&
+      this.materializedView.options.length > 0
+    ) {
+      lines.push(
+        `${formatter.keyword("WITH")} (${this.materializedView.options.join(
+          ", ",
+        )})`,
+      );
+    }
+
+    lines.push(formatter.keyword("AS"));
+
+    const definition = this.materializedView.definition.trim();
+    const indent = formatter.indent(1);
+    const indented = definition
+      .split("\n")
+      .map((line) => `${indent}${line}`)
+      .join("\n");
+    lines.push(indented);
+
+    if (this.materializedView.is_populated) {
+      lines.push(
+        `${formatter.keyword("WITH")} ${formatter.keyword("DATA")}`,
+      );
+    } else {
+      lines.push(
+        `${formatter.keyword("WITH")} ${formatter.keyword("NO")} ${formatter.keyword(
+          "DATA",
+        )}`,
+      );
+    }
+
+    return lines.join("\n");
   }
 }

@@ -10,3 +10,4 @@ export { applyPlan } from "./core/plan/apply.ts";
 export { createPlan } from "./core/plan/create.ts";
 // Types
 export type { CreatePlanOptions, Plan } from "./core/plan/types.ts";
+export type { SqlFormatOptions } from "./core/format/index.ts";

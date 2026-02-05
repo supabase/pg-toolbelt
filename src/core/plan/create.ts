@@ -20,6 +20,7 @@ import {
   compileSerializeDSL,
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
+import type { SerializeOptions } from "../integrations/serialize/serialize.types.ts";
 import { createPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import { classifyChangesRisk } from "./risk.ts";
@@ -289,6 +290,9 @@ function buildPlanForCatalogs(
   const serializeDSL = isSerializeDSL
     ? (serializeOption as SerializeDSL)
     : undefined;
+  const serializeOptions: SerializeOptions | undefined = options.format
+    ? { format: options.format }
+    : undefined;
 
   // Build final integration: compile DSL if needed, use functions directly otherwise
   let finalIntegration: Integration | undefined;
@@ -304,7 +308,7 @@ function buildPlanForCatalogs(
         typeof serializeOption === "function"
           ? serializeOption
           : serializeDSL
-            ? compileSerializeDSL(serializeDSL)
+            ? compileSerializeDSL(serializeDSL, serializeOptions)
             : undefined,
     };
   }
@@ -349,9 +353,13 @@ function buildPlan(
   integration?: Integration,
 ): Plan {
   const role = options?.role;
+  const serializeOptions: SerializeOptions | undefined = options?.format
+    ? { format: options.format }
+    : undefined;
   const statements = generateStatements(changes, {
     integration,
     role,
+    serializeOptions,
   });
   const risk = classifyChangesRisk(changes);
 
@@ -369,6 +377,7 @@ function buildPlan(
     role,
     filter: filterDSL,
     serialize: serializeDSL,
+    format: options?.format,
     risk,
   };
 }
@@ -381,6 +390,7 @@ function generateStatements(
   options?: {
     integration?: Integration;
     role?: string;
+    serializeOptions?: SerializeOptions;
   },
 ): string[] {
   const statements: string[] = [];
@@ -394,7 +404,9 @@ function generateStatements(
   }
 
   for (const change of changes) {
-    const sql = options?.integration?.serialize?.(change) ?? change.serialize();
+    const sql =
+      options?.integration?.serialize?.(change) ??
+      change.serialize(options?.serializeOptions);
     statements.push(sql);
   }
 

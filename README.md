@@ -56,6 +56,22 @@ pg-delta apply \
   --target postgresql://user:pass@localhost:5432/target_db
 ```
 
+### SQL Formatting (Opt-In)
+
+Enable readable, diff-friendly SQL formatting for generated statements:
+
+```bash
+pg-delta plan \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
+  --format sql \
+  --format-sql \
+  --indent-width=4 \
+  --keyword-case=upper
+```
+
+Formatting options are stored in the plan JSON for reproducibility.
+
 ### Using Integrations
 
 Use built-in integrations or custom JSON files:

@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { isUserDefinedTypeSchema, stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeTypeChange } from "./composite-type.base.ts";
@@ -65,7 +67,12 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
@@ -91,5 +98,34 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
     );
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const head = [
+      formatter.keyword("CREATE"),
+      formatter.keyword("TYPE"),
+      `${this.compositeType.schema}.${this.compositeType.name}`,
+      formatter.keyword("AS"),
+    ].join(" ");
+
+    const attributes = this.compositeType.columns.map((column) => {
+      const tokens: string[] = [column.name, column.data_type_str];
+      if (column.collation) {
+        tokens.push(formatter.keyword("COLLATE"), column.collation);
+      }
+      return tokens.join(" ");
+    });
+
+    if (attributes.length === 0) {
+      return `${head} ()`;
+    }
+
+    const list = formatter.list(attributes, 1);
+    const body = formatter.parens(
+      `${formatter.indent(1)}${list}`,
+      true,
+    );
+
+    return `${head} ${body}`;
   }
 }

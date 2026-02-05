@@ -4,6 +4,7 @@
 
 import z from "zod";
 import type { Change } from "../change.types.ts";
+import type { SqlFormatOptions } from "../format/index.ts";
 import type { FilterDSL } from "../integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
@@ -134,6 +135,7 @@ export const PlanSchema = z.object({
   role: z.string().optional(),
   filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
   serialize: z.any().optional(), // SerializeDSL - complex recursive type, validated at compile time
+  format: z.any().optional(), // SqlFormatOptions type
   risk: z
     .discriminatedUnion("level", [
       z.object({
@@ -160,6 +162,8 @@ export interface CreatePlanOptions {
   filter?: FilterDSL | ChangeFilter;
   /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
   serialize?: SerializeDSL | ChangeSerializer;
+  /** Format options stored in the plan for reproducibility */
+  format?: SqlFormatOptions;
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
 }

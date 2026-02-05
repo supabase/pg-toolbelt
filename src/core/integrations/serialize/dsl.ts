@@ -6,16 +6,7 @@
 
 import type { Change } from "../../change.types.ts";
 import { evaluatePattern, type FilterPattern } from "../filter/dsl.ts";
-import type { ChangeSerializer } from "./serialize.types.ts";
-
-/**
- * Serialization options that can be passed to change.serialize().
- */
-type SerializeOptions = {
-  skipAuthorization?: boolean;
-  // Can be extended with more options in the future
-  [key: string]: unknown;
-};
+import type { ChangeSerializer, SerializeOptions } from "./serialize.types.ts";
 
 /**
  * A serialization rule that applies options when a pattern matches.
@@ -61,17 +52,23 @@ export type SerializeDSL = SerializeRule[];
  * ]);
  * ```
  */
-export function compileSerializeDSL(dsl: SerializeDSL): ChangeSerializer {
+export function compileSerializeDSL(
+  dsl: SerializeDSL,
+  baseOptions?: SerializeOptions,
+): ChangeSerializer {
   return (change: Change): string | undefined => {
     // Find first matching rule
     for (const rule of dsl) {
       if (evaluatePattern(rule.when, change)) {
         // Apply this rule's options
-        return change.serialize(rule.options);
+        const options = baseOptions
+          ? { ...baseOptions, ...rule.options }
+          : rule.options;
+        return change.serialize(options);
       }
     }
 
     // No rule matched - use default serialization
-    return change.serialize();
+    return change.serialize(baseOptions);
   };
 }
