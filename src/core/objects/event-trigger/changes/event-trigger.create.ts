@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
@@ -48,7 +50,12 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = [
       "CREATE EVENT TRIGGER",
       this.eventTrigger.name,
@@ -68,5 +75,30 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
     );
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("EVENT")} ${formatter.keyword("TRIGGER")} ${this.eventTrigger.name}`,
+      `${formatter.keyword("ON")} ${this.eventTrigger.event}`,
+    ];
+
+    const tags = this.eventTrigger.tags;
+    if (tags && tags.length > 0) {
+      const tagList = tags.map((tag) => quoteLiteral(tag));
+      const list = formatter.list(tagList, 1);
+      lines.push(
+        `${formatter.keyword("WHEN")} ${formatter.keyword("TAG")} ${formatter.keyword("IN")} ${formatter.parens(
+          `${formatter.indent(1)}${list}`,
+          true,
+        )}`,
+      );
+    }
+
+    lines.push(
+      `${formatter.keyword("EXECUTE")} ${formatter.keyword("FUNCTION")} ${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
+    );
+
+    return lines.join("\n");
   }
 }

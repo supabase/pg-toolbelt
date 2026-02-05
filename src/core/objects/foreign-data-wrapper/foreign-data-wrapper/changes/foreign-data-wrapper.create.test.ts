@@ -122,4 +122,38 @@ describe("foreign-data-wrapper", () => {
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func() VALIDATOR public.validator_func() OPTIONS (host 'localhost', port '5432')",
     );
   });
+
+  test("create formatted", () => {
+    const fdw = new ForeignDataWrapper({
+      name: "test_fdw",
+      owner: "test",
+      handler: "public.handler_func()",
+      validator: "public.validator_func()",
+      options: ["host", "localhost", "port", "5432"],
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateForeignDataWrapper({
+      foreignDataWrapper: fdw,
+    });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE FOREIGN DATA WRAPPER test_fdw
+      HANDLER public.handler_func()
+      VALIDATOR public.validator_func()
+      OPTIONS (
+        host 'localhost',
+        port '5432'
+      )"
+    `,
+    );
+  });
 });

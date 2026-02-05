@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -42,7 +44,12 @@ export class CreateServer extends CreateServerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE SERVER"];
 
     // Add server name
@@ -77,5 +84,51 @@ export class CreateServer extends CreateServerChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("SERVER")} ${this.server.name}`,
+    ];
+
+    if (this.server.type) {
+      lines.push(
+        `${formatter.keyword("TYPE")} ${quoteLiteral(this.server.type)}`,
+      );
+    }
+
+    if (this.server.version) {
+      lines.push(
+        `${formatter.keyword("VERSION")} ${quoteLiteral(this.server.version)}`,
+      );
+    }
+
+    lines.push(
+      `${formatter.keyword("FOREIGN")} ${formatter.keyword(
+        "DATA",
+      )} ${formatter.keyword("WRAPPER")} ${this.server.foreign_data_wrapper}`,
+    );
+
+    if (this.server.options && this.server.options.length > 0) {
+      const optionPairs: string[] = [];
+      for (let i = 0; i < this.server.options.length; i += 2) {
+        if (i + 1 < this.server.options.length) {
+          optionPairs.push(
+            `${this.server.options[i]} ${quoteLiteral(this.server.options[i + 1])}`,
+          );
+        }
+      }
+      if (optionPairs.length > 0) {
+        const list = formatter.list(optionPairs, 1);
+        lines.push(
+          `${formatter.keyword("OPTIONS")} ${formatter.parens(
+            `${formatter.indent(1)}${list}`,
+            true,
+          )}`,
+        );
+      }
+    }
+
+    return lines.join("\n");
   }
 }

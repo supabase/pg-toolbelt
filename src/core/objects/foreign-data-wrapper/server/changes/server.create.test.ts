@@ -128,4 +128,40 @@ describe("server", () => {
       "CREATE SERVER test_server TYPE 'postgres_fdw' VERSION '1.0' FOREIGN DATA WRAPPER test_fdw OPTIONS (host 'localhost', port '5432')",
     );
   });
+
+  test("create formatted", () => {
+    const server = new Server({
+      name: "test_server",
+      owner: "test",
+      foreign_data_wrapper: "test_fdw",
+      type: "postgres_fdw",
+      version: "1.0",
+      options: ["host", "localhost", "port", "5432"],
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateServer({
+      server,
+    });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE SERVER test_server
+      TYPE 'postgres_fdw'
+      VERSION '1.0'
+      FOREIGN DATA WRAPPER test_fdw
+      OPTIONS (
+        host 'localhost',
+        port '5432'
+      )"
+    `,
+    );
+  });
 });

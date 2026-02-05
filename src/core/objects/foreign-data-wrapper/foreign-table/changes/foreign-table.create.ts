@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
@@ -44,7 +46,12 @@ export class CreateForeignTable extends CreateForeignTableChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE FOREIGN TABLE"];
 
     // Add schema and name
@@ -77,5 +84,49 @@ export class CreateForeignTable extends CreateForeignTableChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const head = `${formatter.keyword("CREATE")} ${formatter.keyword(
+      "FOREIGN",
+    )} ${formatter.keyword("TABLE")} ${this.foreignTable.schema}.${this.foreignTable.name}`;
+
+    let columns = "()";
+    if (this.foreignTable.columns.length > 0) {
+      const rows = this.foreignTable.columns.map((col) => [
+        col.name,
+        col.data_type_str,
+      ]);
+      const aligned = formatter.alignColumns(rows);
+      const list = formatter.list(aligned, 1);
+      columns = formatter.parens(`${formatter.indent(1)}${list}`, true);
+    }
+
+    const lines: string[] = [`${head} ${columns}`];
+    lines.push(
+      `${formatter.keyword("SERVER")} ${this.foreignTable.server}`,
+    );
+
+    if (this.foreignTable.options && this.foreignTable.options.length > 0) {
+      const optionPairs: string[] = [];
+      for (let i = 0; i < this.foreignTable.options.length; i += 2) {
+        if (i + 1 < this.foreignTable.options.length) {
+          optionPairs.push(
+            `${this.foreignTable.options[i]} ${quoteLiteral(this.foreignTable.options[i + 1])}`,
+          );
+        }
+      }
+      if (optionPairs.length > 0) {
+        const optionList = formatter.list(optionPairs, 1);
+        lines.push(
+          `${formatter.keyword("OPTIONS")} ${formatter.parens(
+            `${formatter.indent(1)}${optionList}`,
+            true,
+          )}`,
+        );
+      }
+    }
+
+    return lines.join("\n");
   }
 }

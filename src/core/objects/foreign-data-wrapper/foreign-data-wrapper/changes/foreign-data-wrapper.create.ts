@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -52,7 +54,12 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE FOREIGN DATA WRAPPER"];
 
     // Add FDW name
@@ -91,5 +98,56 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword(
+        "FOREIGN",
+      )} ${formatter.keyword("DATA")} ${formatter.keyword("WRAPPER")} ${this.foreignDataWrapper.name}`,
+    ];
+
+    if (this.foreignDataWrapper.handler) {
+      lines.push(
+        `${formatter.keyword("HANDLER")} ${this.foreignDataWrapper.handler}`,
+      );
+    } else {
+      lines.push(`${formatter.keyword("NO")} ${formatter.keyword("HANDLER")}`);
+    }
+
+    if (this.foreignDataWrapper.validator) {
+      lines.push(
+        `${formatter.keyword("VALIDATOR")} ${this.foreignDataWrapper.validator}`,
+      );
+    } else {
+      lines.push(
+        `${formatter.keyword("NO")} ${formatter.keyword("VALIDATOR")}`,
+      );
+    }
+
+    if (
+      this.foreignDataWrapper.options &&
+      this.foreignDataWrapper.options.length > 0
+    ) {
+      const optionPairs: string[] = [];
+      for (let i = 0; i < this.foreignDataWrapper.options.length; i += 2) {
+        if (i + 1 < this.foreignDataWrapper.options.length) {
+          optionPairs.push(
+            `${this.foreignDataWrapper.options[i]} ${quoteLiteral(this.foreignDataWrapper.options[i + 1])}`,
+          );
+        }
+      }
+      if (optionPairs.length > 0) {
+        const list = formatter.list(optionPairs, 1);
+        lines.push(
+          `${formatter.keyword("OPTIONS")} ${formatter.parens(
+            `${formatter.indent(1)}${list}`,
+            true,
+          )}`,
+        );
+      }
+    }
+
+    return lines.join("\n");
   }
 }

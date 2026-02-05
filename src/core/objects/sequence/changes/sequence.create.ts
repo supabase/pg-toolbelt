@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange } from "./sequence.base.ts";
@@ -61,7 +63,12 @@ export class CreateSequence extends CreateSequenceChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE SEQUENCE"];
 
     // Add schema and name
@@ -107,5 +114,57 @@ export class CreateSequence extends CreateSequenceChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("SEQUENCE")} ${this.sequence.schema}.${this.sequence.name}`,
+    ];
+
+    if (this.sequence.data_type && this.sequence.data_type !== "bigint") {
+      lines.push(
+        `${formatter.keyword("AS")} ${this.sequence.data_type}`,
+      );
+    }
+
+    if (this.sequence.increment !== 1) {
+      lines.push(
+        `${formatter.keyword("INCREMENT")} ${formatter.keyword("BY")} ${this.sequence.increment}`,
+      );
+    }
+
+    if (this.sequence.minimum_value !== BigInt(1)) {
+      lines.push(
+        `${formatter.keyword("MINVALUE")} ${this.sequence.minimum_value}`,
+      );
+    }
+
+    const defaultMaxValue =
+      this.sequence.data_type === "integer"
+        ? BigInt("2147483647")
+        : BigInt("9223372036854775807");
+    if (this.sequence.maximum_value !== defaultMaxValue) {
+      lines.push(
+        `${formatter.keyword("MAXVALUE")} ${this.sequence.maximum_value}`,
+      );
+    }
+
+    if (this.sequence.start_value !== 1) {
+      lines.push(
+        `${formatter.keyword("START")} ${formatter.keyword("WITH")} ${this.sequence.start_value}`,
+      );
+    }
+
+    if (this.sequence.cache_size !== 1) {
+      lines.push(
+        `${formatter.keyword("CACHE")} ${this.sequence.cache_size}`,
+      );
+    }
+
+    if (this.sequence.cycle_option) {
+      lines.push(formatter.keyword("CYCLE"));
+    }
+
+    return lines.join("\n");
   }
 }

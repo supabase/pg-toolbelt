@@ -84,4 +84,49 @@ describe("publication.create", () => {
       "CREATE PUBLICATION pub_custom FOR TABLE public.articles WHERE (id > 1), TABLE public.authors (id, name), TABLES IN SCHEMA analytics WITH (publish = 'insert, update', publish_via_partition_root = true)",
     );
   });
+
+  test("serialize publication formatted", () => {
+    const publication = makePublication({
+      name: "pub_custom",
+      all_tables: false,
+      publish_delete: false,
+      publish_truncate: false,
+      publish_via_partition_root: true,
+      tables: [
+        {
+          schema: "public",
+          name: "articles",
+          columns: null,
+          row_filter: "id > 1",
+        },
+        {
+          schema: "public",
+          name: "authors",
+          columns: ["name", "id"],
+          row_filter: null,
+        },
+      ],
+      schemas: ["analytics"],
+    });
+    const change = new CreatePublication({ publication });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE PUBLICATION pub_custom
+      FOR TABLE public.articles WHERE (id > 1),
+        TABLE public.authors (id, name),
+        TABLES IN SCHEMA analytics
+      WITH (
+        publish = 'insert, update',
+        publish_via_partition_root = true
+      )"
+    `,
+    );
+  });
 });

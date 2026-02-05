@@ -81,4 +81,45 @@ describe("sequence", () => {
       "CREATE SEQUENCE public.s_all AS integer INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
     );
   });
+
+  test("create formatted", () => {
+    const sequence = new Sequence({
+      schema: "public",
+      name: "s_all",
+      data_type: "integer",
+      start_value: 10,
+      minimum_value: 5n,
+      maximum_value: 100n,
+      increment: 2,
+      cycle_option: true,
+      cache_size: 3,
+      persistence: "p",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+      comment: null,
+      privileges: [],
+      owner: "test",
+    });
+
+    const change = new CreateSequence({ sequence });
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE SEQUENCE public.s_all
+      AS integer
+      INCREMENT BY 2
+      MINVALUE 5
+      MAXVALUE 100
+      START WITH 10
+      CACHE 3
+      CYCLE"
+    `,
+    );
+  });
 });

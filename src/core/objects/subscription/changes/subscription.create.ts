@@ -1,4 +1,6 @@
 // src/objects/subscription/changes/subscription.create.ts
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -22,7 +24,12 @@ export class CreateSubscription extends CreateSubscriptionChange {
     return [stableId.role(this.subscription.owner)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = [
       "CREATE SUBSCRIPTION",
       this.subscription.name,
@@ -65,5 +72,53 @@ export class CreateSubscription extends CreateSubscriptionChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("SUBSCRIPTION")} ${this.subscription.name}`,
+      `${formatter.keyword("CONNECTION")} ${quoteLiteral(this.subscription.conninfo)}`,
+      `${formatter.keyword("PUBLICATION")} ${this.subscription.publications.join(", ")}`,
+    ];
+
+    const optionEntries = collectSubscriptionOptions(this.subscription, {
+      includeTwoPhase: true,
+      includeEnabled: true,
+    });
+    const optionsMap = new Map(
+      optionEntries.map(({ key, value }) => [key, value]),
+    );
+
+    if (!this.subscription.replication_slot_created) {
+      optionsMap.set("create_slot", "false");
+      optionsMap.set("connect", "false");
+
+      const defaultSlotName = this.subscription.raw_name;
+      const slotName = this.subscription.slot_name ?? defaultSlotName;
+      const shouldUseNone =
+        this.subscription.slot_is_none || slotName === defaultSlotName;
+
+      if (shouldUseNone) {
+        optionsMap.set("slot_name", "NONE");
+      } else {
+        optionsMap.set("slot_name", quoteLiteral(slotName));
+      }
+    }
+
+    const withOptions = Array.from(optionsMap.entries()).map(
+      ([key, value]) => `${key} = ${value}`,
+    );
+
+    if (withOptions.length > 0) {
+      const list = formatter.list(withOptions, 1);
+      lines.push(
+        `${formatter.keyword("WITH")} ${formatter.parens(
+          `${formatter.indent(1)}${list}`,
+          true,
+        )}`,
+      );
+    }
+
+    return lines.join("\n");
   }
 }

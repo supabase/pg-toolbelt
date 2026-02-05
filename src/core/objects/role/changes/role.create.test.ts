@@ -49,4 +49,44 @@ describe("role", () => {
       "CREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
     );
   });
+
+  test("create formatted", () => {
+    const role = new Role({
+      name: "r_all",
+      is_superuser: true,
+      can_inherit: false,
+      can_create_roles: true,
+      can_create_databases: true,
+      can_login: true,
+      can_replicate: true,
+      connection_limit: 5,
+      can_bypass_rls: true,
+      config: null,
+      comment: null,
+      members: [],
+      default_privileges: [],
+    });
+
+    const change = new CreateRole({ role });
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE ROLE r_all
+      WITH
+        SUPERUSER
+        CREATEDB
+        CREATEROLE
+        NOINHERIT
+        LOGIN
+        REPLICATION
+        BYPASSRLS
+        CONNECTION LIMIT 5"
+    `,
+    );
+  });
 });

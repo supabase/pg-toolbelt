@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange } from "./language.base.ts";
@@ -71,7 +73,12 @@ export class CreateLanguage extends CreateLanguageChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = [`CREATE${this.orReplace ? " OR REPLACE" : ""}`];
 
     // Only include non-default flags. We never print the optional
@@ -100,5 +107,43 @@ export class CreateLanguage extends CreateLanguageChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const headTokens: string[] = [formatter.keyword("CREATE")];
+    if (this.orReplace) {
+      headTokens.push(
+        formatter.keyword("OR"),
+        formatter.keyword("REPLACE"),
+      );
+    }
+
+    if (this.language.is_trusted) {
+      headTokens.push(formatter.keyword("TRUSTED"));
+    }
+
+    headTokens.push(formatter.keyword("LANGUAGE"), this.language.name);
+
+    const lines: string[] = [headTokens.join(" ")];
+
+    if (this.language.call_handler) {
+      lines.push(
+        `${formatter.keyword("HANDLER")} ${this.language.call_handler}`,
+      );
+    }
+
+    if (this.language.inline_handler) {
+      lines.push(
+        `${formatter.keyword("INLINE")} ${this.language.inline_handler}`,
+      );
+    }
+
+    if (this.language.validator) {
+      lines.push(
+        `${formatter.keyword("VALIDATOR")} ${this.language.validator}`,
+      );
+    }
+
+    return lines.join("\n");
   }
 }

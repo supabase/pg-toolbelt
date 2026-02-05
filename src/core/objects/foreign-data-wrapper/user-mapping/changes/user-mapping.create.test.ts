@@ -82,4 +82,33 @@ describe("user-mapping", () => {
       "CREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user 'remote_user', password 'secret')",
     );
   });
+
+  test("create formatted", () => {
+    const userMapping = new UserMapping({
+      user: "PUBLIC",
+      server: "test_server",
+      options: ["user", "remote_user", "password", "secret"],
+    });
+
+    const change = new CreateUserMapping({
+      userMapping,
+    });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE USER MAPPING FOR PUBLIC
+      SERVER test_server
+      OPTIONS (
+        user 'remote_user',
+        password 'secret'
+      )"
+    `,
+    );
+  });
 });

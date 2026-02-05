@@ -74,4 +74,55 @@ describe("subscription.create", () => {
       "CREATE SUBSCRIPTION sub_base CONNECTION 'dbname=postgres application_name=sub_base' PUBLICATION pub_a, pub_b WITH (enabled = false, slot_name = 'custom_slot', binary = true, streaming = 'parallel', synchronous_commit = 'local', two_phase = true, disable_on_error = true, password_required = false, run_as_owner = true, origin = 'none', failover = true, create_slot = false, connect = false)",
     );
   });
+
+  test("serialize subscription formatted", () => {
+    const subscription = makeSubscription({
+      enabled: false,
+      binary: true,
+      streaming: "parallel",
+      two_phase: true,
+      disable_on_error: true,
+      password_required: false,
+      run_as_owner: true,
+      failover: true,
+      conninfo: "dbname=postgres application_name=sub_base",
+      slot_name: "custom_slot",
+      slot_is_none: false,
+      replication_slot_created: false,
+      synchronous_commit: "local",
+      publications: ["pub_b", "pub_a"],
+      origin: "none",
+    });
+
+    const change = new CreateSubscription({ subscription });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE SUBSCRIPTION sub_base
+      CONNECTION 'dbname=postgres application_name=sub_base'
+      PUBLICATION pub_a, pub_b
+      WITH (
+        enabled = false,
+        slot_name = 'custom_slot',
+        binary = true,
+        streaming = 'parallel',
+        synchronous_commit = 'local',
+        two_phase = true,
+        disable_on_error = true,
+        password_required = false,
+        run_as_owner = true,
+        origin = 'none',
+        failover = true,
+        create_slot = false,
+        connect = false
+      )"
+    `,
+    );
+  });
 });

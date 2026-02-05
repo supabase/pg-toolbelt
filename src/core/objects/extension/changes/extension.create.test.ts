@@ -22,4 +22,33 @@ describe("extension", () => {
       `CREATE EXTENSION test_extension WITH SCHEMA public`,
     );
   });
+
+  test("create formatted", () => {
+    const extension = new Extension({
+      name: "test_extension",
+      schema: "public",
+      relocatable: true,
+      version: "1.0",
+      owner: "test",
+      comment: null,
+      members: [],
+    });
+
+    const change = new CreateExtension({
+      extension,
+    });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE EXTENSION test_extension
+      WITH SCHEMA public"
+    `,
+    );
+  });
 });

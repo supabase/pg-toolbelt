@@ -3,6 +3,8 @@ import {
   parseProcedureReference,
   stableId,
 } from "../../../utils.ts";
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange } from "./range.base.ts";
 
@@ -97,7 +99,12 @@ export class CreateRange extends CreateRangeChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const name = `${this.range.schema}.${this.range.name}`;
     const prefix: string = ["CREATE TYPE", name, "AS RANGE"].join(" ");
 
@@ -147,5 +154,67 @@ export class CreateRange extends CreateRangeChange {
 
     const body = `(${opts.join(", ")})`;
     return `${prefix} ${body}`;
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const name = `${this.range.schema}.${this.range.name}`;
+    const head = [
+      formatter.keyword("CREATE"),
+      formatter.keyword("TYPE"),
+      name,
+      formatter.keyword("AS"),
+      formatter.keyword("RANGE"),
+    ].join(" ");
+
+    const opts: string[] = [];
+
+    const subtypeQualified =
+      this.range.subtype_schema && this.range.subtype_schema !== "pg_catalog"
+        ? `${this.range.subtype_schema}.${this.range.subtype_str}`
+        : this.range.subtype_str;
+    opts.push(`${formatter.keyword("SUBTYPE")} = ${subtypeQualified}`);
+
+    if (this.range.subtype_opclass_name) {
+      const opclassQualified =
+        this.range.subtype_opclass_schema &&
+        this.range.subtype_opclass_schema !== "pg_catalog"
+          ? `${this.range.subtype_opclass_schema}.${this.range.subtype_opclass_name}`
+          : this.range.subtype_opclass_name;
+      opts.push(
+        `${formatter.keyword("SUBTYPE_OPCLASS")} = ${opclassQualified}`,
+      );
+    }
+
+    if (this.range.collation) {
+      opts.push(
+        `${formatter.keyword("COLLATION")} = ${this.range.collation}`,
+      );
+    }
+
+    if (this.range.canonical_function_name) {
+      const canonQualified =
+        this.range.canonical_function_schema &&
+        this.range.canonical_function_schema !== "pg_catalog"
+          ? `${this.range.canonical_function_schema}.${this.range.canonical_function_name}`
+          : this.range.canonical_function_name;
+      opts.push(
+        `${formatter.keyword("CANONICAL")} = ${canonQualified}`,
+      );
+    }
+
+    if (this.range.subtype_diff_name) {
+      const diffQualified =
+        this.range.subtype_diff_schema &&
+        this.range.subtype_diff_schema !== "pg_catalog"
+          ? `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}`
+          : this.range.subtype_diff_name;
+      opts.push(
+        `${formatter.keyword("SUBTYPE_DIFF")} = ${diffQualified}`,
+      );
+    }
+
+    const list = formatter.list(opts, 1);
+    const body = formatter.parens(`${formatter.indent(1)}${list}`, true);
+    return `${head} ${body}`;
   }
 }

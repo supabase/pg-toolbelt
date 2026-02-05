@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
@@ -37,7 +39,12 @@ export class CreateUserMapping extends CreateUserMappingChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE USER MAPPING FOR"];
 
     // Add user (can be CURRENT_USER, PUBLIC, etc.)
@@ -62,5 +69,36 @@ export class CreateUserMapping extends CreateUserMappingChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword(
+        "USER",
+      )} ${formatter.keyword("MAPPING")} ${formatter.keyword("FOR")} ${this.userMapping.user}`,
+      `${formatter.keyword("SERVER")} ${this.userMapping.server}`,
+    ];
+
+    if (this.userMapping.options && this.userMapping.options.length > 0) {
+      const optionPairs: string[] = [];
+      for (let i = 0; i < this.userMapping.options.length; i += 2) {
+        if (i + 1 < this.userMapping.options.length) {
+          optionPairs.push(
+            `${this.userMapping.options[i]} ${quoteLiteral(this.userMapping.options[i + 1])}`,
+          );
+        }
+      }
+      if (optionPairs.length > 0) {
+        const list = formatter.list(optionPairs, 1);
+        lines.push(
+          `${formatter.keyword("OPTIONS")} ${formatter.parens(
+            `${formatter.indent(1)}${list}`,
+            true,
+          )}`,
+        );
+      }
+    }
+
+    return lines.join("\n");
   }
 }

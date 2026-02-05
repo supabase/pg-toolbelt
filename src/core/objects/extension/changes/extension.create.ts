@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtensionChange } from "./extension.base.ts";
@@ -40,7 +42,12 @@ export class CreateExtension extends CreateExtensionChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE EXTENSION"];
 
     // Add extension name
@@ -59,5 +66,14 @@ export class CreateExtension extends CreateExtensionChange {
     // parts.push("CASCADE");
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("EXTENSION")} ${this.extension.name}`,
+      `${formatter.keyword("WITH")} ${formatter.keyword("SCHEMA")} ${this.extension.schema}`,
+    ];
+
+    return lines.join("\n");
   }
 }

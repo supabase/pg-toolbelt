@@ -48,4 +48,44 @@ describe("collation", () => {
       `CREATE COLLATION public.test (LOCALE = 'en_US', LC_COLLATE = 'en_US', LC_CTYPE = 'en_US', PROVIDER = icu, DETERMINISTIC = false, RULES = '& A < a <<< à', VERSION = '1.0')`,
     );
   });
+
+  test("create formatted", () => {
+    const collation = new Collation({
+      schema: "public",
+      name: "test",
+      provider: "i",
+      is_deterministic: false,
+      encoding: 1,
+      collate: "en_US",
+      locale: "en_US",
+      version: "1.0",
+      ctype: "en_US",
+      icu_rules: "& A < a <<< à",
+      owner: "owner",
+      comment: null,
+    });
+
+    const change = new CreateCollation({ collation });
+
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE COLLATION public.test
+      (
+        LOCALE = 'en_US',
+        LC_COLLATE = 'en_US',
+        LC_CTYPE = 'en_US',
+        PROVIDER = icu,
+        DETERMINISTIC = false,
+        RULES = '& A < a <<< à',
+        VERSION = '1.0'
+      )"
+    `,
+    );
+  });
 });

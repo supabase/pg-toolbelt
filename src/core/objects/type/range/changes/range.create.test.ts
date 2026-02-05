@@ -48,4 +48,41 @@ describe("range", () => {
       'CREATE TYPE public.daterange_custom AS RANGE (SUBTYPE = date, SUBTYPE_OPCLASS = public.date_ops, COLLATION = "en_US", CANONICAL = public.canon_fn, SUBTYPE_DIFF = public.diff_fn)',
     );
   });
+
+  test("create formatted", () => {
+    const r = new Range({
+      schema: "public",
+      name: "daterange_custom",
+      owner: "owner1",
+      subtype_schema: "pg_catalog",
+      subtype_str: "date",
+      collation: '"en_US"',
+      canonical_function_schema: "public",
+      canonical_function_name: "canon_fn",
+      subtype_diff_schema: "public",
+      subtype_diff_name: "diff_fn",
+      subtype_opclass_schema: "public",
+      subtype_opclass_name: "date_ops",
+      comment: null,
+      privileges: [],
+    });
+    const change = new CreateRange({ range: r });
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE TYPE public.daterange_custom AS RANGE (
+        SUBTYPE = date,
+        SUBTYPE_OPCLASS = public.date_ops,
+        COLLATION = "en_US",
+        CANONICAL = public.canon_fn,
+        SUBTYPE_DIFF = public.diff_fn
+      )"
+    `,
+    );
+  });
 });

@@ -62,4 +62,49 @@ describe("domain", () => {
       `CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL CHECK (VALUE <> '')`,
     );
   });
+
+  test("create formatted", () => {
+    const domain = new Domain({
+      schema: "public",
+      name: "test_domain_all",
+      base_type: "text",
+      base_type_schema: "custom",
+      base_type_str: "text",
+      not_null: true,
+      type_modifier: null,
+      array_dimensions: 2,
+      collation: "mycoll",
+      default_bin: null,
+      default_value: "'hello'",
+      owner: "test",
+      comment: null,
+      constraints: [
+        {
+          name: "c1",
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          check_expression: "VALUE <> ''",
+        },
+      ],
+      privileges: [],
+    });
+
+    const change = new CreateDomain({ domain });
+    expect(
+      change.serialize({
+        format: {
+          enabled: true,
+        },
+      }),
+    ).toMatchInlineSnapshot(
+      `
+      "CREATE DOMAIN public.test_domain_all AS custom.text[][]
+      COLLATE mycoll
+      DEFAULT 'hello'
+      NOT NULL
+      CHECK (VALUE <> '')"
+    `,
+    );
+  });
 });

@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
@@ -48,7 +50,12 @@ export class CreateCollation extends CreateCollationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = ["CREATE COLLATION"];
 
     // Add schema and name (already quoted in model extraction)
@@ -102,5 +109,71 @@ export class CreateCollation extends CreateCollationChange {
     parts.push(["(", properties.join(", "), ")"].join(""));
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [
+      `${formatter.keyword("CREATE")} ${formatter.keyword("COLLATION")} ${this.collation.schema}.${this.collation.name}`,
+    ];
+
+    const properties: string[] = [];
+
+    if (this.collation.locale) {
+      properties.push(
+        `${formatter.keyword("LOCALE")} = ${quoteLiteral(this.collation.locale)}`,
+      );
+    }
+
+    if (this.collation.collate) {
+      properties.push(
+        `${formatter.keyword("LC_COLLATE")} = ${quoteLiteral(this.collation.collate)}`,
+      );
+    }
+
+    if (this.collation.ctype) {
+      properties.push(
+        `${formatter.keyword("LC_CTYPE")} = ${quoteLiteral(this.collation.ctype)}`,
+      );
+    }
+
+    const providerMap: Record<string, string> = {
+      c: "libc",
+      i: "icu",
+      b: "builtin",
+    };
+    if (this.collation.provider !== "d") {
+      properties.push(
+        `${formatter.keyword("PROVIDER")} = ${providerMap[this.collation.provider]}`,
+      );
+    }
+
+    if (this.collation.is_deterministic === false) {
+      properties.push(
+        `${formatter.keyword("DETERMINISTIC")} = false`,
+      );
+    }
+
+    if (this.collation.icu_rules) {
+      properties.push(
+        `${formatter.keyword("RULES")} = ${quoteLiteral(this.collation.icu_rules)}`,
+      );
+    }
+
+    if (this.collation.version) {
+      properties.push(
+        `${formatter.keyword("VERSION")} = ${quoteLiteral(this.collation.version)}`,
+      );
+    }
+
+    if (properties.length > 0) {
+      const list = formatter.list(properties, 1);
+      lines.push(
+        formatter.parens(`${formatter.indent(1)}${list}`, true),
+      );
+    } else {
+      lines.push("()");
+    }
+
+    return lines.join("\n");
   }
 }

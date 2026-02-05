@@ -1,3 +1,5 @@
+import { SqlFormatter } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange } from "./domain.base.ts";
@@ -67,7 +69,12 @@ export class CreateDomain extends CreateDomainChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    if (options?.format?.enabled) {
+      const formatter = new SqlFormatter(options.format);
+      return this.serializeFormatted(formatter);
+    }
+
     const parts: string[] = [];
 
     // Schema-qualified name
@@ -114,5 +121,57 @@ export class CreateDomain extends CreateDomainChange {
     }
 
     return parts.join(" ");
+  }
+
+  private serializeFormatted(formatter: SqlFormatter): string {
+    const lines: string[] = [];
+
+    const domainName = `${this.domain.schema}.${this.domain.name}`;
+
+    let baseType = this.domain.base_type_str as string;
+    if (
+      this.domain.base_type_schema &&
+      this.domain.base_type_schema !== "pg_catalog"
+    ) {
+      baseType = `${this.domain.base_type_schema}.${baseType}`;
+    }
+
+    if (this.domain.array_dimensions && this.domain.array_dimensions > 0) {
+      baseType += "[]".repeat(this.domain.array_dimensions);
+    }
+
+    lines.push(
+      `${formatter.keyword("CREATE")} ${formatter.keyword("DOMAIN")} ${domainName} ${formatter.keyword("AS")} ${baseType}`,
+    );
+
+    if (this.domain.collation) {
+      lines.push(
+        `${formatter.keyword("COLLATE")} ${this.domain.collation}`,
+      );
+    }
+
+    if (this.domain.default_value) {
+      lines.push(
+        `${formatter.keyword("DEFAULT")} ${this.domain.default_value}`,
+      );
+    }
+
+    if (this.domain.not_null) {
+      lines.push(
+        `${formatter.keyword("NOT")} ${formatter.keyword("NULL")}`,
+      );
+    }
+
+    if (this.domain.constraints && this.domain.constraints.length > 0) {
+      for (const c of this.domain.constraints) {
+        if (c.check_expression && c.validated !== false) {
+          lines.push(
+            `${formatter.keyword("CHECK")} (${c.check_expression})`,
+          );
+        }
+      }
+    }
+
+    return lines.join("\n");
   }
 }
