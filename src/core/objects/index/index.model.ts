@@ -248,7 +248,10 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
         i.indimmediate                     as immediate,
         i.indisclustered                   as is_clustered,
         i.indisreplident                   as is_replica_identity,
-        i.indkey                           as key_columns,
+        coalesce(
+          (select array_agg(n::int) from unnest(string_to_array(trim(i.indkey::text), ' ')) as n where n <> ''),
+          array[]::int[]
+        )                                  as key_columns,
 
         -- NEW: partitioned-index / index-partition tagging
         (c.relkind = 'I')                  as is_partitioned_index,

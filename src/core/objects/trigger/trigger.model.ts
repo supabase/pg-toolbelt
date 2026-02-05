@@ -170,7 +170,9 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
         t.tgdeferrable                       as deferrable,
         t.tginitdeferred                     as initially_deferred,
         t.tgnargs                            as argument_count,
-        t.tgattr                             as column_numbers,
+        case when t.tgattr is null or trim(t.tgattr::text) = '' then null
+             else (select array_agg(n::int) from unnest(string_to_array(trim(t.tgattr::text), ' ')) as n where n <> '')
+        end                                  as column_numbers,
 
         case when t.tgnargs > 0
             then array_fill(''::text, array[t.tgnargs])

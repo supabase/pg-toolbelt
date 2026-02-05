@@ -12,8 +12,9 @@ const sequencePropsSchema = z.object({
   name: z.string(),
   data_type: z.string(),
   start_value: z.number(),
-  minimum_value: z.bigint(),
-  maximum_value: z.bigint(),
+  // pg driver returns bigin bigint as string, so we need to coerce it to bigint
+  minimum_value: z.coerce.bigint(),
+  maximum_value: z.coerce.bigint(),
   increment: z.number(),
   cycle_option: z.boolean(),
   cache_size: z.number(),

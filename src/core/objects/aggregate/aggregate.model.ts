@@ -278,7 +278,9 @@ select
   end as argument_names,
   array(select format_type(oid, null) from unnest(p.proargtypes) as oid) as argument_types,
   array(select format_type(oid, null) from unnest(p.proallargtypes) as oid) as all_argument_types,
-  p.proargmodes as argument_modes,
+  case when p.proargmodes is null then null
+       else array(select mode::text from unnest(p.proargmodes) as mode)
+  end as argument_modes,
   pg_get_expr(p.proargdefaults, 0) as argument_defaults,
   p.proowner::regrole::text as owner,
   obj_description(p.oid, 'pg_proc') as comment,

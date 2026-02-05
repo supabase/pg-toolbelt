@@ -223,7 +223,9 @@ select
     select format_type(oid, null)
     from unnest(p.proallargtypes) as oid
   ) as all_argument_types,
-  p.proargmodes as argument_modes,
+  case when p.proargmodes is null then null
+       else array(select mode::text from unnest(p.proargmodes) as mode)
+  end as argument_modes,
   pg_get_expr(p.proargdefaults, 0) as argument_defaults,
   p.prosrc as source_code,
   p.probin as binary_path,
