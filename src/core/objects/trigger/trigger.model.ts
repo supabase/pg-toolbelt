@@ -97,6 +97,10 @@ export class Trigger extends BasePgModel {
     this.comment = props.comment;
   }
 
+  get isConstraintTrigger(): boolean {
+    return /^CREATE\s+CONSTRAINT\s+TRIGGER/i.test(this.definition.trim());
+  }
+
   get stableId(): `trigger:${string}` {
     return `trigger:${this.schema}.${this.table_name}.${this.name}`;
   }

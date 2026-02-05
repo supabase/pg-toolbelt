@@ -1,7 +1,9 @@
+import { quoteLiteral } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { AlterTriggerChange } from "./trigger.base.ts";
 import { CreateTrigger } from "./trigger.create.ts";
+import { DropTrigger } from "./trigger.drop.ts";
 
 /**
  * Alter a trigger.
@@ -39,6 +41,30 @@ export class ReplaceTrigger extends AlterTriggerChange {
   }
 
   serialize(): string {
+    if (this.trigger.isConstraintTrigger) {
+      const dropChange = new DropTrigger({ trigger: this.trigger });
+      const createChange = new CreateTrigger({
+        trigger: this.trigger,
+        indexableObject: this.indexableObject,
+        orReplace: false,
+      });
+      const commentSql =
+        this.trigger.comment !== null
+          ? [
+              "COMMENT ON TRIGGER",
+              this.trigger.name,
+              "ON",
+              `${this.trigger.schema}.${this.trigger.table_name}`,
+              "IS",
+              quoteLiteral(this.trigger.comment),
+            ].join(" ")
+          : null;
+
+      return [dropChange.serialize(), createChange.serialize(), commentSql]
+        .filter(Boolean)
+        .join(";\n");
+    }
+
     const createChange = new CreateTrigger({
       trigger: this.trigger,
       indexableObject: this.indexableObject,
