@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
@@ -63,8 +65,14 @@ export class AlterDomainSetDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+      ctx.keyword("SET DEFAULT"),
+      this.defaultValue,
+    );
   }
 }
 
@@ -84,8 +92,13 @@ export class AlterDomainDropDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+      ctx.keyword("DROP DEFAULT"),
+    );
   }
 }
 
@@ -105,8 +118,13 @@ export class AlterDomainSetNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+      ctx.keyword("SET NOT NULL"),
+    );
   }
 }
 
@@ -126,8 +144,13 @@ export class AlterDomainDropNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+      ctx.keyword("DROP NOT NULL"),
+    );
   }
 }
 
@@ -149,8 +172,14 @@ export class AlterDomainChangeOwner extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
   }
 }
 
@@ -182,21 +211,22 @@ export class AlterDomainAddConstraint extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const domainName = `${this.domain.schema}.${this.domain.name}`;
     const parts: string[] = [
-      "ALTER DOMAIN",
+      ctx.keyword("ALTER DOMAIN"),
       domainName,
-      "ADD CONSTRAINT",
+      ctx.keyword("ADD CONSTRAINT"),
       this.constraint.name,
     ];
     if (this.constraint.check_expression) {
       parts.push(`CHECK (${this.constraint.check_expression})`);
     }
     if (!this.constraint.validated) {
-      parts.push("NOT VALID");
+      parts.push(ctx.keyword("NOT VALID"));
     }
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 
@@ -235,14 +265,15 @@ export class AlterDomainDropConstraint extends DropDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return [
-      "ALTER DOMAIN",
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
       domainName,
-      "DROP CONSTRAINT",
+      ctx.keyword("DROP CONSTRAINT"),
       this.constraint.name,
-    ].join(" ");
+    );
   }
 }
 
@@ -274,13 +305,14 @@ export class AlterDomainValidateConstraint extends AlterDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return [
-      "ALTER DOMAIN",
+    return ctx.line(
+      ctx.keyword("ALTER DOMAIN"),
       domainName,
-      "VALIDATE CONSTRAINT",
+      ctx.keyword("VALIDATE CONSTRAINT"),
       this.constraint.name,
-    ].join(" ");
+    );
   }
 }

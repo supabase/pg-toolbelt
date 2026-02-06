@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
@@ -47,49 +47,13 @@ export class CreateForeignTable extends CreateForeignTableChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE FOREIGN TABLE"];
-
-    // Add schema and name
-    parts.push(`${this.foreignTable.schema}.${this.foreignTable.name}`);
-
-    // Add columns
-    const columnDefs: string[] = [];
-    for (const col of this.foreignTable.columns) {
-      const colParts: string[] = [col.name, col.data_type_str];
-      columnDefs.push(colParts.join(" "));
-    }
-    parts.push(`(${columnDefs.join(", ")})`);
-
-    // Add SERVER clause
-    parts.push("SERVER", this.foreignTable.server);
-
-    // Add OPTIONS clause (table-level)
-    if (this.foreignTable.options && this.foreignTable.options.length > 0) {
-      const optionPairs: string[] = [];
-      for (let i = 0; i < this.foreignTable.options.length; i += 2) {
-        if (i + 1 < this.foreignTable.options.length) {
-          optionPairs.push(
-            `${this.foreignTable.options[i]} ${quoteLiteral(this.foreignTable.options[i + 1])}`,
-          );
-        }
-      }
-      if (optionPairs.length > 0) {
-        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
-      }
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const head = `${formatter.keyword("CREATE")} ${formatter.keyword(
-      "FOREIGN",
-    )} ${formatter.keyword("TABLE")} ${this.foreignTable.schema}.${this.foreignTable.name}`;
+    const ctx = createFormatContext(options?.format);
+    const head = ctx.line(
+      ctx.keyword("CREATE"),
+      ctx.keyword("FOREIGN"),
+      ctx.keyword("TABLE"),
+      `${this.foreignTable.schema}.${this.foreignTable.name}`,
+    );
 
     let columns = "()";
     if (this.foreignTable.columns.length > 0) {
@@ -97,15 +61,13 @@ export class CreateForeignTable extends CreateForeignTableChange {
         col.name,
         col.data_type_str,
       ]);
-      const aligned = formatter.alignColumns(rows);
-      const list = formatter.list(aligned, 1);
-      columns = formatter.parens(`${formatter.indent(1)}${list}`, true);
+      const aligned = ctx.alignColumns(rows);
+      const list = ctx.list(aligned, 1);
+      columns = ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty);
     }
 
-    const lines: string[] = [`${head} ${columns}`];
-    lines.push(
-      `${formatter.keyword("SERVER")} ${this.foreignTable.server}`,
-    );
+    const lines: string[] = [ctx.line(head, columns)];
+    lines.push(ctx.line(ctx.keyword("SERVER"), this.foreignTable.server));
 
     if (this.foreignTable.options && this.foreignTable.options.length > 0) {
       const optionPairs: string[] = [];
@@ -117,16 +79,16 @@ export class CreateForeignTable extends CreateForeignTableChange {
         }
       }
       if (optionPairs.length > 0) {
-        const optionList = formatter.list(optionPairs, 1);
+        const optionList = ctx.list(optionPairs, 1);
         lines.push(
-          `${formatter.keyword("OPTIONS")} ${formatter.parens(
-            `${formatter.indent(1)}${optionList}`,
-            true,
-          )}`,
+          ctx.line(
+            ctx.keyword("OPTIONS"),
+            ctx.parens(`${ctx.indent(1)}${optionList}`, ctx.pretty),
+          ),
         );
       }
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

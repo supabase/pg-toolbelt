@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Role } from "../role.model.ts";
 import { DropRoleChange } from "./role.base.ts";
 
@@ -28,7 +30,8 @@ export class DropRole extends DropRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    return ["DROP ROLE", this.role.name].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(ctx.keyword("DROP ROLE"), this.role.name);
   }
 }

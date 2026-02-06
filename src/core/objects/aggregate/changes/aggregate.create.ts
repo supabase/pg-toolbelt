@@ -1,5 +1,5 @@
 import { quoteLiteral } from "../../base.change.ts";
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   parseProcedureReference,
@@ -169,36 +169,46 @@ export class CreateAggregate extends CreateAggregateChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
+    const ctx = createFormatContext(options?.format);
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const head = [
-      "CREATE",
-      this.orReplace ? "OR REPLACE" : null,
-      "AGGREGATE",
+    const headTokens: string[] = [ctx.keyword("CREATE")];
+
+    if (this.orReplace) {
+      headTokens.push(ctx.keyword("OR"), ctx.keyword("REPLACE"));
+    }
+
+    headTokens.push(
+      ctx.keyword("AGGREGATE"),
       `${qualifiedName}${signature ? `(${signature})` : "()"}`,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    );
 
     const clauses: string[] = [];
 
-    clauses.push(`SFUNC = ${formatProc(this.aggregate.transition_function)}`);
-    clauses.push(`STYPE = ${this.aggregate.state_data_type}`);
+    clauses.push(
+      `${ctx.keyword("SFUNC")} = ${formatProc(
+        this.aggregate.transition_function,
+      )}`,
+    );
+    clauses.push(
+      `${ctx.keyword("STYPE")} = ${this.aggregate.state_data_type}`,
+    );
 
     if (this.aggregate.state_data_space > 0) {
-      clauses.push(`SSPACE = ${this.aggregate.state_data_space}`);
+      clauses.push(
+        `${ctx.keyword("SSPACE")} = ${this.aggregate.state_data_space}`,
+      );
     }
 
     if (this.aggregate.final_function) {
-      clauses.push(`FINALFUNC = ${formatProc(this.aggregate.final_function)}`);
+      clauses.push(
+        `${ctx.keyword("FINALFUNC")} = ${formatProc(
+          this.aggregate.final_function,
+        )}`,
+      );
     }
     if (this.aggregate.final_function_extra_args) {
-      clauses.push("FINALFUNC_EXTRA");
+      clauses.push(ctx.keyword("FINALFUNC_EXTRA"));
     }
     // Only include FINALFUNC_MODIFY if it's explicitly set to a non-default value
     // PostgreSQL defaults to 'r' (READ_ONLY) when not specified
@@ -207,58 +217,79 @@ export class CreateAggregate extends CreateAggregateChange {
       this.aggregate.final_function_modify !== "r"
     ) {
       clauses.push(
-        `FINALFUNC_MODIFY = ${formatModify(this.aggregate.final_function_modify)}`,
+        `${ctx.keyword("FINALFUNC_MODIFY")} = ${formatModify(
+          this.aggregate.final_function_modify,
+          ctx.keyword,
+        )}`,
       );
     }
 
     if (this.aggregate.combine_function) {
       clauses.push(
-        `COMBINEFUNC = ${formatProc(this.aggregate.combine_function)}`,
+        `${ctx.keyword("COMBINEFUNC")} = ${formatProc(
+          this.aggregate.combine_function,
+        )}`,
       );
     }
     if (this.aggregate.serial_function) {
       clauses.push(
-        `SERIALFUNC = ${formatProc(this.aggregate.serial_function)}`,
+        `${ctx.keyword("SERIALFUNC")} = ${formatProc(
+          this.aggregate.serial_function,
+        )}`,
       );
     }
     if (this.aggregate.deserial_function) {
       clauses.push(
-        `DESERIALFUNC = ${formatProc(this.aggregate.deserial_function)}`,
+        `${ctx.keyword("DESERIALFUNC")} = ${formatProc(
+          this.aggregate.deserial_function,
+        )}`,
       );
     }
 
     if (this.aggregate.initial_condition !== null) {
       clauses.push(
-        `INITCOND = ${quoteLiteral(this.aggregate.initial_condition)}`,
+        `${ctx.keyword("INITCOND")} = ${quoteLiteral(
+          this.aggregate.initial_condition,
+        )}`,
       );
     }
 
     if (this.aggregate.moving_transition_function) {
       clauses.push(
-        `MSFUNC = ${formatProc(this.aggregate.moving_transition_function)}`,
+        `${ctx.keyword("MSFUNC")} = ${formatProc(
+          this.aggregate.moving_transition_function,
+        )}`,
       );
     }
     if (this.aggregate.moving_inverse_function) {
       clauses.push(
-        `MINVFUNC = ${formatProc(this.aggregate.moving_inverse_function)}`,
+        `${ctx.keyword("MINVFUNC")} = ${formatProc(
+          this.aggregate.moving_inverse_function,
+        )}`,
       );
     }
     if (this.aggregate.moving_state_data_type) {
-      clauses.push(`MSTYPE = ${this.aggregate.moving_state_data_type}`);
+      clauses.push(
+        `${ctx.keyword("MSTYPE")} = ${this.aggregate.moving_state_data_type}`,
+      );
     }
     if (
       this.aggregate.moving_state_data_space &&
       this.aggregate.moving_state_data_space > 0
     ) {
-      clauses.push(`MSSPACE = ${this.aggregate.moving_state_data_space}`);
+      clauses.push(
+        `${ctx.keyword("MSSPACE")} = ${this.aggregate.moving_state_data_space}`,
+      );
     }
     if (this.aggregate.moving_final_function) {
       clauses.push(
-        `MFINALFUNC = ${formatProc(this.aggregate.moving_final_function)}`,
+        `${ctx.keyword("MFINALFUNC")} = ${formatProc(
+          this.aggregate.moving_final_function,
+        )}`,
       );
     }
     if (this.aggregate.moving_final_function_extra_args) {
-      clauses.push("MFINALFUNC_EXTRA");
+      clauses.push(ctx.keyword("MFINALFUNC_EXTRA"));
     }
     // Only include MFINALFUNC_MODIFY if it's explicitly set to a non-default value
     // PostgreSQL defaults to 'r' (READ_ONLY) when not specified
@@ -267,175 +298,15 @@ export class CreateAggregate extends CreateAggregateChange {
       this.aggregate.moving_final_function_modify !== "r"
     ) {
       clauses.push(
-        `MFINALFUNC_MODIFY = ${formatModify(this.aggregate.moving_final_function_modify)}`,
-      );
-    }
-    if (this.aggregate.moving_initial_condition !== null) {
-      clauses.push(
-        `MINITCOND = ${quoteLiteral(this.aggregate.moving_initial_condition)}`,
-      );
-    }
-
-    if (this.aggregate.sort_operator) {
-      clauses.push(`SORTOP = ${formatOperator(this.aggregate.sort_operator)}`);
-    }
-
-    if (this.aggregate.parallel_safety !== "u") {
-      clauses.push(
-        `PARALLEL ${formatParallel(this.aggregate.parallel_safety)}`,
-      );
-    }
-
-    if (this.aggregate.is_strict) {
-      clauses.push("STRICT");
-    }
-
-    if (this.aggregate.aggkind === "h") {
-      clauses.push("HYPOTHETICAL");
-    }
-
-    const body = clauses.length ? `(${clauses.join(", ")})` : "()";
-
-    return `${head} ${body}`;
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const signature = this.aggregate.identityArguments;
-    const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const headTokens: string[] = [formatter.keyword("CREATE")];
-
-    if (this.orReplace) {
-      headTokens.push(
-        formatter.keyword("OR"),
-        formatter.keyword("REPLACE"),
-      );
-    }
-
-    headTokens.push(
-      formatter.keyword("AGGREGATE"),
-      `${qualifiedName}${signature ? `(${signature})` : "()"}`,
-    );
-
-    const clauses: string[] = [];
-
-    clauses.push(
-      `${formatter.keyword("SFUNC")} = ${formatProc(
-        this.aggregate.transition_function,
-      )}`,
-    );
-    clauses.push(
-      `${formatter.keyword("STYPE")} = ${this.aggregate.state_data_type}`,
-    );
-
-    if (this.aggregate.state_data_space > 0) {
-      clauses.push(
-        `${formatter.keyword("SSPACE")} = ${this.aggregate.state_data_space}`,
-      );
-    }
-
-    if (this.aggregate.final_function) {
-      clauses.push(
-        `${formatter.keyword("FINALFUNC")} = ${formatProc(
-          this.aggregate.final_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.final_function_extra_args) {
-      clauses.push(formatter.keyword("FINALFUNC_EXTRA"));
-    }
-    if (
-      this.aggregate.final_function_modify &&
-      this.aggregate.final_function_modify !== "r"
-    ) {
-      clauses.push(
-        `${formatter.keyword("FINALFUNC_MODIFY")} = ${formatModifyWithCase(
-          this.aggregate.final_function_modify,
-          formatter,
-        )}`,
-      );
-    }
-
-    if (this.aggregate.combine_function) {
-      clauses.push(
-        `${formatter.keyword("COMBINEFUNC")} = ${formatProc(
-          this.aggregate.combine_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.serial_function) {
-      clauses.push(
-        `${formatter.keyword("SERIALFUNC")} = ${formatProc(
-          this.aggregate.serial_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.deserial_function) {
-      clauses.push(
-        `${formatter.keyword("DESERIALFUNC")} = ${formatProc(
-          this.aggregate.deserial_function,
-        )}`,
-      );
-    }
-
-    if (this.aggregate.initial_condition !== null) {
-      clauses.push(
-        `${formatter.keyword("INITCOND")} = ${quoteLiteral(
-          this.aggregate.initial_condition,
-        )}`,
-      );
-    }
-
-    if (this.aggregate.moving_transition_function) {
-      clauses.push(
-        `${formatter.keyword("MSFUNC")} = ${formatProc(
-          this.aggregate.moving_transition_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.moving_inverse_function) {
-      clauses.push(
-        `${formatter.keyword("MINVFUNC")} = ${formatProc(
-          this.aggregate.moving_inverse_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.moving_state_data_type) {
-      clauses.push(
-        `${formatter.keyword("MSTYPE")} = ${this.aggregate.moving_state_data_type}`,
-      );
-    }
-    if (
-      this.aggregate.moving_state_data_space &&
-      this.aggregate.moving_state_data_space > 0
-    ) {
-      clauses.push(
-        `${formatter.keyword("MSSPACE")} = ${this.aggregate.moving_state_data_space}`,
-      );
-    }
-    if (this.aggregate.moving_final_function) {
-      clauses.push(
-        `${formatter.keyword("MFINALFUNC")} = ${formatProc(
-          this.aggregate.moving_final_function,
-        )}`,
-      );
-    }
-    if (this.aggregate.moving_final_function_extra_args) {
-      clauses.push(formatter.keyword("MFINALFUNC_EXTRA"));
-    }
-    if (
-      this.aggregate.moving_final_function_modify &&
-      this.aggregate.moving_final_function_modify !== "r"
-    ) {
-      clauses.push(
-        `${formatter.keyword("MFINALFUNC_MODIFY")} = ${formatModifyWithCase(
+        `${ctx.keyword("MFINALFUNC_MODIFY")} = ${formatModify(
           this.aggregate.moving_final_function_modify,
-          formatter,
+          ctx.keyword,
         )}`,
       );
     }
     if (this.aggregate.moving_initial_condition !== null) {
       clauses.push(
-        `${formatter.keyword("MINITCOND")} = ${quoteLiteral(
+        `${ctx.keyword("MINITCOND")} = ${quoteLiteral(
           this.aggregate.moving_initial_condition,
         )}`,
       );
@@ -443,38 +314,38 @@ export class CreateAggregate extends CreateAggregateChange {
 
     if (this.aggregate.sort_operator) {
       clauses.push(
-        `${formatter.keyword("SORTOP")} = ${formatOperatorWithCase(
+        `${ctx.keyword("SORTOP")} = ${formatOperator(
           this.aggregate.sort_operator,
-          formatter,
+          ctx.keyword,
         )}`,
       );
     }
 
     if (this.aggregate.parallel_safety !== "u") {
       clauses.push(
-        `${formatter.keyword("PARALLEL")} ${formatParallelWithCase(
+        `${ctx.keyword("PARALLEL")} ${formatParallel(
           this.aggregate.parallel_safety,
-          formatter,
+          ctx.keyword,
         )}`,
       );
     }
 
     if (this.aggregate.is_strict) {
-      clauses.push(formatter.keyword("STRICT"));
+      clauses.push(ctx.keyword("STRICT"));
     }
 
     if (this.aggregate.aggkind === "h") {
-      clauses.push(formatter.keyword("HYPOTHETICAL"));
+      clauses.push(ctx.keyword("HYPOTHETICAL"));
     }
 
     const body = clauses.length
-      ? formatter.parens(
-          `${formatter.indent(1)}${formatter.list(clauses, 1)}`,
-          true,
+      ? ctx.parens(
+          `${ctx.indent(1)}${ctx.list(clauses, 1)}`,
+          ctx.pretty,
         )
       : "()";
 
-    return `${headTokens.join(" ")} ${body}`;
+    return ctx.line(headTokens.join(" "), body);
   }
 }
 
@@ -483,62 +354,41 @@ function formatProc(proc: string): string {
   return idx === -1 ? proc : proc.slice(0, idx);
 }
 
-function formatOperator(op: string): string {
+function formatOperator(
+  op: string,
+  keyword: (value: string) => string,
+): string {
   const idx = op.indexOf("(");
   const qualified = idx === -1 ? op : op.slice(0, idx);
-  return `OPERATOR(${qualified})`;
+  return `${keyword("OPERATOR")}(${qualified})`;
 }
 
-function formatModify(code: string): string {
+function formatModify(
+  code: string,
+  keyword: (value: string) => string,
+): string {
   switch (code) {
     case "r":
-      return "READ_ONLY";
+      return keyword("READ_ONLY");
     case "s":
-      return "SHAREABLE";
+      return keyword("SHAREABLE");
     case "w":
-      return "READ_WRITE";
+      return keyword("READ_WRITE");
     default:
-      return code;
+      return keyword(code);
   }
 }
 
-function formatParallel(code: string): string {
+function formatParallel(
+  code: string,
+  keyword: (value: string) => string,
+): string {
   switch (code) {
     case "s":
-      return "SAFE";
+      return keyword("SAFE");
     case "r":
-      return "RESTRICTED";
+      return keyword("RESTRICTED");
     default:
-      return "UNSAFE";
-  }
-}
-
-function formatOperatorWithCase(op: string, formatter: SqlFormatter): string {
-  const idx = op.indexOf("(");
-  const qualified = idx === -1 ? op : op.slice(0, idx);
-  return `${formatter.keyword("OPERATOR")}(${qualified})`;
-}
-
-function formatModifyWithCase(code: string, formatter: SqlFormatter): string {
-  switch (code) {
-    case "r":
-      return formatter.keyword("READ_ONLY");
-    case "s":
-      return formatter.keyword("SHAREABLE");
-    case "w":
-      return formatter.keyword("READ_WRITE");
-    default:
-      return formatter.keyword(code);
-  }
-}
-
-function formatParallelWithCase(code: string, formatter: SqlFormatter): string {
-  switch (code) {
-    case "s":
-      return formatter.keyword("SAFE");
-    case "r":
-      return formatter.keyword("RESTRICTED");
-    default:
-      return formatter.keyword("UNSAFE");
+      return keyword("UNSAFE");
   }
 }

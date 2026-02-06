@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Enum } from "../enum.model.ts";
 import { DropEnumChange } from "./enum.base.ts";
 
@@ -28,7 +30,11 @@ export class DropEnum extends DropEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
-    return ["DROP TYPE", `${this.enum.schema}.${this.enum.name}`].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP TYPE"),
+      `${this.enum.schema}.${this.enum.name}`,
+    );
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
@@ -50,12 +52,25 @@ export class GrantRoleMembership extends CreateRoleChange {
     return [this.role.stableId, stableId.role(this.member)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     // On creation, only emit ADMIN OPTION; leave INHERIT/SET to defaults
-    const opts: string[] = [];
-    if (this.options.admin) opts.push("ADMIN OPTION");
-    const withClause = opts.length > 0 ? ` WITH ${opts.join(" ")}` : "";
-    return `GRANT ${this.role.name} TO ${this.member}${withClause}`;
+    if (this.options.admin) {
+      return ctx.line(
+        ctx.keyword("GRANT"),
+        this.role.name,
+        ctx.keyword("TO"),
+        this.member,
+        ctx.keyword("WITH"),
+        ctx.keyword("ADMIN OPTION"),
+      );
+    }
+    return ctx.line(
+      ctx.keyword("GRANT"),
+      this.role.name,
+      ctx.keyword("TO"),
+      this.member,
+    );
   }
 }
 
@@ -94,8 +109,14 @@ export class RevokeRoleMembership extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
-    return `REVOKE ${this.role.name} FROM ${this.member}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      this.role.name,
+      ctx.keyword("FROM"),
+      this.member,
+    );
   }
 }
 
@@ -138,12 +159,20 @@ export class RevokeRoleMembershipOptions extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts: string[] = [];
-    if (this.admin) parts.push("ADMIN OPTION");
-    if (this.inherit) parts.push("INHERIT OPTION");
-    if (this.set) parts.push("SET OPTION");
-    return `REVOKE ${parts.join(" ")} FOR ${this.role.name} FROM ${this.member}`;
+    if (this.admin) parts.push(ctx.keyword("ADMIN OPTION"));
+    if (this.inherit) parts.push(ctx.keyword("INHERIT OPTION"));
+    if (this.set) parts.push(ctx.keyword("SET OPTION"));
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      parts.join(" "),
+      ctx.keyword("FOR"),
+      this.role.name,
+      ctx.keyword("FROM"),
+      this.member,
+    );
   }
 }
 
@@ -197,8 +226,11 @@ export class GrantRoleDefaultPrivileges extends CreateRoleChange {
     ];
   }
 
-  serialize(): string {
-    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const scope = this.inSchema
+      ? ctx.line(ctx.keyword("IN SCHEMA"), this.inSchema)
+      : "";
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -206,13 +238,28 @@ export class GrantRoleDefaultPrivileges extends CreateRoleChange {
         "GrantRoleDefaultPrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
     const privSql = formatPrivilegeList(
       this.objtype,
       this.privileges.map((p) => p.privilege),
       this.version,
     );
-    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} GRANT ${privSql} ON ${objtypeToKeyword(this.objtype)} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("ALTER DEFAULT PRIVILEGES"),
+      ctx.keyword("FOR ROLE"),
+      this.role.name,
+      scope,
+    );
+    const grant = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      ctx.keyword("ON"),
+      ctx.keyword(objtypeToKeyword(this.objtype)),
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    const base = ctx.line(head, grant);
+    return withGrant ? ctx.line(base, withGrant) : base;
   }
 }
 
@@ -272,8 +319,11 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
-    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const scope = this.inSchema
+      ? ctx.line(ctx.keyword("IN SCHEMA"), this.inSchema)
+      : "";
     const grantOptionPrivs = this.privileges
       .filter((p) => p.grantable)
       .map((p) => p.privilege);
@@ -293,10 +343,38 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
         grantOptionPrivs,
         this.version,
       );
-      return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE GRANT OPTION FOR ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
+      const head = ctx.line(
+        ctx.keyword("ALTER DEFAULT PRIVILEGES"),
+        ctx.keyword("FOR ROLE"),
+        this.role.name,
+        scope,
+      );
+      const revoke = ctx.line(
+        ctx.keyword("REVOKE GRANT OPTION FOR"),
+        privSql,
+        ctx.keyword("ON"),
+        ctx.keyword(objtypeToKeyword(this.objtype)),
+        ctx.keyword("FROM"),
+        this.grantee,
+      );
+      return ctx.line(head, revoke);
     }
     const privSql = formatPrivilegeList(this.objtype, basePrivs, this.version);
-    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
+    const head = ctx.line(
+      ctx.keyword("ALTER DEFAULT PRIVILEGES"),
+      ctx.keyword("FOR ROLE"),
+      this.role.name,
+      scope,
+    );
+    const revoke = ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      ctx.keyword("ON"),
+      ctx.keyword(objtypeToKeyword(this.objtype)),
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
+    return ctx.line(head, revoke);
   }
 }
 

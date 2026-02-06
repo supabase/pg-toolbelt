@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Schema } from "../schema.model.ts";
 import { AlterSchemaChange } from "./schema.base.ts";
 
@@ -33,8 +35,14 @@ export class AlterSchemaChangeOwner extends AlterSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
-    return ["ALTER SCHEMA", this.schema.name, "OWNER TO", this.owner].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SCHEMA"),
+      this.schema.name,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
   }
 }
 

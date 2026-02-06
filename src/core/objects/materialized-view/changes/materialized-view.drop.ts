@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedViewChange } from "./materialized-view.base.ts";
@@ -51,10 +53,11 @@ export class DropMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "DROP MATERIALIZED VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP MATERIALIZED VIEW"),
       `${this.materializedView.schema}.${this.materializedView.name}`,
-    ].join(" ");
+    );
   }
 }

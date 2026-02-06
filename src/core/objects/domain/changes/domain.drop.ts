@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Domain } from "../domain.model.ts";
 import { DropDomainChange } from "./domain.base.ts";
 
@@ -28,7 +30,11 @@ export class DropDomain extends DropDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `DROP DOMAIN ${this.domain.schema}.${this.domain.name}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP DOMAIN"),
+      `${this.domain.schema}.${this.domain.name}`,
+    );
   }
 }

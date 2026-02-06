@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { AlterEventTriggerChange } from "./event-trigger.base.ts";
 
@@ -37,13 +39,14 @@ export class AlterEventTriggerChangeOwner extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EVENT TRIGGER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER EVENT TRIGGER"),
       this.eventTrigger.name,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -75,8 +78,13 @@ export class AlterEventTriggerSetEnabled extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const clause = ENABLED_SQL[this.enabled];
-    return ["ALTER EVENT TRIGGER", this.eventTrigger.name, clause].join(" ");
+    return ctx.line(
+      ctx.keyword("ALTER EVENT TRIGGER"),
+      this.eventTrigger.name,
+      ctx.keyword(clause),
+    );
   }
 }

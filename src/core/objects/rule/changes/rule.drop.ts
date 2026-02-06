@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Rule } from "../rule.model.ts";
 import { DropRuleChange } from "./rule.base.ts";
 
@@ -18,12 +20,13 @@ export class DropRule extends DropRuleChange {
     return [this.rule.stableId, this.rule.relationStableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP RULE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP RULE"),
       this.rule.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.rule.schema}.${this.rule.table_name}`,
-    ].join(" ");
+    );
   }
 }

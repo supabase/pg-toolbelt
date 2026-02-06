@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { View } from "../view.model.ts";
 import { AlterViewChange } from "./view.base.ts";
 
@@ -42,13 +44,14 @@ export class AlterViewChangeOwner extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER VIEW"),
       `${this.view.schema}.${this.view.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -72,14 +75,15 @@ export class AlterViewSetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const opts = this.options.join(", ");
-    return [
-      "ALTER VIEW",
+    return ctx.line(
+      ctx.keyword("ALTER VIEW"),
       `${this.view.schema}.${this.view.name}`,
-      "SET",
+      ctx.keyword("SET"),
       `(${opts})`,
-    ].join(" ");
+    );
   }
 }
 
@@ -101,12 +105,13 @@ export class AlterViewResetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER VIEW"),
       `${this.view.schema}.${this.view.name}`,
-      "RESET",
+      ctx.keyword("RESET"),
       `(${this.params.join(", ")})`,
-    ].join(" ");
+    );
   }
 }

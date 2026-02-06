@@ -1,4 +1,6 @@
 import type { ColumnProps } from "../../base.model.ts";
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
 import { AlterTableChange } from "./table.base.ts";
@@ -101,13 +103,14 @@ export class AlterTableChangeOwner extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -127,12 +130,13 @@ export class AlterTableSetLogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "SET LOGGED",
-    ].join(" ");
+      ctx.keyword("SET LOGGED"),
+    );
   }
 }
 
@@ -152,12 +156,13 @@ export class AlterTableSetUnlogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "SET UNLOGGED",
-    ].join(" ");
+      ctx.keyword("SET UNLOGGED"),
+    );
   }
 }
 
@@ -177,12 +182,13 @@ export class AlterTableEnableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ENABLE ROW LEVEL SECURITY",
-    ].join(" ");
+      ctx.keyword("ENABLE ROW LEVEL SECURITY"),
+    );
   }
 }
 
@@ -202,12 +208,13 @@ export class AlterTableDisableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "DISABLE ROW LEVEL SECURITY",
-    ].join(" ");
+      ctx.keyword("DISABLE ROW LEVEL SECURITY"),
+    );
   }
 }
 
@@ -227,12 +234,13 @@ export class AlterTableForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "FORCE ROW LEVEL SECURITY",
-    ].join(" ");
+      ctx.keyword("FORCE ROW LEVEL SECURITY"),
+    );
   }
 }
 
@@ -252,12 +260,13 @@ export class AlterTableNoForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "NO FORCE ROW LEVEL SECURITY",
-    ].join(" ");
+      ctx.keyword("NO FORCE ROW LEVEL SECURITY"),
+    );
   }
 }
 
@@ -279,13 +288,15 @@ export class AlterTableSetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const storageParams = this.options.join(", ");
-    return [
-      "ALTER TABLE",
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      `SET (${storageParams})`,
-    ].join(" ");
+      ctx.keyword("SET"),
+      `(${storageParams})`,
+    );
   }
 }
 
@@ -307,13 +318,15 @@ export class AlterTableResetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const paramsSql = this.params.join(", ");
-    return [
-      "ALTER TABLE",
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      `RESET (${paramsSql})`,
-    ].join(" ");
+      ctx.keyword("RESET"),
+      `(${paramsSql})`,
+    );
   }
 }
 
@@ -365,14 +378,15 @@ export class AlterTableAddConstraint extends AlterTableChange {
     return reqs;
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ADD CONSTRAINT",
+      ctx.keyword("ADD CONSTRAINT"),
       this.constraint.name,
       this.constraint.definition,
-    ].join(" ");
+    );
   }
 }
 
@@ -411,13 +425,14 @@ export class AlterTableDropConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "DROP CONSTRAINT",
+      ctx.keyword("DROP CONSTRAINT"),
       this.constraint.name,
-    ].join(" ");
+    );
   }
 }
 
@@ -446,13 +461,14 @@ export class AlterTableValidateConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "VALIDATE CONSTRAINT",
+      ctx.keyword("VALIDATE CONSTRAINT"),
       this.constraint.name,
-    ].join(" ");
+    );
   }
 }
 
@@ -474,7 +490,8 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const clause =
       this.mode === "d"
         ? "DEFAULT"
@@ -483,12 +500,12 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
           : this.mode === "f"
             ? "FULL"
             : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
-    return [
-      "ALTER TABLE",
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "REPLICA IDENTITY",
-      clause,
-    ].join(" ");
+      ctx.keyword("REPLICA IDENTITY"),
+      ctx.keyword(clause),
+    );
   }
 }
 
@@ -516,32 +533,37 @@ export class AlterTableAddColumn extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts: string[] = [
-      "ALTER TABLE",
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ADD COLUMN",
+      ctx.keyword("ADD COLUMN"),
       this.column.name,
       this.column.data_type_str,
     ];
     if (this.column.collation) {
-      parts.push("COLLATE", this.column.collation);
+      parts.push(ctx.keyword("COLLATE"), this.column.collation);
     }
     if (this.column.is_identity) {
       parts.push(
         this.column.is_identity_always
-          ? "GENERATED ALWAYS AS IDENTITY"
-          : "GENERATED BY DEFAULT AS IDENTITY",
+          ? ctx.keyword("GENERATED ALWAYS AS IDENTITY")
+          : ctx.keyword("GENERATED BY DEFAULT AS IDENTITY"),
       );
     } else if (this.column.is_generated && this.column.default !== null) {
-      parts.push(`GENERATED ALWAYS AS (${this.column.default}) STORED`);
+      parts.push(
+        ctx.keyword("GENERATED ALWAYS AS"),
+        `(${this.column.default})`,
+        ctx.keyword("STORED"),
+      );
     } else if (this.column.default !== null) {
-      parts.push("DEFAULT", this.column.default);
+      parts.push(ctx.keyword("DEFAULT"), this.column.default);
     }
     if (this.column.not_null) {
-      parts.push("NOT NULL");
+      parts.push(ctx.keyword("NOT NULL"));
     }
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 
@@ -572,13 +594,14 @@ export class AlterTableDropColumn extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "DROP COLUMN",
+      ctx.keyword("DROP COLUMN"),
       this.column.name,
-    ].join(" ");
+    );
   }
 }
 
@@ -602,19 +625,20 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts: string[] = [
-      "ALTER TABLE",
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.column.name,
-      "TYPE",
+      ctx.keyword("TYPE"),
       this.column.data_type_str,
     ];
     if (this.column.collation) {
-      parts.push("COLLATE", this.column.collation);
+      parts.push(ctx.keyword("COLLATE"), this.column.collation);
     }
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 
@@ -638,17 +662,21 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    const set = this.column.is_generated ? "SET EXPRESSION AS" : "SET DEFAULT";
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const set = this.column.is_generated
+      ? ctx.keyword("SET EXPRESSION AS")
+      : ctx.keyword("SET DEFAULT");
+    const defaultValue = this.column.default ?? ctx.keyword("NULL");
 
-    return [
-      "ALTER TABLE",
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.column.name,
       set,
-      this.column.default ?? "NULL",
-    ].join(" ");
+      defaultValue,
+    );
   }
 }
 
@@ -672,14 +700,15 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.column.name,
-      "DROP DEFAULT",
-    ].join(" ");
+      ctx.keyword("DROP DEFAULT"),
+    );
   }
 }
 
@@ -703,14 +732,15 @@ export class AlterTableAlterColumnSetNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.column.name,
-      "SET NOT NULL",
-    ].join(" ");
+      ctx.keyword("SET NOT NULL"),
+    );
   }
 }
 
@@ -734,14 +764,15 @@ export class AlterTableAlterColumnDropNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.column.name,
-      "DROP NOT NULL",
-    ].join(" ");
+      ctx.keyword("DROP NOT NULL"),
+    );
   }
 }
 
@@ -764,15 +795,16 @@ export class AlterTableAttachPartition extends AlterTableChange {
     return [this.partition.stableId, this.table.stableId];
   }
 
-  serialize(): string {
-    const bound = this.partition.partition_bound ?? "DEFAULT";
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const bound = this.partition.partition_bound ?? ctx.keyword("DEFAULT");
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "ATTACH PARTITION",
+      ctx.keyword("ATTACH PARTITION"),
       `${this.partition.schema}.${this.partition.name}`,
       bound,
-    ].join(" ");
+    );
   }
 }
 
@@ -795,12 +827,13 @@ export class AlterTableDetachPartition extends AlterTableChange {
     return [this.table.stableId, this.partition.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "DETACH PARTITION",
+      ctx.keyword("DETACH PARTITION"),
       `${this.partition.schema}.${this.partition.name}`,
-    ].join(" ");
+    );
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -28,12 +30,13 @@ export class DropRlsPolicy extends DropRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP POLICY",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP POLICY"),
       this.policy.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.policy.schema}.${this.policy.table_name}`,
-    ].join(" ");
+    );
   }
 }

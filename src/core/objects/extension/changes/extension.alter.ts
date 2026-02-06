@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -39,13 +41,14 @@ export class AlterExtensionUpdateVersion extends AlterExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EXTENSION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER EXTENSION"),
       this.extension.name,
-      "UPDATE TO",
+      ctx.keyword("UPDATE TO"),
       quoteLiteral(this.version),
-    ].join(" ");
+    );
   }
 }
 
@@ -67,12 +70,13 @@ export class AlterExtensionSetSchema extends AlterExtensionChange {
     return [this.extension.stableId, stableId.schema(this.schema)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EXTENSION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER EXTENSION"),
       this.extension.name,
-      "SET SCHEMA",
+      ctx.keyword("SET SCHEMA"),
       this.schema,
-    ].join(" ");
+    );
   }
 }

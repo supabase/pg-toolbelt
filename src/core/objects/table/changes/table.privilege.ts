@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -57,7 +59,8 @@ export class GrantTablePrivileges extends AlterTableChange {
     return [this.table.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -65,16 +68,24 @@ export class GrantTablePrivileges extends AlterTableChange {
         "GrantTablePrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("TABLE");
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("TABLE"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
+    const privSql = formatObjectPrivilegeList("TABLE", list, this.version, ctx.keyword);
     const tableName = `${this.table.schema}.${this.table.name}`;
     const columnSpec =
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${tableName} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      `${privSql}${columnSpec}`,
+      kindPrefix,
+      tableName,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -132,16 +143,24 @@ export class RevokeTablePrivileges extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("TABLE");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("TABLE"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
+    const privSql = formatObjectPrivilegeList("TABLE", list, this.version, ctx.keyword);
     const tableName = `${this.table.schema}.${this.table.name}`;
     const columnSpec =
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      `${privSql}${columnSpec}`,
+      kindPrefix,
+      tableName,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -183,18 +202,27 @@ export class RevokeGrantOptionTablePrivileges extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("TABLE");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("TABLE"));
     const privSql = formatObjectPrivilegeList(
       "TABLE",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
     const tableName = `${this.table.schema}.${this.table.name}`;
     const columnSpec =
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      `${privSql}${columnSpec}`,
+      kindPrefix,
+      tableName,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

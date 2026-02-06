@@ -1,4 +1,5 @@
 import type { TableLikeObject } from "../../base.model.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { CreateTriggerChange } from "./trigger.base.ts";
@@ -71,14 +72,8 @@ export class CreateTrigger extends CreateTriggerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
-    let definition = this.trigger.definition.trim();
-
-    definition = definition.replace(
-      /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
-      `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
-    );
-
-    return definition;
+  serialize(_options?: SerializeOptions): string {
+    // Preserve the server-generated definition as-is.
+    return this.trigger.definition;
   }
 }

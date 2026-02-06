@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
 import { AlterServerChange } from "./server.base.ts";
@@ -39,8 +41,14 @@ export class AlterServerChangeOwner extends AlterServerChange {
     return [this.server.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return ["ALTER SERVER", this.server.name, "OWNER TO", this.owner].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SERVER"),
+      this.server.name,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
   }
 }
 
@@ -62,17 +70,23 @@ export class AlterServerSetVersion extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     if (this.version === null) {
       // PostgreSQL doesn't support removing version, but we'll handle it
-      return ["ALTER SERVER", this.server.name, "VERSION", "''"].join(" ");
+      return ctx.line(
+        ctx.keyword("ALTER SERVER"),
+        this.server.name,
+        ctx.keyword("VERSION"),
+        "''",
+      );
     }
-    return [
-      "ALTER SERVER",
+    return ctx.line(
+      ctx.keyword("ALTER SERVER"),
       this.server.name,
-      "VERSION",
+      ctx.keyword("VERSION"),
       quoteLiteral(this.version),
-    ].join(" ");
+    );
   }
 }
 
@@ -105,22 +119,23 @@ export class AlterServerSetOptions extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
-        optionParts.push(`DROP ${opt.option}`);
+        optionParts.push(`${ctx.keyword("DROP")} ${opt.option}`);
       } else {
         const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`);
+        optionParts.push(`${ctx.keyword(opt.action)} ${opt.option} ${value}`);
       }
     }
 
-    return [
-      "ALTER SERVER",
+    return ctx.line(
+      ctx.keyword("ALTER SERVER"),
       this.server.name,
-      "OPTIONS",
+      ctx.keyword("OPTIONS"),
       `(${optionParts.join(", ")})`,
-    ].join(" ");
+    );
   }
 }

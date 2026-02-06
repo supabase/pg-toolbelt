@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 import { AlterIndexChange } from "./index.base.ts";
@@ -46,18 +48,23 @@ export class AlterIndexSetStorageParams extends AlterIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    const head = [
-      "ALTER INDEX",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const head = ctx.line(
+      ctx.keyword("ALTER INDEX"),
       `${this.index.schema}.${this.index.name}`,
-    ].join(" ");
+    );
 
     const statements: string[] = [];
     if (this.keysToReset.length > 0) {
-      statements.push(`${head} RESET (${this.keysToReset.join(", ")})`);
+      statements.push(
+        ctx.line(head, ctx.keyword("RESET"), `(${this.keysToReset.join(", ")})`),
+      );
     }
     if (this.paramsToSet.length > 0) {
-      statements.push(`${head} SET (${this.paramsToSet.join(", ")})`);
+      statements.push(
+        ctx.line(head, ctx.keyword("SET"), `(${this.paramsToSet.join(", ")})`),
+      );
     }
 
     return statements.join(";\n");
@@ -90,16 +97,23 @@ export class AlterIndexSetStatistics extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const statements: string[] = [];
-    const head = [
-      "ALTER INDEX",
+    const head = ctx.line(
+      ctx.keyword("ALTER INDEX"),
       `${this.index.schema}.${this.index.name}`,
-    ].join(" ");
+    );
 
     for (const { columnNumber, statistics } of this.columnTargets) {
       statements.push(
-        `${head} ALTER COLUMN ${columnNumber} SET STATISTICS ${statistics.toString()}`,
+        ctx.line(
+          head,
+          ctx.keyword("ALTER COLUMN"),
+          columnNumber.toString(),
+          ctx.keyword("SET STATISTICS"),
+          statistics.toString(),
+        ),
       );
     }
 
@@ -127,13 +141,14 @@ export class AlterIndexSetTablespace extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER INDEX",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER INDEX"),
       `${this.index.schema}.${this.index.name}`,
-      "SET TABLESPACE",
+      ctx.keyword("SET TABLESPACE"),
       this.tablespace,
-    ].join(" ");
+    );
   }
 }
 

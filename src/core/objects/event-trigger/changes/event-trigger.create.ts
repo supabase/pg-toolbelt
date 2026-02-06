@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
@@ -51,54 +51,39 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = [
-      "CREATE EVENT TRIGGER",
-      this.eventTrigger.name,
-      "ON",
-      this.eventTrigger.event,
-    ];
-
-    const tags = this.eventTrigger.tags;
-    if (tags && tags.length > 0) {
-      const tagList = tags.map((tag) => quoteLiteral(tag)).join(", ");
-      parts.push("WHEN TAG IN", `(${tagList})`);
-    }
-
-    parts.push(
-      "EXECUTE FUNCTION",
-      `${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
-    );
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("EVENT")} ${formatter.keyword("TRIGGER")} ${this.eventTrigger.name}`,
-      `${formatter.keyword("ON")} ${this.eventTrigger.event}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("EVENT"),
+        ctx.keyword("TRIGGER"),
+        this.eventTrigger.name,
+      ),
+      ctx.line(ctx.keyword("ON"), this.eventTrigger.event),
     ];
 
     const tags = this.eventTrigger.tags;
     if (tags && tags.length > 0) {
       const tagList = tags.map((tag) => quoteLiteral(tag));
-      const list = formatter.list(tagList, 1);
+      const list = ctx.list(tagList, 1);
       lines.push(
-        `${formatter.keyword("WHEN")} ${formatter.keyword("TAG")} ${formatter.keyword("IN")} ${formatter.parens(
-          `${formatter.indent(1)}${list}`,
-          true,
-        )}`,
+        ctx.line(
+          ctx.keyword("WHEN"),
+          ctx.keyword("TAG"),
+          ctx.keyword("IN"),
+          ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty),
+        ),
       );
     }
 
     lines.push(
-      `${formatter.keyword("EXECUTE")} ${formatter.keyword("FUNCTION")} ${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
+      ctx.line(
+        ctx.keyword("EXECUTE"),
+        ctx.keyword("FUNCTION"),
+        `${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
+      ),
     );
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -16,8 +18,14 @@ export class AlterSubscriptionSetConnection extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION ${quoteLiteral(this.subscription.conninfo)}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("CONNECTION"),
+      quoteLiteral(this.subscription.conninfo),
+    );
   }
 }
 
@@ -30,10 +38,16 @@ export class AlterSubscriptionSetPublication extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    const base = `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const base = ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("SET PUBLICATION"),
+      this.subscription.publications.join(", "),
+    );
     if (!this.subscription.enabled) {
-      return `${base} WITH (refresh = false)`;
+      return ctx.line(base, ctx.keyword("WITH"), "(refresh = false)");
     }
     return base;
   }
@@ -48,8 +62,13 @@ export class AlterSubscriptionEnable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} ENABLE`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("ENABLE"),
+    );
   }
 }
 
@@ -62,8 +81,13 @@ export class AlterSubscriptionDisable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} DISABLE`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("DISABLE"),
+    );
   }
 }
 
@@ -81,11 +105,17 @@ export class AlterSubscriptionSetOptions extends AlterSubscriptionChange {
     this.options = props.options;
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const assignments = this.options.map((option) =>
       formatSubscriptionOption(this.subscription, option),
     );
-    return `ALTER SUBSCRIPTION ${this.subscription.name} SET (${assignments.join(", ")})`;
+    return ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("SET"),
+      `(${assignments.join(", ")})`,
+    );
   }
 }
 
@@ -104,7 +134,13 @@ export class AlterSubscriptionSetOwner extends AlterSubscriptionChange {
     return [stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} OWNER TO ${this.owner}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER SUBSCRIPTION"),
+      this.subscription.name,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { DropViewChange } from "./view.base.ts";
@@ -34,7 +36,11 @@ export class DropView extends DropViewChange {
     ];
   }
 
-  serialize(): string {
-    return ["DROP VIEW", `${this.view.schema}.${this.view.name}`].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP VIEW"),
+      `${this.view.schema}.${this.view.name}`,
+    );
   }
 }

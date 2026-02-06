@@ -34,7 +34,7 @@ describe("SqlFormatter", () => {
   test("list handles leading commas with indentation", () => {
     const formatter = new SqlFormatter({ commaStyle: "leading" });
     const list = formatter.list(["a", "b", "c"], 1);
-    expect(list).toBe("a\n  , b\n  , c");
+    expect(list).toBe("  a\n  , b\n  , c");
   });
 
   test("list handles empty and single-item arrays", () => {

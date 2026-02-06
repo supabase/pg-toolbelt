@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
 import { CreateServerChange, DropServerChange } from "./server.base.ts";
@@ -26,14 +28,17 @@ export class CreateCommentOnServer extends CreateServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SERVER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("SERVER"),
       this.server.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
       quoteLiteral(this.server.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -54,7 +59,14 @@ export class DropCommentOnServer extends DropServerChange {
     return [stableId.comment(this.server.stableId), this.server.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON SERVER", this.server.name, "IS NULL"].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("SERVER"),
+      this.server.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

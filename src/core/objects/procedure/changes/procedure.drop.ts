@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatFunctionArguments } from "../utils.ts";
 import { DropProcedureChange } from "./procedure.base.ts";
@@ -30,7 +32,8 @@ export class DropProcedure extends DropProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
     // Build argument list
@@ -40,10 +43,10 @@ export class DropProcedure extends DropProcedureChange {
       this.procedure.argument_modes,
     );
 
-    return [
-      "DROP",
-      objectType,
+    return ctx.line(
+      ctx.keyword("DROP"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}(${args})`,
-    ].join(" ");
+    );
   }
 }

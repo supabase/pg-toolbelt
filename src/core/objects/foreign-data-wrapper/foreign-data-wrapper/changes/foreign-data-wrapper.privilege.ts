@@ -1,4 +1,6 @@
 import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { AlterForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
@@ -49,7 +51,8 @@ export class GrantForeignDataWrapperPrivileges extends AlterForeignDataWrapperCh
     return [this.foreignDataWrapper.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -57,14 +60,23 @@ export class GrantForeignDataWrapperPrivileges extends AlterForeignDataWrapperCh
         "GrantForeignDataWrapperPrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
       "FOREIGN DATA WRAPPER",
       list,
       this.version,
+      ctx.keyword,
     );
-    return `GRANT ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      ctx.keyword("ON FOREIGN DATA WRAPPER"),
+      this.foreignDataWrapper.name,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -115,14 +127,23 @@ export class RevokeForeignDataWrapperPrivileges extends AlterForeignDataWrapperC
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
       "FOREIGN DATA WRAPPER",
       list,
       this.version,
+      ctx.keyword,
     );
-    return `REVOKE ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      ctx.keyword("ON FOREIGN DATA WRAPPER"),
+      this.foreignDataWrapper.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -161,12 +182,21 @@ export class RevokeGrantOptionForeignDataWrapperPrivileges extends AlterForeignD
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const privSql = formatObjectPrivilegeList(
       "FOREIGN DATA WRAPPER",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
-    return `REVOKE GRANT OPTION FOR ${privSql} ON FOREIGN DATA WRAPPER ${this.foreignDataWrapper.name} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      privSql,
+      ctx.keyword("ON FOREIGN DATA WRAPPER"),
+      this.foreignDataWrapper.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

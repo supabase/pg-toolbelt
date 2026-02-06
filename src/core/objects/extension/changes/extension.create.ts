@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -43,37 +43,12 @@ export class CreateExtension extends CreateExtensionChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE EXTENSION"];
-
-    // Add extension name
-    parts.push(this.extension.name);
-
-    // Add schema
-    parts.push("WITH SCHEMA", this.extension.schema);
-
-    // Add version
-    // TODO: Omit version for now as versions can differ between main and branch
-    // if (this.extension.version) {
-    //   parts.push("VERSION", quoteLiteral(this.extension.version));
-    // }
-
-    // TODO: Add CASCADE if the extension has dependencies
-    // parts.push("CASCADE");
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("EXTENSION")} ${this.extension.name}`,
-      `${formatter.keyword("WITH")} ${formatter.keyword("SCHEMA")} ${this.extension.schema}`,
+      ctx.line(ctx.keyword("CREATE"), ctx.keyword("EXTENSION"), this.extension.name),
+      ctx.line(ctx.keyword("WITH"), ctx.keyword("SCHEMA"), this.extension.schema),
     ];
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

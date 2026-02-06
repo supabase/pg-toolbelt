@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Collation } from "../collation.model.ts";
 import { AlterCollationChange } from "./collation.base.ts";
 
@@ -36,13 +38,14 @@ export class AlterCollationChangeOwner extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER COLLATION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER COLLATION"),
       `${this.collation.schema}.${this.collation.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -62,12 +65,13 @@ export class AlterCollationRefreshVersion extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER COLLATION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER COLLATION"),
       `${this.collation.schema}.${this.collation.name}`,
-      "REFRESH VERSION",
-    ].join(" ");
+      ctx.keyword("REFRESH VERSION"),
+    );
   }
 }
 

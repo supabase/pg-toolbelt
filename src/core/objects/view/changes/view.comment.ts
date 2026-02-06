@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
@@ -22,13 +24,14 @@ export class CreateCommentOnView extends CreateViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON VIEW"),
       `${this.view.schema}.${this.view.name}`,
-      "IS",
+      ctx.keyword("IS"),
       quoteLiteral(this.view.comment as string),
-    ].join(" ");
+    );
   }
 }
 
@@ -49,11 +52,12 @@ export class DropCommentOnView extends DropViewChange {
     return [stableId.comment(this.view.stableId), this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON VIEW"),
       `${this.view.schema}.${this.view.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

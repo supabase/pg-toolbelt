@@ -1,5 +1,7 @@
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import {
@@ -36,14 +38,17 @@ export class CreateCommentOnCompositeType extends CreateCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: type comment is not nullable in this case
       quoteLiteral(this.compositeType.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -67,12 +72,15 @@ export class DropCommentOnCompositeType extends DropCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }
 
@@ -99,14 +107,17 @@ export class CreateCommentOnCompositeTypeAttribute extends CreateCompositeTypeCh
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("COLUMN"),
       `${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: attribute comment is not nullable in this case
       quoteLiteral(this.attribute.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -135,11 +146,14 @@ export class DropCommentOnCompositeTypeAttribute extends DropCompositeTypeChange
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("COLUMN"),
       `${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

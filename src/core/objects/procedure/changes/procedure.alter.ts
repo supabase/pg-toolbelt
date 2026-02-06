@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
@@ -54,16 +56,17 @@ export class AlterProcedureChangeOwner extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -85,18 +88,19 @@ export class AlterProcedureSetSecurity extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const security = this.securityDefiner
       ? "SECURITY DEFINER"
       : "SECURITY INVOKER"; // INVOKER is default; only emitted when changed via diff
 
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      security,
-    ].join(" ");
+      ctx.keyword(security),
+    );
   }
 }
 
@@ -136,19 +140,20 @@ export class AlterProcedureSetConfig extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
-    const head = [
-      "ALTER",
-      this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const head = ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION"),
       `${this.procedure.schema}.${this.procedure.name}`,
-    ].join(" ");
-    if (this.action === "reset_all") return `${head} RESET ALL`;
-    if (this.action === "reset") return `${head} RESET ${this.key}`;
+    );
+    if (this.action === "reset_all") return ctx.line(head, ctx.keyword("RESET ALL"));
+    if (this.action === "reset") return ctx.line(head, ctx.keyword("RESET"), this.key);
     const formatted = formatConfigValue(
       this.key as string,
       this.value as string,
     );
-    return `${head} SET ${this.key} TO ${formatted}`;
+    return ctx.line(head, ctx.keyword("SET"), this.key, ctx.keyword("TO"), formatted);
   }
 }
 
@@ -170,19 +175,20 @@ export class AlterProcedureSetVolatility extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const volMap: Record<string, string> = {
       i: "IMMUTABLE",
       s: "STABLE",
       v: "VOLATILE",
     };
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      volMap[this.volatility],
-    ].join(" ");
+      ctx.keyword(volMap[this.volatility]),
+    );
   }
 }
 
@@ -204,15 +210,16 @@ export class AlterProcedureSetStrictness extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const strictness = this.isStrict ? "STRICT" : "CALLED ON NULL INPUT";
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      strictness,
-    ].join(" ");
+      ctx.keyword(strictness),
+    );
   }
 }
 
@@ -234,15 +241,16 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const leak = this.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      leak,
-    ].join(" ");
+      ctx.keyword(leak),
+    );
   }
 }
 
@@ -264,19 +272,20 @@ export class AlterProcedureSetParallel extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const parallelMap: Record<string, string> = {
       u: "PARALLEL UNSAFE",
       s: "PARALLEL SAFE",
       r: "PARALLEL RESTRICTED",
     };
-    return [
-      "ALTER",
-      objectType,
+    return ctx.line(
+      ctx.keyword("ALTER"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}`,
-      parallelMap[this.parallelSafety],
-    ].join(" ");
+      ctx.keyword(parallelMap[this.parallelSafety]),
+    );
   }
 }
 

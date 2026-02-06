@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
@@ -50,88 +50,31 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE POLICY"];
-
-    // Add policy name
-    parts.push(this.policy.name);
-
-    // Add ON table
-    parts.push("ON", `${this.policy.schema}.${this.policy.table_name}`);
-
-    // Add AS RESTRICTIVE only if false (default is PERMISSIVE)
-    if (!this.policy.permissive) {
-      parts.push("AS RESTRICTIVE");
-    }
-
-    // Add FOR command
-    const commandMap: Record<string, string> = {
-      r: "FOR SELECT",
-      a: "FOR INSERT",
-      w: "FOR UPDATE",
-      d: "FOR DELETE",
-      "*": "FOR ALL",
-    };
-    // Default is FOR ALL; only print when not default
-    if (this.policy.command && this.policy.command !== "*") {
-      parts.push(commandMap[this.policy.command]);
-    }
-
-    // Add TO roles
-    // Default is TO PUBLIC; avoid printing explicit PUBLIC in CREATE
-    if (this.policy.roles && this.policy.roles.length > 0) {
-      const onlyPublic =
-        this.policy.roles.length === 1 &&
-        this.policy.roles[0].toLowerCase() === "public";
-      if (!onlyPublic) {
-        parts.push("TO", this.policy.roles.join(", "));
-      }
-    }
-
-    // Add USING expression
-    if (this.policy.using_expression) {
-      parts.push("USING", `(${this.policy.using_expression})`);
-    }
-
-    // Add WITH CHECK expression
-    if (this.policy.with_check_expression) {
-      parts.push("WITH CHECK", `(${this.policy.with_check_expression})`);
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [];
-    const head = [
-      formatter.keyword("CREATE"),
-      formatter.keyword("POLICY"),
+    const head = ctx.line(
+      ctx.keyword("CREATE"),
+      ctx.keyword("POLICY"),
       this.policy.name,
-      formatter.keyword("ON"),
+      ctx.keyword("ON"),
       `${this.policy.schema}.${this.policy.table_name}`,
-    ].join(" ");
+    );
     lines.push(head);
 
     if (!this.policy.permissive) {
-      lines.push(
-        `${formatter.keyword("AS")} ${formatter.keyword("RESTRICTIVE")}`,
-      );
+      lines.push(ctx.line(ctx.keyword("AS"), ctx.keyword("RESTRICTIVE")));
     }
 
     const commandMap: Record<string, string> = {
-      r: formatter.keyword("SELECT"),
-      a: formatter.keyword("INSERT"),
-      w: formatter.keyword("UPDATE"),
-      d: formatter.keyword("DELETE"),
-      "*": formatter.keyword("ALL"),
+      r: ctx.keyword("SELECT"),
+      a: ctx.keyword("INSERT"),
+      w: ctx.keyword("UPDATE"),
+      d: ctx.keyword("DELETE"),
+      "*": ctx.keyword("ALL"),
     };
     if (this.policy.command && this.policy.command !== "*") {
       lines.push(
-        `${formatter.keyword("FOR")} ${commandMap[this.policy.command]}`,
+        ctx.line(ctx.keyword("FOR"), commandMap[this.policy.command]),
       );
     }
 
@@ -140,22 +83,26 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
         this.policy.roles.length === 1 &&
         this.policy.roles[0].toLowerCase() === "public";
       if (!onlyPublic) {
-        lines.push(`${formatter.keyword("TO")} ${this.policy.roles.join(", ")}`);
+        lines.push(ctx.line(ctx.keyword("TO"), this.policy.roles.join(", ")));
       }
     }
 
     if (this.policy.using_expression) {
       lines.push(
-        `${formatter.keyword("USING")} (${this.policy.using_expression})`,
+        ctx.line(ctx.keyword("USING"), `(${this.policy.using_expression})`),
       );
     }
 
     if (this.policy.with_check_expression) {
       lines.push(
-        `${formatter.keyword("WITH")} ${formatter.keyword("CHECK")} (${this.policy.with_check_expression})`,
+        ctx.line(
+          ctx.keyword("WITH"),
+          ctx.keyword("CHECK"),
+          `(${this.policy.with_check_expression})`,
+        ),
       );
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

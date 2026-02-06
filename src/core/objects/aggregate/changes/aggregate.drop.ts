@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Aggregate } from "../aggregate.model.ts";
 import { DropAggregateChange } from "./aggregate.base.ts";
 
@@ -23,10 +25,14 @@ export class DropAggregate extends DropAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";
-    return `DROP AGGREGATE ${qualifiedName}${withArgs}`;
+    return ctx.line(
+      ctx.keyword("DROP AGGREGATE"),
+      `${qualifiedName}${withArgs}`,
+    );
   }
 }

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Rule } from "../rule.model.ts";
 import { CreateRuleChange } from "./rule.base.ts";
@@ -26,17 +27,8 @@ export class CreateRule extends CreateRuleChange {
     ];
   }
 
-  serialize(): string {
-    let definition = this.rule.definition.trim();
-
-    definition = definition.replace(
-      /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
-      `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
-    );
-
-    // Remove trailing semicolons (pg_get_ruledef includes them, but we add our own)
-    definition = definition.replace(/;+\s*$/, "");
-
-    return definition;
+  serialize(_options?: SerializeOptions): string {
+    // Preserve the server-generated definition as-is.
+    return this.rule.definition;
   }
 }

@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
@@ -64,78 +64,35 @@ export class CreateSequence extends CreateSequenceChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE SEQUENCE"];
-
-    // Add schema and name
-    parts.push(`${this.sequence.schema}.${this.sequence.name}`);
-
-    // Add data type if not default
-    if (this.sequence.data_type && this.sequence.data_type !== "bigint") {
-      parts.push("AS", this.sequence.data_type);
-    }
-
-    // Add INCREMENT
-    if (this.sequence.increment !== 1) {
-      parts.push("INCREMENT BY", this.sequence.increment.toString());
-    }
-
-    // Add MINVALUE if not default (1)
-    if (this.sequence.minimum_value !== BigInt(1)) {
-      parts.push("MINVALUE", this.sequence.minimum_value.toString());
-    }
-
-    // Add MAXVALUE if not default (depends on data type)
-    const defaultMaxValue =
-      this.sequence.data_type === "integer"
-        ? BigInt("2147483647")
-        : BigInt("9223372036854775807");
-    if (this.sequence.maximum_value !== defaultMaxValue) {
-      parts.push("MAXVALUE", this.sequence.maximum_value.toString());
-    }
-
-    // Add START
-    if (this.sequence.start_value !== 1) {
-      parts.push("START WITH", this.sequence.start_value.toString());
-    }
-
-    // Add CACHE
-    if (this.sequence.cache_size !== 1) {
-      parts.push("CACHE", this.sequence.cache_size.toString());
-    }
-
-    // Add CYCLE only if true (default is NO CYCLE)
-    if (this.sequence.cycle_option) {
-      parts.push("CYCLE");
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("SEQUENCE")} ${this.sequence.schema}.${this.sequence.name}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("SEQUENCE"),
+        `${this.sequence.schema}.${this.sequence.name}`,
+      ),
     ];
 
     if (this.sequence.data_type && this.sequence.data_type !== "bigint") {
-      lines.push(
-        `${formatter.keyword("AS")} ${this.sequence.data_type}`,
-      );
+      lines.push(ctx.line(ctx.keyword("AS"), this.sequence.data_type));
     }
 
     if (this.sequence.increment !== 1) {
       lines.push(
-        `${formatter.keyword("INCREMENT")} ${formatter.keyword("BY")} ${this.sequence.increment}`,
+        ctx.line(
+          ctx.keyword("INCREMENT"),
+          ctx.keyword("BY"),
+          this.sequence.increment.toString(),
+        ),
       );
     }
 
     if (this.sequence.minimum_value !== BigInt(1)) {
       lines.push(
-        `${formatter.keyword("MINVALUE")} ${this.sequence.minimum_value}`,
+        ctx.line(
+          ctx.keyword("MINVALUE"),
+          this.sequence.minimum_value.toString(),
+        ),
       );
     }
 
@@ -145,26 +102,36 @@ export class CreateSequence extends CreateSequenceChange {
         : BigInt("9223372036854775807");
     if (this.sequence.maximum_value !== defaultMaxValue) {
       lines.push(
-        `${formatter.keyword("MAXVALUE")} ${this.sequence.maximum_value}`,
+        ctx.line(
+          ctx.keyword("MAXVALUE"),
+          this.sequence.maximum_value.toString(),
+        ),
       );
     }
 
     if (this.sequence.start_value !== 1) {
       lines.push(
-        `${formatter.keyword("START")} ${formatter.keyword("WITH")} ${this.sequence.start_value}`,
+        ctx.line(
+          ctx.keyword("START"),
+          ctx.keyword("WITH"),
+          this.sequence.start_value.toString(),
+        ),
       );
     }
 
     if (this.sequence.cache_size !== 1) {
       lines.push(
-        `${formatter.keyword("CACHE")} ${this.sequence.cache_size}`,
+        ctx.line(
+          ctx.keyword("CACHE"),
+          this.sequence.cache_size.toString(),
+        ),
       );
     }
 
     if (this.sequence.cycle_option) {
-      lines.push(formatter.keyword("CYCLE"));
+      lines.push(ctx.keyword("CYCLE"));
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

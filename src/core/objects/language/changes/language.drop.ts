@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Language } from "../language.model.ts";
 import { DropLanguageChange } from "./language.base.ts";
 
@@ -28,12 +30,13 @@ export class DropLanguage extends DropLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
-    const parts: string[] = ["DROP"];
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const parts: string[] = [ctx.keyword("DROP")];
 
     // Do not print optional keywords (e.g., PROCEDURAL). Keep the statement minimal.
-    parts.push("LANGUAGE", this.language.name);
+    parts.push(ctx.keyword("LANGUAGE"), this.language.name);
 
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }

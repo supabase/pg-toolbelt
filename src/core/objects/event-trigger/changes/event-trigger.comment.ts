@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
@@ -27,14 +29,15 @@ export class CreateCommentOnEventTrigger extends CreateEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON EVENT TRIGGER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON EVENT TRIGGER"),
       this.eventTrigger.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: comment creation implies non-null
       quoteLiteral(this.eventTrigger.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -58,9 +61,12 @@ export class DropCommentOnEventTrigger extends DropEventTriggerChange {
     ];
   }
 
-  serialize(): string {
-    return ["COMMENT ON EVENT TRIGGER", this.eventTrigger.name, "IS NULL"].join(
-      " ",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON EVENT TRIGGER"),
+      this.eventTrigger.name,
+      ctx.keyword("IS NULL"),
     );
   }
 }

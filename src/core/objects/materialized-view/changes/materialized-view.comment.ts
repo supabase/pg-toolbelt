@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -36,14 +38,15 @@ export class CreateCommentOnMaterializedView extends CreateMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON MATERIALIZED VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON MATERIALIZED VIEW"),
       `${this.materializedView.schema}.${this.materializedView.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: mv comment is not nullable in this case
       quoteLiteral(this.materializedView.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -67,12 +70,13 @@ export class DropCommentOnMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON MATERIALIZED VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON MATERIALIZED VIEW"),
       `${this.materializedView.schema}.${this.materializedView.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }
 
@@ -112,14 +116,15 @@ export class CreateCommentOnMaterializedViewColumn extends CreateMaterializedVie
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON COLUMN"),
       `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
       quoteLiteral(this.column.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -166,11 +171,12 @@ export class DropCommentOnMaterializedViewColumn extends DropMaterializedViewCha
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON COLUMN"),
       `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import {
@@ -31,14 +33,17 @@ export class CreateCommentOnForeignTable extends CreateForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
       quoteLiteral(this.foreignTable.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -62,11 +67,14 @@ export class DropCommentOnForeignTable extends DropForeignTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

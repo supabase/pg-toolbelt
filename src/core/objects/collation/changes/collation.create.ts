@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
@@ -51,88 +51,32 @@ export class CreateCollation extends CreateCollationChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE COLLATION"];
-
-    // Add schema and name (already quoted in model extraction)
-    parts.push(`${this.collation.schema}.${this.collation.name}`);
-
-    // Add properties
-    const properties: string[] = [];
-
-    // LOCALE
-    if (this.collation.locale) {
-      properties.push(`LOCALE = ${quoteLiteral(this.collation.locale)}`);
-    }
-
-    // LC_COLLATE
-    if (this.collation.collate) {
-      properties.push(`LC_COLLATE = ${quoteLiteral(this.collation.collate)}`);
-    }
-
-    // LC_CTYPE
-    if (this.collation.ctype) {
-      properties.push(`LC_CTYPE = ${quoteLiteral(this.collation.ctype)}`);
-    }
-
-    // PROVIDER
-    const providerMap: Record<string, string> = {
-      c: "libc",
-      i: "icu",
-      b: "builtin",
-    };
-    // provider 'd' means default provider in catalog; omit PROVIDER clause
-    if (this.collation.provider !== "d") {
-      properties.push(`PROVIDER = ${providerMap[this.collation.provider]}`);
-    }
-
-    // DETERMINISTIC
-    // DETERMINISTIC (only emit when false; true is default in PG)
-    if (this.collation.is_deterministic === false) {
-      properties.push(`DETERMINISTIC = false`);
-    }
-
-    // RULES (ICU rules)
-    if (this.collation.icu_rules) {
-      properties.push(`RULES = ${quoteLiteral(this.collation.icu_rules)}`);
-    }
-
-    // VERSION
-    if (this.collation.version) {
-      properties.push(`VERSION = ${quoteLiteral(this.collation.version)}`);
-    }
-
-    parts.push(["(", properties.join(", "), ")"].join(""));
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("COLLATION")} ${this.collation.schema}.${this.collation.name}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("COLLATION"),
+        `${this.collation.schema}.${this.collation.name}`,
+      ),
     ];
 
     const properties: string[] = [];
 
     if (this.collation.locale) {
       properties.push(
-        `${formatter.keyword("LOCALE")} = ${quoteLiteral(this.collation.locale)}`,
+        `${ctx.keyword("LOCALE")} = ${quoteLiteral(this.collation.locale)}`,
       );
     }
 
     if (this.collation.collate) {
       properties.push(
-        `${formatter.keyword("LC_COLLATE")} = ${quoteLiteral(this.collation.collate)}`,
+        `${ctx.keyword("LC_COLLATE")} = ${quoteLiteral(this.collation.collate)}`,
       );
     }
 
     if (this.collation.ctype) {
       properties.push(
-        `${formatter.keyword("LC_CTYPE")} = ${quoteLiteral(this.collation.ctype)}`,
+        `${ctx.keyword("LC_CTYPE")} = ${quoteLiteral(this.collation.ctype)}`,
       );
     }
 
@@ -143,37 +87,33 @@ export class CreateCollation extends CreateCollationChange {
     };
     if (this.collation.provider !== "d") {
       properties.push(
-        `${formatter.keyword("PROVIDER")} = ${providerMap[this.collation.provider]}`,
+        `${ctx.keyword("PROVIDER")} = ${providerMap[this.collation.provider]}`,
       );
     }
 
     if (this.collation.is_deterministic === false) {
-      properties.push(
-        `${formatter.keyword("DETERMINISTIC")} = false`,
-      );
+      properties.push(`${ctx.keyword("DETERMINISTIC")} = false`);
     }
 
     if (this.collation.icu_rules) {
       properties.push(
-        `${formatter.keyword("RULES")} = ${quoteLiteral(this.collation.icu_rules)}`,
+        `${ctx.keyword("RULES")} = ${quoteLiteral(this.collation.icu_rules)}`,
       );
     }
 
     if (this.collation.version) {
       properties.push(
-        `${formatter.keyword("VERSION")} = ${quoteLiteral(this.collation.version)}`,
+        `${ctx.keyword("VERSION")} = ${quoteLiteral(this.collation.version)}`,
       );
     }
 
     if (properties.length > 0) {
-      const list = formatter.list(properties, 1);
-      lines.push(
-        formatter.parens(`${formatter.indent(1)}${list}`, true),
-      );
+      const list = ctx.list(properties, 1);
+      lines.push(ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty));
     } else {
       lines.push("()");
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

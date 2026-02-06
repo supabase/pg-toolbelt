@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
 import { CreateEnumChange, DropEnumChange } from "./enum.base.ts";
@@ -26,14 +28,17 @@ export class CreateCommentOnEnum extends CreateEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.enum.schema}.${this.enum.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: enum comment is not nullable in this case
       quoteLiteral(this.enum.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -54,11 +59,14 @@ export class DropCommentOnEnum extends DropEnumChange {
     return [stableId.comment(this.enum.stableId), this.enum.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.enum.schema}.${this.enum.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

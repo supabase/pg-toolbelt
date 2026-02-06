@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { AlterRangeChange } from "./range.base.ts";
 
@@ -34,13 +36,14 @@ export class AlterRangeChangeOwner extends AlterRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TYPE"),
       `${this.range.schema}.${this.range.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 

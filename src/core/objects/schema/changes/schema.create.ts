@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
@@ -34,38 +34,15 @@ export class CreateSchema extends CreateSchemaChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter, options);
-    }
-
-    const parts: string[] = ["CREATE SCHEMA"];
-
-    // Add schema name
-    parts.push(this.schema.name);
-
-    // Add AUTHORIZATION
-    if (!options?.skipAuthorization) {
-      parts.push("AUTHORIZATION", this.schema.owner);
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(
-    formatter: SqlFormatter,
-    options?: SerializeOptions,
-  ): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("SCHEMA")} ${this.schema.name}`,
+      ctx.line(ctx.keyword("CREATE"), ctx.keyword("SCHEMA"), this.schema.name),
     ];
 
     if (!options?.skipAuthorization) {
-      lines.push(
-        `${formatter.keyword("AUTHORIZATION")} ${this.schema.owner}`,
-      );
+      lines.push(ctx.line(ctx.keyword("AUTHORIZATION"), this.schema.owner));
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

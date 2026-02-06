@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
@@ -25,14 +27,15 @@ export class CreateCommentOnDomain extends CreateDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON DOMAIN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON DOMAIN"),
       `${this.domain.schema}.${this.domain.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: domain comment is not nullable in this case
       quoteLiteral(this.domain.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -49,11 +52,12 @@ export class DropCommentOnDomain extends DropDomainChange {
     return [stableId.comment(this.domain.stableId), this.domain.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON DOMAIN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON DOMAIN"),
       `${this.domain.schema}.${this.domain.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

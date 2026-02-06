@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
 import { AlterRoleChange } from "./role.base.ts";
@@ -56,9 +58,10 @@ export class AlterRoleSetOptions extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    const parts: string[] = ["ALTER ROLE", this.role.name];
-    return [...parts, "WITH", this.options.join(" ")].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const parts: string[] = [ctx.keyword("ALTER ROLE"), this.role.name];
+    return ctx.line(...parts, ctx.keyword("WITH"), this.options.join(" "));
   }
 }
 
@@ -93,18 +96,19 @@ export class AlterRoleSetConfig extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    const head = ["ALTER ROLE", this.role.name].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const head = ctx.line(ctx.keyword("ALTER ROLE"), this.role.name);
     if (this.action === "reset_all") {
-      return `${head} RESET ALL`;
+      return ctx.line(head, ctx.keyword("RESET ALL"));
     }
     if (this.action === "reset") {
-      return `${head} RESET ${this.key}`;
+      return ctx.line(head, ctx.keyword("RESET"), this.key);
     }
     const formatted = formatConfigValue(
       this.key as string,
       this.value as string,
     );
-    return `${head} SET ${this.key} TO ${formatted}`;
+    return ctx.line(head, ctx.keyword("SET"), this.key, ctx.keyword("TO"), formatted);
   }
 }

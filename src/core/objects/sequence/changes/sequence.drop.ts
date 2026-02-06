@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { DropSequenceChange } from "./sequence.base.ts";
 
@@ -28,10 +30,11 @@ export class DropSequence extends DropSequenceChange {
     return [this.sequence.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP SEQUENCE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP SEQUENCE"),
       `${this.sequence.schema}.${this.sequence.name}`,
-    ].join(" ");
+    );
   }
 }

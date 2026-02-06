@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
@@ -40,43 +40,16 @@ export class CreateUserMapping extends CreateUserMappingChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE USER MAPPING FOR"];
-
-    // Add user (can be CURRENT_USER, PUBLIC, etc.)
-    parts.push(this.userMapping.user);
-
-    // Add SERVER clause
-    parts.push("SERVER", this.userMapping.server);
-
-    // Add OPTIONS clause
-    if (this.userMapping.options && this.userMapping.options.length > 0) {
-      const optionPairs: string[] = [];
-      for (let i = 0; i < this.userMapping.options.length; i += 2) {
-        if (i + 1 < this.userMapping.options.length) {
-          optionPairs.push(
-            `${this.userMapping.options[i]} ${quoteLiteral(this.userMapping.options[i + 1])}`,
-          );
-        }
-      }
-      if (optionPairs.length > 0) {
-        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
-      }
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword(
-        "USER",
-      )} ${formatter.keyword("MAPPING")} ${formatter.keyword("FOR")} ${this.userMapping.user}`,
-      `${formatter.keyword("SERVER")} ${this.userMapping.server}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("USER"),
+        ctx.keyword("MAPPING"),
+        ctx.keyword("FOR"),
+        this.userMapping.user,
+      ),
+      ctx.line(ctx.keyword("SERVER"), this.userMapping.server),
     ];
 
     if (this.userMapping.options && this.userMapping.options.length > 0) {
@@ -89,16 +62,16 @@ export class CreateUserMapping extends CreateUserMappingChange {
         }
       }
       if (optionPairs.length > 0) {
-        const list = formatter.list(optionPairs, 1);
+        const list = ctx.list(optionPairs, 1);
         lines.push(
-          `${formatter.keyword("OPTIONS")} ${formatter.parens(
-            `${formatter.indent(1)}${list}`,
-            true,
-          )}`,
+          ctx.line(
+            ctx.keyword("OPTIONS"),
+            ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty),
+          ),
         );
       }
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

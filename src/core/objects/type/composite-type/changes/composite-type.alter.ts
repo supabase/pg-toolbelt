@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { AlterCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -42,13 +44,14 @@ export class AlterCompositeTypeChangeOwner extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -77,18 +80,19 @@ export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts = [
-      "ALTER TYPE",
+      ctx.keyword("ALTER TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "ADD ATTRIBUTE",
+      ctx.keyword("ADD ATTRIBUTE"),
       this.attribute.name,
       this.attribute.data_type_str,
     ];
     if (this.attribute.collation) {
-      parts.push("COLLATE", this.attribute.collation);
+      parts.push(ctx.keyword("COLLATE"), this.attribute.collation);
     }
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 
@@ -116,13 +120,14 @@ export class AlterCompositeTypeDropAttribute extends AlterCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "DROP ATTRIBUTE",
+      ctx.keyword("DROP ATTRIBUTE"),
       this.attribute.name,
-    ].join(" ");
+    );
   }
 }
 
@@ -150,19 +155,20 @@ export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChan
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts = [
-      "ALTER TYPE",
+      ctx.keyword("ALTER TYPE"),
       `${this.compositeType.schema}.${this.compositeType.name}`,
-      "ALTER ATTRIBUTE",
+      ctx.keyword("ALTER ATTRIBUTE"),
       this.attribute.name,
-      "TYPE",
+      ctx.keyword("TYPE"),
       this.attribute.data_type_str,
     ];
     if (this.attribute.collation) {
-      parts.push("COLLATE", this.attribute.collation);
+      parts.push(ctx.keyword("COLLATE"), this.attribute.collation);
     }
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 

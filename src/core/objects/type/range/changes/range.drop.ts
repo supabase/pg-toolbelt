@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { DropRangeChange } from "./range.base.ts";
 
@@ -28,7 +30,11 @@ export class DropRange extends DropRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return ["DROP TYPE", `${this.range.schema}.${this.range.name}`].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP TYPE"),
+      `${this.range.schema}.${this.range.name}`,
+    );
   }
 }

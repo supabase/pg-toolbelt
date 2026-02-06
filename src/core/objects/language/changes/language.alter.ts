@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Language } from "../language.model.ts";
 import { AlterLanguageChange } from "./language.base.ts";
 
@@ -33,16 +35,22 @@ export class AlterLanguageChangeOwner extends AlterLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
-    const parts: string[] = ["ALTER"];
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const parts: string[] = [ctx.keyword("ALTER")];
 
     // Do not print the optional PROCEDURAL keyword.
     // It is syntactic noise and the default for procedural languages,
     // so we purposely omit it to avoid emitting defaults.
 
-    parts.push("LANGUAGE", this.language.name, "OWNER TO", this.owner);
+    parts.push(
+      ctx.keyword("LANGUAGE"),
+      this.language.name,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
 
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 

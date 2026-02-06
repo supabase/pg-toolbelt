@@ -1,4 +1,5 @@
 import type { TableLikeObject } from "../../base.model.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { AlterTriggerChange } from "./trigger.base.ts";
 import { CreateTrigger } from "./trigger.create.ts";
@@ -38,13 +39,13 @@ export class ReplaceTrigger extends AlterTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
     const createChange = new CreateTrigger({
       trigger: this.trigger,
       indexableObject: this.indexableObject,
       orReplace: true,
     });
 
-    return createChange.serialize();
+    return createChange.serialize(options);
   }
 }

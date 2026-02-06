@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { DropTriggerChange } from "./trigger.base.ts";
 
@@ -28,12 +30,13 @@ export class DropTrigger extends DropTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP TRIGGER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP TRIGGER"),
       this.trigger.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.trigger.schema}.${this.trigger.table_name}`,
-    ].join(" ");
+    );
   }
 }

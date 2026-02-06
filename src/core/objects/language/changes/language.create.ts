@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
@@ -74,76 +74,38 @@ export class CreateLanguage extends CreateLanguageChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = [`CREATE${this.orReplace ? " OR REPLACE" : ""}`];
-
-    // Only include non-default flags. We never print the optional
-    // PROCEDURAL keyword or any defaults.
-
-    // TRUSTED keyword (default is untrusted -> omitted unless true)
-    if (this.language.is_trusted) {
-      parts.push("TRUSTED");
-    }
-
-    parts.push("LANGUAGE", this.language.name);
-
-    // HANDLER (omit when null)
-    if (this.language.call_handler) {
-      parts.push("HANDLER", this.language.call_handler);
-    }
-
-    // INLINE (omit when null)
-    if (this.language.inline_handler) {
-      parts.push("INLINE", this.language.inline_handler);
-    }
-
-    // VALIDATOR (omit when null)
-    if (this.language.validator) {
-      parts.push("VALIDATOR", this.language.validator);
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const headTokens: string[] = [formatter.keyword("CREATE")];
+    const ctx = createFormatContext(options?.format);
+    const headTokens: string[] = [ctx.keyword("CREATE")];
     if (this.orReplace) {
-      headTokens.push(
-        formatter.keyword("OR"),
-        formatter.keyword("REPLACE"),
-      );
+      headTokens.push(ctx.keyword("OR"), ctx.keyword("REPLACE"));
     }
 
     if (this.language.is_trusted) {
-      headTokens.push(formatter.keyword("TRUSTED"));
+      headTokens.push(ctx.keyword("TRUSTED"));
     }
 
-    headTokens.push(formatter.keyword("LANGUAGE"), this.language.name);
+    headTokens.push(ctx.keyword("LANGUAGE"), this.language.name);
 
     const lines: string[] = [headTokens.join(" ")];
 
     if (this.language.call_handler) {
       lines.push(
-        `${formatter.keyword("HANDLER")} ${this.language.call_handler}`,
+        ctx.line(ctx.keyword("HANDLER"), this.language.call_handler),
       );
     }
 
     if (this.language.inline_handler) {
       lines.push(
-        `${formatter.keyword("INLINE")} ${this.language.inline_handler}`,
+        ctx.line(ctx.keyword("INLINE"), this.language.inline_handler),
       );
     }
 
     if (this.language.validator) {
       lines.push(
-        `${formatter.keyword("VALIDATOR")} ${this.language.validator}`,
+        ctx.line(ctx.keyword("VALIDATOR"), this.language.validator),
       );
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

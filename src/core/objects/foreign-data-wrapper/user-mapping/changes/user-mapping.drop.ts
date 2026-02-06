@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { DropUserMappingChange } from "./user-mapping.base.ts";
 
@@ -29,12 +31,13 @@ export class DropUserMapping extends DropUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP USER MAPPING FOR",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP USER MAPPING FOR"),
       this.userMapping.user,
-      "SERVER",
+      ctx.keyword("SERVER"),
       this.userMapping.server,
-    ].join(" ");
+    );
   }
 }

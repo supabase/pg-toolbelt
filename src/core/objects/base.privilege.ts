@@ -110,7 +110,7 @@ function isFullObjectPrivilegeSet(
   list: string[],
   version: number | undefined,
 ): boolean {
-  const uniqSorted = [...new Set(list)].sort();
+  const uniqSorted = [...new Set(list.map((item) => item.toUpperCase()))].sort();
   const fullSorted = [...objectPrivilegeUniverse(kind, version)].sort();
   if (uniqSorted.length !== fullSorted.length) return false;
   for (let i = 0; i < uniqSorted.length; i++) {
@@ -126,17 +126,23 @@ function isFullObjectPrivilegeSet(
  * @param kind - The PostgreSQL object kind
  * @param list - Array of privilege names to format
  * @param version - The PostgreSQL version number
+ * @param keyword - Optional keyword case function (e.g. ctx.keyword) to apply to output
  * @returns A SQL-formatted privilege list (either "ALL" or "PRIV1, PRIV2, ...")
  */
 export function formatObjectPrivilegeList(
   kind: string,
   list: string[],
   version: number | undefined,
+  keyword?: (kw: string) => string,
 ): string {
-  const uniqSorted = [...new Set(list)].sort();
-  return isFullObjectPrivilegeSet(kind, uniqSorted, version)
-    ? "ALL"
-    : uniqSorted.join(", ");
+  const uniqSorted = [...new Set(list)].sort((a, b) =>
+    a.toUpperCase().localeCompare(b.toUpperCase()),
+  );
+  if (isFullObjectPrivilegeSet(kind, uniqSorted, version)) {
+    return keyword ? keyword("ALL") : "ALL";
+  }
+  const output = keyword ? uniqSorted.map((item) => keyword(item)) : uniqSorted;
+  return output.join(", ");
 }
 
 /**

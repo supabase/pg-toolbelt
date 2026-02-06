@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Subscription } from "../subscription.model.ts";
 import { DropSubscriptionChange } from "./subscription.base.ts";
 
@@ -14,7 +16,8 @@ export class DropSubscription extends DropSubscriptionChange {
     return [this.subscription.stableId];
   }
 
-  serialize(): string {
-    return `DROP SUBSCRIPTION ${this.subscription.name}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(ctx.keyword("DROP SUBSCRIPTION"), this.subscription.name);
   }
 }

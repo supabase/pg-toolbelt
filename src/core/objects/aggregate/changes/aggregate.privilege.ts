@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -39,7 +41,8 @@ export class GrantAggregatePrivileges extends AlterAggregateChange {
     return [this.aggregate.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -47,14 +50,22 @@ export class GrantAggregatePrivileges extends AlterAggregateChange {
         "GrantAggregatePrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("FUNCTION"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
+    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version, ctx.keyword);
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const signature = this.aggregate.identityArguments;
     const qualified = `${aggregateName}(${signature})`;
-    return `GRANT ${privSql} ${kindPrefix} ${qualified} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      kindPrefix,
+      qualified,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -92,14 +103,22 @@ export class RevokeAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("FUNCTION"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
+    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version, ctx.keyword);
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const signature = this.aggregate.identityArguments;
     const qualified = `${aggregateName}(${signature})`;
-    return `REVOKE ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      kindPrefix,
+      qualified,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -131,16 +150,25 @@ export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("FUNCTION"));
     const privSql = formatObjectPrivilegeList(
       "FUNCTION",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const signature = this.aggregate.identityArguments;
     const qualified = `${aggregateName}(${signature})`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      privSql,
+      kindPrefix,
+      qualified,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

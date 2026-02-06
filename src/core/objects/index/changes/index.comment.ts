@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
@@ -25,14 +27,15 @@ export class CreateCommentOnIndex extends CreateIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON INDEX",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON INDEX"),
       `${this.index.schema}.${this.index.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: index comment is not nullable here
       quoteLiteral(this.index.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -53,11 +56,12 @@ export class DropCommentOnIndex extends DropIndexChange {
     return [stableId.comment(this.index.stableId), this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON INDEX",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON INDEX"),
       `${this.index.schema}.${this.index.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

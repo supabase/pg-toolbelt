@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { AlterUserMappingChange } from "./user-mapping.base.ts";
 
@@ -46,24 +48,25 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
-        optionParts.push(`DROP ${opt.option}`);
+        optionParts.push(`${ctx.keyword("DROP")} ${opt.option}`);
       } else {
         const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`);
+        optionParts.push(`${ctx.keyword(opt.action)} ${opt.option} ${value}`);
       }
     }
 
-    return [
-      "ALTER USER MAPPING FOR",
+    return ctx.line(
+      ctx.keyword("ALTER USER MAPPING FOR"),
       this.userMapping.user,
-      "SERVER",
+      ctx.keyword("SERVER"),
       this.userMapping.server,
-      "OPTIONS",
+      ctx.keyword("OPTIONS"),
       `(${optionParts.join(", ")})`,
-    ].join(" ");
+    );
   }
 }

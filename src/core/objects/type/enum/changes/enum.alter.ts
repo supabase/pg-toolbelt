@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Enum } from "../enum.model.ts";
 import { AlterEnumChange } from "./enum.base.ts";
 
@@ -36,13 +38,14 @@ export class AlterEnumChangeOwner extends AlterEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER TYPE"),
       `${this.enum.schema}.${this.enum.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -70,21 +73,22 @@ export class AlterEnumAddValue extends AlterEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts = [
-      "ALTER TYPE",
+      ctx.keyword("ALTER TYPE"),
       `${this.enum.schema}.${this.enum.name}`,
-      "ADD VALUE",
+      ctx.keyword("ADD VALUE"),
       quoteLiteral(this.newValue),
     ];
 
     if (this.position?.before) {
-      parts.push("BEFORE", quoteLiteral(this.position.before));
+      parts.push(ctx.keyword("BEFORE"), quoteLiteral(this.position.before));
     } else if (this.position?.after) {
-      parts.push("AFTER", quoteLiteral(this.position.after));
+      parts.push(ctx.keyword("AFTER"), quoteLiteral(this.position.after));
     }
 
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 

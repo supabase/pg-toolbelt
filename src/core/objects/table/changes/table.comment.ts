@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -49,14 +51,15 @@ export class CreateCommentOnTable extends CreateTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: table comment is not nullable in this case
       quoteLiteral(this.table.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -80,12 +83,13 @@ export class DropCommentOnTable extends DropTableChange {
     return [stableId.comment(this.table.stableId), this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON TABLE"),
       `${this.table.schema}.${this.table.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }
 
@@ -118,14 +122,15 @@ export class CreateCommentOnColumn extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON COLUMN"),
       `${this.table.schema}.${this.table.name}.${this.column.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
       quoteLiteral(this.column.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -161,12 +166,13 @@ export class DropCommentOnColumn extends DropTableChange {
     return [stableId.comment(columnStableId), columnStableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON COLUMN"),
       `${this.table.schema}.${this.table.name}.${this.column.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }
 
@@ -206,16 +212,17 @@ export class CreateCommentOnConstraint extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON CONSTRAINT",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON CONSTRAINT"),
       this.constraint.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.table.schema}.${this.table.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: constraint comment is not nullable in this case
       quoteLiteral(this.constraint.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -254,13 +261,14 @@ export class DropCommentOnConstraint extends DropTableChange {
     return [stableId.comment(constraintStableId), constraintStableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON CONSTRAINT",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON CONSTRAINT"),
       this.constraint.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.table.schema}.${this.table.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

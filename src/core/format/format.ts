@@ -40,13 +40,67 @@ export class SqlFormatter {
     const indentStr = this.indent(indent);
 
     if (this.options.commaStyle === "leading") {
+      if (items.length === 1) return items[0];
+      const prefix = ", ";
+      const pad = " ".repeat(prefix.length);
       const leading = items.map((item, index) =>
-        index === 0 ? item : `, ${item}`,
+        index === 0 ? `${pad}${item}` : `${prefix}${item}`,
       );
       return leading.join(`\n${indentStr}`);
     }
 
     return items.join(`,\n${indentStr}`);
+  }
+
+  private wrapLine(text: string): string {
+    const width = this.options.lineWidth;
+    if (!width || width <= 0) return text;
+    if (text.length <= width) return text;
+
+    if (text.includes("\n")) {
+      return text
+        .split("\n")
+        .map((lineText) => this.wrapLine(lineText))
+        .join("\n");
+    }
+
+    const leading = text.match(/^\s*/)?.[0] ?? "";
+    const continuationIndent = leading + this.indent(1);
+    const words = text.trim().split(/\s+/);
+    if (words.length <= 1) return text;
+
+    const lines: string[] = [];
+    let current = leading;
+    let currentLen = leading.length;
+
+    for (const word of words) {
+      const sep = current.trim().length === 0 ? "" : " ";
+      if (
+        current.trim().length > 0 &&
+        currentLen + sep.length + word.length > width
+      ) {
+        lines.push(current);
+        current = `${continuationIndent}${word}`;
+        currentLen = continuationIndent.length + word.length;
+        continue;
+      }
+
+      current += `${sep}${word}`;
+      currentLen += sep.length + word.length;
+    }
+
+    if (current) lines.push(current);
+    return lines.join("\n");
+  }
+
+  /**
+   * Join parts into a single line and wrap to lineWidth when needed.
+   */
+  line(...parts: Array<string | null | undefined>): string {
+    const filtered = parts.filter(
+      (part) => part !== undefined && part !== null && part !== "",
+    ) as string[];
+    return this.wrapLine(filtered.join(" "));
   }
 
   /** Wrap content in parentheses, optionally multi-line. */
@@ -80,10 +134,6 @@ export class SqlFormatter {
     };
 
     return normalized.map((row) => {
-      if (!this.options.alignColumns) {
-        return row.join(" ");
-      }
-
       const lastIndex = row.length - 1;
       if (lastIndex < 0) return "";
 
@@ -91,7 +141,10 @@ export class SqlFormatter {
       for (let i = 0; i <= lastIndex; i += 1) {
         const value = row[i];
         if (i < lastIndex) {
-          parts.push(value.padEnd(widths[i]));
+          const padded = this.options.alignColumns
+            ? value.padEnd(widths[i])
+            : value;
+          parts.push(padded);
           parts.push(joiner(i));
         } else {
           parts.push(value);

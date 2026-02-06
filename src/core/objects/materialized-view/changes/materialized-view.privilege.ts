@@ -2,6 +2,8 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
@@ -58,7 +60,8 @@ export class GrantMaterializedViewPrivileges extends AlterMaterializedViewChange
     return [this.materializedView.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -66,20 +69,29 @@ export class GrantMaterializedViewPrivileges extends AlterMaterializedViewChange
         "GrantMaterializedViewPrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("MATERIALIZED VIEW"));
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
       "MATERIALIZED VIEW",
       list,
       this.version,
+      ctx.keyword,
     );
     const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
 
     // Add column list if present
     const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
 
-    return `GRANT ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      `${privSql}${columnClause}`,
+      kindPrefix,
+      materializedViewName,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -138,20 +150,29 @@ export class RevokeMaterializedViewPrivileges extends AlterMaterializedViewChang
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("MATERIALIZED VIEW"));
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
       "MATERIALIZED VIEW",
       list,
       this.version,
+      ctx.keyword,
     );
     const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
 
     // Add column list if present
     const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
 
-    return `REVOKE ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      `${privSql}${columnClause}`,
+      kindPrefix,
+      materializedViewName,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -195,18 +216,27 @@ export class RevokeGrantOptionMaterializedViewPrivileges extends AlterMaterializ
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("MATERIALIZED VIEW"));
     const privSql = formatObjectPrivilegeList(
       "MATERIALIZED VIEW",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
     const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
 
     // Add column list if present
     const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
 
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      `${privSql}${columnClause}`,
+      kindPrefix,
+      materializedViewName,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

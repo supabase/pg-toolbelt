@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -30,14 +32,15 @@ export class CreateCommentOnExtension extends CreateExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON EXTENSION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON EXTENSION"),
       this.extension.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: extension comment is not nullable here
       quoteLiteral(this.extension.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -58,7 +61,12 @@ export class DropCommentOnExtension extends DropExtensionChange {
     return [stableId.comment(this.extension.stableId), this.extension.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON EXTENSION", this.extension.name, "IS NULL"].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON EXTENSION"),
+      this.extension.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

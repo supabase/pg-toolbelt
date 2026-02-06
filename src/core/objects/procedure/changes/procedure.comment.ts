@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
@@ -30,15 +32,17 @@ export class CreateCommentOnProcedure extends CreateProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON",
-      this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    return ctx.line(
+      ctx.keyword("COMMENT ON"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}(${(this.procedure.argument_types ?? []).join(",")})`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: procedure comment is not nullable in this case
       quoteLiteral(this.procedure.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -59,12 +63,14 @@ export class DropCommentOnProcedure extends DropProcedureChange {
     return [stableId.comment(this.procedure.stableId), this.procedure.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON",
-      this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+    return ctx.line(
+      ctx.keyword("COMMENT ON"),
+      ctx.keyword(objectType),
       `${this.procedure.schema}.${this.procedure.name}(${(this.procedure.argument_types ?? []).join(",")})`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

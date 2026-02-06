@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
@@ -65,44 +65,14 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE MATERIALIZED VIEW"];
-
-    // Add schema and name
-    parts.push(`${this.materializedView.schema}.${this.materializedView.name}`);
-
-    // Add storage parameters if specified
-    if (
-      this.materializedView.options &&
-      this.materializedView.options.length > 0
-    ) {
-      parts.push("WITH", `(${this.materializedView.options.join(", ")})`);
-    }
-
-    // Add AS query (definition is required)
-    parts.push("AS", this.materializedView.definition.trim());
-
-    // Add population clause to match the desired state
-    // PostgreSQL defaults to WITH NO DATA, but we need to be explicit to ensure
-    // the created view matches the expected is_populated state
-    if (this.materializedView.is_populated) {
-      parts.push("WITH DATA");
-    } else {
-      parts.push("WITH NO DATA");
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword(
-        "MATERIALIZED",
-      )} ${formatter.keyword("VIEW")} ${this.materializedView.schema}.${this.materializedView.name}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("MATERIALIZED"),
+        ctx.keyword("VIEW"),
+        `${this.materializedView.schema}.${this.materializedView.name}`,
+      ),
     ];
 
     if (
@@ -110,34 +80,33 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
       this.materializedView.options.length > 0
     ) {
       lines.push(
-        `${formatter.keyword("WITH")} (${this.materializedView.options.join(
-          ", ",
-        )})`,
+        ctx.line(
+          ctx.keyword("WITH"),
+          `(${this.materializedView.options.join(", ")})`,
+        ),
       );
     }
 
-    lines.push(formatter.keyword("AS"));
-
-    const definition = this.materializedView.definition.trim();
-    const indent = formatter.indent(1);
-    const indented = definition
-      .split("\n")
-      .map((line) => `${indent}${line}`)
-      .join("\n");
-    lines.push(indented);
+    const definition = this.materializedView.definition;
+    if (ctx.pretty) {
+      lines.push(ctx.keyword("AS"));
+      lines.push(definition);
+    } else {
+      lines.push(ctx.line(ctx.keyword("AS"), definition));
+    }
 
     if (this.materializedView.is_populated) {
-      lines.push(
-        `${formatter.keyword("WITH")} ${formatter.keyword("DATA")}`,
-      );
+      lines.push(ctx.line(ctx.keyword("WITH"), ctx.keyword("DATA")));
     } else {
       lines.push(
-        `${formatter.keyword("WITH")} ${formatter.keyword("NO")} ${formatter.keyword(
-          "DATA",
-        )}`,
+        ctx.line(
+          ctx.keyword("WITH"),
+          ctx.keyword("NO"),
+          ctx.keyword("DATA"),
+        ),
       );
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

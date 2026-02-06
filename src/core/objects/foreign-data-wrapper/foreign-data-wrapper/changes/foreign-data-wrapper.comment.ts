@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import {
@@ -31,14 +33,17 @@ export class CreateCommentOnForeignDataWrapper extends CreateForeignDataWrapperC
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN DATA WRAPPER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("FOREIGN DATA WRAPPER"),
       this.foreignDataWrapper.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
       quoteLiteral(this.foreignDataWrapper.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -62,11 +67,14 @@ export class DropCommentOnForeignDataWrapper extends DropForeignDataWrapperChang
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN DATA WRAPPER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("FOREIGN DATA WRAPPER"),
       this.foreignDataWrapper.name,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

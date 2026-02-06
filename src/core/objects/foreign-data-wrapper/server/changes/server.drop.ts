@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Server } from "../server.model.ts";
 import { DropServerChange } from "./server.base.ts";
 
@@ -28,7 +30,8 @@ export class DropServer extends DropServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
-    return ["DROP SERVER", this.server.name].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(ctx.keyword("DROP SERVER"), this.server.name);
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -53,13 +55,14 @@ export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER MATERIALIZED VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER MATERIALIZED VIEW"),
       `${this.materializedView.schema}.${this.materializedView.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -88,21 +91,31 @@ export class AlterMaterializedViewSetStorageParams extends AlterMaterializedView
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
-    const head = [
-      "ALTER MATERIALIZED VIEW",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const head = ctx.line(
+      ctx.keyword("ALTER MATERIALIZED VIEW"),
       `${this.materializedView.schema}.${this.materializedView.name}`,
-    ].join(" ");
+    );
 
     const statements: string[] = [];
     if (this.keysToReset.length > 0) {
-      statements.push(`${head} RESET (${this.keysToReset.join(", ")})`);
+      statements.push(
+        `${head} ${ctx.keyword("RESET")} (${this.keysToReset.join(", ")})`,
+      );
     }
     if (this.paramsToSet.length > 0) {
-      statements.push(`${head} SET (${this.paramsToSet.join(", ")})`);
+      statements.push(
+        `${head} ${ctx.keyword("SET")} (${this.paramsToSet.join(", ")})`,
+      );
     }
 
-    return statements.join(";\n");
+    if (statements.length <= 1) {
+      return statements[0] ?? "";
+    }
+
+    const [first, ...rest] = statements;
+    return ctx.joinLines([`${first};`, ...rest]);
   }
 }
 

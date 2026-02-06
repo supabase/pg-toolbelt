@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -52,7 +54,8 @@ export class GrantLanguagePrivileges extends AlterLanguageChange {
     return [this.language.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -60,11 +63,19 @@ export class GrantLanguagePrivileges extends AlterLanguageChange {
         "GrantLanguagePrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("LANGUAGE");
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("LANGUAGE"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    return `GRANT ${privSql} ${kindPrefix} ${this.language.name} TO ${this.grantee}${withGrant}`;
+    const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version, ctx.keyword);
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      kindPrefix,
+      this.language.name,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -117,11 +128,19 @@ export class RevokeLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("LANGUAGE");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("LANGUAGE"));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    return `REVOKE ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
+    const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version, ctx.keyword);
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      kindPrefix,
+      this.language.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -160,13 +179,22 @@ export class RevokeGrantOptionLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
-    const kindPrefix = getObjectKindPrefix("LANGUAGE");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix("LANGUAGE"));
     const privSql = formatObjectPrivilegeList(
       "LANGUAGE",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      privSql,
+      kindPrefix,
+      this.language.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

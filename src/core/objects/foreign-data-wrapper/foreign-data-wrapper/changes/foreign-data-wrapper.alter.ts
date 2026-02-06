@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { AlterForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
@@ -41,13 +43,14 @@ export class AlterForeignDataWrapperChangeOwner extends AlterForeignDataWrapperC
     return [this.foreignDataWrapper.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN DATA WRAPPER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN DATA WRAPPER"),
       this.foreignDataWrapper.name,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -80,22 +83,23 @@ export class AlterForeignDataWrapperSetOptions extends AlterForeignDataWrapperCh
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
-        optionParts.push(`DROP ${opt.option}`);
+        optionParts.push(`${ctx.keyword("DROP")} ${opt.option}`);
       } else {
         const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`);
+        optionParts.push(`${ctx.keyword(opt.action)} ${opt.option} ${value}`);
       }
     }
 
-    return [
-      "ALTER FOREIGN DATA WRAPPER",
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN DATA WRAPPER"),
       this.foreignDataWrapper.name,
-      "OPTIONS",
+      ctx.keyword("OPTIONS"),
       `(${optionParts.join(", ")})`,
-    ].join(" ");
+    );
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Aggregate } from "../aggregate.model.ts";
@@ -27,12 +29,18 @@ export class CreateCommentOnAggregate extends CreateAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";
     // biome-ignore lint/style/noNonNullAssertion: aggregate comment is non-null in this branch
-    return `COMMENT ON AGGREGATE ${qualifiedName}${withArgs} IS ${quoteLiteral(this.aggregate.comment!)}`;
+    return ctx.line(
+      ctx.keyword("COMMENT ON AGGREGATE"),
+      `${qualifiedName}${withArgs}`,
+      ctx.keyword("IS"),
+      quoteLiteral(this.aggregate.comment!),
+    );
   }
 }
 
@@ -53,10 +61,15 @@ export class DropCommentOnAggregate extends DropAggregateChange {
     return [stableId.comment(this.aggregate.stableId), this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";
-    return `COMMENT ON AGGREGATE ${qualifiedName}${withArgs} IS NULL`;
+    return ctx.line(
+      ctx.keyword("COMMENT ON AGGREGATE"),
+      `${qualifiedName}${withArgs}`,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

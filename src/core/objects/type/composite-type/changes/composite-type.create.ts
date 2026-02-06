@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { isUserDefinedTypeSchema, stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
@@ -68,64 +68,32 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
+    const ctx = createFormatContext(options?.format);
 
-    const parts: string[] = ["CREATE TYPE"];
-
-    // Add schema and name
-    parts.push(`${this.compositeType.schema}.${this.compositeType.name}`);
-
-    // Add AS keyword
-    parts.push("AS");
-
-    parts.push(
-      `(${this.compositeType.columns
-        .map((column) => {
-          const tokens: string[] = [];
-          // attribute name and data type
-          tokens.push(column.name);
-          tokens.push(column.data_type_str);
-          // Collation (only when non-default, already filtered by extractor)
-          if (column.collation) {
-            tokens.push("COLLATE", column.collation);
-          }
-          return tokens.join(" ");
-        })
-        .join(", ")})`,
+    const head = ctx.line(
+      ctx.keyword("CREATE"),
+      ctx.keyword("TYPE"),
+      `${this.compositeType.schema}.${this.compositeType.name}`,
+      ctx.keyword("AS"),
     );
 
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const head = [
-      formatter.keyword("CREATE"),
-      formatter.keyword("TYPE"),
-      `${this.compositeType.schema}.${this.compositeType.name}`,
-      formatter.keyword("AS"),
-    ].join(" ");
-
-    const attributes = this.compositeType.columns.map((column) => {
+    const attributeRows = this.compositeType.columns.map((column) => {
       const tokens: string[] = [column.name, column.data_type_str];
       if (column.collation) {
-        tokens.push(formatter.keyword("COLLATE"), column.collation);
+        tokens.push(ctx.keyword("COLLATE"), column.collation);
       }
-      return tokens.join(" ");
+      return tokens;
     });
+    const attributes = ctx.alignColumns(attributeRows);
 
-    if (attributes.length === 0) {
-      return `${head} ()`;
-    }
+    const body =
+      attributes.length === 0
+        ? "()"
+        : ctx.parens(
+            `${ctx.indent(1)}${ctx.list(attributes, 1)}`,
+            ctx.pretty,
+          );
 
-    const list = formatter.list(attributes, 1);
-    const body = formatter.parens(
-      `${formatter.indent(1)}${list}`,
-      true,
-    );
-
-    return `${head} ${body}`;
+    return ctx.line(head, body);
   }
 }

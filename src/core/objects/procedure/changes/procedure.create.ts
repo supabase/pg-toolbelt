@@ -1,4 +1,5 @@
 import { parseTypeString, stableId } from "../../utils.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedureChange } from "./procedure.base.ts";
 
@@ -78,15 +79,8 @@ export class CreateProcedure extends CreateProcedureChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
-    // Use the server-generated CREATE statement for functions/procedures
-    // Normalize trailing semicolon and OR REPLACE clause according to flag
-    let definition = this.procedure.definition.trim();
-    definition = definition.replace(/;\s*$/, "");
-    definition = definition.replace(
-      /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
-      `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
-    );
-    return definition;
+  serialize(_options?: SerializeOptions): string {
+    // Use the server-generated CREATE statement as-is to preserve user code.
+    return this.procedure.definition;
   }
 }

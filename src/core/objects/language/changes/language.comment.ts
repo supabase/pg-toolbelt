@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
@@ -25,13 +27,14 @@ export class CreateCommentOnLanguage extends CreateLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON LANGUAGE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON LANGUAGE"),
       this.language.name,
-      "IS",
+      ctx.keyword("IS"),
       quoteLiteral(this.language.comment as string),
-    ].join(" ");
+    );
   }
 }
 
@@ -52,7 +55,12 @@ export class DropCommentOnLanguage extends DropLanguageChange {
     return [stableId.comment(this.language.stableId), this.language.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON LANGUAGE", this.language.name, "IS NULL"].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON LANGUAGE"),
+      this.language.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

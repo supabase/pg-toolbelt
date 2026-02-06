@@ -1,4 +1,6 @@
 import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
 import { AlterServerChange } from "./server.base.ts";
@@ -49,7 +51,8 @@ export class GrantServerPrivileges extends AlterServerChange {
     return [this.server.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -57,10 +60,18 @@ export class GrantServerPrivileges extends AlterServerChange {
         "GrantServerPrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("SERVER", list, this.version);
-    return `GRANT ${privSql} ON SERVER ${this.server.name} TO ${this.grantee}${withGrant}`;
+    const privSql = formatObjectPrivilegeList("SERVER", list, this.version, ctx.keyword);
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      ctx.keyword("ON SERVER"),
+      this.server.name,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -111,10 +122,18 @@ export class RevokeServerPrivileges extends AlterServerChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("SERVER", list, this.version);
-    return `REVOKE ${privSql} ON SERVER ${this.server.name} FROM ${this.grantee}`;
+    const privSql = formatObjectPrivilegeList("SERVER", list, this.version, ctx.keyword);
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      ctx.keyword("ON SERVER"),
+      this.server.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -153,12 +172,21 @@ export class RevokeGrantOptionServerPrivileges extends AlterServerChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const privSql = formatObjectPrivilegeList(
       "SERVER",
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
-    return `REVOKE GRANT OPTION FOR ${privSql} ON SERVER ${this.server.name} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      privSql,
+      ctx.keyword("ON SERVER"),
+      this.server.name,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

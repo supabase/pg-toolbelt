@@ -2,6 +2,8 @@ import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
@@ -53,7 +55,8 @@ export class GrantProcedurePrivileges extends AlterProcedureChange {
     return [this.procedure.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -61,16 +64,24 @@ export class GrantProcedurePrivileges extends AlterProcedureChange {
         "GrantProcedurePrivileges expects privileges with uniform grantable flag",
       );
     }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
+    const withGrant = hasGrantable ? ctx.keyword("WITH GRANT OPTION") : "";
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const kindPrefix = getObjectKindPrefix(objectKind);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix(objectKind));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList(objectKind, list, this.version);
+    const privSql = formatObjectPrivilegeList(objectKind, list, this.version, ctx.keyword);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
     // Always include parentheses for privilege statements, even for zero-argument procedures/functions
     const signature = `${procedureName}(${args})`;
-    return `GRANT ${privSql} ${kindPrefix} ${signature} TO ${this.grantee}${withGrant}`;
+    const head = ctx.line(
+      ctx.keyword("GRANT"),
+      privSql,
+      kindPrefix,
+      signature,
+      ctx.keyword("TO"),
+      this.grantee,
+    );
+    return withGrant ? `${head} ${withGrant}` : head;
   }
 }
 
@@ -123,16 +134,24 @@ export class RevokeProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const kindPrefix = getObjectKindPrefix(objectKind);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix(objectKind));
     const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList(objectKind, list, this.version);
+    const privSql = formatObjectPrivilegeList(objectKind, list, this.version, ctx.keyword);
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
     // Always include parentheses for privilege statements, even for zero-argument procedures/functions
     const signature = `${procedureName}(${args})`;
-    return `REVOKE ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE"),
+      privSql,
+      kindPrefix,
+      signature,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }
 
@@ -171,18 +190,27 @@ export class RevokeGrantOptionProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const kindPrefix = getObjectKindPrefix(objectKind);
+    const kindPrefix = ctx.keyword(getObjectKindPrefix(objectKind));
     const privSql = formatObjectPrivilegeList(
       objectKind,
       this.privilegeNames,
       this.version,
+      ctx.keyword,
     );
     const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
     const args = this.procedure.argument_types?.join(", ") ?? "";
     // Always include parentheses for privilege statements, even for zero-argument procedures/functions
     const signature = `${procedureName}(${args})`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
+    return ctx.line(
+      ctx.keyword("REVOKE GRANT OPTION FOR"),
+      privSql,
+      kindPrefix,
+      signature,
+      ctx.keyword("FROM"),
+      this.grantee,
+    );
   }
 }

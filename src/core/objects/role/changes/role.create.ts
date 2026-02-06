@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../format/index.ts";
+import { createFormatContext } from "../../../format/index.ts";
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange } from "./role.base.ts";
@@ -44,119 +44,60 @@ export class CreateRole extends CreateRoleChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE ROLE"];
-
-    // Add role name
-    parts.push(this.role.name);
-
-    // Add options (only non-default values)
-    const roleOptions: string[] = [];
-
-    // SUPERUSER (default is NOSUPERUSER)
-    if (this.role.is_superuser) {
-      roleOptions.push("SUPERUSER");
-    }
-
-    // CREATEDB (default is NOCREATEDB)
-    if (this.role.can_create_databases) {
-      roleOptions.push("CREATEDB");
-    }
-
-    // CREATEROLE (default is NOCREATEROLE)
-    if (this.role.can_create_roles) {
-      roleOptions.push("CREATEROLE");
-    }
-
-    // INHERIT (default is INHERIT, so only print if false)
-    if (!this.role.can_inherit) {
-      roleOptions.push("NOINHERIT");
-    }
-
-    // LOGIN (default is NOLOGIN)
-    if (this.role.can_login) {
-      roleOptions.push("LOGIN");
-    }
-
-    // REPLICATION (default is NOREPLICATION)
-    if (this.role.can_replicate) {
-      roleOptions.push("REPLICATION");
-    }
-
-    // BYPASSRLS (default is NOBYPASSRLS)
-    if (this.role.can_bypass_rls) {
-      roleOptions.push("BYPASSRLS");
-    }
-
-    // CONNECTION LIMIT
-    if (
-      this.role.connection_limit !== null &&
-      this.role.connection_limit !== -1
-    ) {
-      roleOptions.push(`CONNECTION LIMIT ${this.role.connection_limit}`);
-    }
-
-    if (roleOptions.length > 0) {
-      parts.push("WITH", roleOptions.join(" "));
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword("ROLE")} ${this.role.name}`,
+      ctx.line(ctx.keyword("CREATE"), ctx.keyword("ROLE"), this.role.name),
     ];
 
-    const options: string[] = [];
+    const roleOptions: string[] = [];
 
     if (this.role.is_superuser) {
-      options.push(formatter.keyword("SUPERUSER"));
+      roleOptions.push(ctx.keyword("SUPERUSER"));
     }
 
     if (this.role.can_create_databases) {
-      options.push(formatter.keyword("CREATEDB"));
+      roleOptions.push(ctx.keyword("CREATEDB"));
     }
 
     if (this.role.can_create_roles) {
-      options.push(formatter.keyword("CREATEROLE"));
+      roleOptions.push(ctx.keyword("CREATEROLE"));
     }
 
     if (!this.role.can_inherit) {
-      options.push(formatter.keyword("NOINHERIT"));
+      roleOptions.push(ctx.keyword("NOINHERIT"));
     }
 
     if (this.role.can_login) {
-      options.push(formatter.keyword("LOGIN"));
+      roleOptions.push(ctx.keyword("LOGIN"));
     }
 
     if (this.role.can_replicate) {
-      options.push(formatter.keyword("REPLICATION"));
+      roleOptions.push(ctx.keyword("REPLICATION"));
     }
 
     if (this.role.can_bypass_rls) {
-      options.push(formatter.keyword("BYPASSRLS"));
+      roleOptions.push(ctx.keyword("BYPASSRLS"));
     }
 
     if (
       this.role.connection_limit !== null &&
       this.role.connection_limit !== -1
     ) {
-      options.push(
-        `${formatter.keyword("CONNECTION")} ${formatter.keyword("LIMIT")} ${this.role.connection_limit}`,
+      roleOptions.push(
+        ctx.line(
+          ctx.keyword("CONNECTION"),
+          ctx.keyword("LIMIT"),
+          this.role.connection_limit.toString(),
+        ),
       );
     }
 
-    if (options.length > 0) {
-      lines.push(formatter.keyword("WITH"));
-      const indent = formatter.indent(1);
-      lines.push(...options.map((opt) => `${indent}${opt}`));
+    if (roleOptions.length > 0) {
+      lines.push(ctx.keyword("WITH"));
+      const prefix = ctx.pretty ? ctx.indent(1) : "";
+      lines.push(...roleOptions.map((opt) => `${prefix}${opt}`));
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

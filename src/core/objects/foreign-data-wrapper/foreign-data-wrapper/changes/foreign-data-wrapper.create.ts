@@ -1,4 +1,4 @@
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
@@ -55,74 +55,31 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
-    const parts: string[] = ["CREATE FOREIGN DATA WRAPPER"];
-
-    // Add FDW name
-    parts.push(this.foreignDataWrapper.name);
-
-    // Add HANDLER clause
-    if (this.foreignDataWrapper.handler) {
-      parts.push("HANDLER", this.foreignDataWrapper.handler);
-    } else {
-      parts.push("NO HANDLER");
-    }
-
-    // Add VALIDATOR clause
-    if (this.foreignDataWrapper.validator) {
-      parts.push("VALIDATOR", this.foreignDataWrapper.validator);
-    } else {
-      parts.push("NO VALIDATOR");
-    }
-
-    // Add OPTIONS clause
-    if (
-      this.foreignDataWrapper.options &&
-      this.foreignDataWrapper.options.length > 0
-    ) {
-      const optionPairs: string[] = [];
-      for (let i = 0; i < this.foreignDataWrapper.options.length; i += 2) {
-        if (i + 1 < this.foreignDataWrapper.options.length) {
-          optionPairs.push(
-            `${this.foreignDataWrapper.options[i]} ${quoteLiteral(this.foreignDataWrapper.options[i + 1])}`,
-          );
-        }
-      }
-      if (optionPairs.length > 0) {
-        parts.push(`OPTIONS (${optionPairs.join(", ")})`);
-      }
-    }
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
+    const ctx = createFormatContext(options?.format);
     const lines: string[] = [
-      `${formatter.keyword("CREATE")} ${formatter.keyword(
-        "FOREIGN",
-      )} ${formatter.keyword("DATA")} ${formatter.keyword("WRAPPER")} ${this.foreignDataWrapper.name}`,
+      ctx.line(
+        ctx.keyword("CREATE"),
+        ctx.keyword("FOREIGN"),
+        ctx.keyword("DATA"),
+        ctx.keyword("WRAPPER"),
+        this.foreignDataWrapper.name,
+      ),
     ];
 
     if (this.foreignDataWrapper.handler) {
       lines.push(
-        `${formatter.keyword("HANDLER")} ${this.foreignDataWrapper.handler}`,
+        ctx.line(ctx.keyword("HANDLER"), this.foreignDataWrapper.handler),
       );
     } else {
-      lines.push(`${formatter.keyword("NO")} ${formatter.keyword("HANDLER")}`);
+      lines.push(ctx.line(ctx.keyword("NO"), ctx.keyword("HANDLER")));
     }
 
     if (this.foreignDataWrapper.validator) {
       lines.push(
-        `${formatter.keyword("VALIDATOR")} ${this.foreignDataWrapper.validator}`,
+        ctx.line(ctx.keyword("VALIDATOR"), this.foreignDataWrapper.validator),
       );
     } else {
-      lines.push(
-        `${formatter.keyword("NO")} ${formatter.keyword("VALIDATOR")}`,
-      );
+      lines.push(ctx.line(ctx.keyword("NO"), ctx.keyword("VALIDATOR")));
     }
 
     if (
@@ -138,16 +95,16 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
         }
       }
       if (optionPairs.length > 0) {
-        const list = formatter.list(optionPairs, 1);
+        const list = ctx.list(optionPairs, 1);
         lines.push(
-          `${formatter.keyword("OPTIONS")} ${formatter.parens(
-            `${formatter.indent(1)}${list}`,
-            true,
-          )}`,
+          ctx.line(
+            ctx.keyword("OPTIONS"),
+            ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty),
+          ),
         );
       }
     }
 
-    return lines.join("\n");
+    return ctx.joinLines(lines);
   }
 }

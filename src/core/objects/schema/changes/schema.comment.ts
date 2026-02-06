@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
@@ -22,14 +24,15 @@ export class CreateCommentOnSchema extends CreateSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SCHEMA",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON SCHEMA"),
       this.schema.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: schema comment is not nullable in this case
       quoteLiteral(this.schema.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -50,7 +53,12 @@ export class DropCommentOnSchema extends DropSchemaChange {
     return [stableId.comment(this.schema.stableId), this.schema.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON SCHEMA", this.schema.name, "IS NULL"].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON SCHEMA"),
+      this.schema.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

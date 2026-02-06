@@ -1,5 +1,5 @@
 import { quoteLiteral } from "../../../base.change.ts";
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
@@ -41,46 +41,23 @@ export class CreateEnum extends CreateEnumChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
+    const ctx = createFormatContext(options?.format);
 
-    const parts: string[] = ["CREATE TYPE"];
-
-    // Add schema and name
-    parts.push(`${this.enum.schema}.${this.enum.name}`);
-
-    // Add AS ENUM
-    parts.push("AS ENUM");
-
-    // Add labels
-    const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
-    parts.push(`(${labels.join(", ")})`);
-
-    return parts.join(" ");
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const head = [
-      formatter.keyword("CREATE"),
-      formatter.keyword("TYPE"),
+    const head = ctx.line(
+      ctx.keyword("CREATE"),
+      ctx.keyword("TYPE"),
       `${this.enum.schema}.${this.enum.name}`,
-      formatter.keyword("AS"),
-      formatter.keyword("ENUM"),
-    ].join(" ");
-
-    const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
-    if (labels.length === 0) {
-      return `${head} ()`;
-    }
-
-    const list = formatter.list(labels, 1);
-    const body = formatter.parens(
-      `${formatter.indent(1)}${list}`,
-      true,
+      ctx.keyword("AS"),
+      ctx.keyword("ENUM"),
     );
 
-    return `${head} ${body}`;
+    const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
+    const list = ctx.list(labels, 1);
+    const body =
+      labels.length === 0
+        ? "()"
+        : ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty);
+
+    return ctx.line(head, body);
   }
 }

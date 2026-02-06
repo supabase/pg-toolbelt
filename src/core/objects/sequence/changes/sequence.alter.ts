@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { AlterSequenceChange } from "./sequence.base.ts";
@@ -58,19 +60,20 @@ export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const head = [
-      "ALTER SEQUENCE",
+      ctx.keyword("ALTER SEQUENCE"),
       `${this.sequence.schema}.${this.sequence.name}`,
     ];
     if (this.ownedBy) {
-      return [
+      return ctx.line(
         ...head,
-        "OWNED BY",
+        ctx.keyword("OWNED BY"),
         `${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
-      ].join(" ");
+      );
     }
-    return [...head, "OWNED BY NONE"].join(" ");
+    return ctx.line(...head, ctx.keyword("OWNED BY NONE"));
   }
 }
 
@@ -99,12 +102,13 @@ export class AlterSequenceSetOptions extends AlterSequenceChange {
 
   // Note: default max computation moved to diff when building options
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts: string[] = [
-      "ALTER SEQUENCE",
+      ctx.keyword("ALTER SEQUENCE"),
       `${this.sequence.schema}.${this.sequence.name}`,
     ];
-    return [...parts, ...this.options].join(" ");
+    return ctx.line(...parts, ...this.options);
   }
 }
 

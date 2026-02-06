@@ -1,4 +1,6 @@
 import { quoteLiteral } from "../../../base.change.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange, DropRangeChange } from "./range.base.ts";
@@ -26,14 +28,17 @@ export class CreateCommentOnRange extends CreateRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.range.schema}.${this.range.name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: range comment is not nullable in this case
       quoteLiteral(this.range.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -54,11 +59,14 @@ export class DropCommentOnRange extends DropRangeChange {
     return [stableId.comment(this.range.stableId), this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT"),
+      ctx.keyword("ON"),
+      ctx.keyword("TYPE"),
       `${this.range.schema}.${this.range.name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

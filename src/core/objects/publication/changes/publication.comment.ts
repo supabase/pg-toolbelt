@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Publication } from "../publication.model.ts";
@@ -27,14 +29,15 @@ export class CreateCommentOnPublication extends CreatePublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON PUBLICATION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON PUBLICATION"),
       this.publication.name,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: comment ensured non-null by caller
       quoteLiteral(this.publication.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -58,7 +61,12 @@ export class DropCommentOnPublication extends DropPublicationChange {
     ];
   }
 
-  serialize(): string {
-    return `COMMENT ON PUBLICATION ${this.publication.name} IS NULL`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

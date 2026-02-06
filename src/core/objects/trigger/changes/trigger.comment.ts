@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
@@ -22,16 +24,17 @@ export class CreateCommentOnTrigger extends CreateTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TRIGGER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON TRIGGER"),
       this.trigger.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.trigger.schema}.${this.trigger.table_name}`,
-      "IS",
+      ctx.keyword("IS"),
       // biome-ignore lint/style/noNonNullAssertion: trigger comment is not nullable in this case
       quoteLiteral(this.trigger.comment!),
-    ].join(" ");
+    );
   }
 }
 
@@ -52,13 +55,14 @@ export class DropCommentOnTrigger extends DropTriggerChange {
     return [stableId.comment(this.trigger.stableId), this.trigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TRIGGER",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON TRIGGER"),
       this.trigger.name,
-      "ON",
+      ctx.keyword("ON"),
       `${this.trigger.schema}.${this.trigger.table_name}`,
-      "IS NULL",
-    ].join(" ");
+      ctx.keyword("IS NULL"),
+    );
   }
 }

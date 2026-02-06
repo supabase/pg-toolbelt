@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { DropForeignTableChange } from "./foreign-table.base.ts";
 
@@ -28,10 +30,11 @@ export class DropForeignTable extends DropForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-    ].join(" ");
+    );
   }
 }

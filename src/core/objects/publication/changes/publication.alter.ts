@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type {
   Publication,
@@ -31,7 +33,8 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const assignments: string[] = [];
 
     if (this.setPublish) {
@@ -45,7 +48,12 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
       );
     }
 
-    return `ALTER PUBLICATION ${this.publication.name} SET (${assignments.join(", ")})`;
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("SET"),
+      `(${assignments.join(", ")})`,
+    );
   }
 }
 
@@ -62,8 +70,13 @@ export class AlterPublicationSetForAllTables extends AlterPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
-    return `ALTER PUBLICATION ${this.publication.name} SET FOR ALL TABLES`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("SET FOR ALL TABLES"),
+    );
   }
 }
 
@@ -97,12 +110,18 @@ export class AlterPublicationSetList extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const clauses = formatPublicationObjects(
       this.publication.tables,
       this.publication.schemas,
     );
-    return `ALTER PUBLICATION ${this.publication.name} SET ${clauses.join(", ")}`;
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("SET"),
+      clauses.join(", "),
+    );
   }
 }
 
@@ -136,9 +155,15 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const clauses = this.tables.map((table) => formatPublicationTable(table));
-    return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("ADD"),
+      clauses.join(", "),
+    );
   }
 }
 
@@ -168,9 +193,15 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const targets = this.tables.map((table) => `${table.schema}.${table.name}`);
-    return `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`;
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("DROP TABLE"),
+      targets.join(", "),
+    );
   }
 }
 
@@ -192,9 +223,17 @@ export class AlterPublicationAddSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
-    const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
-    return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const clauses = this.schemas.map(
+      (schema) => `${ctx.keyword("TABLES IN SCHEMA")} ${schema}`,
+    );
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("ADD"),
+      clauses.join(", "),
+    );
   }
 }
 
@@ -216,9 +255,17 @@ export class AlterPublicationDropSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
-    const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
-    return `ALTER PUBLICATION ${this.publication.name} DROP ${clauses.join(", ")}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    const clauses = this.schemas.map(
+      (schema) => `${ctx.keyword("TABLES IN SCHEMA")} ${schema}`,
+    );
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("DROP"),
+      clauses.join(", "),
+    );
   }
 }
 
@@ -237,7 +284,13 @@ export class AlterPublicationSetOwner extends AlterPublicationChange {
     return [this.publication.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER PUBLICATION ${this.publication.name} OWNER TO ${this.owner}`;
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER PUBLICATION"),
+      this.publication.name,
+      ctx.keyword("OWNER TO"),
+      this.owner,
+    );
   }
 }

@@ -1,5 +1,7 @@
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
+import { createFormatContext } from "../../../../format/index.ts";
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { AlterForeignTableChange } from "./foreign-table.base.ts";
@@ -55,13 +57,14 @@ export class AlterForeignTableChangeOwner extends AlterForeignTableChange {
     return [this.foreignTable.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "OWNER TO",
+      ctx.keyword("OWNER TO"),
       this.owner,
-    ].join(" ");
+    );
   }
 }
 
@@ -83,24 +86,25 @@ export class AlterForeignTableAddColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const parts = [
-      "ALTER FOREIGN TABLE",
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ADD COLUMN",
+      ctx.keyword("ADD COLUMN"),
       this.column.name,
       this.column.data_type_str,
     ];
 
     if (this.column.not_null) {
-      parts.push("NOT NULL");
+      parts.push(ctx.keyword("NOT NULL"));
     }
 
     if (this.column.default) {
-      parts.push("DEFAULT", this.column.default);
+      parts.push(ctx.keyword("DEFAULT"), this.column.default);
     }
 
-    return parts.join(" ");
+    return ctx.line(...parts);
   }
 }
 
@@ -122,13 +126,14 @@ export class AlterForeignTableDropColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "DROP COLUMN",
+      ctx.keyword("DROP COLUMN"),
       this.columnName,
-    ].join(" ");
+    );
   }
 }
 
@@ -156,15 +161,16 @@ export class AlterForeignTableAlterColumnType extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.columnName,
-      "TYPE",
+      ctx.keyword("TYPE"),
       this.dataType,
-    ].join(" ");
+    );
   }
 }
 
@@ -192,15 +198,16 @@ export class AlterForeignTableAlterColumnSetDefault extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.columnName,
-      "SET DEFAULT",
+      ctx.keyword("SET DEFAULT"),
       this.defaultValue,
-    ].join(" ");
+    );
   }
 }
 
@@ -222,14 +229,15 @@ export class AlterForeignTableAlterColumnDropDefault extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.columnName,
-      "DROP DEFAULT",
-    ].join(" ");
+      ctx.keyword("DROP DEFAULT"),
+    );
   }
 }
 
@@ -251,14 +259,15 @@ export class AlterForeignTableAlterColumnSetNotNull extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.columnName,
-      "SET NOT NULL",
-    ].join(" ");
+      ctx.keyword("SET NOT NULL"),
+    );
   }
 }
 
@@ -280,14 +289,15 @@ export class AlterForeignTableAlterColumnDropNotNull extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
+      ctx.keyword("ALTER COLUMN"),
       this.columnName,
-      "DROP NOT NULL",
-    ].join(" ");
+      ctx.keyword("DROP NOT NULL"),
+    );
   }
 }
 
@@ -320,22 +330,23 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
-        optionParts.push(`DROP ${opt.option}`);
+        optionParts.push(`${ctx.keyword("DROP")} ${opt.option}`);
       } else {
         const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
-        optionParts.push(`${opt.action} ${opt.option} ${value}`);
+        optionParts.push(`${ctx.keyword(opt.action)} ${opt.option} ${value}`);
       }
     }
 
-    return [
-      "ALTER FOREIGN TABLE",
+    return ctx.line(
+      ctx.keyword("ALTER FOREIGN TABLE"),
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "OPTIONS",
+      ctx.keyword("OPTIONS"),
       `(${optionParts.join(", ")})`,
-    ].join(" ");
+    );
   }
 }

@@ -3,7 +3,7 @@ import {
   parseProcedureReference,
   stableId,
 } from "../../../utils.ts";
-import { SqlFormatter } from "../../../../format/index.ts";
+import { createFormatContext } from "../../../../format/index.ts";
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { CreateRangeChange } from "./range.base.ts";
@@ -100,79 +100,23 @@ export class CreateRange extends CreateRangeChange {
   }
 
   serialize(options?: SerializeOptions): string {
-    if (options?.format?.enabled) {
-      const formatter = new SqlFormatter(options.format);
-      return this.serializeFormatted(formatter);
-    }
-
+    const ctx = createFormatContext(options?.format);
     const name = `${this.range.schema}.${this.range.name}`;
-    const prefix: string = ["CREATE TYPE", name, "AS RANGE"].join(" ");
-
-    const opts: string[] = [];
-
-    // Required subtype
-    const subtypeQualified =
-      this.range.subtype_schema && this.range.subtype_schema !== "pg_catalog"
-        ? `${this.range.subtype_schema}.${this.range.subtype_str}`
-        : this.range.subtype_str;
-    opts.push(`SUBTYPE = ${subtypeQualified}`);
-
-    // Optional opclass
-    if (this.range.subtype_opclass_name) {
-      const opclassQualified =
-        this.range.subtype_opclass_schema &&
-        this.range.subtype_opclass_schema !== "pg_catalog"
-          ? `${this.range.subtype_opclass_schema}.${this.range.subtype_opclass_name}`
-          : this.range.subtype_opclass_name;
-      opts.push(`SUBTYPE_OPCLASS = ${opclassQualified}`);
-    }
-
-    // Optional collation
-    if (this.range.collation) {
-      opts.push(`COLLATION = ${this.range.collation}`);
-    }
-
-    // Optional canonical function
-    if (this.range.canonical_function_name) {
-      const canonQualified =
-        this.range.canonical_function_schema &&
-        this.range.canonical_function_schema !== "pg_catalog"
-          ? `${this.range.canonical_function_schema}.${this.range.canonical_function_name}`
-          : this.range.canonical_function_name;
-      opts.push(`CANONICAL = ${canonQualified}`);
-    }
-
-    // Optional subtype diff function
-    if (this.range.subtype_diff_name) {
-      const diffQualified =
-        this.range.subtype_diff_schema &&
-        this.range.subtype_diff_schema !== "pg_catalog"
-          ? `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}`
-          : this.range.subtype_diff_name;
-      opts.push(`SUBTYPE_DIFF = ${diffQualified}`);
-    }
-
-    const body = `(${opts.join(", ")})`;
-    return `${prefix} ${body}`;
-  }
-
-  private serializeFormatted(formatter: SqlFormatter): string {
-    const name = `${this.range.schema}.${this.range.name}`;
-    const head = [
-      formatter.keyword("CREATE"),
-      formatter.keyword("TYPE"),
+    const head = ctx.line(
+      ctx.keyword("CREATE"),
+      ctx.keyword("TYPE"),
       name,
-      formatter.keyword("AS"),
-      formatter.keyword("RANGE"),
-    ].join(" ");
+      ctx.keyword("AS"),
+      ctx.keyword("RANGE"),
+    );
 
-    const opts: string[] = [];
+    const optionRows: string[][] = [];
 
     const subtypeQualified =
       this.range.subtype_schema && this.range.subtype_schema !== "pg_catalog"
         ? `${this.range.subtype_schema}.${this.range.subtype_str}`
         : this.range.subtype_str;
-    opts.push(`${formatter.keyword("SUBTYPE")} = ${subtypeQualified}`);
+    optionRows.push([ctx.keyword("SUBTYPE"), subtypeQualified]);
 
     if (this.range.subtype_opclass_name) {
       const opclassQualified =
@@ -180,15 +124,11 @@ export class CreateRange extends CreateRangeChange {
         this.range.subtype_opclass_schema !== "pg_catalog"
           ? `${this.range.subtype_opclass_schema}.${this.range.subtype_opclass_name}`
           : this.range.subtype_opclass_name;
-      opts.push(
-        `${formatter.keyword("SUBTYPE_OPCLASS")} = ${opclassQualified}`,
-      );
+      optionRows.push([ctx.keyword("SUBTYPE_OPCLASS"), opclassQualified]);
     }
 
     if (this.range.collation) {
-      opts.push(
-        `${formatter.keyword("COLLATION")} = ${this.range.collation}`,
-      );
+      optionRows.push([ctx.keyword("COLLATION"), this.range.collation]);
     }
 
     if (this.range.canonical_function_name) {
@@ -197,9 +137,7 @@ export class CreateRange extends CreateRangeChange {
         this.range.canonical_function_schema !== "pg_catalog"
           ? `${this.range.canonical_function_schema}.${this.range.canonical_function_name}`
           : this.range.canonical_function_name;
-      opts.push(
-        `${formatter.keyword("CANONICAL")} = ${canonQualified}`,
-      );
+      optionRows.push([ctx.keyword("CANONICAL"), canonQualified]);
     }
 
     if (this.range.subtype_diff_name) {
@@ -208,13 +146,12 @@ export class CreateRange extends CreateRangeChange {
         this.range.subtype_diff_schema !== "pg_catalog"
           ? `${this.range.subtype_diff_schema}.${this.range.subtype_diff_name}`
           : this.range.subtype_diff_name;
-      opts.push(
-        `${formatter.keyword("SUBTYPE_DIFF")} = ${diffQualified}`,
-      );
+      optionRows.push([ctx.keyword("SUBTYPE_DIFF"), diffQualified]);
     }
 
-    const list = formatter.list(opts, 1);
-    const body = formatter.parens(`${formatter.indent(1)}${list}`, true);
-    return `${head} ${body}`;
+    const alignedOptions = ctx.alignColumns(optionRows, [" = "]);
+    const list = ctx.list(alignedOptions, 1);
+    const body = ctx.parens(`${ctx.indent(1)}${list}`, ctx.pretty);
+    return ctx.line(head, body);
   }
 }

@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
@@ -22,13 +24,14 @@ export class CreateCommentOnRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON ROLE",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON ROLE"),
       this.role.name,
-      "IS",
+      ctx.keyword("IS"),
       quoteLiteral(this.role.comment as string),
-    ].join(" ");
+    );
   }
 }
 
@@ -49,7 +52,12 @@ export class DropCommentOnRole extends DropRoleChange {
     return [stableId.comment(this.role.stableId), this.role.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" ");
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("COMMENT ON ROLE"),
+      this.role.name,
+      ctx.keyword("IS NULL"),
+    );
   }
 }

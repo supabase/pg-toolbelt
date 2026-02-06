@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Collation } from "../collation.model.ts";
 import { DropCollationChange } from "./collation.base.ts";
 
@@ -28,10 +30,11 @@ export class DropCollation extends DropCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP COLLATION",
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
+    return ctx.line(
+      ctx.keyword("DROP COLLATION"),
       `${this.collation.schema}.${this.collation.name}`,
-    ].join(" ");
+    );
   }
 }

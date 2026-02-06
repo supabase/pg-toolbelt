@@ -1,3 +1,5 @@
+import { createFormatContext } from "../../../format/index.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { AlterRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -38,21 +40,22 @@ export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const targetRoles = this.roles;
     const toPublic =
       targetRoles.length === 0 ||
       (targetRoles.length === 1 && targetRoles[0].toLowerCase() === "public");
     const rolesSql = toPublic ? "PUBLIC" : targetRoles.join(", ");
 
-    return [
-      "ALTER POLICY",
+    return ctx.line(
+      ctx.keyword("ALTER POLICY"),
       `${this.policy.schema}.${this.policy.name}`,
-      "ON",
+      ctx.keyword("ON"),
       `${this.policy.schema}.${this.policy.table_name}`,
-      "TO",
+      ctx.keyword("TO"),
       rolesSql,
-    ].join(" ");
+    );
   }
 }
 
@@ -74,16 +77,17 @@ export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const expr = this.usingExpression ?? "true";
-    return [
-      "ALTER POLICY",
+    return ctx.line(
+      ctx.keyword("ALTER POLICY"),
       `${this.policy.schema}.${this.policy.name}`,
-      "ON",
+      ctx.keyword("ON"),
       `${this.policy.schema}.${this.policy.table_name}`,
-      "USING",
+      ctx.keyword("USING"),
       `(${expr})`,
-    ].join(" ");
+    );
   }
 }
 
@@ -108,16 +112,17 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
+    const ctx = createFormatContext(options?.format);
     const expr = this.withCheckExpression ?? "true";
-    return [
-      "ALTER POLICY",
+    return ctx.line(
+      ctx.keyword("ALTER POLICY"),
       `${this.policy.schema}.${this.policy.name}`,
-      "ON",
+      ctx.keyword("ON"),
       `${this.policy.schema}.${this.policy.table_name}`,
-      "WITH CHECK",
+      ctx.keyword("WITH CHECK"),
       `(${expr})`,
-    ].join(" ");
+    );
   }
 }
 

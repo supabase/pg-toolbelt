@@ -1,4 +1,5 @@
 import type { TableLikeObject } from "../../base.model.ts";
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
 import { CreateIndexChange } from "./index.base.ts";
@@ -51,18 +52,8 @@ export class CreateIndex extends CreateIndexChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
-    let definition = this.index.definition;
-
-    // btree being the default, we can omit it
-    definition = definition.replace(" USING btree", "");
-
-    // Remove "ON ONLY" for partitioned indexes to allow automatic propagation to partitions.
-    // Preserve "ON ONLY" for non-partitioned indexes on partitioned tables (explicit user intent).
-    if (this.index.is_partitioned_index) {
-      definition = definition.replace(/\s+ON\s+ONLY\s+/i, " ON ");
-    }
-
-    return definition;
+  serialize(_options?: SerializeOptions): string {
+    // Preserve the server-generated definition as-is.
+    return this.index.definition;
   }
 }
