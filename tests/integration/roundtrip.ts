@@ -271,18 +271,21 @@ export async function testDeclarativeExport(
     ).resolves.not.toThrow();
   }
 
-  const mainCatalog = await extractCatalog(mainSession);
-  const branchCatalog = await extractCatalog(branchSession);
-  const ctx = { mainCatalog, branchCatalog };
+  // Use createPlan to get the plan result, then export declarative schema
+  const planResult = await createPlan(mainSession, branchSession, {
+    filter: integration?.filter,
+    serialize: integration?.serialize,
+  });
 
-  const changes = diffCatalogs(mainCatalog, branchCatalog);
+  if (!planResult) {
+    throw new Error("No changes detected - cannot test declarative export");
+  }
+
+  const { sortedChanges, ctx } = planResult;
+  const { branchCatalog } = ctx;
   const integrationFilter = integration?.filter;
-  const filteredChanges = integrationFilter
-    ? changes.filter((change) => integrationFilter(change))
-    : changes;
-  const sortedChanges = sortChanges(ctx, filteredChanges);
 
-  const output = exportDeclarativeSchema(ctx, sortedChanges, { integration });
+  const output = exportDeclarativeSchema(planResult, { integration });
 
   expect(output.version).toBe(1);
   expect(output.mode).toBe("declarative");

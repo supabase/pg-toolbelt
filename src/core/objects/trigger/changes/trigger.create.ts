@@ -60,10 +60,13 @@ export class CreateTrigger extends CreateTriggerChange {
     );
 
     // Function dependency
-    // Note: We can't build the exact procedure stableId without argument types.
-    // The trigger definition contains the full function call, but parsing it would be complex.
-    // For now, we rely on pg_depend extraction for procedure dependencies.
-    // If needed, we could parse the trigger definition to extract the full function signature.
+    // Trigger functions always have signature () RETURNS trigger, so no arguments.
+    dependencies.add(
+      stableId.procedure(
+        this.trigger.function_schema,
+        this.trigger.function_name,
+      ),
+    );
 
     // Owner dependency
     dependencies.add(stableId.role(this.trigger.owner));

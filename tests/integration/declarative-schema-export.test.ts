@@ -77,7 +77,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       });
     });
 
-    test("foreign key constraints in policies/", async ({ db }) => {
+    test("foreign key constraints in constraints/", async ({ db }) => {
       const output = await testDeclarativeExport({
         mainSession: db.main,
         branchSession: db.branch,
@@ -91,8 +91,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
       });
 
-      const fkFile = output.files.find((file) =>
-        file.path.includes("policies/posts.sql"),
+      const fkFile = output.files.find(
+        (file) =>
+          file.path.includes("constraints/") &&
+          file.sql.includes("REFERENCES") &&
+          file.sql.includes("test_schema.users"),
       );
       expect(fkFile).toBeDefined();
       expect(fkFile?.sql).toContain("REFERENCES");
