@@ -1,37 +1,67 @@
 #!/bin/bash
 set -e
 
-export SOURCE_URL="postgres://postgres:postgres@db.platform.orb.local:5432/pgdelta_empty"
+CONTAINER_NAME="pgdelta-dogfooding"
+CONTAINER_PORT=6543
+ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
+DB_NAME="declarative_test"
+DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
+
+# ──────────────────────────────────────────────────────────────
+# 1. Export declarative schema from source
+# ──────────────────────────────────────────────────────────────
+rm -rf ./declarative-schemas/*
+export SOURCE_URL="postgres://postgres:postgres@db-empty.platform.orb.local:5432/postgres"
 export TARGET_URL="postgres://postgres:postgres@db.platform.orb.local:5432/postgres"
 pnpm dlx tsx scripts/declarative-export.ts
 
-# Clean up old files in CLI folder before copying new ones
-rm -rf /Users/avallete/Programming/Supa/cli/supabase/schemas
-rm -rf /Users/avallete/Programming/Supa/cli/supabase/cluster
+# ──────────────────────────────────────────────────────────────
+# 2. Start platform-db container
+# ──────────────────────────────────────────────────────────────
+docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+docker run -d --name "$CONTAINER_NAME" \
+  -e POSTGRES_PASSWORD=postgres \
+  -p "${CONTAINER_PORT}:5432" \
+  platform-db
 
-# Copy the results to cli local folder
-cp -rf ./declarative-schemas/schemas /Users/avallete/Programming/Supa/cli/supabase/schemas
-cp -rf ./declarative-schemas/cluster /Users/avallete/Programming/Supa/cli/supabase/cluster
+echo "Waiting for platform-db to be ready..."
+until docker exec "$CONTAINER_NAME" pg_isready -U postgres 2>/dev/null; do
+  sleep 1
+done
+# Give the init scripts a moment to finish
+sleep 2
 
-# Update schema_paths in config.toml with our ordered file list
-CLI_CONFIG="/Users/avallete/Programming/Supa/cli/supabase/config.toml"
-ORDER_JSON="./declarative-schemas/order.json"
+# Create a fresh, empty database for the declarative schema.
+# We use platform-db (not vanilla postgres) because it has shared libraries
+# for extensions like pg_partman, pgtap, etc.
+echo "Creating clean database '${DB_NAME}'..."
+psql "$ADMIN_URL" -c "DROP DATABASE IF EXISTS ${DB_NAME}" --quiet 2>/dev/null || true
+psql "$ADMIN_URL" -c "CREATE DATABASE ${DB_NAME} TEMPLATE template0" --quiet
 
-# Use node to generate the updated config since it's more reliable for TOML manipulation
+# ──────────────────────────────────────────────────────────────
+# 3. Apply SQL files in order (single pass)
+# ──────────────────────────────────────────────────────────────
+echo "Applying declarative schema files..."
+FAILED=0
 node -e "
-const fs = require('fs');
-const order = JSON.parse(fs.readFileSync('$ORDER_JSON', 'utf8'));
-const config = fs.readFileSync('$CLI_CONFIG', 'utf8');
+const order = JSON.parse(require('fs').readFileSync('./declarative-schemas/order.json', 'utf8'));
+order.forEach(f => console.log(f));
+" | while read -r file; do
+  if ! psql "$DB_URL" \
+    -f "./declarative-schemas/$file" \
+    -v ON_ERROR_STOP=1 \
+    --quiet 2>&1; then
+    echo ""
+    echo "FAILED on file: $file"
+    exit 1
+  fi
+done
 
-// Find the schema_paths section and replace it
-const schemaPathsStr = 'schema_paths = [\\n' + order.map(p => '  \"' + p + '\"').join(',\\n') + '\\n]';
+echo ""
+echo "All files applied successfully."
 
-// Match from 'schema_paths = [' to the closing ']' (handling multiline)
-const updated = config.replace(/schema_paths\s*=\s*\[[\s\S]*?\n\]/m, schemaPathsStr);
-
-fs.writeFileSync('$CLI_CONFIG', updated);
-console.log('Updated schema_paths with ' + order.length + ' files');
-"
-
-# Run the cli to up the database and see if it works
-cd /Users/avallete/Programming/Supa/cli && go run . db reset --experimental
+# ──────────────────────────────────────────────────────────────
+# 4. Cleanup
+# ──────────────────────────────────────────────────────────────
+# docker rm -f "$CONTAINER_NAME" >/dev/null
+echo "Container cleaned up."

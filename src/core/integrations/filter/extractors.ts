@@ -18,6 +18,48 @@ export const PROPERTY_EXTRACTORS: Record<string, PropertyExtractor> = {
     }
     return null;
   },
+  grantee: (change: Change) => {
+    if (change.scope === "privilege" && "grantee" in change) {
+      return change.grantee;
+    }
+    return null;
+  },
+  publication: (change: Change) => {
+    if (change.objectType === "publication") {
+      return change.publication.name;
+    }
+    return null;
+  },
+  extension: (change: Change) => {
+    if (change.objectType === "extension") {
+      return change.extension.name;
+    }
+    return null;
+  },
+  procedureLanguage: (change: Change) => {
+    if (change.objectType === "procedure") {
+      return change.procedure.language;
+    }
+    return null;
+  },
+  eventTriggerName: (change: Change) => {
+    if (change.objectType === "event_trigger") {
+      return change.eventTrigger.name;
+    }
+    return null;
+  },
+  procedureBinaryPath: (change: Change) => {
+    if (change.objectType === "procedure") {
+      return change.procedure.binary_path ?? null;
+    }
+    return null;
+  },
+  triggerFunctionSchema: (change: Change) => {
+    if (change.objectType === "trigger") {
+      return change.trigger.function_schema;
+    }
+    return null;
+  },
 };
 
 export function getSchema(change: Change) {

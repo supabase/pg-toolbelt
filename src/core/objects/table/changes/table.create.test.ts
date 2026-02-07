@@ -147,4 +147,32 @@ describe.concurrent("table.create", () => {
     const change = new CreateTable({ table: t });
     expect(change.serialize()).toBe("CREATE UNLOGGED TABLE public.t ()");
   });
+
+  test("requires includes procedure from DEFAULT expression", () => {
+    const t = new Table({
+      ...base,
+      columns: [
+        {
+          name: "auth_role",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: "auth.role()",
+          comment: null,
+        },
+      ],
+    });
+    const change = new CreateTable({ table: t });
+    expect(change.requires).toContain("procedure:auth.role()");
+  });
 });

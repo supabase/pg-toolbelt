@@ -82,12 +82,14 @@ export function getFilePath(change: Change): FilePath {
         category: "cluster",
         metadata: { objectType: "role" },
       };
-    case "extension":
+    case "extension": {
+      const extensionName = getObjectName(change);
       return {
-        path: "cluster/extensions.sql",
-        category: "cluster",
-        metadata: { objectType: "extension" },
+        path: `cluster/extensions/${extensionName}.sql`,
+        category: "extensions",
+        metadata: { objectType: "extension", objectName: extensionName },
       };
+    }
     case "foreign_data_wrapper":
     case "server":
     case "user_mapping":
@@ -176,6 +178,31 @@ export function getFilePath(change: Change): FilePath {
     case "sequence": {
       const schema = requireSchema(change);
       const objectName = getObjectName(change);
+
+      // ALTER SEQUENCE ... OWNED BY must be grouped with the owning table,
+      // not the sequence file, to avoid ordering issues: the table must exist
+      // before the OWNED BY clause can reference its column.
+      if (
+        change.operation === "alter" &&
+        "ownedBy" in change &&
+        change.ownedBy
+      ) {
+        const ownedBy = change.ownedBy as {
+          schema: string;
+          table: string;
+          column: string;
+        };
+        return {
+          path: schemaPath(ownedBy.schema, "tables", `${ownedBy.table}.sql`),
+          category: "tables",
+          metadata: {
+            objectType: "table",
+            schemaName: ownedBy.schema,
+            objectName: ownedBy.table,
+          },
+        };
+      }
+
       return {
         path: schemaPath(schema, "sequences", `${objectName}.sql`),
         category: "sequences",
@@ -190,11 +217,13 @@ export function getFilePath(change: Change): FilePath {
       const schema = change.table.schema;
       const tableName = change.table.name;
       if (isForeignKeyConstraintChange(change)) {
+        // FK constraints reference other tables, so they must be separated
+        // from triggers/RLS policies to avoid ordering issues.
         return {
-          path: schemaPath(schema, "policies", `${tableName}.sql`),
-          category: "policies",
+          path: schemaPath(schema, "foreign_keys", `${tableName}.sql`),
+          category: "foreign_keys",
           metadata: {
-            objectType: "policy",
+            objectType: "foreign_key",
             schemaName: schema,
             objectName: tableName,
           },

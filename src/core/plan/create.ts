@@ -22,6 +22,7 @@ import {
 } from "../integrations/serialize/dsl.ts";
 import { createPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
+import type { PgDependRow } from "../sort/types.ts";
 import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
 
@@ -312,9 +313,20 @@ function buildPlanForCatalogs(
   // Use filter from final integration
   const filterFn = finalIntegration?.filter;
 
-  const filteredChanges = filterFn
+  let filteredChanges = filterFn
     ? changes.filter((change) => filterFn(change))
     : changes;
+
+  // Cascade dependency exclusions: when a change is excluded by the filter,
+  // also exclude changes that depend on it (via requires or pg_depend).
+  // This is a fixpoint loop bounded by the total number of changes.
+  if (filterFn && filteredChanges.length < changes.length) {
+    filteredChanges = cascadeExclusions(
+      filteredChanges,
+      changes,
+      toCatalog.depends,
+    );
+  }
 
   if (filteredChanges.length === 0) {
     return null;
@@ -331,6 +343,99 @@ function buildPlanForCatalogs(
   );
 
   return { plan, sortedChanges, ctx };
+}
+
+// ============================================================================
+// Dependency Cascading
+// ============================================================================
+
+/**
+ * Cascade exclusions through dependency relationships.
+ *
+ * When a change is excluded by the filter, any change that depends on it
+ * (via explicit `requires` or via catalog `pg_depend`) should also be excluded.
+ * This runs as a fixpoint loop, bounded by the total number of changes to
+ * guarantee deterministic termination.
+ *
+ * @param filteredChanges - Changes that passed the initial filter
+ * @param allChanges - All changes before filtering
+ * @param catalogDepends - Dependency rows from the target catalog (pg_depend)
+ * @returns The filtered changes with cascading exclusions applied
+ */
+function cascadeExclusions(
+  filteredChanges: Change[],
+  allChanges: Change[],
+  catalogDepends: PgDependRow[],
+): Change[] {
+  // Collect stableIds created by initially-excluded changes
+  const filteredSet = new Set(filteredChanges);
+  const excludedIds = new Set<string>();
+  for (const change of allChanges) {
+    if (!filteredSet.has(change)) {
+      for (const id of change.creates ?? []) {
+        excludedIds.add(id);
+      }
+    }
+  }
+
+  if (excludedIds.size === 0) {
+    return filteredChanges;
+  }
+
+  // Build reverse dependency map: referenced_stable_id -> Set(dependent_stable_ids)
+  const catalogDependents = new Map<string, Set<string>>();
+  for (const dep of catalogDepends) {
+    const existing = catalogDependents.get(dep.referenced_stable_id);
+    if (existing) {
+      existing.add(dep.dependent_stable_id);
+    } else {
+      catalogDependents.set(
+        dep.referenced_stable_id,
+        new Set([dep.dependent_stable_id]),
+      );
+    }
+  }
+
+  // Fixpoint loop: bounded by total changes to guarantee termination.
+  // Each iteration must remove at least one change, otherwise we break.
+  let result = filteredChanges;
+  for (let i = 0; i < allChanges.length; i++) {
+    const beforeLength = result.length;
+    result = result.filter((change) => {
+      // Check explicit requirements: does this change require an excluded id?
+      const requires = change.requires ?? [];
+      if (requires.some((dep) => excludedIds.has(dep))) {
+        for (const id of change.creates ?? []) {
+          excludedIds.add(id);
+        }
+        return false;
+      }
+
+      // Check catalog dependencies: does anything this change creates
+      // depend on an excluded id via pg_depend?
+      const creates = change.creates ?? [];
+      for (const createdId of creates) {
+        for (const excludedId of excludedIds) {
+          const dependents = catalogDependents.get(excludedId);
+          if (dependents?.has(createdId)) {
+            for (const id of creates) {
+              excludedIds.add(id);
+            }
+            return false;
+          }
+        }
+      }
+
+      return true;
+    });
+
+    // No changes removed this iteration — fixpoint reached
+    if (result.length === beforeLength) {
+      break;
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================
