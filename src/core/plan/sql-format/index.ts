@@ -1,24 +1,24 @@
-import type { SqlFormatOptions, NormalizedOptions } from "./types.ts";
 import { DEFAULT_OPTIONS } from "./constants.ts";
-import { splitSqlStatements, splitLeadingComments } from "./format-utils.ts";
-import { protectSegments, restorePlaceholders } from "./protect.ts";
-import { applyKeywordCase } from "./keyword-case.ts";
-import { wrapStatement } from "./wrap.ts";
-import { scanTokens } from "./tokenizer.ts";
+import { splitLeadingComments, splitSqlStatements } from "./format-utils.ts";
 import {
+  formatAlterTable,
+  formatCreateCollation,
+  formatCreateCompositeType,
   formatCreateDomain,
   formatCreateEnum,
-  formatCreateCompositeType,
-  formatCreateTable,
-  formatCreateRange,
-  formatCreateCollation,
   formatCreateFunction,
-  formatCreatePolicy,
-  formatCreateTrigger,
   formatCreateIndex,
-  formatAlterTable,
+  formatCreatePolicy,
+  formatCreateRange,
+  formatCreateTable,
+  formatCreateTrigger,
   formatGeneric,
 } from "./formatters.ts";
+import { applyKeywordCase } from "./keyword-case.ts";
+import { protectSegments, restorePlaceholders } from "./protect.ts";
+import { scanTokens } from "./tokenizer.ts";
+import type { NormalizedOptions, SqlFormatOptions } from "./types.ts";
+import { wrapStatement } from "./wrap.ts";
 
 export function formatSqlStatements(
   statements: string[],
@@ -91,7 +91,10 @@ function flattenStatements(statements: string[]): string[] {
   return output;
 }
 
-function formatStatement(statement: string, options: NormalizedOptions): string {
+function formatStatement(
+  statement: string,
+  options: NormalizedOptions,
+): string {
   const { commentLines, body } = splitLeadingComments(statement);
   if (body.trim().length === 0) {
     return commentLines.join("\n");
@@ -117,7 +120,11 @@ function formatStatement(statement: string, options: NormalizedOptions): string 
     formatted = applyKeywordCase(formatted, options);
   }
 
-  formatted = wrapStatement(formatted, options, protectedSegments.noWrapPlaceholders);
+  formatted = wrapStatement(
+    formatted,
+    options,
+    protectedSegments.noWrapPlaceholders,
+  );
   formatted = restorePlaceholders(formatted, protectedSegments.placeholders);
 
   if (commentLines.length > 0) {

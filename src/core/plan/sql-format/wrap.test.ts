@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { wrapStatement } from "./wrap.ts";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_OPTIONS } from "./constants.ts";
 import type { NormalizedOptions } from "./types.ts";
+import { wrapStatement } from "./wrap.ts";
 
 const opts: NormalizedOptions = { ...DEFAULT_OPTIONS, maxWidth: 40 };
 const noWrap = new Set<string>();
@@ -21,7 +21,8 @@ describe("wrapStatement", () => {
   });
 
   it("does not wrap comment lines regardless of length", () => {
-    const comment = "-- this is a very long comment that exceeds the maximum line width significantly";
+    const comment =
+      "-- this is a very long comment that exceeds the maximum line width significantly";
     const result = wrapStatement(comment, opts, noWrap);
     expect(result).toBe(comment);
   });

@@ -15,7 +15,7 @@ type WalkCallback = (
   index: number,
   char: string,
   depth: number,
-) => boolean | void;
+) => boolean | undefined;
 
 type WalkSqlOptions = {
   /** Track parenthesis depth and pass it to the callback. Default: false */

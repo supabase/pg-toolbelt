@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_OPTIONS } from "./constants.ts";
 import {
-  splitSqlStatements,
-  splitLeadingComments,
   formatColumnList,
   formatKeyValueItems,
   formatListItems,
   indentString,
+  splitLeadingComments,
+  splitSqlStatements,
 } from "./format-utils.ts";
-import { DEFAULT_OPTIONS } from "./constants.ts";
 
 describe("splitSqlStatements", () => {
   it("splits by semicolons", () => {
@@ -46,9 +46,9 @@ describe("formatColumnList", () => {
     const content = "id integer, name text, description varchar(255)";
     const result = formatColumnList(content, DEFAULT_OPTIONS);
     expect(result).not.toBeNull();
-    expect(result!.length).toBe(3);
+    expect(result?.length).toBe(3);
     // Each line should be indented
-    for (const line of result!) {
+    for (const line of result ?? []) {
       expect(line).toMatch(/^\s+/);
     }
   });

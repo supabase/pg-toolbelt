@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { isWordChar, readDollarTag, walkSql } from "./sql-scanner.ts";
 
 describe("isWordChar", () => {
@@ -44,51 +44,69 @@ describe("readDollarTag", () => {
 describe("walkSql", () => {
   it("skips single-quoted strings", () => {
     const chars: string[] = [];
-    walkSql("a 'hello' b", (_, char) => { chars.push(char); });
+    walkSql("a 'hello' b", (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
   it("skips single-quoted strings with '' escapes", () => {
     const chars: string[] = [];
-    walkSql("a 'it''s' b", (_, char) => { chars.push(char); });
+    walkSql("a 'it''s' b", (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
   it("skips double-quoted identifiers", () => {
     const chars: string[] = [];
-    walkSql('a "col" b', (_, char) => { chars.push(char); });
+    walkSql('a "col" b', (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
-  it("skips double-quoted identifiers with \"\" escapes", () => {
+  it('skips double-quoted identifiers with "" escapes', () => {
     const chars: string[] = [];
-    walkSql('a "col""name" b', (_, char) => { chars.push(char); });
+    walkSql('a "col""name" b', (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
   it("skips line comments", () => {
     const chars: string[] = [];
-    walkSql("a -- comment\nb", (_, char) => { chars.push(char); });
+    walkSql("a -- comment\nb", (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a b");
   });
 
   it("skips block comments", () => {
     const chars: string[] = [];
-    walkSql("a /* block */ b", (_, char) => { chars.push(char); });
+    walkSql("a /* block */ b", (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
   it("skips dollar-quoted blocks", () => {
     const chars: string[] = [];
-    walkSql("a $$body$$ b", (_, char) => { chars.push(char); });
+    walkSql("a $$body$$ b", (_, char) => {
+      chars.push(char);
+    });
     expect(chars.join("")).toBe("a  b");
   });
 
   it("tracks parenthesis depth correctly", () => {
     const depths: [string, number][] = [];
-    walkSql("a(b(c)d)e", (_, char, depth) => {
-      depths.push([char, depth]);
-    }, { trackDepth: true });
+    walkSql(
+      "a(b(c)d)e",
+      (_, char, depth) => {
+        depths.push([char, depth]);
+      },
+      { trackDepth: true },
+    );
     expect(depths).toEqual([
       ["a", 0],
       ["(", 0],
@@ -104,13 +122,23 @@ describe("walkSql", () => {
 
   it("respects startIndex option", () => {
     const chars: string[] = [];
-    walkSql("abcde", (_, char) => { chars.push(char); }, { startIndex: 2 });
+    walkSql(
+      "abcde",
+      (_, char) => {
+        chars.push(char);
+      },
+      { startIndex: 2 },
+    );
     expect(chars.join("")).toBe("cde");
   });
 
   it("calls onSkipped for skipped content", () => {
     const skipped: string[] = [];
-    walkSql("a 'x' b", () => {}, { onSkipped: (chunk) => { skipped.push(chunk); } });
+    walkSql("a 'x' b", () => {}, {
+      onSkipped: (chunk) => {
+        skipped.push(chunk);
+      },
+    });
     expect(skipped).toEqual(["'", "x", "'"]);
   });
 

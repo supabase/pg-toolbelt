@@ -1,5 +1,5 @@
-import { walkSql, isWordChar } from "./sql-scanner.ts";
 import { KEYWORDS } from "./constants.ts";
+import { isWordChar, walkSql } from "./sql-scanner.ts";
 import type { NormalizedOptions } from "./types.ts";
 
 export function applyKeywordCase(
@@ -31,7 +31,11 @@ export function applyKeywordCase(
       }
       output += char;
     },
-    { onSkipped: (chunk) => { output += chunk; } },
+    {
+      onSkipped: (chunk) => {
+        output += chunk;
+      },
+    },
   );
 
   return output;

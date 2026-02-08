@@ -1,11 +1,11 @@
-import type { NormalizedOptions, Token } from "./types.ts";
-import { scanTokens, findTopLevelParen, splitByCommas } from "./tokenizer.ts";
 import {
   formatColumnList,
   formatKeyValueItems,
   formatListItems,
   indentString,
 } from "./format-utils.ts";
+import { findTopLevelParen, scanTokens, splitByCommas } from "./tokenizer.ts";
+import type { NormalizedOptions, Token } from "./types.ts";
 
 export function formatCreateDomain(
   statement: string,
@@ -112,7 +112,11 @@ export function formatCreateCompositeType(
   const formattedColumns = formatColumnList(content, options);
   if (!formattedColumns) return null;
 
-  const lines = [`${header} (`, ...formattedColumns, `)${suffix ? ` ${suffix}` : ""}`];
+  const lines = [
+    `${header} (`,
+    ...formattedColumns,
+    `)${suffix ? ` ${suffix}` : ""}`,
+  ];
   return lines.join("\n");
 }
 
@@ -137,9 +141,7 @@ export function formatCreateTable(
   const { open, close } = parens;
   const hasPartitionBeforeColumns = tokens.some(
     (token) =>
-      token.depth === 0 &&
-      token.upper === "PARTITION" &&
-      token.start < open,
+      token.depth === 0 && token.upper === "PARTITION" && token.start < open,
   );
   if (hasPartitionBeforeColumns) return null;
   const header = statement.slice(0, open).trim();
@@ -149,7 +151,11 @@ export function formatCreateTable(
   const formattedColumns = formatColumnList(content, options);
   if (!formattedColumns) return null;
 
-  const lines = [`${header} (`, ...formattedColumns, `)${suffix ? ` ${suffix}` : ""}`];
+  const lines = [
+    `${header} (`,
+    ...formattedColumns,
+    `)${suffix ? ` ${suffix}` : ""}`,
+  ];
   return lines.join("\n");
 }
 
@@ -181,7 +187,11 @@ export function formatCreateRange(
   if (items.length === 0) return null;
 
   const formattedItems = formatKeyValueItems(items, options);
-  const lines = [`${header} (`, ...formattedItems, `)${suffix ? ` ${suffix}` : ""}`];
+  const lines = [
+    `${header} (`,
+    ...formattedItems,
+    `)${suffix ? ` ${suffix}` : ""}`,
+  ];
   return lines.join("\n");
 }
 
@@ -207,7 +217,11 @@ export function formatCreateCollation(
   if (items.length === 0) return null;
 
   const formattedItems = formatKeyValueItems(items, options);
-  const lines = [`${header} (`, ...formattedItems, `)${suffix ? ` ${suffix}` : ""}`];
+  const lines = [
+    `${header} (`,
+    ...formattedItems,
+    `)${suffix ? ` ${suffix}` : ""}`,
+  ];
   return lines.join("\n");
 }
 
@@ -327,7 +341,9 @@ export function formatCreateFunction(
     ) {
       const tableParens = findTopLevelParen(clause, clauseTokens[1].end);
       if (tableParens) {
-        const innerContent = clause.slice(tableParens.open + 1, tableParens.close).trim();
+        const innerContent = clause
+          .slice(tableParens.open + 1, tableParens.close)
+          .trim();
         const afterTable = clause.slice(tableParens.close + 1).trim();
 
         if (innerContent.length > 0) {
@@ -377,7 +393,11 @@ export function formatCreatePolicy(
     if (tokens[i].depth !== 0) continue;
     const upper = tokens[i].upper;
 
-    if (upper === "AS" && (tokens[i + 1]?.upper === "PERMISSIVE" || tokens[i + 1]?.upper === "RESTRICTIVE")) {
+    if (
+      upper === "AS" &&
+      (tokens[i + 1]?.upper === "PERMISSIVE" ||
+        tokens[i + 1]?.upper === "RESTRICTIVE")
+    ) {
       clauseStarts.push(tokens[i].start);
       continue;
     }
@@ -434,7 +454,14 @@ export function formatCreateTrigger(
 
   if (rest.length === 0) return null;
 
-  const clauseKeywords = new Set(["BEFORE", "AFTER", "INSTEAD", "FOR", "WHEN", "EXECUTE"]);
+  const clauseKeywords = new Set([
+    "BEFORE",
+    "AFTER",
+    "INSTEAD",
+    "FOR",
+    "WHEN",
+    "EXECUTE",
+  ]);
   const restTokens = scanTokens(rest);
   const clauseStarts: number[] = [];
 
@@ -488,7 +515,8 @@ export function formatCreateIndex(
   if (afterTokens.length > 0 && afterTokens[0].upper === "INCLUDE") {
     const includeParens = findTopLevelParen(afterParens, afterTokens[0].end);
     if (includeParens) {
-      headerEnd = headerEnd + afterParens.slice(0, includeParens.close + 1).length;
+      headerEnd =
+        headerEnd + afterParens.slice(0, includeParens.close + 1).length;
     }
   }
 
@@ -534,7 +562,10 @@ export function formatAlterTable(
   }
 
   let cursor = 2;
-  if (tokens[cursor]?.upper === "IF" && tokens[cursor + 1]?.upper === "EXISTS") {
+  if (
+    tokens[cursor]?.upper === "IF" &&
+    tokens[cursor + 1]?.upper === "EXISTS"
+  ) {
     cursor += 2;
   }
   if (tokens[cursor]?.upper === "ONLY") {
@@ -565,6 +596,10 @@ export function formatAlterTable(
   return `${header}\n${indent}${action}`;
 }
 
-export function formatGeneric(statement: string, _tokens: Token[], _options: NormalizedOptions): string {
+export function formatGeneric(
+  statement: string,
+  _tokens: Token[],
+  _options: NormalizedOptions,
+): string {
   return statement.trim();
 }

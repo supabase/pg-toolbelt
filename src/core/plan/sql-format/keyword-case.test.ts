@@ -1,10 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { applyKeywordCase } from "./keyword-case.ts";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_OPTIONS } from "./constants.ts";
+import { applyKeywordCase } from "./keyword-case.ts";
 import type { NormalizedOptions } from "./types.ts";
 
-const upperOpts: NormalizedOptions = { ...DEFAULT_OPTIONS, keywordCase: "upper" };
-const lowerOpts: NormalizedOptions = { ...DEFAULT_OPTIONS, keywordCase: "lower" };
+const upperOpts: NormalizedOptions = {
+  ...DEFAULT_OPTIONS,
+  keywordCase: "upper",
+};
+const lowerOpts: NormalizedOptions = {
+  ...DEFAULT_OPTIONS,
+  keywordCase: "lower",
+};
 
 describe("applyKeywordCase", () => {
   it("transforms keywords to upper case", () => {
@@ -36,7 +42,10 @@ describe("applyKeywordCase", () => {
   });
 
   it("does not transform content inside comments", () => {
-    const result = applyKeywordCase("create -- drop table\ntable foo", upperOpts);
+    const result = applyKeywordCase(
+      "create -- drop table\ntable foo",
+      upperOpts,
+    );
     expect(result).toBe("CREATE -- drop table\nTABLE foo");
   });
 });

@@ -1,4 +1,4 @@
-import { walkSql, isWordChar } from "./sql-scanner.ts";
+import { isWordChar, walkSql } from "./sql-scanner.ts";
 import { scanTokens, splitByCommas } from "./tokenizer.ts";
 import type { CommaStyle, NormalizedOptions } from "./types.ts";
 
@@ -19,7 +19,11 @@ export function splitSqlStatements(sql: string): string[] {
       }
       buffer += char;
     },
-    { onSkipped: (chunk) => { buffer += chunk; } },
+    {
+      onSkipped: (chunk) => {
+        buffer += chunk;
+      },
+    },
   );
 
   const trailing = trimOuterBlankLines(buffer);
@@ -74,13 +78,11 @@ export function formatColumnList(
 
   const parsed = items.map((item) => parseColumnDefinition(item));
   const maxName = parsed.reduce(
-    (max, column) =>
-      column ? Math.max(max, column.name.length) : max,
+    (max, column) => (column ? Math.max(max, column.name.length) : max),
     0,
   );
   const maxType = parsed.reduce(
-    (max, column) =>
-      column ? Math.max(max, column.type.length) : max,
+    (max, column) => (column ? Math.max(max, column.type.length) : max),
     0,
   );
 
@@ -93,8 +95,12 @@ export function formatColumnList(
 
     let line = item;
     if (column) {
-      const name = options.alignColumns ? column.name.padEnd(maxName) : column.name;
-      const type = options.alignColumns ? column.type.padEnd(maxType) : column.type;
+      const name = options.alignColumns
+        ? column.name.padEnd(maxName)
+        : column.name;
+      const type = options.alignColumns
+        ? column.type.padEnd(maxType)
+        : column.type;
       line = `${name} ${type}`;
       if (column.tail) {
         line += ` ${column.tail}`;
@@ -103,7 +109,12 @@ export function formatColumnList(
       }
     }
 
-    const lineWithComma = applyCommaStyle(line, index, items.length, options.commaStyle);
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
     lines.push(`${indent}${lineWithComma}`);
   }
 
@@ -140,7 +151,7 @@ function parseColumnDefinition(
   }
 
   if (name.length === 0) return null;
-  const nameUpper = name.replace(/^\"|\"$/g, "").toUpperCase();
+  const nameUpper = name.replace(/^"|"$/g, "").toUpperCase();
   const constraintStarts = new Set([
     "PRIMARY",
     "UNIQUE",
@@ -178,9 +189,8 @@ function parseColumnDefinition(
     }
   }
 
-  const type = (boundaryIndex === null
-    ? rest
-    : rest.slice(0, boundaryIndex)
+  const type = (
+    boundaryIndex === null ? rest : rest.slice(0, boundaryIndex)
   ).trimEnd();
   const tail = boundaryIndex === null ? "" : rest.slice(boundaryIndex).trim();
 
@@ -205,21 +215,27 @@ export function formatKeyValueItems(
     if (entry) {
       let key = entry.key;
       if (options.keywordCase !== "preserve") {
-        key = options.keywordCase === "upper" ? key.toUpperCase() : key.toLowerCase();
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
       }
       if (options.alignKeyValues) {
         key = key.padEnd(maxKey);
       }
       line = `${key} = ${entry.value}`;
     }
-    const lineWithComma = applyCommaStyle(line, index, items.length, options.commaStyle);
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
     return `${indent}${lineWithComma}`;
   });
 }
 
-function parseKeyValue(
-  item: string,
-): { key: string; value: string } | null {
+function parseKeyValue(item: string): { key: string; value: string } | null {
   const trimmed = item.trim();
   if (trimmed.length === 0) return null;
 

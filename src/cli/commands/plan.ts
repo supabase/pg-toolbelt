@@ -174,7 +174,7 @@ json/sql outputs are available for artifacts or piping.
         showUnsafeFlagSuggestion: false,
         sqlFormatOptions:
           flags["sql-format"] || flags["sql-format-options"]
-            ? flags["sql-format-options"] ?? {}
+            ? (flags["sql-format-options"] ?? {})
             : undefined,
       },
     );

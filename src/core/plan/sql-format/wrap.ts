@@ -26,7 +26,10 @@ export function wrapStatement(
   return wrapped.join("\n");
 }
 
-function hasNoWrapPlaceholder(line: string, placeholders: Set<string>): boolean {
+function hasNoWrapPlaceholder(
+  line: string,
+  placeholders: Set<string>,
+): boolean {
   for (const token of placeholders) {
     if (line.includes(token)) return true;
   }
@@ -68,15 +71,12 @@ function wrapLine(line: string, options: NormalizedOptions): string[] {
 function findWrapPosition(text: string, maxWidth: number): number {
   let lastWhitespace = -1;
 
-  walkSql(
-    text,
-    (index, char) => {
-      if (index > maxWidth) return false;
-      if (char === " " || char === "\t") {
-        lastWhitespace = index;
-      }
-    },
-  );
+  walkSql(text, (index, char) => {
+    if (index > maxWidth) return false;
+    if (char === " " || char === "\t") {
+      lastWhitespace = index;
+    }
+  });
 
   return lastWhitespace;
 }

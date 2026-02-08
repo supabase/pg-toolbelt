@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { scanTokens, findTopLevelParen, splitByCommas } from "./tokenizer.ts";
+import { describe, expect, it } from "vitest";
+import { findTopLevelParen, scanTokens, splitByCommas } from "./tokenizer.ts";
 
 describe("scanTokens", () => {
   it("extracts word tokens with positions and upper-cased values", () => {

@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { protectSegments, restorePlaceholders } from "./protect.ts";
+import { describe, expect, it } from "vitest";
 import { DEFAULT_OPTIONS } from "./constants.ts";
+import { protectSegments, restorePlaceholders } from "./protect.ts";
 
 describe("protectSegments", () => {
   it("protects function body after AS", () => {
@@ -49,7 +49,8 @@ describe("restorePlaceholders", () => {
   });
 
   it("round-trips protect → restore to produce original text", () => {
-    const sql = "CREATE FUNCTION add(a int, b int) RETURNS int AS $$ BEGIN RETURN a + b; END; $$ LANGUAGE plpgsql";
+    const sql =
+      "CREATE FUNCTION add(a int, b int) RETURNS int AS $$ BEGIN RETURN a + b; END; $$ LANGUAGE plpgsql";
     const result = protectSegments(sql, DEFAULT_OPTIONS);
     const restored = restorePlaceholders(result.text, result.placeholders);
     expect(restored).toBe(sql);

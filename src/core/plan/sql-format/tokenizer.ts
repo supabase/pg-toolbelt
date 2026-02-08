@@ -1,4 +1,4 @@
-import { walkSql, isWordChar } from "./sql-scanner.ts";
+import { isWordChar, walkSql } from "./sql-scanner.ts";
 import type { Token } from "./types.ts";
 
 export function scanTokens(statement: string): Token[] {
@@ -79,7 +79,12 @@ export function splitByCommas(content: string): string[] {
       }
       buffer += char;
     },
-    { trackDepth: true, onSkipped: (chunk) => { buffer += chunk; } },
+    {
+      trackDepth: true,
+      onSkipped: (chunk) => {
+        buffer += chunk;
+      },
+    },
   );
 
   if (buffer.length > 0) {
