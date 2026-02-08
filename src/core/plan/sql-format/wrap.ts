@@ -76,6 +76,7 @@ function findWrapPosition(text: string, maxWidth: number): number {
     if (char === " " || char === "\t") {
       lastWhitespace = index;
     }
+    return true;
   });
 
   return lastWhitespace;

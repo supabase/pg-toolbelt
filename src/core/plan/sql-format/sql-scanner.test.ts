@@ -46,6 +46,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql("a 'hello' b", (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -54,6 +55,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql("a 'it''s' b", (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -62,6 +64,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql('a "col" b', (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -70,6 +73,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql('a "col""name" b', (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -78,6 +82,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql("a -- comment\nb", (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a b");
   });
@@ -86,6 +91,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql("a /* block */ b", (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -94,6 +100,7 @@ describe("walkSql", () => {
     const chars: string[] = [];
     walkSql("a $$body$$ b", (_, char) => {
       chars.push(char);
+      return true;
     });
     expect(chars.join("")).toBe("a  b");
   });
@@ -104,6 +111,7 @@ describe("walkSql", () => {
       "a(b(c)d)e",
       (_, char, depth) => {
         depths.push([char, depth]);
+        return true;
       },
       { trackDepth: true },
     );
@@ -126,6 +134,7 @@ describe("walkSql", () => {
       "abcde",
       (_, char) => {
         chars.push(char);
+        return true;
       },
       { startIndex: 2 },
     );
@@ -134,7 +143,7 @@ describe("walkSql", () => {
 
   it("calls onSkipped for skipped content", () => {
     const skipped: string[] = [];
-    walkSql("a 'x' b", () => {}, {
+    walkSql("a 'x' b", () => true, {
       onSkipped: (chunk) => {
         skipped.push(chunk);
       },
@@ -147,6 +156,7 @@ describe("walkSql", () => {
     walkSql("abcde", (_, char) => {
       chars.push(char);
       if (char === "c") return false;
+      return true;
     });
     expect(chars.join("")).toBe("abc");
   });

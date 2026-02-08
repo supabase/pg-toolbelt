@@ -15,9 +15,10 @@ export function splitSqlStatements(sql: string): string[] {
           statements.push(trimmed);
         }
         buffer = "";
-        return;
+        return true;
       }
       buffer += char;
+      return true;
     },
     {
       onSkipped: (chunk) => {
@@ -244,7 +245,7 @@ function parseKeyValue(item: string): { key: string; value: string } | null {
   walkSql(
     trimmed,
     (index, char, depth) => {
-      if (char === "(" || char === ")") return;
+      if (char === "(" || char === ")") return true;
       if (char === "=" && depth === 0) {
         const key = trimmed.slice(0, index).trim();
         const value = trimmed.slice(index + 1).trim();
@@ -253,6 +254,7 @@ function parseKeyValue(item: string): { key: string; value: string } | null {
         }
         return false;
       }
+      return true;
     },
     { trackDepth: true },
   );

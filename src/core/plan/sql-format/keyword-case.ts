@@ -17,7 +17,7 @@ export function applyKeywordCase(
   walkSql(
     statement,
     (index, char) => {
-      if (index < skipUntil) return;
+      if (index < skipUntil) return true;
       if (isWordChar(char)) {
         let end = index + 1;
         while (end < statement.length && isWordChar(statement[end])) {
@@ -27,9 +27,10 @@ export function applyKeywordCase(
         const upper = word.toUpperCase();
         output += KEYWORDS.has(upper) ? transform(word) : word;
         skipUntil = end;
-        return;
+        return true;
       }
       output += char;
+      return true;
     },
     {
       onSkipped: (chunk) => {

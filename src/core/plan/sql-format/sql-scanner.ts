@@ -9,13 +9,9 @@
  * @param index - position in the text
  * @param char - the character at that position
  * @param depth - current parenthesis depth (only tracked when `trackDepth` is true, else always 0)
- * @returns `false` to stop walking early; any other value continues
+ * @returns `false` to stop walking early; `true` to continue
  */
-type WalkCallback = (
-  index: number,
-  char: string,
-  depth: number,
-) => boolean | undefined;
+type WalkCallback = (index: number, char: string, depth: number) => boolean;
 
 type WalkSqlOptions = {
   /** Track parenthesis depth and pass it to the callback. Default: false */

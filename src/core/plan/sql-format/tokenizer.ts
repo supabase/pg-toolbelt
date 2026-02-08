@@ -8,8 +8,8 @@ export function scanTokens(statement: string): Token[] {
   walkSql(
     statement,
     (index, char, depth) => {
-      if (index < skipUntil) return;
-      if (char === "(" || char === ")") return;
+      if (index < skipUntil) return true;
+      if (char === "(" || char === ")") return true;
       if (isWordChar(char)) {
         let end = index + 1;
         while (end < statement.length && isWordChar(statement[end])) {
@@ -25,6 +25,7 @@ export function scanTokens(statement: string): Token[] {
         });
         skipUntil = end;
       }
+      return true;
     },
     { trackDepth: true },
   );
@@ -46,7 +47,7 @@ export function findTopLevelParen(
         if (depth === 0) {
           openIndex = index;
         }
-        return;
+        return true;
       }
       if (char === ")") {
         if (depth === 0 && openIndex !== null) {
@@ -54,6 +55,7 @@ export function findTopLevelParen(
           return false;
         }
       }
+      return true;
     },
     { trackDepth: true, startIndex },
   );
@@ -70,14 +72,15 @@ export function splitByCommas(content: string): string[] {
     (_index, char, depth) => {
       if (char === "(" || char === ")") {
         buffer += char;
-        return;
+        return true;
       }
       if (char === "," && depth === 0) {
         items.push(buffer);
         buffer = "";
-        return;
+        return true;
       }
       buffer += char;
+      return true;
     },
     {
       trackDepth: true,
