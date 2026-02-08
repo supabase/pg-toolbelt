@@ -145,7 +145,7 @@ jobs:
         if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-        run: pnpm test --project=integration --coverage --reporter=blob --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }}
+        run: pnpm test --project=integration --coverage --reporter=blob --outputFile.blob=.vitest-reports/blob-pg${{ matrix.postgres_version }}-${{ matrix.shard_index }}-${{ matrix.shard_total }}.json --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }}
 
       - name: Upload integration blob report
         if: ${{ !cancelled() && github.event.pull_request.user.login != 'supabase-releaser[bot]' }}
