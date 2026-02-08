@@ -124,8 +124,8 @@ jobs:
     strategy:
       matrix:
         postgres_version: [15, 17]
-        shard_index: [1, 2, 3, 4]
-        shard_total: [4]
+        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard_total: [12]
     steps:
       - name: Skip if release bot
         if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
@@ -145,7 +145,7 @@ jobs:
         if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-        run: pnpm test --project=integration --coverage --reporter=blob --outputFile.blob=.vitest-reports/blob-pg${{ matrix.postgres_version }}-${{ matrix.shard_index }}-${{ matrix.shard_total }}.json --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }}
+        run: pnpm test --project=integration --coverage --reporter=blob --outputFile.blob=.vitest-reports/blob-pg${{ matrix.postgres_version }}-${{ matrix.shard_index }}-${{ matrix.shard_total }}.json --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }} --passWithNoTests
 
       - name: Upload integration blob report
         if: ${{ !cancelled() && github.event.pull_request.user.login != 'supabase-releaser[bot]' }}
@@ -187,7 +187,7 @@ jobs:
 
       - name: Merge integration reports and coverage
         if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm vitest --merge-reports=.vitest-reports --project=integration --coverage --reporter=default
+        run: pnpm vitest --merge-reports=.vitest-reports --project=integration --coverage --reporter=default --passWithNoTests
 
   release-preview:
     needs:
