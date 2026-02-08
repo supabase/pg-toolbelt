@@ -119,11 +119,13 @@ jobs:
 
   test-integration:
     if: github.event.pull_request.draft == false
-    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }})
+    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       matrix:
         postgres_version: [15, 17]
+        shard_index: [1, 2, 3, 4]
+        shard_total: [4]
     steps:
       - name: Skip if release bot
         if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
@@ -143,7 +145,49 @@ jobs:
         if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-        run: pnpm test --project=integration --coverage
+        run: pnpm test --project=integration --coverage --reporter=blob --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }}
+
+      - name: Upload integration blob report
+        if: ${{ !cancelled() && github.event.pull_request.user.login != 'supabase-releaser[bot]' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-blob-report-pg${{ matrix.postgres_version }}-s${{ matrix.shard_index }}
+          path: .vitest-reports/*
+          include-hidden-files: true
+          retention-days: 1
+
+  test-integration-merge-reports:
+    if: github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (merge shard reports)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if release bot
+        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        run: |
+          echo "✓ Skipping integration report merge for release bot"
+          exit 0
+
+      - name: Checkout
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: actions/checkout@v6
+
+      - name: Setup
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: ./.github/actions/setup
+
+      - name: Download integration blob reports
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: actions/download-artifact@v4
+        with:
+          path: .vitest-reports
+          pattern: integration-blob-report-*
+          merge-multiple: true
+
+      - name: Merge integration reports and coverage
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        run: pnpm vitest --merge-reports=.vitest-reports --coverage --reporter=default
 
   release-preview:
     needs:
@@ -152,6 +196,7 @@ jobs:
       - test-knip
       - test-unit
       - test-integration
+      - test-integration-merge-reports
     name: Release preview
     runs-on: ubuntu-latest
     steps:
