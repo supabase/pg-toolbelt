@@ -10,6 +10,7 @@ import type { DiffContext } from "../core/context.ts";
 import { groupChangesHierarchically } from "../core/plan/hierarchy.ts";
 import { type Plan, serializePlan } from "../core/plan/index.ts";
 import { classifyChangesRisk } from "../core/plan/risk.ts";
+import type { SqlFormatOptions } from "../core/plan/sql-format.ts";
 import { formatSqlScript } from "../core/plan/statements.ts";
 import { formatTree } from "./formatters/index.ts";
 
@@ -30,6 +31,7 @@ type PlanResult = {
 interface FormatPlanOptions {
   disableColors?: boolean;
   showUnsafeFlagSuggestion?: boolean;
+  sqlFormatOptions?: SqlFormatOptions;
 }
 
 /**
@@ -48,7 +50,7 @@ export function formatPlanForDisplay(
     case "sql": {
       const content = [
         `-- Risk: ${risk.level === "data_loss" ? `data-loss (${risk.statements.length})` : "safe"}`,
-        formatSqlScript(plan.statements),
+        formatSqlScript(plan.statements, options.sqlFormatOptions),
       ].join("\n");
       return { content, label: "Migration script" };
     }

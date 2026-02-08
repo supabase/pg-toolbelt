@@ -9,6 +9,7 @@ import type { ChangeFilter } from "../../core/integrations/filter/filter.types.t
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
+import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { formatPlanForDisplay } from "../utils.ts";
 
@@ -82,6 +83,26 @@ export const planCommand = buildCommand({
         parse: String,
         optional: true,
       },
+      "sql-format": {
+        kind: "boolean",
+        brief: "Format SQL output (opt-in for --format sql or .sql output).",
+        optional: true,
+      },
+      "sql-format-options": {
+        kind: "parsed",
+        brief:
+          'SQL format options as inline JSON (e.g., \'{"keywordCase":"upper","maxWidth":100}\').',
+        parse: (value: string): SqlFormatOptions => {
+          try {
+            return JSON.parse(value) as SqlFormatOptions;
+          } catch (error) {
+            throw new Error(
+              `Invalid SQL format JSON: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+        optional: true,
+      },
     },
     aliases: {
       s: "source",
@@ -108,6 +129,8 @@ json/sql outputs are available for artifacts or piping.
       filter?: FilterDSL;
       serialize?: SerializeDSL;
       integration?: string;
+      "sql-format"?: boolean;
+      "sql-format-options"?: SqlFormatOptions;
     },
   ) {
     // Load integration if provided and extract filter/serialize DSL
@@ -149,6 +172,10 @@ json/sql outputs are available for artifacts or piping.
       {
         disableColors: !!outputPath,
         showUnsafeFlagSuggestion: false,
+        sqlFormatOptions:
+          flags["sql-format"] || flags["sql-format-options"]
+            ? flags["sql-format-options"] ?? {}
+            : undefined,
       },
     );
 

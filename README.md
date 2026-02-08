@@ -47,6 +47,28 @@ pg-delta plan \
   --output plan.json
 ```
 
+**Plan (SQL output with formatting)** - Opt-in post-formatting for SQL scripts:
+
+```bash
+pg-delta plan \
+  --source postgresql://user:pass@localhost:5432/source_db \
+  --target postgresql://user:pass@localhost:5432/target_db \
+  --format sql \
+  --sql-format \
+  --sql-format-options '{"keywordCase":"upper","maxWidth":100}'
+```
+
+Available SQL format options (JSON):
+- `keywordCase`: `upper` | `lower` | `preserve`
+- `indent`: number of spaces per level
+- `maxWidth`: line width for wrapping
+- `commaStyle`: `trailing` | `leading`
+- `alignColumns`: boolean
+- `alignKeyValues`: boolean
+- `preserveRoutineBodies`: boolean
+- `preserveViewBodies`: boolean
+- `preserveRuleBodies`: boolean
+
 **Apply** - Apply a previously created plan:
 
 ```bash
