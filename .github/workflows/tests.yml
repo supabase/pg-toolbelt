@@ -156,6 +156,34 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
+  test-integration-pg15-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (PostgreSQL 15)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.test-integration.result }}" != "success" ]; then
+            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+            exit 1
+          fi
+
+  test-integration-pg17-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.test-integration.result }}" != "success" ]; then
+            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+            exit 1
+          fi
+
   test-integration-merge-reports:
     if: github.event.pull_request.draft == false
     needs:
@@ -196,6 +224,8 @@ jobs:
       - test-knip
       - test-unit
       - test-integration
+      - test-integration-pg15-compat
+      - test-integration-pg17-compat
       - test-integration-merge-reports
     name: Release preview
     runs-on: ubuntu-latest
