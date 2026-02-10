@@ -1,0 +1,361 @@
+import { isWordChar, walkSql } from "./sql-scanner.ts";
+import { scanTokens, splitByCommas } from "./tokenizer.ts";
+import type { CommaStyle, NormalizedOptions } from "./types.ts";
+
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let buffer = "";
+
+  walkSql(
+    sql,
+    (_index, char) => {
+      if (char === ";") {
+        const trimmed = trimOuterBlankLines(buffer);
+        if (trimmed.length > 0) {
+          statements.push(trimmed);
+        }
+        buffer = "";
+        return true;
+      }
+      buffer += char;
+      return true;
+    },
+    {
+      onSkipped: (chunk) => {
+        buffer += chunk;
+      },
+    },
+  );
+
+  const trailing = trimOuterBlankLines(buffer);
+  if (trailing.length > 0) {
+    statements.push(trailing);
+  }
+
+  return statements;
+}
+
+export function splitLeadingComments(statement: string): {
+  commentLines: string[];
+  body: string;
+} {
+  const lines = statement.split(/\r?\n/);
+  const commentLines: string[] = [];
+  let index = 0;
+
+  while (
+    index < lines.length &&
+    (lines[index].trim().startsWith("--") || lines[index].trim() === "")
+  ) {
+    commentLines.push(lines[index]);
+    index += 1;
+  }
+
+  const body = trimOuterBlankLines(lines.slice(index).join("\n"));
+  return { commentLines, body };
+}
+
+function trimOuterBlankLines(text: string): string {
+  const lines = text.split(/\r?\n/);
+  while (lines.length > 0 && lines[0].trim().length === 0) {
+    lines.shift();
+  }
+  while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
+    lines.pop();
+  }
+  return lines.join("\n");
+}
+
+export function formatColumnList(
+  content: string,
+  options: NormalizedOptions,
+): string[] | null {
+  if (content.trim().length === 0) {
+    return null;
+  }
+
+  const items = splitByCommas(content);
+  if (items.length === 0) return null;
+
+  const parsed = items.map((item) => parseColumnDefinition(item));
+  const maxName = parsed.reduce(
+    (max, column) => (column ? Math.max(max, column.name.length) : max),
+    0,
+  );
+  const maxType = parsed.reduce(
+    (max, column) => (column ? Math.max(max, column.type.length) : max),
+    0,
+  );
+
+  const indent = indentString(options.indent);
+  const lines: string[] = [];
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index].trim();
+    const column = parsed[index];
+
+    let line = item;
+    if (column) {
+      const name = options.alignColumns
+        ? column.name.padEnd(maxName)
+        : column.name;
+      const type = options.alignColumns
+        ? column.type.padEnd(maxType)
+        : column.type;
+      line = `${name} ${type}`;
+      if (column.tail) {
+        line += ` ${column.tail}`;
+      } else {
+        line = line.trimEnd();
+      }
+    }
+
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
+    lines.push(`${indent}${lineWithComma}`);
+  }
+
+  return lines;
+}
+
+function parseColumnDefinition(
+  definition: string,
+): { name: string; type: string; tail: string } | null {
+  let i = 0;
+  const trimmed = definition.trim();
+  if (trimmed.length === 0) return null;
+
+  let name = "";
+  if (trimmed[i] === '"') {
+    i += 1;
+    while (i < trimmed.length) {
+      if (trimmed[i] === '"') {
+        if (trimmed[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        i += 1;
+        break;
+      }
+      i += 1;
+    }
+    name = trimmed.slice(0, i);
+  } else {
+    while (i < trimmed.length && isWordChar(trimmed[i])) {
+      i += 1;
+    }
+    name = trimmed.slice(0, i);
+  }
+
+  if (name.length === 0) return null;
+  const nameUpper = name.replace(/^"|"$/g, "").toUpperCase();
+  const constraintStarts = new Set([
+    "PRIMARY",
+    "UNIQUE",
+    "CHECK",
+    "FOREIGN",
+    "CONSTRAINT",
+  ]);
+  if (constraintStarts.has(nameUpper)) {
+    return null;
+  }
+
+  const rest = trimmed.slice(i).trimStart();
+  if (rest.length === 0) return null;
+
+  const boundaryKeywords = new Set([
+    "COLLATE",
+    "DEFAULT",
+    "NOT",
+    "GENERATED",
+    "CONSTRAINT",
+    "CHECK",
+    "REFERENCES",
+    "PRIMARY",
+    "UNIQUE",
+  ]);
+
+  const tokens = scanTokens(rest);
+  let boundaryIndex: number | null = null;
+
+  for (const token of tokens) {
+    if (token.depth !== 0) continue;
+    if (boundaryKeywords.has(token.upper)) {
+      boundaryIndex = token.start;
+      break;
+    }
+  }
+
+  const type = (
+    boundaryIndex === null ? rest : rest.slice(0, boundaryIndex)
+  ).trimEnd();
+  const tail = boundaryIndex === null ? "" : rest.slice(boundaryIndex).trim();
+
+  if (type.length === 0) return null;
+
+  return { name, type, tail };
+}
+
+export function formatKeyValueItems(
+  items: string[],
+  options: NormalizedOptions,
+  indentOverride?: string,
+): string[] {
+  const indent = indentOverride ?? indentString(options.indent);
+  const parsed = items.map((item) => parseKeyValue(item));
+  const maxKey = parsed.reduce(
+    (max, entry) => (entry ? Math.max(max, entry.key.length) : max),
+    0,
+  );
+
+  return parsed.map((entry, index) => {
+    let line = items[index].trim();
+    if (entry) {
+      let key = entry.key;
+      if (options.keywordCase !== "preserve") {
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
+      }
+      if (options.alignKeyValues) {
+        key = key.padEnd(maxKey);
+      }
+      line = `${key} = ${entry.value}`;
+    }
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
+    return `${indent}${lineWithComma}`;
+  });
+}
+
+function parseKeyValue(item: string): { key: string; value: string } | null {
+  const trimmed = item.trim();
+  if (trimmed.length === 0) return null;
+
+  let result: { key: string; value: string } | null = null;
+
+  walkSql(
+    trimmed,
+    (index, char, depth) => {
+      if (char === "(" || char === ")") return true;
+      if (char === "=" && depth === 0) {
+        const key = trimmed.slice(0, index).trim();
+        const value = trimmed.slice(index + 1).trim();
+        if (key.length > 0 && value.length > 0) {
+          result = { key, value };
+        }
+        return false;
+      }
+      return true;
+    },
+    { trackDepth: true },
+  );
+
+  return result;
+}
+
+function applyCommaStyle(
+  line: string,
+  index: number,
+  total: number,
+  style: CommaStyle,
+): string {
+  if (style === "leading") {
+    return index === 0 ? `  ${line}` : `, ${line}`;
+  }
+  return index < total - 1 ? `${line},` : line;
+}
+
+export function formatListItems(
+  items: string[],
+  indent: string,
+  style: CommaStyle,
+): string[] {
+  return items.map((item, index) => {
+    const line = item.trim();
+    const lineWithComma = applyCommaStyle(line, index, items.length, style);
+    return `${indent}${lineWithComma}`;
+  });
+}
+
+/**
+ * Format a mixed list of key-value pairs and plain items (e.g. aggregate options).
+ * Items with `=` are formatted as key-value, others are formatted as-is.
+ * Reuses `parseKeyValue` — items without `=` are left as-is.
+ */
+export function formatMixedItems(
+  items: string[],
+  options: NormalizedOptions,
+  indentOverride?: string,
+): string[] {
+  const indent = indentOverride ?? indentString(options.indent);
+  const parsed = items.map((item) => parseKeyValue(item));
+  const maxKey = parsed.reduce(
+    (max, entry) => (entry ? Math.max(max, entry.key.length) : max),
+    0,
+  );
+
+  return parsed.map((entry, index) => {
+    let line = items[index].trim();
+    if (entry) {
+      let key = entry.key;
+      if (options.keywordCase !== "preserve") {
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
+      }
+      if (options.alignKeyValues) {
+        key = key.padEnd(maxKey);
+      }
+      line = `${key} = ${entry.value}`;
+    }
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
+    return `${indent}${lineWithComma}`;
+  });
+}
+
+/**
+ * Join a header line with indented clause strings.
+ * An optional `clauseTransform` can modify each clause before indenting
+ * (e.g. to expand OPTIONS(...) sub-clauses).
+ */
+export function joinHeaderAndClauses(
+  header: string,
+  clauses: string[],
+  options: NormalizedOptions,
+  clauseTransform?: (
+    clause: string,
+    indent: string,
+    options: NormalizedOptions,
+  ) => string[],
+): string {
+  const indent = indentString(options.indent);
+  const lines = [header];
+  for (const clause of clauses) {
+    if (clauseTransform) {
+      lines.push(...clauseTransform(clause, indent, options));
+    } else {
+      lines.push(`${indent}${clause}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export function indentString(size: number): string {
+  return " ".repeat(size);
+}
