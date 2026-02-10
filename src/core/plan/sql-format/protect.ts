@@ -67,6 +67,15 @@ function protectTailAfterAs(
       cursor += 2;
     }
 
+    // Handle compound keywords: MATERIALIZED VIEW, FOREIGN TABLE, EVENT TRIGGER
+    if (
+      tokens[cursor]?.upper === "MATERIALIZED" ||
+      tokens[cursor]?.upper === "FOREIGN" ||
+      tokens[cursor]?.upper === "EVENT"
+    ) {
+      cursor += 1;
+    }
+
     const objectToken = tokens[cursor];
     if (!objectToken || !objectKeywords.includes(objectToken.upper)) {
       continue;

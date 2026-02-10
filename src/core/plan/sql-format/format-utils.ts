@@ -203,8 +203,9 @@ function parseColumnDefinition(
 export function formatKeyValueItems(
   items: string[],
   options: NormalizedOptions,
+  indentOverride?: string,
 ): string[] {
-  const indent = indentString(options.indent);
+  const indent = indentOverride ?? indentString(options.indent);
   const parsed = items.map((item) => parseKeyValue(item));
   const maxKey = parsed.reduce(
     (max, entry) => (entry ? Math.max(max, entry.key.length) : max),
@@ -236,7 +237,9 @@ export function formatKeyValueItems(
   });
 }
 
-function parseKeyValue(item: string): { key: string; value: string } | null {
+export function parseKeyValue(
+  item: string,
+): { key: string; value: string } | null {
   const trimmed = item.trim();
   if (trimmed.length === 0) return null;
 
@@ -284,6 +287,75 @@ export function formatListItems(
     const lineWithComma = applyCommaStyle(line, index, items.length, style);
     return `${indent}${lineWithComma}`;
   });
+}
+
+/**
+ * Format a mixed list of key-value pairs and plain items (e.g. aggregate options).
+ * Items with `=` are formatted as key-value, others are formatted as-is.
+ * Reuses `parseKeyValue` — items without `=` are left as-is.
+ */
+export function formatMixedItems(
+  items: string[],
+  options: NormalizedOptions,
+  indentOverride?: string,
+): string[] {
+  const indent = indentOverride ?? indentString(options.indent);
+  const parsed = items.map((item) => parseKeyValue(item));
+  const maxKey = parsed.reduce(
+    (max, entry) => (entry ? Math.max(max, entry.key.length) : max),
+    0,
+  );
+
+  return parsed.map((entry, index) => {
+    let line = items[index].trim();
+    if (entry) {
+      let key = entry.key;
+      if (options.keywordCase !== "preserve") {
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
+      }
+      if (options.alignKeyValues) {
+        key = key.padEnd(maxKey);
+      }
+      line = `${key} = ${entry.value}`;
+    }
+    const lineWithComma = applyCommaStyle(
+      line,
+      index,
+      items.length,
+      options.commaStyle,
+    );
+    return `${indent}${lineWithComma}`;
+  });
+}
+
+/**
+ * Join a header line with indented clause strings.
+ * An optional `clauseTransform` can modify each clause before indenting
+ * (e.g. to expand OPTIONS(...) sub-clauses).
+ */
+export function joinHeaderAndClauses(
+  header: string,
+  clauses: string[],
+  options: NormalizedOptions,
+  clauseTransform?: (
+    clause: string,
+    indent: string,
+    options: NormalizedOptions,
+  ) => string[],
+): string {
+  const indent = indentString(options.indent);
+  const lines = [header];
+  for (const clause of clauses) {
+    if (clauseTransform) {
+      lines.push(...clauseTransform(clause, indent, options));
+    } else {
+      lines.push(`${indent}${clause}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 export function indentString(size: number): string {

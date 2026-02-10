@@ -1,15 +1,22 @@
 import { DEFAULT_OPTIONS } from "./constants.ts";
 import { splitLeadingComments, splitSqlStatements } from "./format-utils.ts";
 import {
+  formatAlterGeneric,
   formatAlterTable,
+  formatCreateAggregate,
   formatCreateCollation,
   formatCreateCompositeType,
   formatCreateDomain,
   formatCreateEnum,
+  formatCreateFDW,
   formatCreateFunction,
   formatCreateIndex,
+  formatCreateLanguage,
+  formatCreateMaterializedView,
   formatCreatePolicy,
   formatCreateRange,
+  formatCreateServer,
+  formatCreateSubscription,
   formatCreateTable,
   formatCreateTrigger,
   formatGeneric,
@@ -113,7 +120,14 @@ function formatStatement(
     formatCreatePolicy(protectedSegments.text, tokens, options) ??
     formatCreateTrigger(protectedSegments.text, tokens, options) ??
     formatCreateIndex(protectedSegments.text, tokens, options) ??
+    formatCreateAggregate(protectedSegments.text, tokens, options) ??
+    formatCreateLanguage(protectedSegments.text, tokens, options) ??
+    formatCreateMaterializedView(protectedSegments.text, tokens, options) ??
+    formatCreateSubscription(protectedSegments.text, tokens, options) ??
+    formatCreateFDW(protectedSegments.text, tokens, options) ??
+    formatCreateServer(protectedSegments.text, tokens, options) ??
     formatAlterTable(protectedSegments.text, tokens, options) ??
+    formatAlterGeneric(protectedSegments.text, tokens, options) ??
     formatGeneric(protectedSegments.text, tokens, options);
 
   if (options.keywordCase !== "preserve") {

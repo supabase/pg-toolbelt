@@ -2,10 +2,72 @@ import {
   formatColumnList,
   formatKeyValueItems,
   formatListItems,
+  formatMixedItems,
   indentString,
+  joinHeaderAndClauses,
 } from "./format-utils.ts";
-import { findTopLevelParen, scanTokens, splitByCommas } from "./tokenizer.ts";
+import {
+  findClausePositions,
+  findTopLevelParen,
+  scanTokens,
+  skipQualifiedName,
+  sliceClauses,
+  splitByCommas,
+} from "./tokenizer.ts";
 import type { NormalizedOptions, Token } from "./types.ts";
+
+// ── Module-level keyword sets (hoisted to avoid per-call allocations) ────────
+
+const DOMAIN_CLAUSE_KEYWORDS = new Set(["COLLATE", "DEFAULT", "CHECK"]);
+
+const FUNCTION_CLAUSE_KEYWORDS = new Set([
+  "RETURNS",
+  "LANGUAGE",
+  "TRANSFORM",
+  "WINDOW",
+  "IMMUTABLE",
+  "STABLE",
+  "VOLATILE",
+  "LEAKPROOF",
+  "CALLED",
+  "STRICT",
+  "SECURITY",
+  "PARALLEL",
+  "COST",
+  "ROWS",
+  "SUPPORT",
+  "SET",
+  "AS",
+]);
+
+const POLICY_CLAUSE_KEYWORDS = new Set(["FOR", "TO", "USING", "WITH"]);
+
+const TRIGGER_CLAUSE_KEYWORDS = new Set([
+  "BEFORE",
+  "AFTER",
+  "INSTEAD",
+  "FOR",
+  "WHEN",
+  "EXECUTE",
+]);
+
+const INDEX_CLAUSE_KEYWORDS = new Set(["WHERE", "WITH", "TABLESPACE"]);
+
+const LANGUAGE_CLAUSE_KEYWORDS = new Set(["HANDLER", "INLINE", "VALIDATOR"]);
+
+const MATVIEW_CLAUSE_KEYWORDS = new Set(["WITH", "AS"]);
+
+const SUBSCRIPTION_CLAUSE_KEYWORDS = new Set([
+  "CONNECTION",
+  "PUBLICATION",
+  "WITH",
+]);
+
+const FDW_CLAUSE_KEYWORDS = new Set(["HANDLER", "VALIDATOR", "OPTIONS"]);
+
+const EXPANDABLE_KEYWORDS = new Set(["OPTIONS", "WITH", "SET"]);
+
+// ── Formatters ───────────────────────────────────────────────────────────────
 
 export function formatCreateDomain(
   statement: string,
@@ -17,12 +79,14 @@ export function formatCreateDomain(
     return null;
   }
 
+  // Domain has a special NOT NULL compound clause that findClausePositions
+  // can't handle generically, so we keep a custom scan here.
   const clauseStarts: number[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
     if (tokens[i].depth !== 0) continue;
 
     const upper = tokens[i].upper;
-    if (upper === "COLLATE" || upper === "DEFAULT" || upper === "CHECK") {
+    if (DOMAIN_CLAUSE_KEYWORDS.has(upper)) {
       clauseStarts.push(tokens[i].start);
       continue;
     }
@@ -40,16 +104,9 @@ export function formatCreateDomain(
   clauseStarts.sort((a, b) => a - b);
 
   const prefix = statement.slice(0, clauseStarts[0]).trim();
-  const clauses: string[] = [];
-  for (let i = 0; i < clauseStarts.length; i += 1) {
-    const start = clauseStarts[i];
-    const end = clauseStarts[i + 1] ?? statement.length;
-    const clause = statement.slice(start, end).trim();
-    if (clause.length > 0) clauses.push(clause);
-  }
+  const clauses = sliceClauses(statement, clauseStarts);
 
-  const indent = indentString(options.indent);
-  return [prefix, ...clauses.map((clause) => `${indent}${clause}`)].join("\n");
+  return joinHeaderAndClauses(prefix, clauses, options);
 }
 
 export function formatCreateEnum(
@@ -274,26 +331,8 @@ export function formatCreateFunction(
     return lines.join("\n");
   }
 
-  const clauseKeywords = new Set([
-    "RETURNS",
-    "LANGUAGE",
-    "TRANSFORM",
-    "WINDOW",
-    "IMMUTABLE",
-    "STABLE",
-    "VOLATILE",
-    "LEAKPROOF",
-    "CALLED",
-    "STRICT",
-    "SECURITY",
-    "PARALLEL",
-    "COST",
-    "ROWS",
-    "SUPPORT",
-    "SET",
-    "AS",
-  ]);
-
+  // Function/procedure has special compound clauses (NOT LEAKPROOF, placeholders)
+  // that require a custom scan rather than the generic findClausePositions.
   const postTokens = scanTokens(postArgs);
   const clauseStarts: number[] = [];
 
@@ -307,7 +346,7 @@ export function formatCreateFunction(
       continue;
     }
 
-    if (clauseKeywords.has(tok.upper)) {
+    if (FUNCTION_CLAUSE_KEYWORDS.has(tok.upper)) {
       clauseStarts.push(tok.start);
       continue;
     }
@@ -328,11 +367,8 @@ export function formatCreateFunction(
     lines[lines.length - 1] += ` ${beforeFirstClause}`;
   }
 
-  for (let i = 0; i < clauseStarts.length; i += 1) {
-    const start = clauseStarts[i];
-    const end = clauseStarts[i + 1] ?? postArgs.length;
-    const clause = postArgs.slice(start, end).trim();
-
+  const clauses = sliceClauses(postArgs, clauseStarts);
+  for (const clause of clauses) {
     const clauseTokens = scanTokens(clause);
     if (
       clauseTokens.length >= 2 &&
@@ -386,8 +422,7 @@ export function formatCreatePolicy(
     return null;
   }
 
-  const clauseKeywords = new Set(["FOR", "TO", "USING", "WITH"]);
-
+  // Policy has special WITH CHECK handling that requires a custom scan.
   const clauseStarts: number[] = [];
   for (let i = 2; i < tokens.length; i += 1) {
     if (tokens[i].depth !== 0) continue;
@@ -406,7 +441,7 @@ export function formatCreatePolicy(
       continue;
     }
     if (upper === "WITH") continue;
-    if (clauseKeywords.has(upper)) {
+    if (POLICY_CLAUSE_KEYWORDS.has(upper)) {
       clauseStarts.push(tokens[i].start);
     }
   }
@@ -415,17 +450,9 @@ export function formatCreatePolicy(
   clauseStarts.sort((a, b) => a - b);
 
   const header = statement.slice(0, clauseStarts[0]).trim();
-  const indent = indentString(options.indent);
-  const lines = [header];
+  const clauses = sliceClauses(statement, clauseStarts);
 
-  for (let i = 0; i < clauseStarts.length; i += 1) {
-    const start = clauseStarts[i];
-    const end = clauseStarts[i + 1] ?? statement.length;
-    const clause = statement.slice(start, end).trim();
-    if (clause.length > 0) lines.push(`${indent}${clause}`);
-  }
-
-  return lines.join("\n");
+  return joinHeaderAndClauses(header, clauses, options);
 }
 
 export function formatCreateTrigger(
@@ -454,38 +481,12 @@ export function formatCreateTrigger(
 
   if (rest.length === 0) return null;
 
-  const clauseKeywords = new Set([
-    "BEFORE",
-    "AFTER",
-    "INSTEAD",
-    "FOR",
-    "WHEN",
-    "EXECUTE",
-  ]);
   const restTokens = scanTokens(rest);
-  const clauseStarts: number[] = [];
+  const positions = findClausePositions(restTokens, TRIGGER_CLAUSE_KEYWORDS);
+  if (positions.length === 0) return null;
 
-  for (let i = 0; i < restTokens.length; i += 1) {
-    if (restTokens[i].depth !== 0) continue;
-    if (clauseKeywords.has(restTokens[i].upper)) {
-      clauseStarts.push(restTokens[i].start);
-    }
-  }
-
-  if (clauseStarts.length === 0) return null;
-  clauseStarts.sort((a, b) => a - b);
-
-  const indent = indentString(options.indent);
-  const lines = [header];
-
-  for (let i = 0; i < clauseStarts.length; i += 1) {
-    const start = clauseStarts[i];
-    const end = clauseStarts[i + 1] ?? rest.length;
-    const clause = rest.slice(start, end).trim();
-    if (clause.length > 0) lines.push(`${indent}${clause}`);
-  }
-
-  return lines.join("\n");
+  const clauses = sliceClauses(rest, positions);
+  return joinHeaderAndClauses(header, clauses, options);
 }
 
 export function formatCreateIndex(
@@ -523,32 +524,13 @@ export function formatCreateIndex(
   const restText = statement.slice(headerEnd).trim();
   if (restText.length === 0) return null;
 
-  const clauseKeywords = new Set(["WHERE", "WITH", "TABLESPACE"]);
   const restTokens = scanTokens(restText);
-  const clauseStarts: number[] = [];
-
-  for (let i = 0; i < restTokens.length; i += 1) {
-    if (restTokens[i].depth !== 0) continue;
-    if (clauseKeywords.has(restTokens[i].upper)) {
-      clauseStarts.push(restTokens[i].start);
-    }
-  }
-
-  if (clauseStarts.length === 0) return null;
-  clauseStarts.sort((a, b) => a - b);
+  const positions = findClausePositions(restTokens, INDEX_CLAUSE_KEYWORDS);
+  if (positions.length === 0) return null;
 
   const header = statement.slice(0, headerEnd).trim();
-  const indent = indentString(options.indent);
-  const lines = [header];
-
-  for (let i = 0; i < clauseStarts.length; i += 1) {
-    const start = clauseStarts[i];
-    const end = clauseStarts[i + 1] ?? restText.length;
-    const clause = restText.slice(start, end).trim();
-    if (clause.length > 0) lines.push(`${indent}${clause}`);
-  }
-
-  return lines.join("\n");
+  const clauses = sliceClauses(restText, positions);
+  return joinHeaderAndClauses(header, clauses, options);
 }
 
 export function formatAlterTable(
@@ -572,18 +554,9 @@ export function formatAlterTable(
     cursor += 1;
   }
 
-  const nameStart = cursor;
-  if (nameStart >= tokens.length) return null;
+  if (cursor >= tokens.length) return null;
 
-  cursor += 1;
-  while (
-    cursor < tokens.length &&
-    tokens[cursor].start === tokens[cursor - 1].end + 1 &&
-    statement[tokens[cursor - 1].end] === "."
-  ) {
-    cursor += 1;
-  }
-
+  cursor = skipQualifiedName(statement, tokens, cursor);
   if (cursor >= tokens.length) return null;
 
   const headerEnd = tokens[cursor].start;
@@ -594,6 +567,344 @@ export function formatAlterTable(
 
   const indent = indentString(options.indent);
   return `${header}\n${indent}${action}`;
+}
+
+export function formatCreateAggregate(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 3) return null;
+  if (tokens[0].upper !== "CREATE" || tokens[1].upper !== "AGGREGATE") {
+    return null;
+  }
+
+  // Find the argument list parentheses first (e.g. array_cat_agg(anycompatiblearray))
+  const argParens = findTopLevelParen(statement, tokens[1].end);
+  if (!argParens) return null;
+
+  // Find the options parentheses after the argument list
+  const optParens = findTopLevelParen(statement, argParens.close + 1);
+  if (!optParens) return null;
+
+  const { open, close } = optParens;
+  const header = statement.slice(0, open).trim();
+  const content = statement.slice(open + 1, close).trim();
+  const suffix = statement.slice(close + 1).trim();
+
+  const items = splitByCommas(content);
+  if (items.length === 0) return null;
+
+  const formattedItems = formatMixedItems(items, options);
+  const lines = [
+    `${header} (`,
+    ...formattedItems,
+    `)${suffix ? ` ${suffix}` : ""}`,
+  ];
+  return lines.join("\n");
+}
+
+export function formatCreateLanguage(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 3) return null;
+  if (tokens[0].upper !== "CREATE") return null;
+
+  // Find LANGUAGE token (may be preceded by TRUSTED)
+  let langIndex = -1;
+  for (let i = 1; i < Math.min(4, tokens.length); i += 1) {
+    if (tokens[i].upper === "LANGUAGE") {
+      langIndex = i;
+      break;
+    }
+  }
+  if (langIndex === -1) return null;
+
+  // Must have a name token after LANGUAGE
+  const nameToken = tokens[langIndex + 1];
+  if (!nameToken) return null;
+
+  const headerEnd = nameToken.end;
+  const rest = statement.slice(headerEnd).trim();
+  const header = statement.slice(0, headerEnd).trim();
+
+  if (rest.length === 0) return null;
+
+  const restTokens = scanTokens(rest);
+  const positions = findClausePositions(restTokens, LANGUAGE_CLAUSE_KEYWORDS);
+  if (positions.length === 0) return null;
+
+  const clauses = sliceClauses(rest, positions);
+  return joinHeaderAndClauses(header, clauses, options);
+}
+
+export function formatCreateMaterializedView(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 4) return null;
+  if (tokens[0].upper !== "CREATE") return null;
+
+  // Find MATERIALIZED VIEW sequence
+  let viewIndex = -1;
+  for (let i = 1; i < Math.min(5, tokens.length); i += 1) {
+    if (tokens[i].upper === "MATERIALIZED" && tokens[i + 1]?.upper === "VIEW") {
+      viewIndex = i + 1; // point to VIEW
+      break;
+    }
+  }
+  if (viewIndex === -1) return null;
+
+  // Find schema-qualified name after VIEW
+  let cursor = viewIndex + 1;
+  if (cursor >= tokens.length) return null;
+  cursor = skipQualifiedName(statement, tokens, cursor);
+
+  const nameEnd = tokens[cursor - 1].end;
+  const rest = statement.slice(nameEnd).trim();
+  const header = statement.slice(0, nameEnd).trim();
+
+  if (rest.length === 0) return null;
+
+  // Materialized view has special placeholder handling for protected view bodies
+  const restTokens = scanTokens(rest);
+  const clauseStarts: number[] = [];
+
+  for (let i = 0; i < restTokens.length; i += 1) {
+    if (restTokens[i].depth !== 0) continue;
+    if (MATVIEW_CLAUSE_KEYWORDS.has(restTokens[i].upper)) {
+      clauseStarts.push(restTokens[i].start);
+    }
+    // Handle placeholder for protected view body
+    if (restTokens[i].value.startsWith("__PGDELTA_PLACEHOLDER_")) {
+      clauseStarts.push(restTokens[i].start);
+    }
+  }
+
+  if (clauseStarts.length === 0) return null;
+  clauseStarts.sort((a, b) => a - b);
+
+  const clauses = sliceClauses(rest, clauseStarts);
+  return joinHeaderAndClauses(header, clauses, options);
+}
+
+export function formatCreateSubscription(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 3) return null;
+  if (tokens[0].upper !== "CREATE" || tokens[1].upper !== "SUBSCRIPTION") {
+    return null;
+  }
+
+  // Name is the token after SUBSCRIPTION
+  const nameToken = tokens[2];
+  if (!nameToken) return null;
+
+  const headerEnd = nameToken.end;
+  const rest = statement.slice(headerEnd).trim();
+  const header = statement.slice(0, headerEnd).trim();
+
+  if (rest.length === 0) return null;
+
+  const restTokens = scanTokens(rest);
+  const positions = findClausePositions(
+    restTokens,
+    SUBSCRIPTION_CLAUSE_KEYWORDS,
+  );
+  if (positions.length === 0) return null;
+
+  const clauses = sliceClauses(rest, positions);
+  return joinHeaderAndClauses(header, clauses, options, expandOptionsClause);
+}
+
+export function formatCreateFDW(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 5) return null;
+  if (tokens[0].upper !== "CREATE") return null;
+
+  // Must be CREATE FOREIGN DATA WRAPPER (not CREATE SERVER ... FOREIGN DATA WRAPPER)
+  if (
+    tokens[1].upper !== "FOREIGN" ||
+    tokens[2]?.upper !== "DATA" ||
+    tokens[3]?.upper !== "WRAPPER"
+  ) {
+    return null;
+  }
+
+  // Name is the token after WRAPPER
+  const nameToken = tokens[4];
+  if (!nameToken) return null;
+
+  const headerEnd = nameToken.end;
+  const rest = statement.slice(headerEnd).trim();
+  const header = statement.slice(0, headerEnd).trim();
+
+  if (rest.length === 0) return null;
+
+  const restTokens = scanTokens(rest);
+  const positions = findClausePositions(restTokens, FDW_CLAUSE_KEYWORDS);
+  if (positions.length === 0) return null;
+
+  const clauses = sliceClauses(rest, positions);
+  return joinHeaderAndClauses(header, clauses, options, expandOptionsClause);
+}
+
+export function formatCreateServer(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 3) return null;
+  if (tokens[0].upper !== "CREATE" || tokens[1].upper !== "SERVER") {
+    return null;
+  }
+
+  // Name is the token after SERVER
+  const nameToken = tokens[2];
+  if (!nameToken) return null;
+
+  const headerEnd = nameToken.end;
+  const rest = statement.slice(headerEnd).trim();
+  const header = statement.slice(0, headerEnd).trim();
+
+  if (rest.length === 0) return null;
+
+  // Server has a multi-keyword clause (FOREIGN DATA WRAPPER) requiring custom scan
+  const restTokens = scanTokens(rest);
+  const clauseStarts: number[] = [];
+
+  for (let i = 0; i < restTokens.length; i += 1) {
+    if (restTokens[i].depth !== 0) continue;
+    const upper = restTokens[i].upper;
+    if (upper === "TYPE" || upper === "VERSION" || upper === "OPTIONS") {
+      clauseStarts.push(restTokens[i].start);
+      continue;
+    }
+    // Handle FOREIGN DATA WRAPPER as a clause start
+    if (
+      upper === "FOREIGN" &&
+      restTokens[i + 1]?.upper === "DATA" &&
+      restTokens[i + 2]?.upper === "WRAPPER"
+    ) {
+      clauseStarts.push(restTokens[i].start);
+    }
+  }
+
+  if (clauseStarts.length === 0) return null;
+  clauseStarts.sort((a, b) => a - b);
+
+  const clauses = sliceClauses(rest, clauseStarts);
+  return joinHeaderAndClauses(header, clauses, options, expandOptionsClause);
+}
+
+export function formatAlterGeneric(
+  statement: string,
+  tokens: Token[],
+  options: NormalizedOptions,
+): string | null {
+  if (tokens.length < 3) return null;
+  if (tokens[0].upper !== "ALTER") return null;
+
+  // Already handled by formatAlterTable
+  if (tokens[1].upper === "TABLE") return null;
+
+  // Map of ALTER types to the number of type-keyword tokens
+  // e.g. ALTER DOMAIN = 1, ALTER FOREIGN DATA WRAPPER = 3, ALTER MATERIALIZED VIEW = 2
+  let typeTokenCount = 0;
+  const t1 = tokens[1]?.upper;
+
+  if (t1 === "DOMAIN" || t1 === "SUBSCRIPTION" || t1 === "SERVER") {
+    typeTokenCount = 1;
+  } else if (t1 === "MATERIALIZED" && tokens[2]?.upper === "VIEW") {
+    typeTokenCount = 2;
+  } else if (t1 === "FOREIGN") {
+    if (tokens[2]?.upper === "TABLE") {
+      typeTokenCount = 2;
+    } else if (tokens[2]?.upper === "DATA" && tokens[3]?.upper === "WRAPPER") {
+      typeTokenCount = 3;
+    } else {
+      return null;
+    }
+  } else if (t1 === "EVENT" && tokens[2]?.upper === "TRIGGER") {
+    typeTokenCount = 2;
+  } else {
+    return null;
+  }
+
+  // cursor now points to the first token after the type keywords
+  let cursor = 1 + typeTokenCount;
+
+  // Skip IF EXISTS
+  if (
+    tokens[cursor]?.upper === "IF" &&
+    tokens[cursor + 1]?.upper === "EXISTS"
+  ) {
+    cursor += 2;
+  }
+
+  if (cursor >= tokens.length) return null;
+
+  // Skip the name (may be schema-qualified)
+  cursor = skipQualifiedName(statement, tokens, cursor);
+  if (cursor >= tokens.length) return null;
+
+  const headerEnd = tokens[cursor].start;
+  const header = statement.slice(0, headerEnd).trim();
+  const action = statement.slice(headerEnd).trim();
+
+  if (action.length === 0) return null;
+
+  const indent = indentString(options.indent);
+  const expandedLines = expandOptionsClause(action, indent, options);
+  return [header, ...expandedLines].join("\n");
+}
+
+/**
+ * If a clause contains a parenthesized options list (e.g. OPTIONS(...), WITH(...), SET(...))
+ * and it has multiple comma-separated items, expand them one per line.
+ * Returns an array of properly indented lines that should be pushed directly into the output.
+ *
+ * Also used as a `clauseTransform` callback for `joinHeaderAndClauses`.
+ */
+function expandOptionsClause(
+  clause: string,
+  baseIndent: string,
+  options: NormalizedOptions,
+): string[] {
+  const clauseTokens = scanTokens(clause);
+  if (clauseTokens.length === 0) return [`${baseIndent}${clause}`];
+
+  const firstUpper = clauseTokens[0].upper;
+  if (!EXPANDABLE_KEYWORDS.has(firstUpper)) {
+    return [`${baseIndent}${clause}`];
+  }
+
+  const parens = findTopLevelParen(clause, clauseTokens[0].end);
+  if (!parens) return [`${baseIndent}${clause}`];
+
+  const { open, close } = parens;
+  const content = clause.slice(open + 1, close).trim();
+  const suffix = clause.slice(close + 1).trim();
+  const keyword = clause.slice(0, open).trim();
+
+  const items = splitByCommas(content);
+  if (items.length <= 1) return [`${baseIndent}${clause}`];
+
+  const innerIndent = `${baseIndent}${indentString(options.indent)}`;
+  const formattedItems = formatMixedItems(items, options, innerIndent);
+  return [
+    `${baseIndent}${keyword} (`,
+    ...formattedItems,
+    `${baseIndent})${suffix ? ` ${suffix}` : ""}`,
+  ];
 }
 
 export function formatGeneric(

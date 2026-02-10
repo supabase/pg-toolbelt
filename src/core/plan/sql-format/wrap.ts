@@ -1,5 +1,36 @@
-import { walkSql } from "./sql-scanner.ts";
+import { indentString } from "./format-utils.ts";
+import { isWordChar, walkSql } from "./sql-scanner.ts";
 import type { NormalizedOptions } from "./types.ts";
+
+/**
+ * Keywords that are preferred break points when wrapping long lines.
+ * The wrapper will prefer to break just before one of these keywords
+ * rather than at an arbitrary whitespace position.
+ */
+const WRAP_PREFERRED_KEYWORDS = new Set([
+  "ADD",
+  "CHECK",
+  "CONNECTION",
+  "CONSTRAINT",
+  "DEFERRABLE",
+  "FOREIGN",
+  "HANDLER",
+  "INCLUDE",
+  "INITIALLY",
+  "INLINE",
+  "MATCH",
+  "NOT",
+  "ON",
+  "OPTIONS",
+  "PUBLICATION",
+  "REFERENCES",
+  "REFERENCING",
+  "SET",
+  "USING",
+  "VALIDATOR",
+  "WHERE",
+  "WITH",
+]);
 
 export function wrapStatement(
   statement: string,
@@ -68,20 +99,98 @@ function wrapLine(line: string, options: NormalizedOptions): string[] {
   return output;
 }
 
-function findWrapPosition(text: string, maxWidth: number): number {
-  let lastWhitespace = -1;
+/** Words that should not be separated from the previous word when wrapping (e.g. CREATE PUBLICATION, COMMENT ON). */
+const KEEP_WITH_PREVIOUS = new Set([
+  "PUBLICATION",
+  "TABLE",
+  "VIEW",
+  "SCHEMA",
+  "INDEX",
+  "OR", // CREATE OR REPLACE
+  "ON", // COMMENT ON
+]);
 
-  walkSql(text, (index, char) => {
-    if (index > maxWidth) return false;
-    if (char === " " || char === "\t") {
-      lastWhitespace = index;
-    }
-    return true;
-  });
-
-  return lastWhitespace;
+function getPreviousWord(text: string, beforeIndex: number): string | null {
+  let end = beforeIndex - 1;
+  while (end >= 0 && (text[end] === " " || text[end] === "\t")) {
+    end -= 1;
+  }
+  if (end < 0 || !isWordChar(text[end])) return null;
+  let start = end;
+  while (start > 0 && isWordChar(text[start - 1])) {
+    start -= 1;
+  }
+  return text.slice(start, end + 1).toUpperCase();
 }
 
-function indentString(size: number): string {
-  return " ".repeat(size);
+function findWrapPosition(text: string, maxWidth: number): number {
+  /** Last whitespace at depth 0 (preferred — avoids splitting parenthesized expressions) */
+  let lastTopLevelWhitespace = -1;
+  /** Last whitespace at any depth (fallback when no depth-0 break exists) */
+  let lastAnyWhitespace = -1;
+  let lastKeywordBoundary = -1;
+  /** First (leftmost) top-level comma within maxWidth — break there so each clause gets its own line */
+  let firstComma = -1;
+
+  // Never break within the leading indent — that would produce an empty head line
+  const contentStart = text.search(/\S/);
+  if (contentStart < 0) return -1; // all whitespace
+
+  walkSql(
+    text,
+    (index, char, depth) => {
+      if (index > maxWidth) return false;
+
+      // Skip positions within leading indent
+      if (index < contentStart) return true;
+
+      // Prefer breaking after the first top-level comma so comma-separated clauses (e.g. publication tables) each get their own line
+      if (char === "," && depth === 0 && firstComma < 0) {
+        firstComma = index + 1; // position after the comma
+      }
+
+      if (char === " " || char === "\t") {
+        lastAnyWhitespace = index;
+        if (depth === 0) {
+          lastTopLevelWhitespace = index;
+        }
+
+        // Check if the next word is a preferred keyword
+        const nextWordStart = index + 1;
+        if (nextWordStart < text.length && isWordChar(text[nextWordStart])) {
+          let wordEnd = nextWordStart + 1;
+          while (wordEnd < text.length && isWordChar(text[wordEnd])) {
+            wordEnd += 1;
+          }
+          const word = text.slice(nextWordStart, wordEnd).toUpperCase();
+          if (WRAP_PREFERRED_KEYWORDS.has(word)) {
+            // Don't break between CREATE and object type, COMMENT and ON, or ALL and ON (GRANT/REVOKE ALL ON)
+            const prev = getPreviousWord(text, index);
+            if (
+              prev !== null &&
+              ((prev === "CREATE" && KEEP_WITH_PREVIOUS.has(word)) ||
+                ((prev === "COMMENT" || prev === "ALL") && word === "ON"))
+            ) {
+              return true;
+            }
+            lastKeywordBoundary = index;
+          }
+        }
+      }
+      return true;
+    },
+    { trackDepth: true },
+  );
+
+  // Prefer: 1) comma, 2) keyword boundary, 3) depth-0 whitespace, 4) any whitespace
+  if (firstComma > 0 && firstComma <= maxWidth) {
+    return firstComma;
+  }
+  if (lastKeywordBoundary > 0 && lastKeywordBoundary <= maxWidth) {
+    return lastKeywordBoundary;
+  }
+  if (lastTopLevelWhitespace > 0) {
+    return lastTopLevelWhitespace;
+  }
+  return lastAnyWhitespace;
 }

@@ -697,7 +697,7 @@ const checkConstraint = {
 
 const table = new Table({
   schema: "public",
-  name: "t_fmt",
+  name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   persistence: "p",
   row_security: false,
   force_row_security: false,
@@ -845,13 +845,13 @@ const publication = new Publication({
   tables: [
     {
       schema: "public",
-      name: "articles",
+      name: "articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit",
       columns: ["id", "title"],
       row_filter: "(published = true)",
     },
     {
       schema: "public",
-      name: "comments",
+      name: "comments_a_little_smaller_name_than_the_previous_one",
       columns: null,
       row_filter: null,
     },
@@ -930,7 +930,7 @@ const procedure = new Procedure({
 
 const complexFunction = new Procedure({
   schema: "public",
-  name: "calculate_metrics",
+  name: "calculate_metrics_for_analytics_dashboard_with_extended_name",
   kind: "f",
   return_type: "TABLE(total bigint, average numeric)",
   return_type_schema: "pg_catalog",
@@ -945,7 +945,11 @@ const complexFunction = new Procedure({
   returns_set: true,
   argument_count: 3,
   argument_default_count: 1,
-  argument_names: ['"p_schema"', '"p_table"', '"p_limit"'],
+  argument_names: [
+    '"p_schema_name_for_analytics"',
+    '"p_table_name_for_metrics"',
+    '"p_limit_count_default"',
+  ],
   argument_types: ["text", "text", "integer"],
   all_argument_types: ["text", "text", "integer"],
   argument_modes: ["i", "i", "i"],
@@ -958,13 +962,13 @@ const complexFunction = new Procedure({
   comment: "Calculate metrics for a given table",
   privileges: [],
   definition:
-    'CREATE OR REPLACE FUNCTION public.calculate_metrics("p_schema" text, "p_table" text, "p_limit" integer DEFAULT 100) RETURNS TABLE(total bigint, average numeric) LANGUAGE plpgsql STABLE SECURITY DEFINER PARALLEL SAFE COST 100 ROWS 10 STRICT SET search_path TO \'pg_catalog\', \'public\' AS $function$ BEGIN RETURN QUERY SELECT count(*)::bigint, avg(value)::numeric FROM generate_series(1, p_limit); END; $function$',
+    'CREATE OR REPLACE FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name("p_schema_name_for_analytics" text, "p_table_name_for_metrics" text, "p_limit_count_default" integer DEFAULT 100) RETURNS TABLE(total bigint, average numeric) LANGUAGE plpgsql STABLE SECURITY DEFINER PARALLEL SAFE COST 100 ROWS 10 STRICT SET search_path TO \'pg_catalog\', \'public\' AS $function$ BEGIN RETURN QUERY SELECT count(*)::bigint, avg(value)::numeric FROM generate_series(1, p_limit_count_default); END; $function$',
   config: ["search_path TO 'pg_catalog', 'public'"],
 });
 
 const sequence = new Sequence({
   schema: "public",
-  name: "t_fmt_id_seq",
+  name: "table_with_very_long_name_for_formatting_and_wrapping_test_id_seq",
   data_type: "bigint",
   start_value: 1,
   minimum_value: BigInt(1),
@@ -974,9 +978,10 @@ const sequence = new Sequence({
   cache_size: 1,
   persistence: "p",
   owned_by_schema: "public",
-  owned_by_table: "t_fmt",
+  owned_by_table: "table_with_very_long_name_for_formatting_and_wrapping_test",
   owned_by_column: "id",
-  comment: "sequence for t_fmt.id",
+  comment:
+    "sequence for table_with_very_long_name_for_formatting_and_wrapping_test.id",
   privileges: [],
   owner: "owner1",
 });
@@ -984,7 +989,7 @@ const sequence = new Sequence({
 const rlsPolicy = new RlsPolicy({
   schema: "public",
   name: "allow_select_own",
-  table_name: "t_fmt",
+  table_name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   command: "r",
   permissive: true,
   roles: ["authenticated"],
@@ -997,7 +1002,7 @@ const rlsPolicy = new RlsPolicy({
 const rlsPolicyRestrictive = new RlsPolicy({
   schema: "public",
   name: "restrict_delete",
-  table_name: "t_fmt",
+  table_name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   command: "d",
   permissive: false,
   roles: ["authenticated", "service_role"],
@@ -1009,7 +1014,7 @@ const rlsPolicyRestrictive = new RlsPolicy({
 
 const index = new Index({
   schema: "public",
-  table_name: "t_fmt",
+  table_name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   name: "idx_t_fmt_status",
   storage_params: ["fillfactor=90"],
   statistics_target: [100],
@@ -1034,14 +1039,14 @@ const index = new Index({
   is_index_partition: false,
   parent_index_name: null,
   definition:
-    "CREATE UNIQUE INDEX idx_t_fmt_status ON public.t_fmt USING btree (status) WITH (fillfactor='90') WHERE (status <> 'archived'::text)",
+    "CREATE UNIQUE INDEX idx_t_fmt_status ON public.table_with_very_long_name_for_formatting_and_wrapping_test USING btree (status) WITH (fillfactor='90') WHERE (status <> 'archived'::text)",
   comment: "index comment",
   owner: "owner1",
 });
 
 const ginIndex = new Index({
   schema: "public",
-  table_name: "t_fmt",
+  table_name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   name: "idx_t_fmt_search",
   storage_params: [],
   statistics_target: [],
@@ -1066,7 +1071,7 @@ const ginIndex = new Index({
   is_index_partition: false,
   parent_index_name: null,
   definition:
-    "CREATE INDEX idx_t_fmt_search ON public.t_fmt USING gin (to_tsvector('english'::regconfig, status))",
+    "CREATE INDEX idx_t_fmt_search ON public.table_with_very_long_name_for_formatting_and_wrapping_test USING gin (to_tsvector('english'::regconfig, status))",
   comment: null,
   owner: "owner1",
 });
@@ -1074,7 +1079,7 @@ const ginIndex = new Index({
 const trigger = new Trigger({
   schema: "public",
   name: "trg_audit",
-  table_name: "t_fmt",
+  table_name: "table_with_very_long_name_for_formatting_and_wrapping_test",
   function_schema: "public",
   function_name: "audit_trigger_fn",
   trigger_type: 7,
@@ -1095,14 +1100,14 @@ const trigger = new Trigger({
   is_on_partitioned_table: false,
   owner: "owner1",
   definition:
-    "CREATE TRIGGER trg_audit AFTER INSERT OR UPDATE ON public.t_fmt REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH ROW WHEN ((NEW.status IS DISTINCT FROM OLD.status)) EXECUTE FUNCTION public.audit_trigger_fn('arg1', 'arg2')",
+    "CREATE TRIGGER trg_audit AFTER INSERT OR UPDATE ON public.table_with_very_long_name_for_formatting_and_wrapping_test REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH ROW WHEN ((NEW.status IS DISTINCT FROM OLD.status)) EXECUTE FUNCTION public.audit_trigger_fn('arg1', 'arg2')",
   comment: "trigger comment",
 });
 
 // ── New object models ───────────────────────────────────────────────────────
 
 const schema = new Schema({
-  name: "app_schema",
+  name: "application_schema_with_very_long_name_for_wrapping_tests",
   owner: "admin",
   comment: "application schema",
   privileges: [],
@@ -1918,7 +1923,7 @@ const changeCases: ChangeCase[] = [
       tables: [
         {
           schema: "public",
-          name: "new_table",
+          name: "new_table_with_very_long_name_for_formatting_and_wrapping_test",
           columns: null,
           row_filter: null,
         },
@@ -1930,7 +1935,12 @@ const changeCases: ChangeCase[] = [
     change: new AlterPublicationDropTables({
       publication,
       tables: [
-        { schema: "public", name: "comments", columns: null, row_filter: null },
+        {
+          schema: "public",
+          name: "comments_a_little_smaller_name_than_the_previous_one",
+          columns: null,
+          row_filter: null,
+        },
       ],
     }),
   },
@@ -2121,7 +2131,11 @@ const changeCases: ChangeCase[] = [
     label: "sequence.alter.set_owned_by",
     change: new AlterSequenceSetOwnedBy({
       sequence,
-      ownedBy: { schema: "public", table: "t_fmt", column: "id" },
+      ownedBy: {
+        schema: "public",
+        table: "table_with_very_long_name_for_formatting_and_wrapping_test",
+        column: "id",
+      },
     }),
   },
   {
