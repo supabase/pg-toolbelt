@@ -56,7 +56,9 @@ try {
     .join("\n\n");
   await writeFile(path.join(outputDir, "combined.sql"), combinedSql);
 
-  console.log(`Wrote ${output.files.length} files to ${outputDir}`);
+  console.log(
+    `Wrote ${planResult.sortedChanges.length} changes to ${output.files.length} files to ${outputDir}`,
+  );
 } catch (error) {
   console.error("Error:", error);
   process.exit(1);
