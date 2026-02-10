@@ -237,9 +237,7 @@ export function formatKeyValueItems(
   });
 }
 
-export function parseKeyValue(
-  item: string,
-): { key: string; value: string } | null {
+function parseKeyValue(item: string): { key: string; value: string } | null {
   const trimmed = item.trim();
   if (trimmed.length === 0) return null;
 
