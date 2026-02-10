@@ -768,6 +768,7 @@ describe("sql formatting snapshots", () => {
 
       -- event_trigger.create
       create event trigger prevent_drop
+          on sql_drop
           WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA')
           EXECUTE function public.prevent_drop_fn();
 
