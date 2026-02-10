@@ -8,5 +8,7 @@ export type { IntegrationDSL } from "./core/integrations/integration-dsl.ts";
 export { applyPlan } from "./core/plan/apply.ts";
 // Core operations
 export { createPlan } from "./core/plan/create.ts";
+export type { SqlFormatOptions } from "./core/plan/sql-format.ts";
+export { formatSqlStatements } from "./core/plan/sql-format.ts";
 // Types
 export type { CreatePlanOptions, Plan } from "./core/plan/types.ts";
