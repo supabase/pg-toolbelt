@@ -119,11 +119,13 @@ jobs:
 
   test-integration:
     if: github.event.pull_request.draft == false
-    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }})
+    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       matrix:
         postgres_version: [15, 17]
+        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard_total: [12]
     steps:
       - name: Skip if release bot
         if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
@@ -143,7 +145,77 @@ jobs:
         if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-        run: pnpm test --project=integration --coverage
+        run: pnpm test --project=integration --coverage --reporter=blob --outputFile.blob=.vitest-reports/blob-pg${{ matrix.postgres_version }}-${{ matrix.shard_index }}-${{ matrix.shard_total }}.json --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }} --passWithNoTests
+
+      - name: Upload integration blob report
+        if: ${{ !cancelled() && github.event.pull_request.user.login != 'supabase-releaser[bot]' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-blob-report-pg${{ matrix.postgres_version }}-s${{ matrix.shard_index }}
+          path: .vitest-reports/*
+          include-hidden-files: true
+          retention-days: 1
+
+  test-integration-pg15-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (PostgreSQL 15)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.test-integration.result }}" != "success" ]; then
+            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+            exit 1
+          fi
+
+  test-integration-pg17-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.test-integration.result }}" != "success" ]; then
+            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+            exit 1
+          fi
+
+  test-integration-merge-reports:
+    if: github.event.pull_request.draft == false
+    needs:
+      - test-integration
+    name: Integration tests (merge shard reports)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if release bot
+        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
+        run: |
+          echo "✓ Skipping integration report merge for release bot"
+          exit 0
+
+      - name: Checkout
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: actions/checkout@v6
+
+      - name: Setup
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: ./.github/actions/setup
+
+      - name: Download integration blob reports
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        uses: actions/download-artifact@v4
+        with:
+          path: .vitest-reports
+          pattern: integration-blob-report-*
+          merge-multiple: true
+
+      - name: Merge integration reports and coverage
+        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        run: pnpm vitest --merge-reports=.vitest-reports --project=integration --coverage --reporter=default --passWithNoTests
 
   release-preview:
     needs:
@@ -152,6 +224,9 @@ jobs:
       - test-knip
       - test-unit
       - test-integration
+      - test-integration-pg15-compat
+      - test-integration-pg17-compat
+      - test-integration-merge-reports
     name: Release preview
     runs-on: ubuntu-latest
     steps:
