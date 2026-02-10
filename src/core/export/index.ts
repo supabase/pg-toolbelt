@@ -29,9 +29,10 @@ export interface ExportOptions {
   /** Integration for custom serialization */
   integration?: Integration;
   /**
-   * Prefix file paths with order numbers for alphabetical sorting.
+   * Prefix filenames with order numbers for alphabetical sorting.
    * When true, paths like "schemas/public/tables/users.sql" become
-   * "000001_schemas/public/tables/users.sql" to ensure correct application order.
+   * "schemas/public/tables/000001_users.sql" to ensure correct application order.
+   * Only the filename is prefixed; directory components remain unchanged.
    */
   orderPrefix?: boolean;
 }
@@ -84,7 +85,7 @@ export function exportDeclarativeSchema(
       statements.unshift("SET check_function_bodies = false");
     }
     const path = orderPrefix
-      ? `${String(index + 1).padStart(6, "0")}_${group.path}`
+      ? prefixFilename(group.path, index + 1)
       : group.path;
     return buildFileEntry(path, group.metadata, statements, index);
   });
@@ -97,6 +98,24 @@ export function exportDeclarativeSchema(
     target: { fingerprint: targetFingerprint },
     files,
   };
+}
+
+/**
+ * Prefix only the filename portion of a path with a zero-padded order number.
+ * Directory components are left unchanged so that folder structure is preserved.
+ *
+ * Example: prefixFilename("schemas/public/tables/users.sql", 1)
+ *       → "schemas/public/tables/000001_users.sql"
+ */
+function prefixFilename(filePath: string, order: number): string {
+  const prefix = String(order).padStart(6, "0");
+  const lastSlash = filePath.lastIndexOf("/");
+  if (lastSlash === -1) {
+    return `${prefix}_${filePath}`;
+  }
+  const dir = filePath.slice(0, lastSlash + 1);
+  const file = filePath.slice(lastSlash + 1);
+  return `${dir}${prefix}_${file}`;
 }
 
 function serializeChange(change: Change, integration?: Integration): string {
