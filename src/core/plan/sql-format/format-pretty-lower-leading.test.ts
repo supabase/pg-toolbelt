@@ -26,7 +26,8 @@ describe("sql formatting snapshots", () => {
       alter schema application_schema_with_very_long_name_for_wrapping_tests owner to new_admin;
 
       -- schema.comment
-      comment on schema application_schema_with_very_long_name_for_wrapping_tests is 'application schema';
+      comment on schema application_schema_with_very_long_name_for_wrapping_tests is
+          'application schema';
 
       -- schema.drop_comment
       comment on schema application_schema_with_very_long_name_for_wrapping_tests is null;
@@ -367,7 +368,8 @@ describe("sql formatting snapshots", () => {
 
       -- table.constraint_comment
       comment on constraint pk_t_fmt
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'primary key';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'primary key';
 
       -- table.drop_constraint_comment
       comment on constraint chk_t_fmt_status
@@ -635,7 +637,8 @@ describe("sql formatting snapshots", () => {
 
       -- policy.comment
       comment on policy allow_select_own
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'rls policy comment';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'rls policy comment';
 
       -- policy.drop_comment
       comment on policy allow_select_own
@@ -687,7 +690,8 @@ describe("sql formatting snapshots", () => {
 
       -- trigger.comment
       comment on trigger trg_audit
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'trigger comment';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'trigger comment';
 
       -- trigger.drop_comment
       comment on trigger trg_audit

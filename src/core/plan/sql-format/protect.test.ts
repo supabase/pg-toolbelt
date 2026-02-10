@@ -29,6 +29,35 @@ describe("protectSegments", () => {
     expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
     expect(result.text).not.toContain("hello world");
   });
+
+  it("protects COMMENT literal payloads and restores multiline text exactly", () => {
+    const sql = `COMMENT ON FUNCTION auth.can_project(bigint,bigint,text,auth.action,json,uuid) IS '
+Enhanced wrapper method for the primary auth.can() function. Utilize this wrapper to specifically check for project-related permissions.
+';`;
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
+    expect(result.text).not.toContain(
+      "Enhanced wrapper method for the primary auth.can() function.",
+    );
+    const restored = restorePlaceholders(result.text, result.placeholders);
+    expect(restored).toBe(sql);
+  });
+
+  it("preserves escaped quotes inside COMMENT literal payloads", () => {
+    const sql =
+      "COMMENT ON FUNCTION public.fn() IS E'it''s an ''exact'' payload';";
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
+    const restored = restorePlaceholders(result.text, result.placeholders);
+    expect(restored).toBe(sql);
+  });
+
+  it("does not protect COMMENT ... IS NULL", () => {
+    const sql = "COMMENT ON FUNCTION public.fn() IS NULL;";
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.placeholders.size).toBe(0);
+    expect(result.text).toBe(sql);
+  });
 });
 
 describe("restorePlaceholders", () => {

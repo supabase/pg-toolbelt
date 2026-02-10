@@ -592,7 +592,8 @@ describe("sql formatting snapshots", () => {
 
       -- rule.comment
       COMMENT ON RULE test_rule
-        ON public.test_table IS 'rule comment';
+        ON public.test_table IS
+        'rule comment';
 
       -- rule.drop_comment
       COMMENT ON RULE test_rule
