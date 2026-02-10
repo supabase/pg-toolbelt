@@ -4,12 +4,18 @@
 
 import type { Change } from "../change.types.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
-import { evaluatePattern } from "../integrations/filter/dsl.ts";
 import type { Integration } from "../integrations/integration.types.ts";
 import type { createPlan } from "../plan/create.ts";
+import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
 import { formatSqlScript } from "../plan/statements.ts";
+import { getFilePath } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
-import type { DeclarativeSchemaOutput, FileEntry } from "./types.ts";
+import { getSimpleFilePath } from "./simple-file-mapper.ts";
+import type {
+  DeclarativeSchemaOutput,
+  ExportMode,
+  FileEntry,
+} from "./types.ts";
 
 // ============================================================================
 // Types
@@ -35,6 +41,12 @@ export interface ExportOptions {
    * Only the filename is prefixed; directory components remain unchanged.
    */
   orderPrefix?: boolean;
+  /**
+   * File organization mode:
+   * - "detailed" (default): One file per object in nested directories
+   * - "simple": One file per category, flat structure (e.g., tables.sql, views.sql)
+   */
+  mode?: ExportMode;
 }
 
 /**
@@ -58,13 +70,18 @@ export function exportDeclarativeSchema(
   const { ctx, sortedChanges } = planResult;
   const integration = options?.integration;
   const orderPrefix = options?.orderPrefix ?? false;
+  const mode = options?.mode ?? "detailed";
 
   // Declarative export targets the final state; exclude drop operations.
+  // Exception: default_privilege drops (REVOKEs) are kept because they define
+  // the desired privilege state (e.g. revoking implicit PUBLIC EXECUTE on
+  // functions).  Without them the applied schema would retain PostgreSQL's
+  // implicit defaults, causing a diff on verification.
   // Note: filtering by integration and dependency cascading are done in createPlan,
   // so we only filter out drops here.
-  const excludeDrops = { not: { operation: "drop" as const } };
-  const declarativeChanges = sortedChanges.filter((change) =>
-    evaluatePattern(excludeDrops, change),
+  const declarativeChanges = sortedChanges.filter(
+    (change) =>
+      change.operation !== "drop" || change.scope === "default_privilege",
   );
 
   const { hash: sourceFingerprint, stableIds } = buildPlanScopeFingerprint(
@@ -73,11 +90,18 @@ export function exportDeclarativeSchema(
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
-  const groups = groupChangesByFile(declarativeChanges);
+  const mapper = mode === "simple" ? getSimpleFilePath : getFilePath;
+  // Simple mode sorts files by category priority (natural dependency hierarchy).
+  // Detailed mode sorts by topological position (fine-grained per-object ordering).
+  const sortBy = mode === "simple" ? "category" : "topological";
+  const groups = groupChangesByFile(declarativeChanges, mapper, { sortBy });
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>
       serializeChange(change, integration),
     );
+    // Disable function body validation for files containing routines.
+    // In simple mode, functions come before tables so table defaults can
+    // reference them, but function bodies may reference not-yet-created tables.
     const hasRoutines = group.changes.some(
       (c) => c.objectType === "procedure" || c.objectType === "aggregate",
     );
@@ -132,7 +156,10 @@ function buildFileEntry(
     path,
     order,
     statements: statements.length,
-    sql: formatSqlScript(statements),
+    sql: formatSqlScript(statements, {
+      ...DEFAULT_OPTIONS,
+      keywordCase: "upper",
+    }),
     metadata,
   };
 }

@@ -33,7 +33,10 @@ try {
     process.exit(0);
   }
 
-  const output = exportDeclarativeSchema(planResult, { orderPrefix: true });
+  const output = exportDeclarativeSchema(planResult, {
+    orderPrefix: true,
+    mode: "simple",
+  });
 
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });

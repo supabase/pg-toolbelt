@@ -11,7 +11,10 @@ import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import { extractVersion } from "../../src/core/context.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
-import { exportDeclarativeSchema } from "../../src/core/export/index.ts";
+import {
+  type ExportOptions,
+  exportDeclarativeSchema,
+} from "../../src/core/export/index.ts";
 import type { DeclarativeSchemaOutput } from "../../src/core/export/types.ts";
 import {
   buildPlanScopeFingerprint,
@@ -60,6 +63,8 @@ export interface DeclarativeExportTestOptions {
   initialSetup?: string;
   testSql?: string;
   integration?: Integration;
+  /** Additional export options (mode, orderPrefix, etc.) */
+  exportOptions?: Omit<ExportOptions, "integration">;
 }
 
 /**
@@ -251,8 +256,14 @@ export async function roundtripFidelityTest(
 export async function testDeclarativeExport(
   options: DeclarativeExportTestOptions,
 ): Promise<DeclarativeSchemaOutput> {
-  const { mainSession, branchSession, initialSetup, testSql, integration } =
-    options;
+  const {
+    mainSession,
+    branchSession,
+    initialSetup,
+    testSql,
+    integration,
+    exportOptions,
+  } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
 
@@ -285,7 +296,10 @@ export async function testDeclarativeExport(
   const { branchCatalog } = ctx;
   const integrationFilter = integration?.filter;
 
-  const output = exportDeclarativeSchema(planResult, { integration });
+  const output = exportDeclarativeSchema(planResult, {
+    integration,
+    ...exportOptions,
+  });
 
   expect(output.version).toBe(1);
   expect(output.mode).toBe("declarative");

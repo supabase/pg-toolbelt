@@ -42,6 +42,7 @@ const FUNCTION_CLAUSE_KEYWORDS = new Set([
 
 const POLICY_CLAUSE_KEYWORDS = new Set(["FOR", "TO", "USING", "WITH"]);
 
+const EVENT_TRIGGER_CLAUSE_KEYWORDS = new Set(["ON", "WHEN", "EXECUTE"]);
 const TRIGGER_CLAUSE_KEYWORDS = new Set([
   "BEFORE",
   "AFTER",
@@ -482,7 +483,11 @@ export function formatCreateTrigger(
   if (rest.length === 0) return null;
 
   const restTokens = scanTokens(rest);
-  const positions = findClausePositions(restTokens, TRIGGER_CLAUSE_KEYWORDS);
+  const clauseKeywords =
+    tokens[triggerIndex - 1]?.upper === "EVENT"
+      ? EVENT_TRIGGER_CLAUSE_KEYWORDS
+      : TRIGGER_CLAUSE_KEYWORDS;
+  const positions = findClausePositions(restTokens, clauseKeywords);
   if (positions.length === 0) return null;
 
   const clauses = sliceClauses(rest, positions);

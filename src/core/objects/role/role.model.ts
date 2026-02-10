@@ -209,6 +209,7 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                                   s.grantee
                       )
                 FROM (
+                  -- Explicit entries from pg_default_acl
                   SELECT
                     d.defaclnamespace,
                     d.defaclobjtype,
@@ -225,6 +226,35 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                     AS x(grantor, grantee, privilege_type, is_grantable)
                   WHERE d.defaclrole = r.oid
                   GROUP BY d.defaclnamespace, d.defaclobjtype, x.grantee
+
+                  UNION ALL
+
+                  -- Implicit defaults from acldefault() for objtypes without a
+                  -- global pg_default_acl entry.  PostgreSQL applies these implicit
+                  -- defaults (e.g. PUBLIC gets EXECUTE on functions) when no
+                  -- explicit ALTER DEFAULT PRIVILEGES has been issued.  Including
+                  -- them lets the diff detect REVOKEs of implicit grants.
+                  SELECT
+                    0 AS defaclnamespace,
+                    v.t::"char" AS defaclobjtype,
+                    x.grantee,
+                    json_agg(
+                      json_build_object(
+                        'privilege',  x.privilege_type,
+                        'grantable',  x.is_grantable
+                      )
+                      ORDER BY x.privilege_type, x.is_grantable
+                    ) AS privileges
+                  FROM (VALUES ('r'), ('S'), ('f'), ('T'), ('n')) AS v(t)
+                  CROSS JOIN LATERAL aclexplode(acldefault(v.t::"char", r.oid))
+                    AS x(grantor, grantee, privilege_type, is_grantable)
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM pg_default_acl d2
+                    WHERE d2.defaclrole     = r.oid
+                      AND d2.defaclobjtype  = v.t::"char"
+                      AND d2.defaclnamespace = 0
+                  )
+                  GROUP BY v.t, x.grantee
                 ) AS s
               ),
               '[]'
@@ -299,6 +329,7 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                                   s.grantee
                       )
                 FROM (
+                  -- Explicit entries from pg_default_acl
                   SELECT
                     d.defaclnamespace,
                     d.defaclobjtype,
@@ -315,6 +346,35 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                     AS x(grantor, grantee, privilege_type, is_grantable)
                   WHERE d.defaclrole = r.oid
                   GROUP BY d.defaclnamespace, d.defaclobjtype, x.grantee
+
+                  UNION ALL
+
+                  -- Implicit defaults from acldefault() for objtypes without a
+                  -- global pg_default_acl entry.  PostgreSQL applies these implicit
+                  -- defaults (e.g. PUBLIC gets EXECUTE on functions) when no
+                  -- explicit ALTER DEFAULT PRIVILEGES has been issued.  Including
+                  -- them lets the diff detect REVOKEs of implicit grants.
+                  SELECT
+                    0 AS defaclnamespace,
+                    v.t::"char" AS defaclobjtype,
+                    x.grantee,
+                    json_agg(
+                      json_build_object(
+                        'privilege',  x.privilege_type,
+                        'grantable',  x.is_grantable
+                      )
+                      ORDER BY x.privilege_type, x.is_grantable
+                    ) AS privileges
+                  FROM (VALUES ('r'), ('S'), ('f'), ('T'), ('n')) AS v(t)
+                  CROSS JOIN LATERAL aclexplode(acldefault(v.t::"char", r.oid))
+                    AS x(grantor, grantee, privilege_type, is_grantable)
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM pg_default_acl d2
+                    WHERE d2.defaclrole     = r.oid
+                      AND d2.defaclobjtype  = v.t::"char"
+                      AND d2.defaclnamespace = 0
+                  )
+                  GROUP BY v.t, x.grantee
                 ) AS s
               ),
               '[]'

@@ -3,7 +3,7 @@ import type { NormalizedOptions } from "./types.ts";
 export const DEFAULT_OPTIONS: NormalizedOptions = {
   keywordCase: "preserve",
   indent: 2,
-  maxWidth: 100,
+  maxWidth: 120,
   commaStyle: "trailing",
   alignColumns: true,
   alignKeyValues: true,

@@ -61,7 +61,26 @@ echo ""
 echo "All files applied successfully."
 
 # ──────────────────────────────────────────────────────────────
-# 4. Cleanup
+# 4. Verify roundtrip: diff applied DB vs original (expect 0 changes)
 # ──────────────────────────────────────────────────────────────
-# docker rm -f "$CONTAINER_NAME" >/dev/null
+# Same filter as declarative-export (exclude platform-db–specific extensions).
+FILTER_DSL='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
+echo "Verifying roundtrip: diff applied DB vs original (expect 0 changes)..."
+VERIFY_OUTPUT=$(pnpm pgdelta plan --source "$DB_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" 2>&1) || true
+if echo "$VERIFY_OUTPUT" | grep -q "No changes detected."; then
+  echo "Verification passed: 0 changes (declarative schema roundtrip OK)."
+else
+  echo "$VERIFY_OUTPUT"
+  echo ""
+  echo "Writing full diff for debugging..."
+  pnpm pgdelta plan --source "$DB_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" --format sql
+  echo ""
+  echo "Verification FAILED: diff reported changes (declarative apply did not match source)."
+  exit 1
+fi
+
+# ──────────────────────────────────────────────────────────────
+# 5. Cleanup
+# ──────────────────────────────────────────────────────────────
+docker rm -f "$CONTAINER_NAME" >/dev/null
 echo "Container cleaned up."

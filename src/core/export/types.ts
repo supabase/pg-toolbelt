@@ -24,9 +24,22 @@ export const CATEGORY_PRIORITY = {
   indexes: 14,
   policies: 15,
   foreign_keys: 16,
+  // Late-binding cluster objects that depend on schema-level objects.
+  // In detailed mode these use "cluster" and rely on topological sort.
+  // In simple mode they need explicit late ordering.
+  publications: 17,
+  subscriptions: 18,
+  event_triggers: 19,
 } as const;
 
 export type FileCategory = keyof typeof CATEGORY_PRIORITY;
+
+/**
+ * Export mode controls file organization:
+ * - "detailed": One file per object in nested directories (e.g., schemas/public/tables/users.sql)
+ * - "simple": One file per category, flat structure (e.g., tables.sql, views.sql)
+ */
+export type ExportMode = "detailed" | "simple";
 
 // ============================================================================
 // Output Types
