@@ -466,6 +466,7 @@ export const KEYWORDS = new Set([
   "UPDATE",
   "USER",
   "USING",
+  "USAGE",
   "VACUUM",
   "VALID",
   "VALIDATE",
