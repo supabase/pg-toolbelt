@@ -12,6 +12,7 @@ describe("lowercase coverage formatting", () => {
       "GRANT SELECT ON auth.default_permissions TO authenticated;",
       "GRANT DELETE, INSERT, SELECT, UPDATE ON auth.permissions TO authenticated;",
       "ALTER TABLE auth.subject_all_roles REPLICA IDENTITY FULL;",
+      "CREATE EVENT TRIGGER prevent_drop ON sql_drop WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA') EXECUTE FUNCTION public.prevent_drop_fn();",
       "CREATE TABLE public.credit_codes (id uuid DEFAULT gen_random_uuid() NOT NULL, is_unique boolean GENERATED ALWAYS AS ((max_redemptions = 1)) STORED, created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL, status text DEFAULT 'ACTIVE_HEALTHY');",
     ];
 
@@ -35,10 +36,11 @@ describe("lowercase coverage formatting", () => {
     expect(formatted[6]).toContain("select,");
     expect(formatted[6]).toContain("update on");
     expect(formatted[7]).toContain("replica identity full");
-    expect(formatted[8]).toContain("generated always as");
-    expect(formatted[8]).toContain("default current_timestamp");
+    expect(formatted[8]).toContain("when tag in");
+    expect(formatted[9]).toContain("generated always as");
+    expect(formatted[9]).toContain("default current_timestamp");
 
     // Quoted text must remain unchanged.
-    expect(formatted[8]).toContain("'ACTIVE_HEALTHY'");
+    expect(formatted[9]).toContain("'ACTIVE_HEALTHY'");
   });
 });

@@ -430,6 +430,7 @@ export const KEYWORDS = new Set([
   "TABLES",
   "TABLESAMPLE",
   "TABLESPACE",
+  "TAG",
   "TARGET",
   "TEMP",
   "TEMPLATE",
