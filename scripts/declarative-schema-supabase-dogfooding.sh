@@ -5,7 +5,7 @@ CONTAINER_NAME="pgdelta-dogfooding"
 CONTAINER_PORT=6543
 ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
 DB_NAME="declarative_test"
-DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
+DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}" 
 
 # ──────────────────────────────────────────────────────────────
 # 1. Export declarative schema from source
