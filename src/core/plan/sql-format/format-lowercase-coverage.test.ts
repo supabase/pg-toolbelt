@@ -14,6 +14,10 @@ describe("lowercase coverage formatting", () => {
       "ALTER TABLE auth.subject_all_roles REPLICA IDENTITY FULL;",
       "CREATE EVENT TRIGGER prevent_drop ON sql_drop WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA') EXECUTE FUNCTION public.prevent_drop_fn();",
       "CREATE TABLE public.credit_codes (id uuid DEFAULT gen_random_uuid() NOT NULL, is_unique boolean GENERATED ALWAYS AS ((max_redemptions = 1)) STORED, created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL, status text DEFAULT 'ACTIVE_HEALTHY');",
+      "CREATE POLICY restrict_delete ON public.credit_codes AS RESTRICTIVE FOR DELETE TO authenticated USING (true);",
+      "CREATE AGGREGATE public.array_cat_agg(anycompatiblearray) (SFUNC = array_cat, STYPE = anycompatiblearray, PARALLEL SAFE);",
+      "GRANT USAGE ON SCHEMA public TO PUBLIC;",
+      "REVOKE USAGE ON SCHEMA public FROM PUBLIC;",
     ];
 
     const formatted = formatSqlStatements(statements, {
@@ -40,6 +44,14 @@ describe("lowercase coverage formatting", () => {
     expect(formatted[8]).toContain("when tag in");
     expect(formatted[9]).toContain("generated always as");
     expect(formatted[9]).toContain("default current_timestamp");
+    expect(formatted[10]).toContain("as restrictive");
+    expect(formatted[11]).toContain("parallel safe");
+    expect(formatted[12]).toContain("on schema public");
+    expect(formatted[12]).toContain("to public");
+    expect(formatted[12]).not.toContain("schema PUBLIC");
+    expect(formatted[13]).toContain("on schema public");
+    expect(formatted[13]).toContain("from public");
+    expect(formatted[13]).not.toContain("schema PUBLIC");
 
     // Quoted text must remain unchanged.
     expect(formatted[9]).toContain("'ACTIVE_HEALTHY'");
