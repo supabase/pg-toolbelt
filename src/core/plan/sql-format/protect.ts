@@ -18,15 +18,20 @@ export function protectSegments(
   let counter = 0;
 
   if (options.preserveRoutineBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["FUNCTION", "PROCEDURE"], {
-      placeholders,
-      noWrapPlaceholders,
-      counter,
-    }));
+    ({ text, counter } = protectTailAfterAs(
+      text,
+      ["FUNCTION", "PROCEDURE"],
+      options,
+      {
+        placeholders,
+        noWrapPlaceholders,
+        counter,
+      },
+    ));
   }
 
   if (options.preserveViewBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["VIEW"], {
+    ({ text, counter } = protectTailAfterAs(text, ["VIEW"], options, {
       placeholders,
       noWrapPlaceholders,
       counter,
@@ -34,7 +39,7 @@ export function protectSegments(
   }
 
   if (options.preserveRuleBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["RULE"], {
+    ({ text, counter } = protectTailAfterAs(text, ["RULE"], options, {
       placeholders,
       noWrapPlaceholders,
       counter,
@@ -59,6 +64,7 @@ export function protectSegments(
 function protectTailAfterAs(
   text: string,
   objectKeywords: string[],
+  options: NormalizedOptions,
   state: ProtectState,
 ): { text: string; counter: number } {
   const tokens = scanTokens(text);
@@ -100,9 +106,18 @@ function protectTailAfterAs(
 
     if (!asToken) continue;
 
+    const asKeyword =
+      options.keywordCase === "upper"
+        ? "AS"
+        : options.keywordCase === "lower"
+          ? "as"
+          : text.slice(asToken.start, asToken.end);
     const placeholder = makePlaceholder(state.counter);
     state.counter += 1;
-    state.placeholders.set(placeholder, text.slice(asToken.start));
+    state.placeholders.set(
+      placeholder,
+      `${asKeyword}${text.slice(asToken.end)}`,
+    );
     state.noWrapPlaceholders.add(placeholder);
     const updated = `${text.slice(0, asToken.start)}${placeholder}`;
     return { text: updated, counter: state.counter };
