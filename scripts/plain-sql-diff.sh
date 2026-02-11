@@ -43,7 +43,7 @@ psql "$ADMIN_URL" -c "CREATE DATABASE ${DB_NAME} TEMPLATE template0" --quiet
 # 2. Extract diff (shadow empty → target) as plain SQL
 # ──────────────────────────────────────────────────────────────
 echo "Extracting diff (shadow → target) as SQL..."
-pnpm pgdelta plan --source "$SHADOW_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" --format sql --output "$MIGRATION_FILE"
+pnpm pgdelta plan --source "$SHADOW_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" --format sql --sql-format --sql-format-options '{"keywordCase":"lower","maxWidth":180, "indent":2, "commaStyle":"trailing", "alignColumns":true, "alignKeyValues":true, "preserveRoutineBodies":true, "preserveViewBodies":true, "preserveRuleBodies":true}' --output "$MIGRATION_FILE"
 
 # ──────────────────────────────────────────────────────────────
 # 3. Apply the diff to the shadow

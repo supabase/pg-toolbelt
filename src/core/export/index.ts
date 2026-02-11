@@ -7,6 +7,7 @@ import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import type { Integration } from "../integrations/integration.types.ts";
 import type { createPlan } from "../plan/create.ts";
 import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
+import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
 import { formatSqlScript } from "../plan/statements.ts";
 import { getFilePath } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
@@ -47,6 +48,12 @@ export interface ExportOptions {
    * - "simple": One file per category, flat structure (e.g., tables.sql, views.sql)
    */
   mode?: ExportMode;
+  /**
+   * SQL formatter options to control the output style.
+   * Merged on top of the default export options (maxWidth: 180, keywordCase: "upper").
+   * See `SqlFormatOptions` for available keys.
+   */
+  formatOptions?: SqlFormatOptions;
 }
 
 /**
@@ -71,6 +78,12 @@ export function exportDeclarativeSchema(
   const integration = options?.integration;
   const orderPrefix = options?.orderPrefix ?? false;
   const mode = options?.mode ?? "detailed";
+  const formatOptions: SqlFormatOptions = {
+    ...DEFAULT_OPTIONS,
+    maxWidth: 180,
+    keywordCase: "upper",
+    ...options?.formatOptions,
+  };
 
   // Declarative export targets the final state; exclude drop operations.
   // Exception: default_privilege drops (REVOKEs) are kept because they define
@@ -111,7 +124,7 @@ export function exportDeclarativeSchema(
     const path = orderPrefix
       ? prefixFilename(group.path, index + 1)
       : group.path;
-    return buildFileEntry(path, group.metadata, statements, index);
+    return buildFileEntry(path, group.metadata, statements, index, formatOptions);
   });
 
   return {
@@ -151,15 +164,13 @@ function buildFileEntry(
   metadata: FileEntry["metadata"],
   statements: string[],
   order: number,
+  formatOptions: SqlFormatOptions,
 ): FileEntry {
   return {
     path,
     order,
     statements: statements.length,
-    sql: formatSqlScript(statements, {
-      ...DEFAULT_OPTIONS,
-      keywordCase: "upper",
-    }),
+    sql: formatSqlScript(statements, formatOptions),
     metadata,
   };
 }

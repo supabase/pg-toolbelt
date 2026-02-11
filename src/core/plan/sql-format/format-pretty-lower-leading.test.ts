@@ -17,7 +17,7 @@ describe("sql formatting snapshots", () => {
     expect(output).toMatchInlineSnapshot(`
       "-- format: { keywordCase: 'lower', commaStyle: 'leading', alignColumns: true, indent: 4 }
       -- schema.create
-      create schema application_schema_with_very_long_name_for_wrapping_tests AUTHORIZATION admin;
+      create schema application_schema_with_very_long_name_for_wrapping_tests authorization admin;
 
       -- schema.drop
       drop schema application_schema_with_very_long_name_for_wrapping_tests;
@@ -33,14 +33,14 @@ describe("sql formatting snapshots", () => {
 
       -- schema.grant
       grant all on schema application_schema_with_very_long_name_for_wrapping_tests to app_user
-          with grant OPTION;
+          with grant option;
 
       -- schema.revoke
-      revoke create on schema application_schema_with_very_long_name_for_wrapping_tests FROM app_user;
+      revoke create on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- schema.revoke_grant_option
-      revoke grant OPTION for USAGE
-          on schema application_schema_with_very_long_name_for_wrapping_tests FROM app_user;
+      revoke grant option for USAGE
+          on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- extension.create
       create extension pgcrypto with schema extensions;
@@ -49,7 +49,7 @@ describe("sql formatting snapshots", () => {
       drop extension pgcrypto;
 
       -- extension.alter.update_version
-      alter extension pgcrypto UPDATE to '1.4';
+      alter extension pgcrypto update to '1.4';
 
       -- extension.alter.set_schema
       alter extension pgcrypto set schema public;
@@ -65,7 +65,7 @@ describe("sql formatting snapshots", () => {
           collate mycoll
           default 'hello'
           not null
-          check (VALUE <> '');
+          check (value <> '');
 
       -- domain.drop
       drop domain public.test_domain_all;
@@ -92,7 +92,7 @@ describe("sql formatting snapshots", () => {
 
       -- domain.alter.add_constraint
       alter domain public.test_domain_all
-          add constraint domain_len_chk check (char_length(VALUE) <= 255) not VALID;
+          add constraint domain_len_chk check (char_length(value) <= 255) not valid;
 
       -- domain.alter.drop_constraint
       alter domain public.test_domain_all
@@ -112,10 +112,10 @@ describe("sql formatting snapshots", () => {
       grant all on domain public.test_domain_all to app_user;
 
       -- domain.revoke
-      revoke all on domain public.test_domain_all FROM app_user;
+      revoke all on domain public.test_domain_all from app_user;
 
       -- domain.revoke_grant_option
-      revoke grant OPTION for all on domain public.test_domain_all FROM app_user;
+      revoke grant option for all on domain public.test_domain_all from app_user;
 
       -- type.enum.create
       create type public.test_enum as enum (
@@ -131,7 +131,7 @@ describe("sql formatting snapshots", () => {
       alter type public.test_enum owner to new_owner;
 
       -- type.enum.alter.add_value
-      alter type public.test_enum add VALUE 'value4' AFTER 'value2';
+      alter type public.test_enum add value 'value4' after 'value2';
 
       -- type.enum.comment
       comment on type public.test_enum is 'enum comment';
@@ -143,10 +143,10 @@ describe("sql formatting snapshots", () => {
       grant all on type public.test_enum to app_user;
 
       -- type.enum.revoke
-      revoke all on type public.test_enum FROM app_user;
+      revoke all on type public.test_enum from app_user;
 
       -- type.enum.revoke_grant_option
-      revoke grant OPTION for all on type public.test_enum FROM app_user;
+      revoke grant option for all on type public.test_enum from app_user;
 
       -- type.composite.create
       create type public.test_type as (
@@ -161,13 +161,13 @@ describe("sql formatting snapshots", () => {
       alter type public.test_type owner to new_owner;
 
       -- type.composite.alter.add_attribute
-      alter type public.test_type add ATTRIBUTE age integer;
+      alter type public.test_type add attribute age integer;
 
       -- type.composite.alter.drop_attribute
-      alter type public.test_type drop ATTRIBUTE name;
+      alter type public.test_type drop attribute name;
 
       -- type.composite.alter.alter_attr_type
-      alter type public.test_type alter ATTRIBUTE name type varchar(255) collate "C";
+      alter type public.test_type alter attribute name type varchar(255) collate "C";
 
       -- type.composite.comment
       comment on type public.test_type is 'composite comment';
@@ -185,10 +185,10 @@ describe("sql formatting snapshots", () => {
       grant all on type public.test_type to app_user;
 
       -- type.composite.revoke
-      revoke all on type public.test_type FROM app_user;
+      revoke all on type public.test_type from app_user;
 
       -- type.composite.revoke_grant_option
-      revoke grant OPTION for all on type public.test_type FROM app_user;
+      revoke grant option for all on type public.test_type from app_user;
 
       -- type.range.create
       create type public.daterange_custom as range (
@@ -215,10 +215,10 @@ describe("sql formatting snapshots", () => {
       grant all on type public.daterange_custom to app_user;
 
       -- type.range.revoke
-      revoke all on type public.daterange_custom FROM app_user;
+      revoke all on type public.daterange_custom from app_user;
 
       -- type.range.revoke_grant_option
-      revoke grant OPTION for all on type public.daterange_custom FROM app_user;
+      revoke grant option for all on type public.daterange_custom from app_user;
 
       -- collation.create
       create collation public.test (
@@ -238,7 +238,7 @@ describe("sql formatting snapshots", () => {
       alter collation public.test owner to new_owner;
 
       -- collation.alter.refresh_version
-      alter collation public.test REFRESH VERSION;
+      alter collation public.test refresh version;
 
       -- collation.comment
       comment on collation public.test is 'collation comment';
@@ -248,11 +248,11 @@ describe("sql formatting snapshots", () => {
 
       -- table.create
       create table public.table_with_very_long_name_for_formatting_and_wrapping_test (
-            id         bigint      generated ALWAYS as identity not null
+            id         bigint      generated always as identity not null
           , status     text        collate "en_US" default 'pending'
           , created_at timestamptz default now()
           , ref_id     bigint
-          , computed   bigint      generated ALWAYS as (id * 2) stored
+          , computed   bigint      generated always as (id * 2) stored
       ) with (fillfactor=70, autovacuum_enabled=false);
 
       -- table.drop
@@ -292,8 +292,8 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.add_fk_constraint
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          add constraint fk_t_fmt_ref foreign KEY (ref_id) references public.other_table(id) MATCH FULL
-              on UPDATE set null on DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+          add constraint fk_t_fmt_ref foreign key (ref_id) references public.other_table(id) match full
+              on update set null on delete cascade deferrable initially deferred;
 
       -- table.alter.drop_constraint
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -309,7 +309,7 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.set_logged
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          set LOGGED;
+          set logged;
 
       -- table.alter.set_unlogged
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -317,19 +317,19 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.enable_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          ENABLE ROW LEVEL SECURITY;
+          enable row level security;
 
       -- table.alter.disable_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          DISABLE ROW LEVEL SECURITY;
+          disable row level security;
 
       -- table.alter.force_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          FORCE ROW LEVEL SECURITY;
+          force row level security;
 
       -- table.alter.no_force_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          NO FORCE ROW LEVEL SECURITY;
+          no force row level security;
 
       -- table.alter.set_storage_params
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -341,15 +341,15 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.replica_identity
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          REPLICA identity FULL;
+          replica identity full;
 
       -- table.alter.attach_partition
       alter table public.events
-          ATTACH partition public.events_2024 for VALUES FROM ('2024-01-01') to ('2025-01-01');
+          attach partition public.events_2024 for values from ('2024-01-01') to ('2025-01-01');
 
       -- table.alter.detach_partition
       alter table public.events
-          DETACH partition public.events_2024;
+          detach partition public.events_2024;
 
       -- table.comment
       comment on table public.table_with_very_long_name_for_formatting_and_wrapping_test is
@@ -374,16 +374,16 @@ describe("sql formatting snapshots", () => {
           on public.table_with_very_long_name_for_formatting_and_wrapping_test is null;
 
       -- table.grant
-      grant INSERT,
-          SELECT on public.table_with_very_long_name_for_formatting_and_wrapping_test to app_reader;
+      grant insert,
+          select on public.table_with_very_long_name_for_formatting_and_wrapping_test to app_reader;
 
       -- table.revoke
-      revoke DELETE,
-          UPDATE on public.table_with_very_long_name_for_formatting_and_wrapping_test FROM app_reader;
+      revoke delete,
+          update on public.table_with_very_long_name_for_formatting_and_wrapping_test from app_reader;
 
       -- table.revoke_grant_option
-      revoke grant OPTION for INSERT,
-          SELECT on public.table_with_very_long_name_for_formatting_and_wrapping_test FROM app_reader;
+      revoke grant option for insert,
+          select on public.table_with_very_long_name_for_formatting_and_wrapping_test from app_reader;
 
       -- publication.create
       create publication pub_custom for table
@@ -391,8 +391,8 @@ describe("sql formatting snapshots", () => {
           (
             id
           , title
-      ) WHERE (published = true),
-          table public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN schema analytics;
+      ) where (published = true),
+          table public.comments_a_little_smaller_name_than_the_previous_one, tables in schema analytics;
 
       -- publication.drop
       drop publication pub_custom;
@@ -402,14 +402,14 @@ describe("sql formatting snapshots", () => {
           set (publish = 'insert, update, delete, truncate', publish_via_partition_root = false);
 
       -- publication.alter.set_all_tables
-      alter publication pub_custom set for all TABLES;
+      alter publication pub_custom set for all tables;
 
       -- publication.alter.set_list
       alter publication pub_custom
           set table
           public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit
-          (id, title) WHERE (published = true),
-          table public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN schema analytics;
+          (id, title) where (published = true),
+          table public.comments_a_little_smaller_name_than_the_previous_one, tables in schema analytics;
 
       -- publication.alter.add_tables
       alter publication pub_custom
@@ -419,10 +419,10 @@ describe("sql formatting snapshots", () => {
       alter publication pub_custom drop table public.comments_a_little_smaller_name_than_the_previous_one;
 
       -- publication.alter.add_schemas
-      alter publication pub_custom add TABLES IN schema staging;
+      alter publication pub_custom add tables in schema staging;
 
       -- publication.alter.drop_schemas
-      alter publication pub_custom drop TABLES IN schema analytics;
+      alter publication pub_custom drop tables in schema analytics;
 
       -- publication.alter.set_owner
       alter publication pub_custom owner to new_owner;
@@ -456,13 +456,13 @@ describe("sql formatting snapshots", () => {
       comment on view public.test_view is null;
 
       -- view.grant
-      grant SELECT on public.test_view to app_reader with grant OPTION;
+      grant select on public.test_view to app_reader with grant option;
 
       -- view.revoke
-      revoke SELECT on public.test_view FROM app_reader;
+      revoke select on public.test_view from app_reader;
 
       -- view.revoke_grant_option
-      revoke grant OPTION for SELECT on public.test_view FROM app_reader;
+      revoke grant option for select on public.test_view from app_reader;
 
       -- rule.create
       create rule test_rule AS ON INSERT TO public.test_table DO INSTEAD NOTHING;
@@ -475,7 +475,7 @@ describe("sql formatting snapshots", () => {
 
       -- rule.alter.set_enabled
       alter table public.test_table
-          DISABLE rule test_rule;
+          disable rule test_rule;
 
       -- rule.comment
       comment on rule test_rule on public.test_table is 'rule comment';
@@ -497,50 +497,50 @@ describe("sql formatting snapshots", () => {
           , "p_table_name_for_metrics"    text
           , "p_limit_count_default"       integer default 100
       )
-          RETURNS table (
+          returns table (
                 total   bigint
               , average numeric
           )
           language plpgsql
-          STABLE
-          SECURITY DEFINER
-          PARALLEL SAFE
-          COST 100
-          ROWS 10
-          STRICT
+          stable
+          security definer
+          parallel SAFE
+          cost 100
+          rows 10
+          strict
           set search_path to 'pg_catalog', 'public'
           AS $function$ BEGIN RETURN QUERY SELECT count(*)::bigint, avg(value)::numeric FROM generate_series(1, p_limit_count_default); END; $function$;
 
       -- function.drop
       drop function
-          public.calculate_metrics_for_analytics_dashboard_with_extended_name(IN
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(in
           "p_schema_name_for_analytics" text,
-          IN "p_table_name_for_metrics" text, IN "p_limit_count_default" integer);
+          in "p_table_name_for_metrics" text, in "p_limit_count_default" integer);
 
       -- function.alter.change_owner
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name owner to
           new_admin;
 
       -- function.alter.set_security
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name SECURITY INVOKER;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name security invoker;
 
       -- function.alter.set_config
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name
           set work_mem to '256MB';
 
       -- function.alter.set_volatility
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name IMMUTABLE;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name immutable;
 
       -- function.alter.set_strictness
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name CALLED
-          on null INPUT;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name called
+          on null input;
 
       -- function.alter.set_leakproof
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name LEAKPROOF;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name leakproof;
 
       -- function.alter.set_parallel
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name PARALLEL
-          restricted;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name parallel
+          RESTRICTED;
 
       -- function.comment
       comment on function
@@ -554,16 +554,16 @@ describe("sql formatting snapshots", () => {
       -- function.grant
       grant all on function
           public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) to
-          app_user with grant OPTION;
+          app_user with grant option;
 
       -- function.revoke
       revoke all on function
-          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) FROM
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) from
           app_user;
 
       -- function.revoke_grant_option
-      revoke grant OPTION for all on function
-          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) FROM
+      revoke grant option for all on function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) from
           app_user;
 
       -- sequence.create
@@ -573,12 +573,12 @@ describe("sql formatting snapshots", () => {
       drop sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq;
 
       -- sequence.alter.set_owned_by
-      alter sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq OWNED by
+      alter sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq owned by
           public.table_with_very_long_name_for_formatting_and_wrapping_test.id;
 
       -- sequence.alter.set_options
-      alter sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq INCREMENT by
-          10 MINVALUE 1 MAXVALUE 1000000 CACHE 5 CYCLE;
+      alter sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq increment by
+          10 minvalue 1 maxvalue 1000000 cache 5 cycle;
 
       -- sequence.comment
       comment on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq is
@@ -588,30 +588,30 @@ describe("sql formatting snapshots", () => {
       comment on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq is null;
 
       -- sequence.grant
-      grant SELECT,
+      grant select,
           USAGE
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq to app_user;
 
       -- sequence.revoke
       revoke USAGE
-          on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq FROM
+          on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
       -- sequence.revoke_grant_option
-      revoke grant OPTION for USAGE
-          on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq FROM
+      revoke grant option for USAGE
+          on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
       -- policy.create
       create policy allow_select_own on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          for SELECT
+          for select
           to authenticated
           using (auth.uid() = user_id);
 
       -- policy.create_restrictive
       create policy restrict_delete on public.table_with_very_long_name_for_formatting_and_wrapping_test
           as RESTRICTIVE
-          for DELETE
+          for delete
           to authenticated, service_role
           using (auth.uid() = owner_id)
           with check (status <> 'locked');
@@ -626,7 +626,7 @@ describe("sql formatting snapshots", () => {
       -- policy.alter.set_using
       alter policy public.allow_select_own
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          using (auth.uid() = user_id AND status = 'active');
+          using (auth.uid() = user_id and status = 'active');
 
       -- policy.alter.set_with_check
       alter policy public.allow_select_own
@@ -645,7 +645,7 @@ describe("sql formatting snapshots", () => {
       create unique index idx_t_fmt_status
           on public.table_with_very_long_name_for_formatting_and_wrapping_test (status)
           with (fillfactor='90')
-          WHERE (status <> 'archived'::text);
+          where (status <> 'archived'::text);
 
       -- index.create_gin
       create index idx_t_fmt_search on public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -660,7 +660,7 @@ describe("sql formatting snapshots", () => {
       alter index public.idx_t_fmt_status set (fillfactor=80);
 
       -- index.alter.set_statistics
-      alter index public.idx_t_fmt_status alter column 1 set STATISTICS 500;
+      alter index public.idx_t_fmt_status alter column 1 set statistics 500;
 
       -- index.comment
       comment on index public.idx_t_fmt_status is 'index comment';
@@ -669,21 +669,21 @@ describe("sql formatting snapshots", () => {
       comment on index public.idx_t_fmt_status is null;
 
       -- trigger.create
-      create trigger trg_audit AFTER INSERT or UPDATE
+      create trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          REFERENCING OLD table as old_rows NEW table as new_rows for EACH ROW WHEN (
-            (NEW.status is DISTINCT FROM OLD.status)
-      ) EXECUTE function public.audit_trigger_fn('arg1', 'arg2');
+          referencing old table as old_rows new table as new_rows for each row when (
+            (new.status is distinct from old.status)
+      ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.drop
       drop trigger trg_audit on public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- trigger.replace
-      create or replace trigger trg_audit AFTER INSERT or UPDATE
+      create or replace trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          REFERENCING OLD table as old_rows NEW table as new_rows for EACH ROW WHEN (
-            (NEW.status is DISTINCT FROM OLD.status)
-      ) EXECUTE function public.audit_trigger_fn('arg1', 'arg2');
+          referencing old table as old_rows new table as new_rows for each row when (
+            (new.status is distinct from old.status)
+      ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.comment
       comment on trigger trg_audit
@@ -727,13 +727,13 @@ describe("sql formatting snapshots", () => {
       comment on column analytics.daily_stats.day is null;
 
       -- matview.grant
-      grant SELECT on analytics.daily_stats to app_reader;
+      grant select on analytics.daily_stats to app_reader;
 
       -- matview.revoke
-      revoke SELECT on analytics.daily_stats FROM app_reader;
+      revoke select on analytics.daily_stats from app_reader;
 
       -- matview.revoke_grant_option
-      revoke grant OPTION for SELECT on analytics.daily_stats FROM app_reader;
+      revoke grant option for select on analytics.daily_stats from app_reader;
 
       -- aggregate.create
       create aggregate public.array_cat_agg(anycompatiblearray) (
@@ -741,8 +741,8 @@ describe("sql formatting snapshots", () => {
           , stype       = anycompatiblearray
           , combinefunc = array_cat
           , initcond    = '{}'
-          , PARALLEL SAFE
-          , STRICT
+          , parallel SAFE
+          , strict
       );
 
       -- aggregate.drop
@@ -761,15 +761,16 @@ describe("sql formatting snapshots", () => {
       grant all on function public.array_cat_agg(anycompatiblearray) to app_user;
 
       -- aggregate.revoke
-      revoke all on function public.array_cat_agg(anycompatiblearray) FROM app_user;
+      revoke all on function public.array_cat_agg(anycompatiblearray) from app_user;
 
       -- aggregate.revoke_grant_option
-      revoke grant OPTION for all on function public.array_cat_agg(anycompatiblearray) FROM app_user;
+      revoke grant option for all on function public.array_cat_agg(anycompatiblearray) from app_user;
 
       -- event_trigger.create
       create event trigger prevent_drop
-          WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA')
-          EXECUTE function public.prevent_drop_fn();
+          on sql_drop
+          when tag in ('DROP TABLE', 'DROP SCHEMA')
+          execute function public.prevent_drop_fn();
 
       -- event_trigger.drop
       drop event trigger prevent_drop;
@@ -780,7 +781,7 @@ describe("sql formatting snapshots", () => {
 
       -- event_trigger.alter.set_enabled
       alter event trigger prevent_drop
-          DISABLE;
+          disable;
 
       -- event_trigger.comment
       comment on event trigger prevent_drop is 'prevent accidental drops';
@@ -789,10 +790,10 @@ describe("sql formatting snapshots", () => {
       comment on event trigger prevent_drop is null;
 
       -- language.create
-      create TRUSTED language plv8
-          HANDLER plv8_call_handler
-          INLINE plv8_inline_handler
-          VALIDATOR plv8_call_validator;
+      create trusted language plv8
+          handler plv8_call_handler
+          inline plv8_inline_handler
+          validator plv8_call_validator;
 
       -- language.drop
       drop language plv8;
@@ -807,16 +808,16 @@ describe("sql formatting snapshots", () => {
       comment on language plv8 is null;
 
       -- language.grant
-      grant all on language plv8 to app_user with grant OPTION;
+      grant all on language plv8 to app_user with grant option;
 
       -- language.revoke
-      revoke all on language plv8 FROM app_user;
+      revoke all on language plv8 from app_user;
 
       -- language.revoke_grant_option
-      revoke grant OPTION for all on language plv8 FROM app_user;
+      revoke grant option for all on language plv8 from app_user;
 
       -- role.create
-      create role app_user with LOGIN CONNECTION LIMIT 100;
+      create role app_user with LOGIN connection limit 100;
 
       -- role.drop
       drop role app_user;
@@ -834,23 +835,23 @@ describe("sql formatting snapshots", () => {
       comment on role app_user is null;
 
       -- role.grant_membership
-      grant app_user to dev_user with ADMIN OPTION;
+      grant app_user to dev_user with admin option;
 
       -- role.revoke_membership
-      revoke app_user FROM dev_user;
+      revoke app_user from dev_user;
 
       -- role.revoke_membership_options
-      revoke ADMIN OPTION for app_user FROM dev_user;
+      revoke admin option for app_user from dev_user;
 
       -- role.grant_default_privileges
-      alter default PRIVILEGES for role app_user IN schema public grant SELECT on TABLES to app_reader;
+      alter default privileges for role app_user in schema public grant select on tables to app_reader;
 
       -- role.revoke_default_privileges
-      alter default PRIVILEGES for role app_user IN schema public revoke SELECT on TABLES FROM app_reader;
+      alter default privileges for role app_user in schema public revoke select on tables from app_reader;
 
       -- subscription.create
       create subscription sub_replica
-          CONNECTION 'host=primary.db port=5432 dbname=mydb'
+          connection 'host=primary.db port=5432 dbname=mydb'
           publication pub_custom
           with (
                 slot_name          = 'sub_replica_slot'
@@ -866,7 +867,7 @@ describe("sql formatting snapshots", () => {
 
       -- subscription.alter.set_connection
       alter subscription sub_replica
-          CONNECTION 'host=primary.db port=5432 dbname=mydb';
+          connection 'host=primary.db port=5432 dbname=mydb';
 
       -- subscription.alter.set_publication
       alter subscription sub_replica
@@ -874,11 +875,11 @@ describe("sql formatting snapshots", () => {
 
       -- subscription.alter.enable
       alter subscription sub_replica
-          ENABLE;
+          enable;
 
       -- subscription.alter.disable
       alter subscription sub_replica
-          DISABLE;
+          disable;
 
       -- subscription.alter.set_options
       alter subscription sub_replica
@@ -899,45 +900,45 @@ describe("sql formatting snapshots", () => {
       comment on subscription sub_replica is null;
 
       -- fdw.create
-      create foreign DATA WRAPPER postgres_fdw
-          HANDLER postgres_fdw_handler
-          VALIDATOR postgres_fdw_validator
-          OPTIONS (debug 'true');
+      create foreign data wrapper postgres_fdw
+          handler postgres_fdw_handler
+          validator postgres_fdw_validator
+          options (debug 'true');
 
       -- fdw.drop
-      drop foreign DATA WRAPPER postgres_fdw;
+      drop foreign data wrapper postgres_fdw;
 
       -- fdw.alter.change_owner
-      alter foreign DATA WRAPPER postgres_fdw
+      alter foreign data wrapper postgres_fdw
           owner to new_owner;
 
       -- fdw.alter.set_options
-      alter foreign DATA WRAPPER postgres_fdw
-          OPTIONS (
+      alter foreign data wrapper postgres_fdw
+          options (
                 set debug 'false'
               , add use_remote_estimate ''
           );
 
       -- fdw.comment
-      comment on foreign DATA WRAPPER postgres_fdw is 'PostgreSQL foreign data wrapper';
+      comment on foreign data wrapper postgres_fdw is 'PostgreSQL foreign data wrapper';
 
       -- fdw.drop_comment
-      comment on foreign DATA WRAPPER postgres_fdw is null;
+      comment on foreign data wrapper postgres_fdw is null;
 
       -- fdw.grant
-      grant all on foreign DATA WRAPPER postgres_fdw to app_user;
+      grant all on foreign data wrapper postgres_fdw to app_user;
 
       -- fdw.revoke
-      revoke all on foreign DATA WRAPPER postgres_fdw FROM app_user;
+      revoke all on foreign data wrapper postgres_fdw from app_user;
 
       -- fdw.revoke_grant_option
-      revoke grant OPTION for all on foreign DATA WRAPPER postgres_fdw FROM app_user;
+      revoke grant option for all on foreign data wrapper postgres_fdw from app_user;
 
       -- foreign_table.create
       create foreign table public.remote_users (
             id    integer
           , email text
-      ) SERVER remote_server OPTIONS (schema_name 'public', table_name 'users');
+      ) server remote_server options (schema_name 'public', table_name 'users');
 
       -- foreign_table.drop
       drop foreign table public.remote_users;
@@ -976,7 +977,7 @@ describe("sql formatting snapshots", () => {
 
       -- foreign_table.alter.set_options
       alter foreign table public.remote_users
-          OPTIONS (set fetch_size '1000');
+          options (set fetch_size '1000');
 
       -- foreign_table.comment
       comment on foreign table public.remote_users is 'remote users table';
@@ -985,67 +986,67 @@ describe("sql formatting snapshots", () => {
       comment on foreign table public.remote_users is null;
 
       -- foreign_table.grant
-      grant SELECT on foreign table public.remote_users to app_reader;
+      grant select on foreign table public.remote_users to app_reader;
 
       -- foreign_table.revoke
-      revoke SELECT on foreign table public.remote_users FROM app_reader;
+      revoke select on foreign table public.remote_users from app_reader;
 
       -- foreign_table.revoke_grant_option
-      revoke grant OPTION for SELECT on foreign table public.remote_users FROM app_reader;
+      revoke grant option for select on foreign table public.remote_users from app_reader;
 
       -- server.create
-      create SERVER remote_server
+      create server remote_server
           type 'postgresql'
-          VERSION '16.0'
-          foreign DATA WRAPPER postgres_fdw
-          OPTIONS (
+          version '16.0'
+          foreign data wrapper postgres_fdw
+          options (
                 host 'remote.host'
               , port '5432'
               , dbname 'remote_db'
           );
 
       -- server.drop
-      drop SERVER remote_server;
+      drop server remote_server;
 
       -- server.alter.change_owner
-      alter SERVER remote_server
+      alter server remote_server
           owner to new_owner;
 
       -- server.alter.set_version
-      alter SERVER remote_server
-          VERSION '17.0';
+      alter server remote_server
+          version '17.0';
 
       -- server.alter.set_options
-      alter SERVER remote_server
-          OPTIONS (
+      alter server remote_server
+          options (
                 set host 'new.host'
               , drop port
           );
 
       -- server.comment
-      comment on SERVER remote_server is 'remote PostgreSQL server';
+      comment on server remote_server is 'remote PostgreSQL server';
 
       -- server.drop_comment
-      comment on SERVER remote_server is null;
+      comment on server remote_server is null;
 
       -- server.grant
-      grant all on SERVER remote_server to app_user;
+      grant all on server remote_server to app_user;
 
       -- server.revoke
-      revoke all on SERVER remote_server FROM app_user;
+      revoke all on server remote_server from app_user;
 
       -- server.revoke_grant_option
-      revoke grant OPTION for all on SERVER remote_server FROM app_user;
+      revoke grant option for all on server remote_server from app_user;
 
       -- user_mapping.create
-      create USER MAPPING for app_user SERVER remote_server
-          OPTIONS (user 'remote_app', password 'secret123');
+      create user mapping for app_user server remote_server
+          options (user 'remote_app', password 'secret123');
 
       -- user_mapping.drop
-      drop USER MAPPING for app_user SERVER remote_server;
+      drop user mapping for app_user server remote_server;
 
       -- user_mapping.alter.set_options
-      alter USER MAPPING for app_user SERVER remote_server OPTIONS (set password 'new_secret');"
+      alter user mapping for app_user server remote_server options (set password 'new_secret');"
     `);
   });
 });
