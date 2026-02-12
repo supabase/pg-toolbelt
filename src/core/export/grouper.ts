@@ -1,5 +1,5 @@
 /**
- * Group changes into declarative schema files and order them.
+ * Group changes into declarative schema files and order them for readability.
  */
 
 import type { Change } from "../change.types.ts";
@@ -16,28 +16,49 @@ export interface FileGroup {
   category: FileCategory;
   metadata: FileMetadata;
   changes: Change[];
-  minIndex: number;
-  maxIndex: number;
-  /** Max index among object-scope CREATE changes (excludes COMMENT/GRANT/ALTER). */
-  createObjectMaxIndex: number;
 }
 
 // ============================================================================
-// Sort Strategies
+// Within-file ordering
 // ============================================================================
 
+const OPERATION_PRIORITY: Record<string, number> = {
+  create: 0,
+  alter: 1,
+};
+
+const SCOPE_PRIORITY: Record<string, number> = {
+  object: 0,
+  comment: 1,
+  privilege: 2,
+  default_privilege: 3,
+  membership: 4,
+};
+
 /**
- * How file groups are sorted relative to each other:
- *
- * - "topological": Use topological position as primary key, category as tiebreak.
- *   Best for detailed mode where each file has a narrow dependency range.
- *
- * - "category": Use CATEGORY_PRIORITY as primary key, path as tiebreak.
- *   Best for simple mode where each file spans many objects and the topological
- *   max can skew file ordering (one late-dependency table would drag all tables
- *   to a late position).
+ * Sort changes within a file for readability:
+ * 1. By operation: create → alter
+ * 2. By scope: object → comment → privilege → default_privilege → membership
+ * 3. Stable tie-break by original position
  */
-export type FileSortStrategy = "topological" | "category";
+function sortChangesWithinFile(changes: Change[]): Change[] {
+  // Tag each change with its original index for stable tie-breaking.
+  const tagged = changes.map((change, index) => ({ change, index }));
+  tagged.sort((a, b) => {
+    const opA = OPERATION_PRIORITY[a.change.operation] ?? 99;
+    const opB = OPERATION_PRIORITY[b.change.operation] ?? 99;
+    if (opA !== opB) return opA - opB;
+
+    const scopeA =
+      SCOPE_PRIORITY[(a.change as { scope?: string }).scope ?? "object"] ?? 99;
+    const scopeB =
+      SCOPE_PRIORITY[(b.change as { scope?: string }).scope ?? "object"] ?? 99;
+    if (scopeA !== scopeB) return scopeA - scopeB;
+
+    return a.index - b.index;
+  });
+  return tagged.map((t) => t.change);
+}
 
 // ============================================================================
 // Grouping & Ordering
@@ -46,17 +67,12 @@ export type FileSortStrategy = "topological" | "category";
 export function groupChangesByFile(
   changes: Change[],
   mapper: (change: Change) => FilePath = getFilePath,
-  options?: { sortBy?: FileSortStrategy },
 ): FileGroup[] {
-  const sortBy = options?.sortBy ?? "topological";
   const groups = new Map<string, FileGroup>();
 
-  for (let index = 0; index < changes.length; index += 1) {
-    const change = changes[index];
+  for (const change of changes) {
     const file = mapper(change);
 
-    const isCreateObject =
-      change.operation === "create" && change.scope === "object";
     const existing = groups.get(file.path);
     if (!existing) {
       groups.set(file.path, {
@@ -64,97 +80,26 @@ export function groupChangesByFile(
         category: file.category,
         metadata: file.metadata,
         changes: [change],
-        minIndex: index,
-        maxIndex: index,
-        createObjectMaxIndex: isCreateObject ? index : -1,
       });
       continue;
     }
 
     existing.changes.push(change);
-    if (index < existing.minIndex) {
-      existing.minIndex = index;
-    }
-    if (index > existing.maxIndex) {
-      existing.maxIndex = index;
-    }
-    if (isCreateObject && index > existing.createObjectMaxIndex) {
-      existing.createObjectMaxIndex = index;
-    }
   }
 
-  const sortFn =
-    sortBy === "category" ? sortByCategory : sortByTopologicalOrder;
-  return Array.from(groups.values()).sort(sortFn);
+  // Sort within each file for readability.
+  for (const group of groups.values()) {
+    group.changes = sortChangesWithinFile(group.changes);
+  }
+
+  // Sort files by category priority, then alphabetically by path.
+  return Array.from(groups.values()).sort(sortByCategory);
 }
 
 /**
  * Sort by category priority, then path for determinism.
- *
- * Used in simple mode where each category maps to one file. Topological
- * ordering within each file is preserved (changes are pushed in order),
- * so cross-category ordering only needs to follow the natural dependency
- * hierarchy encoded in CATEGORY_PRIORITY.
  */
 function sortByCategory(a: FileGroup, b: FileGroup): number {
-  const categoryDiff =
-    CATEGORY_PRIORITY[a.category] - CATEGORY_PRIORITY[b.category];
-  if (categoryDiff !== 0) return categoryDiff;
-
-  return a.path.localeCompare(b.path);
-}
-
-/**
- * Sort by topological position, then category, then path.
- *
- * Used in detailed mode where each file has a narrow dependency range.
- * Different file types use different representative indices:
- *
- * - Terminal categories (foreign_keys, policies, indexes) use maxIndex so all
- *   their dependencies are satisfied first.
- *
- * - Table files use createMaxIndex because they can contain early-indexed
- *   non-CREATE changes (e.g., ALTER SEQUENCE ... OWNED BY is grouped with
- *   the owning table but has a low topological index since sequences are
- *   created early). Using the CREATE TABLE's index ensures all dependencies
- *   (e.g., functions used in column DEFAULTs) are available.
- *
- * - Function/procedure/aggregate files use createMaxIndex because overloads
- *   with the same name are grouped into one file but may have different type
- *   dependencies (e.g., one overload takes a view type parameter that must
- *   be created first). Only CREATE operations are considered because ALTER
- *   (e.g., OWNER changes) don't affect function availability.
- *
- * - All other files use minIndex (earliest change position).
- */
-function sortByTopologicalOrder(a: FileGroup, b: FileGroup): number {
-  const TERMINAL_CATEGORIES = new Set([
-    "foreign_keys",
-    "policies",
-    "indexes",
-  ]);
-  const CREATE_MAX_CATEGORIES = new Set([
-    "tables",
-    "functions",
-    "procedures",
-    "aggregates",
-  ]);
-  const effectiveIndex = (g: FileGroup): number => {
-    if (TERMINAL_CATEGORIES.has(g.category)) return g.maxIndex;
-    if (
-      CREATE_MAX_CATEGORIES.has(g.category) &&
-      g.createObjectMaxIndex >= 0
-    ) {
-      return g.createObjectMaxIndex;
-    }
-    return g.minIndex;
-  };
-  const aIndex = effectiveIndex(a);
-  const bIndex = effectiveIndex(b);
-
-  const topoDiff = aIndex - bIndex;
-  if (topoDiff !== 0) return topoDiff;
-
   const categoryDiff =
     CATEGORY_PRIORITY[a.category] - CATEGORY_PRIORITY[b.category];
   if (categoryDiff !== 0) return categoryDiff;

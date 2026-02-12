@@ -2,14 +2,12 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Change } from "../src/core/change.types.ts";
 import { exportDeclarativeSchema } from "../src/core/export/index.ts";
-import type { ExportMode } from "../src/core/export/types.ts";
 import { evaluatePattern } from "../src/core/integrations/filter/dsl.ts";
 import { createPlan } from "../src/core/plan/index.ts";
 
 const sourceUrl = process.env.SOURCE_URL!;
 const targetUrl = process.env.TARGET_URL!;
 const outputDir = path.resolve("declarative-schemas");
-const MODE = process.env.MODE ?? "detailed";
 
 try {
   // Optional: platform-db compatibility filter. Exclude extensions that
@@ -39,8 +37,6 @@ try {
   // pg-topo (static dependency analysis) + round-based engine. The export
   // focuses purely on clean, human-friendly file grouping.
   const output = exportDeclarativeSchema(planResult, {
-    orderPrefix: false,
-    mode: MODE as ExportMode,
     formatOptions: {
       keywordCase: "lower",
       maxWidth: 180,
