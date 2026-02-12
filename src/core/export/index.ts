@@ -9,8 +9,13 @@ import type { createPlan } from "../plan/create.ts";
 import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
 import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
 import { formatSqlScript } from "../plan/statements.ts";
+import { createFileMapper } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
-import type { DeclarativeSchemaOutput, FileEntry } from "./types.ts";
+import type {
+  DeclarativeSchemaOutput,
+  FileEntry,
+  PrefixGrouping,
+} from "./types.ts";
 
 // ============================================================================
 // Types
@@ -34,7 +39,12 @@ export interface ExportOptions {
    * Merged on top of the default export options (maxWidth: 180, keywordCase: "upper").
    * See `SqlFormatOptions` for available keys.
    */
-  formatOptions?: SqlFormatOptions;
+  formatOptions?: SqlFormatOptions | null;
+  /**
+   * Group entities by name prefix into consolidated files or subdirectories.
+   * Supports automatic partition detection and/or explicit prefix lists.
+   */
+  prefixGrouping?: PrefixGrouping;
 }
 
 /**
@@ -57,12 +67,15 @@ export function exportDeclarativeSchema(
 ): DeclarativeSchemaOutput {
   const { ctx, sortedChanges } = planResult;
   const integration = options?.integration;
-  const formatOptions: SqlFormatOptions = {
-    ...DEFAULT_OPTIONS,
-    maxWidth: 180,
-    keywordCase: "upper",
-    ...options?.formatOptions,
-  };
+  const formatOptions: SqlFormatOptions | undefined =
+    options?.formatOptions === null
+      ? undefined
+      : {
+          ...DEFAULT_OPTIONS,
+          maxWidth: 180,
+          keywordCase: "upper",
+          ...options?.formatOptions,
+        };
 
   // // Declarative export targets the final state; exclude drop operations.
   // // Exception: default_privilege drops (REVOKEs) are kept because they define
@@ -83,7 +96,8 @@ export function exportDeclarativeSchema(
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
-  const groups = groupChangesByFile(declarativeChanges);
+  const mapper = createFileMapper(options?.prefixGrouping);
+  const groups = groupChangesByFile(declarativeChanges, mapper);
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>
       serializeChange(change, integration),
@@ -116,7 +130,7 @@ function buildFileEntry(
   metadata: FileEntry["metadata"],
   statements: string[],
   order: number,
-  formatOptions: SqlFormatOptions,
+  formatOptions?: SqlFormatOptions,
 ): FileEntry {
   return {
     path,

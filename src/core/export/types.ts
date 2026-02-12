@@ -56,6 +56,44 @@ export interface DeclarativeSchemaOutput {
 }
 
 // ============================================================================
+// Entity Grouping
+// ============================================================================
+
+/** A regex pattern with a group name used as the directory or file name. */
+export interface GroupingPattern {
+  /** Regex to test against the object name. Strings are compiled to RegExp. */
+  pattern: string | RegExp;
+  /** Group name used as the directory or file name. */
+  name: string;
+}
+
+export interface PrefixGrouping {
+  /** How grouped entities are organized on disk. */
+  mode: "single-file" | "subdirectory";
+  /**
+   * Regex-based patterns to match object names.
+   * First matching pattern wins -- ordering controls priority.
+   *
+   * Examples:
+   * - `{ pattern: /^project/, name: "project" }`  – prefix
+   * - `{ pattern: /organization/, name: "organization" }` – contains
+   * - `{ pattern: /tokens$/, name: "tokens" }` – suffix
+   */
+  patterns?: GroupingPattern[];
+  /**
+   * Automatically detect partitioned tables and group partitions with
+   * their parent table.  Defaults to `true`.
+   */
+  autoDetectPartitions?: boolean;
+  /**
+   * Schemas to flatten: all objects are merged into one file per category.
+   * e.g. `schemas/partman/tables.sql` instead of `schemas/partman/tables/foo.sql`.
+   * Useful for small or extension schemas that don't need per-object files.
+   */
+  flatSchemas?: string[];
+}
+
+// ============================================================================
 // Internal Types
 // ============================================================================
 

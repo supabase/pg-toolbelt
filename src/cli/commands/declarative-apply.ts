@@ -97,9 +97,7 @@ Exit codes:
         }
       : undefined;
 
-    this.process.stdout.write(
-      `Analyzing SQL files in ${flags.path}...\n`,
-    );
+    this.process.stdout.write(`Analyzing SQL files in ${flags.path}...\n`);
 
     let result: DeclarativeApplyResult;
     try {
@@ -120,11 +118,16 @@ Exit codes:
 
     // Report pg-topo diagnostics
     const warnings = result.diagnostics.filter(
-      (d) => d.code !== "UNKNOWN_STATEMENT_CLASS",
+      (d) =>
+        d.code !== "UNKNOWN_STATEMENT_CLASS" &&
+        d.code !== "UNRESOLVED_DEPENDENCY" &&
+        d.code !== "DUPLICATE_PRODUCER",
     );
     if (warnings.length > 0 && verbose) {
       this.process.stderr.write(
-        chalk.yellow(`\n${warnings.length} diagnostic(s) from static analysis:\n`),
+        chalk.yellow(
+          `\n${warnings.length} diagnostic(s) from static analysis:\n`,
+        ),
       );
       for (const diag of warnings) {
         const location = diag.statementId
@@ -192,7 +195,9 @@ Exit codes:
               // Show the SQL for debugging
               const sqlPreview = stuck.statement.sql.slice(0, 200);
               this.process.stderr.write(
-                chalk.dim(`    ${sqlPreview}${stuck.statement.sql.length > 200 ? "..." : ""}\n`),
+                chalk.dim(
+                  `    ${sqlPreview}${stuck.statement.sql.length > 200 ? "..." : ""}\n`,
+                ),
               );
             }
           }

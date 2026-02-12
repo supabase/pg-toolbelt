@@ -42,6 +42,46 @@ try {
       maxWidth: 180,
       indent: 4,
     },
+    // Entity grouping: merge partitioned tables automatically and group
+    // related entities by regex patterns. First match wins.
+    prefixGrouping: {
+      mode: "single-file",
+      autoDetectPartitions: true,
+      patterns: [
+        // Contains-style (substring)
+        { pattern: /project/, name: "project" },
+        { pattern: /wal/, name: "wal" },
+        { pattern: /kubernetes/, name: "kubernetes" },
+        // Prefix-style (startsWith)
+        { pattern: /^orb/, name: "orb" },
+        { pattern: /^auth/, name: "auth" },
+        { pattern: /^custom/, name: "custom" },
+        { pattern: /^credit/, name: "credit" },
+        { pattern: /user/, name: "user" },
+        { pattern: /^oauth/, name: "oauth" },
+        { pattern: /^can/, name: "can" },
+        { pattern: /billing/, name: "billing" },
+        { pattern: /organization/, name: "organization" },
+        // Suffix-style (endsWith)
+        { pattern: /keys$/, name: "keys" },
+      ],
+      // Flat schemas: small or extension schemas where each category is a
+      // single file (e.g. schemas/partman/tables.sql instead of per-object files).
+      flatSchemas: [
+        "partman",
+        "pgboss",
+        "openfga",
+        "audit",
+        "extensions",
+        "audit",
+        "auth",
+        "extensions",
+        "integrations",
+        "orb",
+        "pgboss",
+        "stripe",
+      ],
+    },
   });
 
   await rm(outputDir, { recursive: true, force: true });

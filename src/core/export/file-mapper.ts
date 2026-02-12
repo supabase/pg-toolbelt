@@ -8,7 +8,7 @@ import {
   getObjectSchema,
   getParentInfo,
 } from "../plan/serialize.ts";
-import type { FilePath } from "./types.ts";
+import type { FileCategory, FilePath, PrefixGrouping } from "./types.ts";
 
 // ============================================================================
 // Helpers
@@ -325,4 +325,187 @@ export function getFilePath(change: Change): FilePath {
       return _exhaustive;
     }
   }
+}
+
+// ============================================================================
+// Entity Grouping
+// ============================================================================
+
+/** A compiled grouping pattern: pre-built RegExp + group name. */
+export interface CompiledPattern {
+  regex: RegExp;
+  name: string;
+}
+
+/**
+ * Compile user-facing `GroupingPattern[]` into `CompiledPattern[]`.
+ * Strings are turned into `new RegExp(str)`.
+ */
+export function compilePatterns(
+  patterns: import("./types.ts").GroupingPattern[],
+): CompiledPattern[] {
+  return patterns.map((p) => ({
+    regex: typeof p.pattern === "string" ? new RegExp(p.pattern) : p.pattern,
+    name: p.name,
+  }));
+}
+
+/**
+ * Create a file mapper that applies regex-based grouping on top of the
+ * default `getFilePath` mapping.
+ *
+ * When no grouping config is provided (or it is undefined), the plain
+ * `getFilePath` function is returned unchanged.
+ */
+export function createFileMapper(
+  grouping?: PrefixGrouping,
+): (change: Change) => FilePath {
+  if (!grouping) return getFilePath;
+
+  const compiled = compilePatterns(grouping.patterns ?? []);
+  const autoPartitions = grouping.autoDetectPartitions !== false; // default true
+  const flatSet = new Set(grouping.flatSchemas ?? []);
+
+  return (change: Change): FilePath => {
+    const basePath = getFilePath(change);
+
+    // Flat schemas: collapse everything into one file per category.
+    // Applied first -- skips pattern matching for these schemas.
+    if (
+      flatSet.size > 0 &&
+      basePath.metadata.schemaName &&
+      flatSet.has(basePath.metadata.schemaName)
+    ) {
+      return flattenSchema(basePath);
+    }
+
+    const groupName = resolveGroupName(
+      change,
+      basePath,
+      compiled,
+      autoPartitions,
+    );
+    if (!groupName) return basePath;
+    return applyGrouping(basePath, groupName, grouping.mode);
+  };
+}
+
+/**
+ * Flatten a schema-scoped file path into one file per category.
+ *
+ * e.g. `schemas/partman/tables/template_public_events.sql`
+ *    → `schemas/partman/tables.sql`
+ *
+ * `schema.sql` is left unchanged (it is already flat).
+ */
+export function flattenSchema(filePath: FilePath): FilePath {
+  const schema = filePath.metadata.schemaName ?? "";
+  const category = filePath.category;
+
+  // schema.sql stays as-is
+  if (category === "schema") return filePath;
+
+  return {
+    path: schemaPath(schema, `${category}.sql`),
+    category,
+    metadata: {
+      ...filePath.metadata,
+      objectName: category,
+    },
+  };
+}
+
+/**
+ * Determine the group name for a change, or `null` if it should not be
+ * grouped.
+ *
+ * Resolution order:
+ *  1. Automatic partition detection -- resolve the parent table name.
+ *  2. Regex patterns -- first match wins (user controls priority by ordering).
+ *
+ * The resolved name from step 1 is fed through step 2 so that a partition
+ * parent name can itself be matched by a broader pattern (e.g. parent
+ * "kubernetes_resource_events" matches `/^kubernetes/`).
+ *
+ * If auto-detect resolved a parent but no pattern matched, the parent name
+ * is used as-is.
+ */
+export function resolveGroupName(
+  change: Change,
+  filePath: FilePath,
+  patterns: CompiledPattern[],
+  autoPartitions: boolean,
+): string | null {
+  // Only schema-scoped objects can be grouped (skip cluster-level).
+  if (!filePath.metadata.schemaName) return null;
+
+  // 1. Auto-detect partitions: table changes where the table is a partition
+  //    of another table.
+  let resolvedName: string | null = null;
+  if (
+    autoPartitions &&
+    change.objectType === "table" &&
+    change.table.is_partition &&
+    change.table.parent_name
+  ) {
+    resolvedName = change.table.parent_name;
+  }
+
+  // 2. Regex patterns -- first match wins.
+  const nameToMatch = resolvedName ?? filePath.metadata.objectName;
+  if (nameToMatch) {
+    for (const p of patterns) {
+      if (p.regex.test(nameToMatch)) {
+        return p.name;
+      }
+    }
+  }
+
+  // 3. If auto-detect found a parent but no pattern matched, use the parent
+  //    name directly.
+  return resolvedName;
+}
+
+/**
+ * Rewrite a `FilePath` according to the chosen grouping mode.
+ *
+ * - **single-file**: the filename becomes `{prefix}.sql` inside the original
+ *   category directory.
+ *   e.g. `schemas/public/tables/wal_verification_results_p20260107.sql`
+ *     → `schemas/public/tables/wal_verification_results.sql`
+ *
+ * - **subdirectory**: the file is moved to a prefix-named directory under the
+ *   schema root, with the category as the filename.
+ *   e.g. `schemas/public/tables/wal_verification_results_p20260107.sql`
+ *     → `schemas/public/wal_verification_results/tables.sql`
+ */
+export function applyGrouping(
+  filePath: FilePath,
+  prefix: string,
+  mode: PrefixGrouping["mode"],
+): FilePath {
+  const schema = filePath.metadata.schemaName ?? "";
+  const category = filePath.category as FileCategory;
+
+  if (mode === "single-file") {
+    // Replace the filename, keep the category directory.
+    return {
+      path: schemaPath(schema, category, `${prefix}.sql`),
+      category,
+      metadata: {
+        ...filePath.metadata,
+        objectName: prefix,
+      },
+    };
+  }
+
+  // subdirectory mode: schemas/{schema}/{prefix}/{category}.sql
+  return {
+    path: schemaPath(schema, prefix, `${category}.sql`),
+    category,
+    metadata: {
+      ...filePath.metadata,
+      objectName: prefix,
+    },
+  };
 }
