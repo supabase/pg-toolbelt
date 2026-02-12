@@ -9,14 +9,8 @@ import type { createPlan } from "../plan/create.ts";
 import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
 import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
 import { formatSqlScript } from "../plan/statements.ts";
-import { getFilePath } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
-import { getSimpleFilePath } from "./simple-file-mapper.ts";
-import type {
-  DeclarativeSchemaOutput,
-  ExportMode,
-  FileEntry,
-} from "./types.ts";
+import type { DeclarativeSchemaOutput, FileEntry } from "./types.ts";
 
 // ============================================================================
 // Types
@@ -35,19 +29,6 @@ export type PlanResult = NonNullable<Awaited<ReturnType<typeof createPlan>>>;
 export interface ExportOptions {
   /** Integration for custom serialization */
   integration?: Integration;
-  /**
-   * Prefix filenames with order numbers for alphabetical sorting.
-   * When true, paths like "schemas/public/tables/users.sql" become
-   * "schemas/public/tables/000001_users.sql" to ensure correct application order.
-   * Only the filename is prefixed; directory components remain unchanged.
-   */
-  orderPrefix?: boolean;
-  /**
-   * File organization mode:
-   * - "detailed" (default): One file per object in nested directories
-   * - "simple": One file per category, flat structure (e.g., tables.sql, views.sql)
-   */
-  mode?: ExportMode;
   /**
    * SQL formatter options to control the output style.
    * Merged on top of the default export options (maxWidth: 180, keywordCase: "upper").
@@ -76,8 +57,6 @@ export function exportDeclarativeSchema(
 ): DeclarativeSchemaOutput {
   const { ctx, sortedChanges } = planResult;
   const integration = options?.integration;
-  const orderPrefix = options?.orderPrefix ?? false;
-  const mode = options?.mode ?? "detailed";
   const formatOptions: SqlFormatOptions = {
     ...DEFAULT_OPTIONS,
     maxWidth: 180,
@@ -85,17 +64,18 @@ export function exportDeclarativeSchema(
     ...options?.formatOptions,
   };
 
-  // Declarative export targets the final state; exclude drop operations.
-  // Exception: default_privilege drops (REVOKEs) are kept because they define
-  // the desired privilege state (e.g. revoking implicit PUBLIC EXECUTE on
-  // functions).  Without them the applied schema would retain PostgreSQL's
-  // implicit defaults, causing a diff on verification.
-  // Note: filtering by integration and dependency cascading are done in createPlan,
-  // so we only filter out drops here.
-  const declarativeChanges = sortedChanges.filter(
-    (change) =>
-      change.operation !== "drop" || change.scope === "default_privilege",
-  );
+  // // Declarative export targets the final state; exclude drop operations.
+  // // Exception: default_privilege drops (REVOKEs) are kept because they define
+  // // the desired privilege state (e.g. revoking implicit PUBLIC EXECUTE on
+  // // functions).  Without them the applied schema would retain PostgreSQL's
+  // // implicit defaults, causing a diff on verification.
+  // // Note: filtering by integration and dependency cascading are done in createPlan,
+  // // so we only filter out drops here.
+  const declarativeChanges = sortedChanges;
+  // .filter(
+  //   (change) =>
+  //     change.operation !== "drop" || change.scope === "default_privilege",
+  // );
 
   const { hash: sourceFingerprint, stableIds } = buildPlanScopeFingerprint(
     ctx.mainCatalog,
@@ -103,28 +83,18 @@ export function exportDeclarativeSchema(
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
-  const mapper = mode === "simple" ? getSimpleFilePath : getFilePath;
-  // Simple mode sorts files by category priority (natural dependency hierarchy).
-  // Detailed mode sorts by topological position (fine-grained per-object ordering).
-  const sortBy = mode === "simple" ? "category" : "topological";
-  const groups = groupChangesByFile(declarativeChanges, mapper, { sortBy });
+  const groups = groupChangesByFile(declarativeChanges);
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>
       serializeChange(change, integration),
     );
-    // Disable function body validation for files containing routines.
-    // In simple mode, functions come before tables so table defaults can
-    // reference them, but function bodies may reference not-yet-created tables.
-    const hasRoutines = group.changes.some(
-      (c) => c.objectType === "procedure" || c.objectType === "aggregate",
+    return buildFileEntry(
+      group.path,
+      group.metadata,
+      statements,
+      index,
+      formatOptions,
     );
-    if (hasRoutines) {
-      statements.unshift("SET check_function_bodies = false");
-    }
-    const path = orderPrefix
-      ? prefixFilename(group.path, index + 1)
-      : group.path;
-    return buildFileEntry(path, group.metadata, statements, index, formatOptions);
   });
 
   return {
@@ -135,24 +105,6 @@ export function exportDeclarativeSchema(
     target: { fingerprint: targetFingerprint },
     files,
   };
-}
-
-/**
- * Prefix only the filename portion of a path with a zero-padded order number.
- * Directory components are left unchanged so that folder structure is preserved.
- *
- * Example: prefixFilename("schemas/public/tables/users.sql", 1)
- *       → "schemas/public/tables/000001_users.sql"
- */
-function prefixFilename(filePath: string, order: number): string {
-  const prefix = String(order).padStart(6, "0");
-  const lastSlash = filePath.lastIndexOf("/");
-  if (lastSlash === -1) {
-    return `${prefix}_${filePath}`;
-  }
-  const dir = filePath.slice(0, lastSlash + 1);
-  const file = filePath.slice(lastSlash + 1);
-  return `${dir}${prefix}_${file}`;
 }
 
 function serializeChange(change: Change, integration?: Integration): string {

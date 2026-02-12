@@ -63,7 +63,7 @@ export interface DeclarativeExportTestOptions {
   initialSetup?: string;
   testSql?: string;
   integration?: Integration;
-  /** Additional export options (mode, orderPrefix, etc.) */
+  /** Additional export options */
   exportOptions?: Omit<ExportOptions, "integration">;
 }
 
@@ -345,9 +345,7 @@ export async function testDeclarativeExport(
     }
 
     const finalCatalog = await extractCatalog(testPool);
-    const exportChanges = sortedChanges.filter(
-      (change) => change.operation !== "drop",
-    );
+    const exportChanges = sortedChanges;
     const { hash: finalFingerprint } = buildPlanScopeFingerprint(
       finalCatalog,
       exportChanges,

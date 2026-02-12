@@ -3,7 +3,6 @@
  */
 
 import type { Change } from "../change.types.ts";
-import type { TableConstraintProps } from "../objects/table/table.model.ts";
 import {
   getObjectName,
   getObjectSchema,
@@ -14,15 +13,6 @@ import type { FilePath } from "./types.ts";
 // ============================================================================
 // Helpers
 // ============================================================================
-
-type ConstraintChange = Change & {
-  constraint: TableConstraintProps;
-  table: { schema: string; name: string };
-};
-
-function isConstraintChange(change: Change): change is ConstraintChange {
-  return change.objectType === "table" && "constraint" in change;
-}
 
 type RoleDefaultPrivilegeChange = Change & {
   objectType: "role";
@@ -37,12 +27,6 @@ function isRoleDefaultPrivilegeChange(
     change.objectType === "role" &&
     change.scope === "default_privilege" &&
     "inSchema" in change
-  );
-}
-
-function isForeignKeyConstraintChange(change: Change): boolean {
-  return (
-    isConstraintChange(change) && change.constraint.constraint_type === "f"
   );
 }
 
@@ -216,19 +200,6 @@ export function getFilePath(change: Change): FilePath {
     case "table": {
       const schema = change.table.schema;
       const tableName = change.table.name;
-      if (isForeignKeyConstraintChange(change)) {
-        // FK constraints reference other tables, so they must be separated
-        // from triggers/RLS policies to avoid ordering issues.
-        return {
-          path: schemaPath(schema, "foreign_keys", `${tableName}.sql`),
-          category: "foreign_keys",
-          metadata: {
-            objectType: "foreign_key",
-            schemaName: schema,
-            objectName: tableName,
-          },
-        };
-      }
       return {
         path: schemaPath(schema, "tables", `${tableName}.sql`),
         category: "tables",
@@ -311,14 +282,20 @@ export function getFilePath(change: Change): FilePath {
     }
     case "index": {
       const schema = requireSchema(change);
-      const objectName = getObjectName(change);
+      const parent = getParentInfo(change);
+      if (!parent) {
+        throw new Error("Expected parent for index change");
+      }
+      const parentName = parent.name;
+      const category =
+        parent.type === "materialized_view" ? "matviews" : "tables";
       return {
-        path: schemaPath(schema, "indexes", `${objectName}.sql`),
-        category: "indexes",
+        path: schemaPath(schema, category, `${parentName}.sql`),
+        category,
         metadata: {
-          objectType: "index",
+          objectType: parent.type,
           schemaName: schema,
-          objectName,
+          objectName: parentName,
         },
       };
     }
@@ -334,10 +311,10 @@ export function getFilePath(change: Change): FilePath {
       }
       const tableName = parent.name;
       return {
-        path: schemaPath(schema, "policies", `${tableName}.sql`),
-        category: "policies",
+        path: schemaPath(schema, "tables", `${tableName}.sql`),
+        category: "tables",
         metadata: {
-          objectType: "policy",
+          objectType: "table",
           schemaName: schema,
           objectName: tableName,
         },
