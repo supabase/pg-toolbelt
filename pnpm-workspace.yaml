@@ -1,3 +1,7 @@
+packages:
+  - '.'
+  - 'pg-topo'
+
 onlyBuiltDependencies:
   - '@biomejs/biome'
   - cpu-features

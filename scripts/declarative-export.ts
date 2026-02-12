@@ -35,8 +35,11 @@ try {
     process.exit(0);
   }
 
+  // No orderPrefix needed: execution order is resolved at apply time by
+  // pg-topo (static dependency analysis) + round-based engine. The export
+  // focuses purely on clean, human-friendly file grouping.
   const output = exportDeclarativeSchema(planResult, {
-    orderPrefix: true,
+    orderPrefix: false,
     mode: MODE as ExportMode,
     formatOptions: {
       keywordCase: "lower",
@@ -53,18 +56,6 @@ try {
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, file.sql);
   }
-
-  const orderPath = path.join(outputDir, "order.json");
-  const orderedFiles = output.files.map((file) => file.path);
-  await writeFile(orderPath, `${JSON.stringify(orderedFiles, null, 2)}\n`);
-
-  // Generate a single combined SQL file with all statements in the correct order.
-  // This is useful for tools that apply files alphabetically and don't support
-  // custom ordering.
-  const combinedSql = output.files
-    .map((file) => `-- File: ${file.path}\n${file.sql}`)
-    .join("\n\n");
-  await writeFile(path.join(outputDir, "combined.sql"), combinedSql);
 
   console.log(
     `Wrote ${planResult.sortedChanges.length} changes to ${output.files.length} files to ${outputDir}`,

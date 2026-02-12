@@ -5,7 +5,7 @@ CONTAINER_NAME="pgdelta-dogfooding"
 CONTAINER_PORT=6543
 ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
 DB_NAME="declarative_test"
-DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}" 
+DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
 
 # ──────────────────────────────────────────────────────────────
 # 1. Export declarative schema from source
@@ -39,31 +39,20 @@ psql "$ADMIN_URL" -c "DROP DATABASE IF EXISTS ${DB_NAME}" --quiet 2>/dev/null ||
 psql "$ADMIN_URL" -c "CREATE DATABASE ${DB_NAME} TEMPLATE template0" --quiet
 
 # ──────────────────────────────────────────────────────────────
-# 3. Apply SQL files in order (single pass)
+# 3. Apply declarative schema using pg-topo + round-based engine
 # ──────────────────────────────────────────────────────────────
-echo "Applying declarative schema files..."
-FAILED=0
-node -e "
-const order = JSON.parse(require('fs').readFileSync('./declarative-schemas/order.json', 'utf8'));
-order.forEach(f => console.log(f));
-" | while read -r file; do
-  if ! psql "$DB_URL" \
-    -f "./declarative-schemas/$file" \
-    -v ON_ERROR_STOP=1 \
-    --quiet 2>&1; then
-    echo ""
-    echo "FAILED on file: $file"
-    exit 1
-  fi
-done
-
-echo ""
-echo "All files applied successfully."
+# Uses pg-topo for static dependency analysis and topological ordering,
+# then applies statements round-by-round to handle any remaining gaps.
+echo "Applying declarative schema via declarative-apply..."
+pnpm pgdelta declarative-apply \
+  --path ./declarative-schemas \
+  --target "$DB_URL" \
+  --verbose
 
 # ──────────────────────────────────────────────────────────────
 # 4. Verify roundtrip: diff applied DB vs original (expect 0 changes)
 # ──────────────────────────────────────────────────────────────
-# Same filter as declarative-export (exclude platform-db–specific extensions).
+# Same filter as declarative-export (exclude platform-db-specific extensions).
 FILTER_DSL='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
 echo "Verifying roundtrip: diff applied DB vs original (expect 0 changes)..."
 VERIFY_OUTPUT=$(pnpm pgdelta plan --source "$DB_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" 2>&1) || true
