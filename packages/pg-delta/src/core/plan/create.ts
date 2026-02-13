@@ -240,7 +240,6 @@ export async function createPlan(
   if (typeof target === "string") {
     const sslConfig = await parseSslConfig(target, "target");
     targetPool = createPool(sslConfig.cleanedUrl, {
-
       ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
       onError,
       onConnect: async (client) => {
