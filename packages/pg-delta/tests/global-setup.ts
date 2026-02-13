@@ -1,10 +1,10 @@
 import { getContainerRuntimeClient, ImageName } from "testcontainers";
-import { containerManager } from "./container-manager.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   POSTGRES_VERSIONS,
 } from "./constants.ts";
+import { containerManager } from "./container-manager.ts";
 
 const containerRuntimeClient = await getContainerRuntimeClient();
 // pull all the images before running the tests

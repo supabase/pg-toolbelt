@@ -1,3 +1,4 @@
 {
-  "entry": ["test/global-setup.ts"]
+  "entry": ["test/global-setup.ts"],
+  "ignoreBinaries": ["biome"]
 }

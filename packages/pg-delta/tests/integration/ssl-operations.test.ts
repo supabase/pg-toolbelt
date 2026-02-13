@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { createPool } from "../../src/core/postgres-config.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
+import { createPool } from "../../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   POSTGRES_VERSIONS,
@@ -126,10 +126,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // SSL container requires SSL for TCP connections. Use rejectUnauthorized: false
         // since the container uses self-signed certs (this is test setup, not the SUT).
         const sslOpts = { ssl: { rejectUnauthorized: false } };
-        const adminPool = createPool(
-          container.getConnectionUri(),
-          sslOpts,
-        );
+        const adminPool = createPool(container.getConnectionUri(), sslOpts);
 
         // Create a test database
         await adminPool.query(

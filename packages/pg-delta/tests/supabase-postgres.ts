@@ -52,7 +52,7 @@ export class SupabasePostgreSqlContainer extends GenericContainer {
   }
 }
 
-export class StartedSupabasePostgreSqlContainer extends AbstractStartedContainer {
+class StartedSupabasePostgreSqlContainer extends AbstractStartedContainer {
   private readonly database: string;
   private readonly username: string;
   private readonly password: string;

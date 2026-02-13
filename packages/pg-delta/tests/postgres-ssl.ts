@@ -120,7 +120,7 @@ exec docker-entrypoint.sh postgres \\
   }
 }
 
-export class StartedPostgresSslContainer extends AbstractStartedContainer {
+class StartedPostgresSslContainer extends AbstractStartedContainer {
   private readonly database: string;
   private readonly username: string;
   private readonly password: string;
