@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
 

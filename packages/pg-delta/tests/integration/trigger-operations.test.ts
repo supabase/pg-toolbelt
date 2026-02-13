@@ -2,21 +2,21 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`trigger operations (pg${pgVersion})`, () => {
-    test("simple trigger creation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe(`trigger operations (pg${pgVersion})`, () => {
+    test(
+      "simple trigger creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id serial PRIMARY KEY,
@@ -33,20 +33,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $$;
         `,
-        testSql: `
+          testSql: `
           CREATE TRIGGER update_timestamp_trigger
           BEFORE UPDATE ON test_schema.users
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.update_timestamp();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multi-event trigger", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "multi-event trigger",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.audit_log (
             id serial PRIMARY KEY,
@@ -77,16 +80,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $$;
         `,
-        testSql:
-          "CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes();",
-      });
-    });
+          testSql:
+            "CREATE TRIGGER audit_trigger AFTER INSERT OR DELETE OR UPDATE ON test_schema.sensitive_data FOR EACH ROW EXECUTE FUNCTION test_schema.audit_changes();",
+        });
+      }),
+    );
 
-    test("constraint trigger creation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: dedent`
+    test(
+      "constraint trigger creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.accounts (
             id serial PRIMARY KEY,
@@ -105,21 +111,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $$;
         `,
-        testSql: dedent`
+          testSql: dedent`
           CREATE CONSTRAINT TRIGGER enforce_amount_limit_trigger
           AFTER INSERT OR UPDATE ON test_schema.accounts
           DEFERRABLE INITIALLY IMMEDIATE
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.enforce_amount_limit();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("constraint trigger update", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: dedent`
+    test(
+      "constraint trigger update",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.roles (
             id serial PRIMARY KEY,
@@ -146,7 +155,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.role_and_project_ids_belong_to_org();
         `,
-        testSql: dedent`
+          testSql: dedent`
           DROP TRIGGER role_and_project_ids_belong_to_org ON test_schema.roles;
 
           CREATE CONSTRAINT TRIGGER role_and_project_ids_belong_to_org
@@ -155,14 +164,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.role_and_project_ids_belong_to_org();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("constraint trigger deletion", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: dedent`
+    test(
+      "constraint trigger deletion",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.orders (
             id serial PRIMARY KEY,
@@ -184,17 +196,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.enforce_order_amount();
         `,
-        testSql: `
+          testSql: `
           DROP TRIGGER enforce_order_amount ON test_schema.orders;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("constraint trigger comment alteration", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: dedent`
+    test(
+      "constraint trigger comment alteration",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.accounts (
             id serial PRIMARY KEY,
@@ -216,17 +231,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.guard_balance();
         `,
-        testSql: `
+          testSql: `
           COMMENT ON TRIGGER guard_balance ON test_schema.accounts IS 'constraint trigger comment';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("conditional trigger with WHEN clause", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "conditional trigger with WHEN clause",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.products (
             id serial PRIMARY KEY,
@@ -244,21 +262,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $$;
         `,
-        testSql: `
+          testSql: `
           CREATE TRIGGER price_change_trigger
           AFTER UPDATE ON test_schema.products
           FOR EACH ROW
           WHEN (OLD.price IS DISTINCT FROM NEW.price)
           EXECUTE FUNCTION test_schema.log_price_changes();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("trigger dropping", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "trigger dropping",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.test_table (
             id serial PRIMARY KEY,
@@ -273,15 +294,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.test_trigger_func();
         `,
-        testSql: `DROP TRIGGER old_trigger ON test_schema.test_table;`,
-      });
-    });
+          testSql: `DROP TRIGGER old_trigger ON test_schema.test_table;`,
+        });
+      }),
+    );
 
-    test("trigger replacement (modification)", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "trigger replacement (modification)",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id serial PRIMARY KEY,
@@ -304,7 +328,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.validate_email();
         `,
-        testSql: dedent`
+          testSql: dedent`
           CREATE OR REPLACE FUNCTION test_schema.validate_email()
            RETURNS trigger
            LANGUAGE plpgsql
@@ -329,15 +353,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.validate_email();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("trigger after function dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema",
-        testSql: dedent`
+    test(
+      "trigger after function dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema",
+          testSql: dedent`
           CREATE TABLE test_schema.events (
             id serial PRIMARY KEY,
             event_type text,
@@ -359,15 +386,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.notify_event();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("trigger semantic equality", async ({ db }) => {
-      // Setup: Create a trigger in both databases
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `CREATE SCHEMA test_schema
+    test(
+      "trigger semantic equality",
+      withDb(pgVersion, async (db) => {
+        // Setup: Create a trigger in both databases
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `CREATE SCHEMA test_schema
         CREATE TABLE test_schema.test_table (
           id serial PRIMARY KEY,
           value text
@@ -380,16 +410,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         BEFORE INSERT ON test_schema.test_table
         FOR EACH ROW
         EXECUTE FUNCTION test_schema.test_func();`,
-        expectedSqlTerms: [],
-      });
-    });
+          expectedSqlTerms: [],
+        });
+      }),
+    );
 
-    test("trigger with dependencies roundtrip", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema",
-        testSql: dedent`
+    test(
+      "trigger with dependencies roundtrip",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema",
+          testSql: dedent`
           CREATE TABLE test_schema.orders (
             id serial PRIMARY KEY,
             customer_id integer NOT NULL,
@@ -441,14 +474,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.update_order_timestamp();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("trigger comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: dedent`
+    test(
+      "trigger comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.logs (
             id serial PRIMARY KEY,
@@ -468,19 +504,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.log_insert();
         `,
-        testSql: `
+          testSql: `
           COMMENT ON TRIGGER logs_insert_trigger ON test_schema.logs IS 'logs insert trigger';
         `,
-      });
-    });
+        });
+      }),
+    );
 
     // Assert that https://github.com/djrobstep/migra/issues/159 is working
-    test("hasura event trigger function introspection", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: dedent`
+    test(
+      "hasura event trigger function introspection",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: dedent`
           CREATE SCHEMA IF NOT EXISTS hdb_catalog;
           CREATE SCHEMA IF NOT EXISTS hdb_views;
 
@@ -533,7 +572,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             END;
           $$;
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

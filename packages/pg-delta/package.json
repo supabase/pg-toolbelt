@@ -5,14 +5,23 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./dist/index.js",
-    "./integrations/supabase": "./dist/core/integrations/supabase.js"
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./integrations/supabase": {
+      "bun": "./src/core/integrations/supabase.ts",
+      "import": "./dist/core/integrations/supabase.js",
+      "types": "./dist/core/integrations/supabase.d.ts"
+    }
   },
   "bin": {
     "pgdelta": "./dist/cli/bin/cli.js"
   },
   "files": [
     "dist",
+    "src",
     "README.md",
     "LICENSE"
   ],
@@ -26,24 +35,26 @@
   ],
   "author": "Supabase",
   "license": "MIT",
-  "homepage": "https://github.com/supabase/pg-delta",
+  "homepage": "https://github.com/supabase/pg-toolbelt",
   "repository": {
     "type": "git",
-    "url": "https://github.com/supabase/pg-delta.git"
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-delta"
   },
-  "bugs": "https://github.com/supabase/pg-delta/issues",
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
   "engines": {
     "node": ">=20.0.0"
   },
-  "packageManager": "pnpm@10.26.1",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
-    "pgdelta": "node src/cli/bin/cli.ts",
-    "test": "vitest",
-    "version": "changeset version && pnpm install --no-frozen-lockfile && pnpm format-and-lint --write"
+    "pgdelta": "bun src/cli/bin/cli.ts",
+    "test": "bun test --preload ./tests/global-setup.ts",
+    "test:unit": "bun test src/",
+    "test:integration": "bun test --preload ./tests/global-setup.ts --concurrent --max-concurrency=4 tests/",
+    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
@@ -54,18 +65,15 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.10",
-    "@types/pg": "^8.11.10",
-    "@changesets/cli": "^2.29.8",
     "@tsconfig/node-ts": "^23.6.2",
     "@tsconfig/node24": "^24.0.3",
+    "@types/bun": "^1.3.9",
     "@types/debug": "^4.1.12",
     "@types/node": "^24.10.4",
-    "@vitest/coverage-v8": "4.0.16",
+    "@types/pg": "^8.11.10",
     "dedent": "^1.7.1",
     "knip": "^5.75.2",
     "testcontainers": "^11.10.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "typescript": "^5.9.3"
   }
 }

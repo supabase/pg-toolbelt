@@ -2,21 +2,21 @@
  * Integration tests for PostgreSQL RLS (Row Level Security) operations.
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
   // TODO: Fix RLS and policy dependency detection issues
-  describe.concurrent(`RLS operations (pg${pgVersion})`, () => {
-    test("enable RLS on table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe(`RLS operations (pg${pgVersion})`, () => {
+    test(
+      "enable RLS on table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -24,17 +24,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email TEXT UNIQUE NOT NULL
           );
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("disable RLS on table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "disable RLS on table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -43,18 +46,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE app.users DISABLE ROW LEVEL SECURITY;
         `,
-      });
-    });
+        });
+      }),
+    );
 
     // TODO: Fix RLS and policy dependency detection issues
-    test("create basic RLS policy", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "create basic RLS policy",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -63,20 +69,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           CREATE POLICY user_isolation ON app.users
             FOR ALL
             TO public
             USING (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("create policy with WITH CHECK", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "create policy with WITH CHECK",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA blog;
           CREATE TABLE blog.posts (
             id INTEGER PRIMARY KEY,
@@ -87,20 +96,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE blog.posts ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           CREATE POLICY insert_own_posts ON blog.posts
             FOR INSERT
             TO public
             WITH CHECK (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("create RESTRICTIVE policy", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "create RESTRICTIVE policy",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA secure;
           CREATE TABLE secure.sensitive_data (
             id INTEGER PRIMARY KEY,
@@ -109,21 +121,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE secure.sensitive_data ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           CREATE POLICY admin_only ON secure.sensitive_data
             AS RESTRICTIVE
             FOR SELECT
             TO public
             USING (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop RLS policy", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop RLS policy",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -136,17 +151,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        testSql: `
+          testSql: `
           DROP POLICY user_isolation ON app.users;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple policies on same table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "multiple policies on same table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA forum;
           CREATE TABLE forum.messages (
             id INTEGER PRIMARY KEY,
@@ -157,7 +175,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE forum.messages ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           -- Read rlsPolicy: users can read all messages
           CREATE POLICY read_messages ON forum.messages
             FOR SELECT
@@ -177,17 +195,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complete RLS setup with policies", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "complete RLS setup with policies",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA tenant;
         `,
-        testSql: `
+          testSql: `
           -- Create a multi-tenant table
           CREATE TABLE tenant.data (
             id INTEGER PRIMARY KEY,
@@ -213,14 +234,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("create basic RLS policy on simple table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "create basic RLS policy on simple table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -228,20 +252,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
         `,
-        testSql: `
+          testSql: `
           CREATE POLICY user_policy ON app.users
             FOR ALL
             TO public
             USING (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop RLS policy from simple table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop RLS policy from simple table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.users (
             id INTEGER PRIMARY KEY,
@@ -253,17 +280,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             TO public
             USING (true);
         `,
-        testSql: `
+          testSql: `
           DROP POLICY user_policy ON app.users;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("policy comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "policy comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.docs (
             id integer PRIMARY KEY,
@@ -272,10 +302,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
           CREATE POLICY owner_only ON app.docs FOR ALL TO public USING (true);
         `,
-        testSql: `
+          testSql: `
           COMMENT ON POLICY owner_only ON app.docs IS 'only owners have access';
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

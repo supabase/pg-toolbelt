@@ -2,21 +2,21 @@
  * Integration tests for PostgreSQL policy dependencies.
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
   // TODO: Fix policy dependency detection issues
-  describe.concurrent(`policy dependencies (pg${pgVersion})`, () => {
-    test("policy depends on table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe(`policy dependencies (pg${pgVersion})`, () => {
+    test(
+      "policy depends on table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA security;
           CREATE TABLE security.users (
             id INTEGER PRIMARY KEY,
@@ -24,21 +24,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             email TEXT UNIQUE
           );
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE security.users ENABLE ROW LEVEL SECURITY;
           CREATE POLICY user_isolation ON security.users
             FOR ALL
             TO public
             USING (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple policies with dependencies", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "multiple policies with dependencies",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE TABLE app.posts (
             id INTEGER PRIMARY KEY,
@@ -48,7 +51,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             published BOOLEAN DEFAULT false
           );
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE app.posts ENABLE ROW LEVEL SECURITY;
 
           -- Read policy for all users
@@ -70,17 +73,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("create table and policy together", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "create table and policy together",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA tenant;
         `,
-        testSql: `
+          testSql: `
           CREATE TABLE tenant.data (
             id INTEGER PRIMARY KEY,
             tenant_id INTEGER NOT NULL,
@@ -96,7 +102,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

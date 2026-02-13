@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Language } from "../language.model.ts";
 import { CreateLanguage } from "./language.create.ts";
 

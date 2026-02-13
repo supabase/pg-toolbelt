@@ -2,8 +2,9 @@
  * Integration tests for SSL/TLS connection support.
  */
 
+import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { createPool } from "../../src/core/postgres-config.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
@@ -121,29 +122,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       ).start();
 
       try {
-        // Create a test database with a table
-        await container.createDatabase("test_db");
-
-        // Create a table in source database using container exec (handles SSL automatically)
-        const result = await container.exec(
-          [
-            "psql",
-            "-U",
-            container.getUsername(),
-            "-d",
-            "test_db",
-            "-c",
-            "CREATE TABLE test_table (id integer)",
-          ],
-          {
-            env: {
-              PGPASSWORD: container.getPassword(),
-            },
-          },
+        // Use pg Pool instead of container.exec() which hangs under Bun.
+        // SSL container requires SSL for TCP connections. Use rejectUnauthorized: false
+        // since the container uses self-signed certs (this is test setup, not the SUT).
+        const sslOpts = { ssl: { rejectUnauthorized: false } };
+        const adminPool = createPool(
+          container.getConnectionUri(),
+          sslOpts,
         );
-        if (result.exitCode !== 0) {
-          throw new Error(`Failed to create table: ${result.output}`);
-        }
+
+        // Create a test database
+        await adminPool.query(
+          `CREATE DATABASE "test_db" OWNER "${container.getUsername()}"`,
+        );
+
+        // Create a table in the test database via pg Pool
+        const testDbPool = createPool(
+          container.getConnectionUriForDatabase("test_db"),
+          sslOpts,
+        );
+        await testDbPool.query("CREATE TABLE test_table (id integer)");
+        await testDbPool.end();
+        await adminPool.end();
 
         const sourceUrl = `${container.getConnectionUriForDatabase("test_db")}?sslmode=require`;
         const targetUrl = `${container.getConnectionUriForDatabase("postgres")}?sslmode=require`;

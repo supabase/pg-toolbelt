@@ -2,22 +2,21 @@
  * Integration tests for PostgreSQL view operations.
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest, getTestIsolated } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-  const isolatedTest = getTestIsolated(pgVersion);
-
-  describe.concurrent(`view operations (pg${pgVersion})`, () => {
-    test("simple view creation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+  describe(`view operations (pg${pgVersion})`, () => {
+    test(
+      "simple view creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.users (
             id integer,
             name text,
@@ -29,15 +28,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM test_schema.users
           WHERE email IS NOT NULL;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("nested view dependencies - 3 levels deep", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "nested view dependencies - 3 levels deep",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.users (
             id integer,
             name text,
@@ -78,14 +80,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY total_spent DESC
           LIMIT 10;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("view replacement with dependency changes", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "view replacement with dependency changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
 
           CREATE TABLE test_schema.users (
@@ -104,22 +109,25 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           SELECT id, name, status
           FROM test_schema.users;
         `,
-        testSql: `
+          testSql: `
           -- Replace view to include profile data (new dependency)
           CREATE OR REPLACE VIEW test_schema.user_summary AS
           SELECT u.id, u.name, u.status, p.bio, p.avatar_url
           FROM test_schema.users u
           LEFT JOIN test_schema.profiles p ON u.id = p.user_id;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex view dependencies with multiple joins", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA analytics;",
-        testSql: `
+    test(
+      "complex view dependencies with multiple joins",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA analytics;",
+          testSql: `
           CREATE TABLE analytics.customers (
             id integer,
             name text,
@@ -186,18 +194,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM analytics.product_performance
           WHERE units_sold > 0;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("valid recursive patterns are not flagged as cycles", async ({
-      db,
-    }) => {
-      // Test case: Valid recursive CTE pattern that should NOT be flagged as a cycle
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "valid recursive patterns are not flagged as cycles",
+      withDb(pgVersion, async (db) => {
+        // Test case: Valid recursive CTE pattern that should NOT be flagged as a cycle
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
             CREATE TABLE test_schema.employees (
               id integer,
               name text,
@@ -219,14 +228,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             )
             SELECT * FROM hierarchy;
           `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("view comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "view comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer,
@@ -234,17 +246,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
           CREATE VIEW test_schema.user_names AS SELECT id, name FROM test_schema.users;
         `,
-        testSql: `
+          testSql: `
           COMMENT ON VIEW test_schema.user_names IS 'users names view';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("view with options", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "view with options",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer,
@@ -253,19 +268,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.alter_options WITH (security_barrier = TRUE) AS SELECT id, name FROM test_schema.users;
           CREATE VIEW test_schema.reset_options WITH (security_invoker = TRUE) AS SELECT id, name FROM test_schema.users;
         `,
-        testSql: `
+          testSql: `
           ALTER VIEW test_schema.alter_options SET (security_invoker = TRUE, security_barrier = FALSE);
           CREATE VIEW test_schema.create_with_options WITH (security_invoker = TRUE) AS SELECT id, name FROM test_schema.users;
           ALTER VIEW test_schema.reset_options RESET (security_invoker);
           `,
-      });
-    });
+        });
+      }),
+    );
 
-    isolatedTest("view owner change", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "view owner change",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE ROLE view_previous_owner WITH LOGIN;
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
@@ -275,12 +293,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.owned_view AS SELECT id, name FROM test_schema.users;
           ALTER VIEW test_schema.owned_view OWNER TO view_previous_owner;
         `,
-        testSql: `
+          testSql: `
           CREATE ROLE view_new_owner WITH LOGIN;
           ALTER VIEW test_schema.owned_view OWNER TO view_new_owner;
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }
 // CASCADE operations are intentionally not supported as dependency resolution

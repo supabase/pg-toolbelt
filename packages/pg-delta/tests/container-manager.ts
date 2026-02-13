@@ -27,6 +27,7 @@ function suppressShutdownError(err: Error & { code?: string }) {
 class ContainerManager {
   private containers: Map<PostgresVersion, StartedPostgresAlpineContainer> =
     new Map();
+  private adminPools: Map<PostgresVersion, Pool> = new Map();
   private dbCounter = 0;
   private initializedVersions: Set<PostgresVersion> = new Set();
   private initializationPromises: Map<PostgresVersion, Promise<void>> =
@@ -89,6 +90,14 @@ class ContainerManager {
       const container = await new PostgresAlpineContainer(image).start();
       this.containers.set(version, container);
 
+      // Create an admin pool for database management (CREATE/DROP DATABASE).
+      // Uses pg Pool instead of container.exec() because testcontainers exec()
+      // hangs under Bun.
+      const adminPool = createPool(container.getConnectionUri(), {
+        onError: suppressShutdownError,
+      });
+      this.adminPools.set(version, adminPool);
+
       debugContainer(
         "[ContainerManager] Successfully started container for PostgreSQL %d",
         version,
@@ -133,14 +142,23 @@ class ContainerManager {
       throw new Error(`No container available for PostgreSQL ${version}`);
     }
 
+    const adminPool = this.adminPools.get(version);
+    if (!adminPool) {
+      throw new Error(`No admin pool available for PostgreSQL ${version}`);
+    }
+
     // Generate unique database names
     const dbNameMain = `test_db_${this.dbCounter++}_${Date.now()}_main`;
     const dbNameBranch = `test_db_${this.dbCounter++}_${Date.now()}_branch`;
 
-    // Create both databases on the same container
+    // Create both databases via pg Pool (not container.exec which hangs in Bun)
     await Promise.all([
-      container.createDatabase(dbNameMain),
-      container.createDatabase(dbNameBranch),
+      adminPool.query(
+        `CREATE DATABASE "${dbNameMain}" OWNER "${container.getUsername()}"`,
+      ),
+      adminPool.query(
+        `CREATE DATABASE "${dbNameBranch}" OWNER "${container.getUsername()}"`,
+      ),
     ]);
 
     // Create SQL connections to both databases on the same container
@@ -159,11 +177,37 @@ class ContainerManager {
         // Close connections
         await Promise.all([poolMain.end(), poolBranch.end()]);
 
-        // Drop databases
-        await Promise.all([
-          container.dropDatabase(dbNameMain),
-          container.dropDatabase(dbNameBranch),
-        ]);
+        // Drop subscriptions then databases via pg Pool
+        for (const dbName of [dbNameMain, dbNameBranch]) {
+          try {
+            // Connect to the database to drop subscriptions
+            const dbPool = createPool(
+              container.getConnectionUriForDatabase(dbName),
+              { onError: suppressShutdownError },
+            );
+            try {
+              const subsResult = await dbPool.query(
+                "SELECT quote_ident(subname) as subname FROM pg_catalog.pg_subscription WHERE subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())",
+              );
+              for (const row of subsResult.rows) {
+                await dbPool.query(
+                  `ALTER SUBSCRIPTION ${row.subname} SET (slot_name = NONE)`,
+                );
+                await dbPool.query(`DROP SUBSCRIPTION ${row.subname}`);
+              }
+            } catch {
+              // Best-effort subscription cleanup
+            } finally {
+              await dbPool.end();
+            }
+          } catch {
+            // Best-effort subscription cleanup
+          }
+          // Drop the database
+          await adminPool.query(
+            `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
+          );
+        }
       } catch (error) {
         console.error("Error during database cleanup:", error);
       }
@@ -210,6 +254,9 @@ class ContainerManager {
    * Cleanup all containers
    */
   async cleanup(): Promise<void> {
+    // Close admin pools first
+    await Promise.all(this.adminPools.values().map((pool) => pool.end()));
+    this.adminPools.clear();
     await Promise.all(
       this.containers.values().map((container) => container.stop()),
     );

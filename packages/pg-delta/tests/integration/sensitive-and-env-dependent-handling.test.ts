@@ -6,56 +6,53 @@
  * 2. Diff Filtering: Environment-dependent value changes are ignored during diff (SET actions filtered)
  */
 
+import { describe, test } from "bun:test";
 import { sql } from "@ts-safeql/sql-tag";
-import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest, getTestIsolated } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-  const testIsolated = getTestIsolated(pgVersion);
-
-  describe.concurrent(`sensitive and env-dependent handling (pg${pgVersion})`, () => {
+  describe(`sensitive and env-dependent handling (pg${pgVersion})`, () => {
     describe("masking and placeholders (CREATE operations)", () => {
-      testIsolated(
+      test(
         "role with LOGIN generates password warning",
-        async ({ db }) => {
+        withDbIsolated(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
             branchSession: db.branch,
             testSql: `CREATE ROLE test_login_role WITH LOGIN;`,
             expectedSqlTerms: ["CREATE ROLE test_login_role WITH LOGIN"],
           });
-        },
+        }),
       );
 
-      testIsolated(
+      test(
         "role without LOGIN does not generate password warning",
-        async ({ db }) => {
+        withDbIsolated(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
             branchSession: db.branch,
             testSql: `CREATE ROLE test_no_login_role WITH NOLOGIN;`,
             expectedSqlTerms: ["CREATE ROLE test_no_login_role"],
           });
-        },
+        }),
       );
 
-      test("subscription with password in conninfo is masked", async ({
-        db,
-      }) => {
-        const {
-          rows: [{ name: mainDbName }],
-        } = await db.main.query<{ name: string }>(
-          sql`select current_database() as name`,
-        );
+      test(
+        "subscription with password in conninfo is masked",
+        withDb(pgVersion, async (db) => {
+          const {
+            rows: [{ name: mainDbName }],
+          } = await db.main.query<{ name: string }>(
+            sql`select current_database() as name`,
+          );
 
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `CREATE PUBLICATION sub_sensitive_pub FOR ALL TABLES;`,
-          testSql: `
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `CREATE PUBLICATION sub_sensitive_pub FOR ALL TABLES;`,
+            testSql: `
               CREATE SUBSCRIPTION sub_sensitive
                 CONNECTION 'dbname=${mainDbName} password=secret123'
                 PUBLICATION sub_sensitive_pub
@@ -66,39 +63,45 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   slot_name = NONE
                 );
             `,
-          expectedSqlTerms: [
-            "CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)",
-          ],
-        });
-      });
+            expectedSqlTerms: [
+              "CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)",
+            ],
+          });
+        }),
+      );
 
-      test("server with options are masked", async ({ db }) => {
-        // Note: postgres_fdw doesn't accept password/user in server options,
-        // so we test with a custom FDW that accepts arbitrary options
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          testSql: `
+      test(
+        "server with options are masked",
+        withDb(pgVersion, async (db) => {
+          // Note: postgres_fdw doesn't accept password/user in server options,
+          // so we test with a custom FDW that accepts arbitrary options
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            testSql: `
               CREATE FOREIGN DATA WRAPPER test_sensitive_fdw;
               CREATE SERVER test_sensitive_server2
                 FOREIGN DATA WRAPPER test_sensitive_fdw
                 OPTIONS (password 'secret123', user 'testuser', host 'localhost');
             `,
-          expectedSqlTerms: [
-            "CREATE FOREIGN DATA WRAPPER test_sensitive_fdw NO HANDLER NO VALIDATOR",
-            "CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')",
-          ],
-        });
-      });
+            expectedSqlTerms: [
+              "CREATE FOREIGN DATA WRAPPER test_sensitive_fdw NO HANDLER NO VALIDATOR",
+              "CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')",
+            ],
+          });
+        }),
+      );
 
-      test("user mapping with options are masked", async ({ db }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+      test(
+        "user mapping with options are masked",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE EXTENSION IF NOT EXISTS postgres_fdw;
             `,
-          testSql: `
+            testSql: `
               CREATE SERVER test_um_server
                 FOREIGN DATA WRAPPER postgres_fdw
                 OPTIONS (host 'localhost');
@@ -106,18 +109,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 SERVER test_um_server
                 OPTIONS (user 'testuser', password 'secret456');
             `,
-          expectedSqlTerms: [
-            "CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')",
-            "CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
-          ],
-        });
-      });
+            expectedSqlTerms: [
+              "CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')",
+              "CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
+            ],
+          });
+        }),
+      );
     });
 
     describe("diff filtering (ALTER operations)", () => {
-      testIsolated(
+      test(
         "alter role password does not generate ALTER statement",
-        async ({ db }) => {
+        withDbIsolated(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
             branchSession: db.branch,
@@ -130,22 +134,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             // Password changes are environment-dependent and should be ignored during diff
             expectedSqlTerms: [],
           });
-        },
+        }),
       );
 
-      test("alter subscription connection with password is ignored", async ({
-        db,
-      }) => {
-        const {
-          rows: [{ name: mainDbName }],
-        } = await db.main.query<{ name: string }>(
-          sql`select current_database() as name`,
-        );
+      test(
+        "alter subscription connection with password is ignored",
+        withDb(pgVersion, async (db) => {
+          const {
+            rows: [{ name: mainDbName }],
+          } = await db.main.query<{ name: string }>(
+            sql`select current_database() as name`,
+          );
 
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE PUBLICATION sub_alter_sensitive_pub FOR ALL TABLES;
               CREATE SUBSCRIPTION sub_alter_sensitive
                 CONNECTION 'dbname=${mainDbName}'
@@ -157,28 +161,29 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   slot_name = NONE
                 );
             `,
-          testSql: `
+            testSql: `
               ALTER SUBSCRIPTION sub_alter_sensitive
                 CONNECTION 'dbname=${mainDbName} password=newsecret';
             `,
-          // Conninfo changes are environment-dependent and should be ignored during diff
-          expectedSqlTerms: [],
-        });
-      });
+            // Conninfo changes are environment-dependent and should be ignored during diff
+            expectedSqlTerms: [],
+          });
+        }),
+      );
 
-      test("subscription: changing conninfo does not generate ALTER", async ({
-        db,
-      }) => {
-        const {
-          rows: [{ name: mainDbName }],
-        } = await db.main.query<{ name: string }>(
-          sql`select current_database() as name`,
-        );
+      test(
+        "subscription: changing conninfo does not generate ALTER",
+        withDb(pgVersion, async (db) => {
+          const {
+            rows: [{ name: mainDbName }],
+          } = await db.main.query<{ name: string }>(
+            sql`select current_database() as name`,
+          );
 
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE PUBLICATION sub_env_pub FOR ALL TABLES;
               CREATE SUBSCRIPTION sub_env
                 CONNECTION 'dbname=${mainDbName} host=prod.example.com port=5432'
@@ -190,28 +195,29 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   slot_name = NONE
                 );
             `,
-          testSql: `
+            testSql: `
               ALTER SUBSCRIPTION sub_env
                 CONNECTION 'dbname=${mainDbName} host=dev.example.com port=5433';
             `,
-          // Conninfo changes are environment-dependent and should be ignored
-          expectedSqlTerms: [],
-        });
-      });
+            // Conninfo changes are environment-dependent and should be ignored
+            expectedSqlTerms: [],
+          });
+        }),
+      );
 
-      test("subscription: changing non-conninfo properties still generates ALTER", async ({
-        db,
-      }) => {
-        const {
-          rows: [{ name: mainDbName }],
-        } = await db.main.query<{ name: string }>(
-          sql`select current_database() as name`,
-        );
+      test(
+        "subscription: changing non-conninfo properties still generates ALTER",
+        withDb(pgVersion, async (db) => {
+          const {
+            rows: [{ name: mainDbName }],
+          } = await db.main.query<{ name: string }>(
+            sql`select current_database() as name`,
+          );
 
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE PUBLICATION sub_env_pub FOR ALL TABLES;
               CREATE SUBSCRIPTION sub_env
                 CONNECTION 'dbname=${mainDbName}'
@@ -223,26 +229,29 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   slot_name = NONE
                 );
             `,
-          testSql: `
+            testSql: `
               ALTER SUBSCRIPTION sub_env SET (binary = true);
             `,
-          expectedSqlTerms: ["ALTER SUBSCRIPTION sub_env SET (binary = true)"],
-        });
-      });
+            expectedSqlTerms: [
+              "ALTER SUBSCRIPTION sub_env SET (binary = true)",
+            ],
+          });
+        }),
+      );
 
-      test("server: SET option changes do not generate ALTER", async ({
-        db,
-      }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+      test(
+        "server: SET option changes do not generate ALTER",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE FOREIGN DATA WRAPPER test_env_fdw;
               CREATE SERVER test_env_server
                 FOREIGN DATA WRAPPER test_env_fdw
                 OPTIONS (host 'prod.example.com', port '5432', dbname 'prod_db', fetch_size '100');
             `,
-          testSql: `
+            testSql: `
               ALTER SERVER test_env_server OPTIONS (
                 SET host 'dev.example.com',
                 SET port '5433',
@@ -250,43 +259,45 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 SET fetch_size '200'
               );
             `,
-          // SET actions are filtered out, so no ALTER should be generated
-          expectedSqlTerms: [],
-        });
-      });
+            // SET actions are filtered out, so no ALTER should be generated
+            expectedSqlTerms: [],
+          });
+        }),
+      );
 
-      test("server: adding options generates ALTER (ADD not filtered)", async ({
-        db,
-      }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+      test(
+        "server: adding options generates ALTER (ADD not filtered)",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE FOREIGN DATA WRAPPER test_env_fdw;
               CREATE SERVER test_env_server
                 FOREIGN DATA WRAPPER test_env_fdw
                 OPTIONS (fetch_size '100');
             `,
-          testSql: `
+            testSql: `
               ALTER SERVER test_env_server OPTIONS (
                 ADD host 'dev.example.com',
                 ADD port '5433'
               );
             `,
-          // ADD actions are not filtered, so ALTER should be generated
-          expectedSqlTerms: [
-            "ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')",
-          ],
-        });
-      });
+            // ADD actions are not filtered, so ALTER should be generated
+            expectedSqlTerms: [
+              "ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')",
+            ],
+          });
+        }),
+      );
 
-      test("user mapping: SET option changes do not generate ALTER", async ({
-        db,
-      }) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: `
+      test(
+        "user mapping: SET option changes do not generate ALTER",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
               CREATE EXTENSION IF NOT EXISTS postgres_fdw;
               CREATE SERVER test_um_server
                 FOREIGN DATA WRAPPER postgres_fdw
@@ -295,7 +306,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 SERVER test_um_server
                 OPTIONS (user 'prod_user', password 'prod_pass');
             `,
-          testSql: `
+            testSql: `
               ALTER USER MAPPING FOR CURRENT_USER
                 SERVER test_um_server
                 OPTIONS (
@@ -303,10 +314,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   SET password 'dev_pass'
                 );
             `,
-          // SET actions are filtered out, so no ALTER should be generated
-          expectedSqlTerms: [],
-        });
-      });
+            // SET actions are filtered out, so no ALTER should be generated
+            expectedSqlTerms: [],
+          });
+        }),
+      );
     });
   });
 }

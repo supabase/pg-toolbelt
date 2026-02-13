@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
 

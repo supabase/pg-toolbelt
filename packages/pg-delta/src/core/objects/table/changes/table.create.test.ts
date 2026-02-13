@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Table, type TableProps } from "../table.model.ts";
 import { CreateTable } from "./table.create.ts";
 

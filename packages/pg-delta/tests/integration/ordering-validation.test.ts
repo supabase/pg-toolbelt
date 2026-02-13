@@ -7,47 +7,48 @@
  * 3. Complex multi-dependency scenarios
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTestIsolated } from "../utils.ts";
+import { withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTestIsolated(pgVersion);
-
-  describe.concurrent(`ordering validation (pg${pgVersion})`, () => {
-    test("table owner change with role creation dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe(`ordering validation (pg${pgVersion})`, () => {
+    test(
+      "table owner change with role creation dependency",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
             name text
           );
         `,
-        testSql: `
+          testSql: `
           -- Create a new role
           CREATE ROLE app_user WITH LOGIN;
           
           -- Change table owner to the new role
           ALTER TABLE test_schema.users OWNER TO app_user;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex owner change scenario with multiple tables and roles", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "complex owner change scenario with multiple tables and roles",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app_schema;
           CREATE SCHEMA analytics_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create multiple roles
           CREATE ROLE app_admin WITH LOGIN;
           CREATE ROLE analytics_user WITH LOGIN;
@@ -75,21 +76,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE app_schema.orders OWNER TO app_admin;
           ALTER TABLE analytics_schema.reports OWNER TO analytics_user;
         `,
-        description:
-          "complex owner change scenario with multiple tables and roles",
-      });
-    });
+          description:
+            "complex owner change scenario with multiple tables and roles",
+        });
+      }),
+    );
 
-    test("check constraint referencing non-existent objects", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "check constraint referencing non-existent objects",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create a table with a CHECK constraint that references a function
           -- that doesn't exist yet (this should fail if ordering is wrong)
           CREATE TABLE test_schema.products (
@@ -112,19 +114,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT products_price_valid 
           CHECK (test_schema.validate_price(price));
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("foreign key constraint ordering with table creation", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "foreign key constraint ordering with table creation",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create tables in a specific order that might cause FK constraint issues
           CREATE TABLE test_schema.orders (
             id integer PRIMARY KEY,
@@ -142,19 +145,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ADD CONSTRAINT orders_customer_fkey 
           FOREIGN KEY (customer_id) REFERENCES test_schema.customers(id);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex multi-dependency scenario with owner changes", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "complex multi-dependency scenario with owner changes",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create roles
           CREATE ROLE app_user WITH LOGIN;
           CREATE ROLE app_admin WITH LOGIN;
@@ -199,15 +203,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE app_schema.order_items OWNER TO app_user;
           ALTER VIEW app_schema.user_order_summary OWNER TO app_admin;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("schema owner change with role dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "schema owner change with role dependency",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           -- Create a role
           CREATE ROLE schema_owner WITH LOGIN;
           
@@ -221,17 +228,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             value text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("type owner change with role dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "type owner change with role dependency",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
         `,
-        testSql: `
+          testSql: `
           -- Create a role
           CREATE ROLE type_owner WITH LOGIN;
           
@@ -247,7 +257,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             status test_schema.status_enum DEFAULT 'pending'
           );
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

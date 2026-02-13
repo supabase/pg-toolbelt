@@ -21,6 +21,9 @@
       "quoteStyle": "double"
     }
   },
+  "files": {
+    "includes": ["**"]
+  },
   "assist": {
     "enabled": true,
     "actions": {

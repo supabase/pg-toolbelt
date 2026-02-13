@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { CreateForeignDataWrapper } from "./foreign-data-wrapper.create.ts";
 

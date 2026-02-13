@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Sequence } from "../sequence.model.ts";
 import { DropSequence } from "./sequence.drop.ts";
 

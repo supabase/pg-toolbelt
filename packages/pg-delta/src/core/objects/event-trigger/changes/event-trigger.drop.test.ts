@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { EventTrigger } from "../event-trigger.model.ts";
 import { DropEventTrigger } from "./event-trigger.drop.ts";
 

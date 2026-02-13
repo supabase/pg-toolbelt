@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { diffRlsPolicies } from "../rls-policy.diff.ts";
 import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
 import {

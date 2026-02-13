@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Range, type RangeProps } from "../range.model.ts";
 import { AlterRangeChangeOwner } from "./range.alter.ts";
 

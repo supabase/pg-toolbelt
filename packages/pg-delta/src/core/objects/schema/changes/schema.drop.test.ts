@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Schema } from "../schema.model.ts";
 import { DropSchema } from "./schema.drop.ts";
 

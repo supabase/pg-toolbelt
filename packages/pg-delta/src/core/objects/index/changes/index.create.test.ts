@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import type { ColumnProps } from "../../base.model.ts";
 import { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";

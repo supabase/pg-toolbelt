@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
 import { ReplaceTrigger } from "./trigger.alter.ts";
 

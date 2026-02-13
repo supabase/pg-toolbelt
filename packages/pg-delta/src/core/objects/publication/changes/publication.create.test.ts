@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { stableId } from "../../utils.ts";
 import { Publication } from "../publication.model.ts";
 import { CreatePublication } from "./publication.create.ts";

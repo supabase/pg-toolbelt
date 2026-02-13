@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { UserMapping, type UserMappingProps } from "../user-mapping.model.ts";
 import { AlterUserMappingSetOptions } from "./user-mapping.alter.ts";
 

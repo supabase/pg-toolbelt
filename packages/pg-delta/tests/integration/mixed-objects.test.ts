@@ -2,22 +2,22 @@
  * Integration tests for mixed database objects (schemas + tables).
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`mixed objects (pg${pgVersion})`, () => {
-    test("schema and table creation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+  describe(`mixed objects (pg${pgVersion})`, () => {
+    test(
+      "schema and table creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer,
@@ -26,15 +26,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamp DEFAULT now()
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple schemas and tables", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "multiple schemas and tables",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA core;
           CREATE SCHEMA analytics;
 
@@ -57,15 +60,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             last_login timestamp
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex column types", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "complex column types",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.complex_table (
             id uuid,
@@ -77,39 +83,46 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             created_at timestamptz DEFAULT now()
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("empty database", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: "",
-        expectedSqlTerms: [], // No SQL terms
-        expectedMainDependencies: [], // Main has no dependencies (empty state)
-        expectedBranchDependencies: [], // Branch has no dependencies (empty state)
-      });
-    });
+    test(
+      "empty database",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: "",
+          expectedSqlTerms: [], // No SQL terms
+          expectedMainDependencies: [], // Main has no dependencies (empty state)
+          expectedBranchDependencies: [], // Branch has no dependencies (empty state)
+        });
+      }),
+    );
 
-    test("schema only", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: "CREATE SCHEMA empty_schema;",
-      });
-    });
+    test(
+      "schema only",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: "CREATE SCHEMA empty_schema;",
+        });
+      }),
+    );
 
-    test("e-commerce with sequences, tables, constraints, and indexes", async ({
-      db,
-    }) => {
-      // TODO: fix this test, if we skip the dependencies checks we get a CycleError exception
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "e-commerce with sequences, tables, constraints, and indexes",
+      withDb(pgVersion, async (db) => {
+        // TODO: fix this test, if we skip the dependencies checks we get a CycleError exception
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA ecommerce;
 
           -- Create customers table with SERIAL primary key
@@ -136,15 +149,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE INDEX idx_orders_customer_status ON ecommerce.orders(customer_id, status);
           CREATE INDEX idx_customers_email ON ecommerce.customers(email);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex dependency ordering", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema",
-        testSql: `
+    test(
+      "complex dependency ordering",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema",
+          testSql: `
           -- Create base tables
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -169,28 +185,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             SELECT * FROM test_schema.user_orders
             WHERE total > 1000;
         `,
-        sortChangesCallback: (a, b) => {
-          const priority = (change: Change) => {
-            if (change.objectType === "view" && change.operation === "create") {
-              const viewName = change.view?.name ?? "";
-              return viewName === "top_users"
-                ? 0
-                : viewName === "user_orders"
-                  ? 1
-                  : 2;
-            }
-            return 3;
-          };
-          return priority(a) - priority(b);
-        },
-      });
-    });
+          sortChangesCallback: (a, b) => {
+            const priority = (change: Change) => {
+              if (
+                change.objectType === "view" &&
+                change.operation === "create"
+              ) {
+                const viewName = change.view?.name ?? "";
+                return viewName === "top_users"
+                  ? 0
+                  : viewName === "user_orders"
+                    ? 1
+                    : 2;
+              }
+              return 3;
+            };
+            return priority(a) - priority(b);
+          },
+        });
+      }),
+    );
 
-    test("drop operations with complex dependencies", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop operations with complex dependencies",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
 
           -- Create a complex dependency chain
@@ -202,7 +224,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.v2 AS SELECT * FROM test_schema.v1;
           CREATE VIEW test_schema.v3 AS SELECT * FROM test_schema.v2;
         `,
-        testSql: `
+          testSql: `
           -- Drop everything to test dependency ordering
           DROP VIEW test_schema.v3;
           DROP VIEW test_schema.v2;
@@ -210,36 +232,45 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP TABLE test_schema.base;
           DROP SCHEMA test_schema;
         `,
-        sortChangesCallback: (a, b) => {
-          const priority = (change: Change) => {
-            if (change.objectType === "view" && change.operation === "drop") {
-              const viewName = change.view?.name ?? "";
-              return viewName === "v1"
-                ? 0
-                : viewName === "v2"
-                  ? 1
-                  : viewName === "v3"
-                    ? 2
-                    : 3;
-            }
-            if (change.objectType === "table" && change.operation === "drop") {
-              return 4;
-            }
-            if (change.objectType === "schema" && change.operation === "drop") {
-              return 5;
-            }
-            return 6;
-          };
-          return priority(a) - priority(b);
-        },
-      });
-    });
+          sortChangesCallback: (a, b) => {
+            const priority = (change: Change) => {
+              if (change.objectType === "view" && change.operation === "drop") {
+                const viewName = change.view?.name ?? "";
+                return viewName === "v1"
+                  ? 0
+                  : viewName === "v2"
+                    ? 1
+                    : viewName === "v3"
+                      ? 2
+                      : 3;
+              }
+              if (
+                change.objectType === "table" &&
+                change.operation === "drop"
+              ) {
+                return 4;
+              }
+              if (
+                change.objectType === "schema" &&
+                change.operation === "drop"
+              ) {
+                return 5;
+              }
+              return 6;
+            };
+            return priority(a) - priority(b);
+          },
+        });
+      }),
+    );
 
-    test("mixed create and replace operations", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "mixed create and replace operations",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
 
           CREATE TABLE test_schema.data (
@@ -250,7 +281,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.summary AS
             SELECT COUNT(*) as cnt FROM test_schema.data;
         `,
-        testSql: `
+          testSql: `
           -- Add column and update view
           ALTER TABLE test_schema.data ADD COLUMN status text;
 
@@ -259,26 +290,35 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                    COUNT(CASE WHEN status = 'active' THEN 1 END) as active_cnt
             FROM test_schema.data;
         `,
-        sortChangesCallback: (a, b) => {
-          const priority = (change: Change) => {
-            if (change.objectType === "view" && change.operation === "create") {
-              return 0;
-            }
-            if (change.objectType === "table" && change.operation === "alter") {
-              return 1;
-            }
-            return 2;
-          };
-          return priority(a) - priority(b);
-        },
-      });
-    });
+          sortChangesCallback: (a, b) => {
+            const priority = (change: Change) => {
+              if (
+                change.objectType === "view" &&
+                change.operation === "create"
+              ) {
+                return 0;
+              }
+              if (
+                change.objectType === "table" &&
+                change.operation === "alter"
+              ) {
+                return 1;
+              }
+              return 2;
+            };
+            return priority(a) - priority(b);
+          },
+        });
+      }),
+    );
 
-    test("cross-schema view dependencies", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "cross-schema view dependencies",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA schema_a;
           CREATE SCHEMA schema_b;
 
@@ -291,76 +331,91 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             FROM schema_a.table_a a
             CROSS JOIN schema_b.table_b b;
         `,
-        testSql: "", // No changes - just test dependency extraction
-      });
-    });
+          testSql: "", // No changes - just test dependency extraction
+        });
+      }),
+    );
 
-    test("basic table schema dependency validation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "basic table schema dependency validation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA analytics;
           CREATE TABLE analytics.users (
             id integer,
             name text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple independent schema table pairs", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "multiple independent schema table pairs",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE SCHEMA app;
           CREATE SCHEMA analytics;
           CREATE TABLE app.users (id integer);
           CREATE TABLE analytics.reports (id integer);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop schema only", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop schema only",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA temp_schema;
         `,
-        testSql: `
+          testSql: `
           DROP SCHEMA temp_schema;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple drops with dependency ordering", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "multiple drops with dependency ordering",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA app;
           CREATE SCHEMA analytics;
           CREATE TABLE app.users (id integer);
           CREATE TABLE analytics.reports (id integer);
         `,
-        testSql: `
+          testSql: `
           DROP TABLE app.users;
           DROP TABLE analytics.reports;
           DROP SCHEMA app;
           DROP SCHEMA analytics;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex multi-schema drop scenario", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "complex multi-schema drop scenario",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA core;
           CREATE SCHEMA analytics;
           CREATE SCHEMA reporting;
@@ -368,7 +423,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE analytics.events (id integer);
           CREATE TABLE reporting.summary (id integer);
         `,
-        testSql: `
+          testSql: `
           DROP TABLE core.users;
           DROP TABLE analytics.events;
           DROP TABLE reporting.summary;
@@ -376,27 +431,31 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           DROP SCHEMA analytics;
           DROP SCHEMA reporting;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("schema comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `CREATE SCHEMA test_schema;`,
-        testSql: `
+    test(
+      "schema comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `CREATE SCHEMA test_schema;`,
+          testSql: `
           COMMENT ON SCHEMA test_schema IS 'a test schema';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum modification with function dependencies - migra issue reproduction", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum modification with function dependencies - migra issue reproduction",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create initial enum type (similar to resource_type from the thread)
           CREATE TYPE test_schema.resource_type AS ENUM ('DiskIO', 'CPU', 'Memory', 'DiskSpace', 'MemoryAndSwap');
@@ -456,7 +515,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- This simulates the problematic migration that migra generates:
           -- Adding new values to the enum type, which requires recreating the type
           -- and updating dependent functions. With pg-diff we are able to handle this
@@ -466,17 +525,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TYPE test_schema.resource_type ADD VALUE 'PgBouncerPool';
           ALTER TYPE test_schema.resource_type ADD VALUE 'TempFiles';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum modification with complex function dependencies", async ({
-      db,
-    }) => {
-      // Test a more complex scenario with multiple functions and tables depending on enum
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum modification with complex function dependencies",
+      withDb(pgVersion, async (db) => {
+        // Test a more complex scenario with multiple functions and tables depending on enum
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type
           CREATE TYPE test_schema.order_status AS ENUM ('pending', 'processing', 'shipped');
@@ -543,21 +603,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- Add new enum values
           ALTER TYPE test_schema.order_status ADD VALUE 'delivered';
           ALTER TYPE test_schema.order_status ADD VALUE 'cancelled';
           ALTER TYPE test_schema.order_status ADD VALUE 'returned';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum modification with view dependencies", async ({ db }) => {
-      // Test enum modification when views depend on the enum
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum modification with view dependencies",
+      withDb(pgVersion, async (db) => {
+        // Test enum modification when views depend on the enum
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type
           CREATE TYPE test_schema.user_role AS ENUM ('admin', 'user', 'moderator');
@@ -596,20 +659,23 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FROM test_schema.users
           GROUP BY role;
         `,
-        testSql: `
+          testSql: `
           -- Add new enum values
           ALTER TYPE test_schema.user_role ADD VALUE 'super_admin';
           ALTER TYPE test_schema.user_role ADD VALUE 'guest';
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum value removal with function dependencies", async ({ db }) => {
-      // Test removing enum values when functions depend on them
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum value removal with function dependencies",
+      withDb(pgVersion, async (db) => {
+        // Test removing enum values when functions depend on them
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with multiple values
           CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending', 'archived', 'deleted');
@@ -670,7 +736,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- Remove specific enum values that are no longer needed
           -- Note: PostgreSQL doesn't support direct removal of enum values,
           -- so this would typically require recreating the type and updating dependencies
@@ -735,18 +801,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum value removal with table and view dependencies", async ({
-      db,
-    }) => {
-      // Test removing enum values when tables and views depend on them
-      // Those will need global dependencies where types are changed before anything else is changed
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum value removal with table and view dependencies",
+      withDb(pgVersion, async (db) => {
+        // Test removing enum values when tables and views depend on them
+        // Those will need global dependencies where types are changed before anything else is changed
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with multiple values
           CREATE TYPE test_schema.priority AS ENUM ('low', 'medium', 'high', 'critical', 'urgent', 'blocked');
@@ -803,7 +870,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           JOIN test_schema.tasks t ON th.task_id = t.id
           WHERE th.old_priority != th.new_priority;
         `,
-        testSql: `
+          testSql: `
           -- Remove some enum values by recreating the type
           DROP TYPE test_schema.priority CASCADE;
           CREATE TYPE test_schema.priority AS ENUM ('low', 'medium', 'high', 'critical');
@@ -860,17 +927,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           JOIN test_schema.tasks t ON th.task_id = t.id
           WHERE th.old_priority != th.new_priority;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum value removal with complex function dependencies", async ({
-      db,
-    }) => {
-      // Test removing enum values with complex function dependencies
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "enum value removal with complex function dependencies",
+      withDb(pgVersion, async (db) => {
+        // Test removing enum values with complex function dependencies
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type with many values
           CREATE TYPE test_schema.user_state AS ENUM (
@@ -977,7 +1045,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- Remove some enum values by recreating the type with fewer values
           DROP TYPE test_schema.user_state CASCADE;
           CREATE TYPE test_schema.user_state AS ENUM (
@@ -1081,17 +1149,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test.todo("enum modification with check constraints", async ({ db }) => {
-      // Test enum modification when check constraints depend on the enum
-      // TODO: this one is skipped because it require a two step transaction to be executed
-      // with a COMMIT in between so might be out of the scope of a diff-er
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test.todo(
+      "enum modification with check constraints",
+      withDb(pgVersion, async (db) => {
+        // Test enum modification when check constraints depend on the enum
+        // TODO: this one is skipped because it require a two step transaction to be executed
+        // with a COMMIT in between so might be out of the scope of a diff-er
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           -- Create enum type
           CREATE TYPE test_schema.priority_level AS ENUM ('low', 'medium', 'high');
@@ -1115,7 +1186,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-        testSql: `
+          testSql: `
           -- First transaction: Add enum values
           ALTER TYPE test_schema.priority_level ADD VALUE 'urgent';
           ALTER TYPE test_schema.priority_level ADD VALUE 'critical';
@@ -1134,7 +1205,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           end;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

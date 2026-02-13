@@ -2,104 +2,125 @@
  * Integration tests for PostgreSQL type operations.
  */
 
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { describe } from "vitest";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`type operations (pg${pgVersion})`, () => {
-    test("create enum type", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+  describe(`type operations (pg${pgVersion})`, () => {
+    test(
+      "create enum type",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy');
         `,
-      });
-    });
-    test("create domain type with constraint", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "create domain type with constraint",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE DOMAIN test_schema.positive_int AS INTEGER CHECK (VALUE > 0);
         `,
-      });
-    });
-    test("create composite type", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "create composite type",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TYPE test_schema.address AS (
             street VARCHAR(90),
             city VARCHAR(90),
             state VARCHAR(2)
           );
         `,
-      });
-    });
-    test("create range type", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "create range type",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TYPE test_schema.floatrange AS RANGE (subtype = float8);
         `,
-      });
-    });
-    test("drop enum type", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup:
-          "CREATE SCHEMA test_schema; CREATE TYPE test_schema.old_mood AS ENUM ('sad', 'happy');",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "drop enum type",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup:
+            "CREATE SCHEMA test_schema; CREATE TYPE test_schema.old_mood AS ENUM ('sad', 'happy');",
+          testSql: `
           DROP TYPE test_schema.old_mood;
         `,
-      });
-    });
-    test("replace enum type (modify values)", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup:
-          "CREATE SCHEMA test_schema; CREATE TYPE test_schema.status AS ENUM ('pending', 'approved');",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "replace enum type (modify values)",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup:
+            "CREATE SCHEMA test_schema; CREATE TYPE test_schema.status AS ENUM ('pending', 'approved');",
+          testSql: `
           DROP TYPE test_schema.status;
           CREATE TYPE test_schema.status AS ENUM ('pending', 'approved', 'rejected');
         `,
-      });
-    });
-    test("replace domain type (modify constraint)", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup:
-          "CREATE SCHEMA test_schema; CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE > 0);",
-        testSql: `
+        });
+      }),
+    );
+    test(
+      "replace domain type (modify constraint)",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup:
+            "CREATE SCHEMA test_schema; CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE > 0);",
+          testSql: `
           DROP DOMAIN test_schema.valid_int;
           CREATE DOMAIN test_schema.valid_int AS INTEGER CHECK (VALUE >= 0 AND VALUE <= 100);
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("enum type with table dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "enum-table-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "enum type with table dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "enum-table-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
       CREATE TYPE test_schema.user_status AS ENUM ('active', 'inactive', 'pending');
 
       CREATE TABLE test_schema.users (
@@ -108,16 +129,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         status test_schema.user_status DEFAULT 'pending'
       );
     `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("domain type with table dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "domain-table-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "domain type with table dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "domain-table-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
         CREATE DOMAIN test_schema.email AS TEXT CHECK (VALUE ~ '^[^@]+@[^@]+\\.[^@]+$');
 
         CREATE TABLE test_schema.users (
@@ -126,16 +150,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           email_address test_schema.email
         );
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("composite type with table dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "composite-table-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "composite type with table dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "composite-table-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
         CREATE TYPE test_schema.address AS (
           street TEXT,
           city TEXT,
@@ -149,16 +176,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           shipping_address test_schema.address
         );
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple types complex dependencies", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "multiple-types-complex-dependencies",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA commerce;",
-        testSql: `
+    test(
+      "multiple types complex dependencies",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "multiple-types-complex-dependencies",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA commerce;",
+          testSql: `
         -- Create base types
         CREATE TYPE commerce.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered', 'cancelled');
         CREATE DOMAIN commerce.price AS DECIMAL(10,2) CHECK (VALUE >= 0);
@@ -183,15 +213,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           total_amount commerce.price
         );
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("type cascade drop with dependent table", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "type-cascade-drop-dependent-table",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "type cascade drop with dependent table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "type-cascade-drop-dependent-table",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
         CREATE SCHEMA test_schema;
         CREATE TYPE test_schema.priority AS ENUM ('low', 'medium', 'high');
         CREATE TABLE test_schema.tasks (
@@ -200,33 +233,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           priority test_schema.priority DEFAULT 'medium'
         );
       `,
-        testSql: `
+          testSql: `
         DROP TABLE test_schema.tasks;
         DROP TYPE test_schema.priority;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("type name with special characters", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "type-name-special-characters",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: 'CREATE SCHEMA "test-schema";',
-        testSql: `
+    test(
+      "type name with special characters",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "type-name-special-characters",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: 'CREATE SCHEMA "test-schema";',
+          testSql: `
         CREATE TYPE "test-schema"."user-status" AS ENUM ('active', 'in-active');
         CREATE DOMAIN "test-schema"."positive-number" AS INTEGER CHECK (VALUE > 0);
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with enum dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "materialized-view-enum-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA analytics;",
-        testSql: dedent`
+    test(
+      "materialized view with enum dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "materialized-view-enum-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA analytics;",
+          testSql: dedent`
         CREATE TYPE analytics.status AS ENUM ('active', 'inactive', 'pending');
 
         CREATE TABLE analytics.users (
@@ -242,16 +281,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM analytics.users
         GROUP BY status;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with domain dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "materialized-view-domain-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA financial;",
-        testSql: dedent`
+    test(
+      "materialized view with domain dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "materialized-view-domain-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA financial;",
+          testSql: dedent`
         CREATE DOMAIN financial.currency AS DECIMAL(10,2) CHECK (VALUE >= 0);
 
         CREATE TABLE financial.transactions (
@@ -267,16 +309,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM financial.transactions
         WHERE amount > 0;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with composite type dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "materialized-view-composite-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA inventory;",
-        testSql: dedent`
+    test(
+      "materialized view with composite type dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "materialized-view-composite-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA inventory;",
+          testSql: dedent`
         CREATE TYPE inventory.address AS (
           street TEXT,
           city TEXT,
@@ -297,18 +342,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM inventory.warehouses
         WHERE (location).city IS NOT NULL;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex mixed dependencies with materialized views", async ({
-      db,
-    }) => {
-      await roundtripFidelityTest({
-        name: "complex-mixed-dependencies-materialized-views",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA ecommerce;",
-        testSql: dedent`
+    test(
+      "complex mixed dependencies with materialized views",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "complex-mixed-dependencies-materialized-views",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA ecommerce;",
+          testSql: dedent`
         -- Create types
         CREATE TYPE ecommerce.order_status AS ENUM ('pending', 'processing', 'shipped', 'delivered');
         CREATE DOMAIN ecommerce.price AS DECIMAL(10,2) CHECK (VALUE >= 0);
@@ -349,15 +395,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM ecommerce.orders
         GROUP BY status;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop type with materialized view dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "drop-type-materialized-view-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop type with materialized view dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "drop-type-materialized-view-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
         CREATE SCHEMA reporting;
         CREATE TYPE reporting.priority AS ENUM ('low', 'medium', 'high');
         CREATE TABLE reporting.tasks (
@@ -372,21 +421,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM reporting.tasks
         GROUP BY priority;
       `,
-        testSql: `
+          testSql: `
         DROP MATERIALIZED VIEW reporting.priority_stats;
         DROP TABLE reporting.tasks;
         DROP TYPE reporting.priority;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with range type dependency", async ({ db }) => {
-      await roundtripFidelityTest({
-        name: "materialized-view-range-dependency",
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA scheduling;",
-        testSql: dedent`
+    test(
+      "materialized view with range type dependency",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          name: "materialized-view-range-dependency",
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA scheduling;",
+          testSql: dedent`
         CREATE TYPE scheduling.time_range AS RANGE (subtype = timestamp);
 
         CREATE TABLE scheduling.events (
@@ -402,15 +454,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         FROM scheduling.events
         WHERE time_slot IS NOT NULL;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("type comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "type comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
         CREATE TYPE test_schema.mood AS ENUM ('sad', 'ok', 'happy');
         CREATE DOMAIN test_schema.positive_int AS INTEGER CHECK (VALUE > 0);
         CREATE TYPE test_schema.address AS (
@@ -422,40 +477,47 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         COMMENT ON DOMAIN test_schema.positive_int IS 'positive integer domain';
         COMMENT ON TYPE test_schema.address IS 'address composite type';
       `,
-        sortChangesCallback: (a, b) => {
-          const priority = (change: Change) => {
-            if (change.objectType === "domain" && change.scope === "comment") {
-              return 0;
-            }
-            if (change.objectType === "enum" && change.scope === "comment") {
-              return 1;
-            }
-            if (
-              change.objectType === "composite_type" &&
-              change.scope === "comment"
-            ) {
-              return 2;
-            }
-            if (
-              change.objectType === "domain" &&
-              change.operation === "create"
-            ) {
-              return 3;
-            }
-            if (change.objectType === "enum" && change.operation === "create") {
-              return 4;
-            }
-            if (
-              change.objectType === "composite_type" &&
-              change.operation === "create"
-            ) {
-              return 5;
-            }
-            return 6;
-          };
-          return priority(a) - priority(b);
-        },
-      });
-    });
+          sortChangesCallback: (a, b) => {
+            const priority = (change: Change) => {
+              if (
+                change.objectType === "domain" &&
+                change.scope === "comment"
+              ) {
+                return 0;
+              }
+              if (change.objectType === "enum" && change.scope === "comment") {
+                return 1;
+              }
+              if (
+                change.objectType === "composite_type" &&
+                change.scope === "comment"
+              ) {
+                return 2;
+              }
+              if (
+                change.objectType === "domain" &&
+                change.operation === "create"
+              ) {
+                return 3;
+              }
+              if (
+                change.objectType === "enum" &&
+                change.operation === "create"
+              ) {
+                return 4;
+              }
+              if (
+                change.objectType === "composite_type" &&
+                change.operation === "create"
+              ) {
+                return 5;
+              }
+              return 6;
+            };
+            return priority(a) - priority(b);
+          },
+        });
+      }),
+    );
   });
 }

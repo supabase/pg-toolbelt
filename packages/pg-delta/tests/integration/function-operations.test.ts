@@ -2,38 +2,41 @@
  * Integration tests for PostgreSQL function operations.
  */
 
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
   // TODO: Fix functions stable ids that must be the schema + name + argstypes because the current one is just the function name
-  describe.concurrent(`function operations (pg${pgVersion})`, () => {
-    test("simple function creation", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+  describe(`function operations (pg${pgVersion})`, () => {
+    test(
+      "simple function creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.add_numbers(a integer, b integer)
            RETURNS integer
            LANGUAGE sql
            IMMUTABLE
           AS $function$SELECT $1 + $2$function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("plpgsql function with security definer", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "plpgsql function with security definer",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.get_user_count()
            RETURNS bigint
            LANGUAGE plpgsql
@@ -44,14 +47,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function replacement", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "function replacement",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.version_function()
           RETURNS text
@@ -59,22 +65,25 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           IMMUTABLE
           AS 'SELECT ''v1.0''';
         `,
-        testSql: dedent`
+          testSql: dedent`
         CREATE OR REPLACE FUNCTION test_schema.version_function()
          RETURNS text
          LANGUAGE sql
          IMMUTABLE
         AS $function$SELECT 'v2.0'$function$;
       `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function overloading", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function overloading",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.format_value(input_val integer)
            RETURNS text
            LANGUAGE sql
@@ -87,32 +96,38 @@ for (const pgVersion of POSTGRES_VERSIONS) {
            IMMUTABLE
           AS $function$SELECT prefix || input_val::text$function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop function", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.temp_function()
           RETURNS text
           LANGUAGE sql
           AS 'SELECT ''temporary''';
         `,
-        testSql: dedent`
+          testSql: dedent`
           DROP FUNCTION test_schema.temp_function();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function with complex attributes", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function with complex attributes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.expensive_function(input_data text)
            RETURNS text
            LANGUAGE plpgsql
@@ -125,15 +140,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function with configuration parameters", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function with configuration parameters",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.config_function()
            RETURNS void
            LANGUAGE plpgsql
@@ -146,15 +164,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function used in table default", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function used in table default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.get_timestamp()
            RETURNS timestamp with time zone
            LANGUAGE sql
@@ -163,33 +184,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           CREATE TABLE test_schema.events (created_at timestamp with time zone DEFAULT test_schema.get_timestamp());
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function no changes when identical", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "function no changes when identical",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE FUNCTION test_schema.stable_function()
           RETURNS integer
           LANGUAGE sql
           AS 'SELECT 42';
         `,
-        testSql: ``,
-      });
-    });
+          testSql: ``,
+        });
+      }),
+    );
   });
 
   // Function dependency ordering tests
-  describe.concurrent(`function dependency ordering (pg${pgVersion})`, () => {
-    test("function before constraint that uses it", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+  describe(`function dependency ordering (pg${pgVersion})`, () => {
+    test(
+      "function before constraint that uses it",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.validate_email(email text)
            RETURNS boolean
            LANGUAGE sql
@@ -202,15 +229,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           ALTER TABLE test_schema.users ADD CONSTRAINT valid_email CHECK (test_schema.validate_email(email));
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function before view that uses it", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function before view that uses it",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE TABLE test_schema.products (price numeric(10,2));
 
           CREATE FUNCTION test_schema.format_price(price numeric)
@@ -222,18 +252,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE VIEW test_schema.product_display AS SELECT test_schema.format_price(price) AS formatted_price
           FROM test_schema.products;
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 
   // Complex function scenario test
-  describe.concurrent(`complex function scenarios (pg${pgVersion})`, () => {
-    test("function with dependencies roundtrip", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+  describe(`complex function scenarios (pg${pgVersion})`, () => {
+    test(
+      "function with dependencies roundtrip",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE TABLE test_schema.metrics (name text NOT NULL, total_value numeric DEFAULT 0, count_value integer DEFAULT 0);
         
           CREATE FUNCTION test_schema.safe_divide(numerator numeric, denominator numeric)
@@ -270,15 +303,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           END;
           $function$;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("function comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "function comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
           CREATE FUNCTION test_schema.greet(name text)
            RETURNS text
            LANGUAGE sql
@@ -287,7 +323,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           COMMENT ON FUNCTION test_schema.greet(text) IS 'greet function';
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

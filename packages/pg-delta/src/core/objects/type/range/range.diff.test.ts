@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import { CreateRange } from "./changes/range.create.ts";

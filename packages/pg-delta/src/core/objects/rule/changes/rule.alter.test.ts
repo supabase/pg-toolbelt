@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
 import { ReplaceRule, SetRuleEnabledState } from "./rule.alter.ts";

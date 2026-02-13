@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Range } from "../range.model.ts";
 import { CreateRange } from "./range.create.ts";
 

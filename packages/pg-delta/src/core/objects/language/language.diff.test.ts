@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import { CreateLanguage } from "./changes/language.create.ts";
 import { DropLanguage } from "./changes/language.drop.ts";

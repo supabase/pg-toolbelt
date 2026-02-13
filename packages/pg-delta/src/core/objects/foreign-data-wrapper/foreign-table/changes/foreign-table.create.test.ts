@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTable } from "./foreign-table.create.ts";
 

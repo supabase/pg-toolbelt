@@ -2,36 +2,39 @@
  * Integration tests for PostgreSQL table operations.
  */
 
-import { describe } from "vitest";
+import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`table operations (pg${pgVersion})`, () => {
-    test("simple table with columns", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+  describe(`table operations (pg${pgVersion})`, () => {
+    test(
+      "simple table with columns",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.users (
             id integer,
             name text NOT NULL,
             email text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("table with constraints", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "table with constraints",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.constrained_table (
             id integer,
             name text NOT NULL,
@@ -39,15 +42,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             age integer
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("multiple tables", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "multiple tables",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.users (
             id integer,
             name text NOT NULL
@@ -59,15 +65,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             content text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("table with various types", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "table with various types",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.type_test (
             col_int integer,
             col_bigint bigint,
@@ -79,43 +88,52 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             col_uuid uuid
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("table in public schema", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "",
-        testSql: `
+    test(
+      "table in public schema",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "",
+          testSql: `
           CREATE TABLE public.simple_table (
             id integer,
             name text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("empty table", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: `
+    test(
+      "empty table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: `
           CREATE TABLE test_schema.empty_table ();
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("tables in multiple schemas", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "tables in multiple schemas",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA schema_a;
           CREATE SCHEMA schema_b;
         `,
-        testSql: `
+          testSql: `
           CREATE TABLE schema_a.table_a (
             id integer,
             name text
@@ -126,15 +144,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             description text
           );
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("partitioned table RANGE", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `CREATE SCHEMA test_schema;`,
-        testSql: `
+    test(
+      "partitioned table RANGE",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `CREATE SCHEMA test_schema;`,
+          testSql: `
           CREATE TABLE test_schema.events (
             created_at timestamp without time zone NOT NULL,
             payload text
@@ -146,14 +167,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events
           FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("attach partition", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "attach partition",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.events (
             created_at timestamp without time zone NOT NULL,
@@ -165,19 +189,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             payload text
           );
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE test_schema.events
           ATTACH PARTITION test_schema.events_2025
           FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("detach partition", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "detach partition",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.events (
             created_at timestamp without time zone NOT NULL,
@@ -187,18 +214,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.events_2025 PARTITION OF test_schema.events
           FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE test_schema.events
           DETACH PARTITION test_schema.events_2025;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("table comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "table comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.events (
             id integer,
@@ -206,7 +236,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             payload text
           );
         `,
-        testSql: `
+          testSql: `
           ALTER TABLE test_schema.events ADD CONSTRAINT events_pkey PRIMARY KEY (id);
           ALTER TABLE test_schema.events ADD COLUMN description text;
           COMMENT ON TABLE test_schema.events IS 'This is a test table';
@@ -214,7 +244,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint';
           COMMENT ON COLUMN test_schema.events.description IS 'This is a description column';
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

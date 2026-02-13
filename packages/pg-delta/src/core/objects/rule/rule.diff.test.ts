@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { ReplaceRule, SetRuleEnabledState } from "./changes/rule.alter.ts";
 import {
   CreateCommentOnRule,

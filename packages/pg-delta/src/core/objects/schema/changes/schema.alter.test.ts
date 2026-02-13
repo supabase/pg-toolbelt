@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Schema, type SchemaProps } from "../schema.model.ts";
 import { AlterSchemaChangeOwner } from "./schema.alter.ts";
 

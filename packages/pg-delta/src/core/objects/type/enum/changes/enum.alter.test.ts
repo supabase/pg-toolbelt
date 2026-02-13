@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Enum, type EnumProps } from "../enum.model.ts";
 import { AlterEnumAddValue, AlterEnumChangeOwner } from "./enum.alter.ts";
 

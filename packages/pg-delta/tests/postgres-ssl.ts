@@ -24,9 +24,16 @@ export class PostgresSslContainer extends GenericContainer {
     this.serverCertName = basename(certificates.serverCert);
     this.serverKeyName = basename(certificates.serverKey);
     this.withExposedPorts(POSTGRES_PORT);
-    // Wait for the port to be listening - we can't use pg_isready because it won't work with SSL required
-    this.withWaitStrategy(Wait.forListeningPorts());
-    this.withStartupTimeout(10_000);
+    // Bun has a bug with Wait.forListeningPorts() — use Docker healthcheck instead.
+    // pg_isready connects via Unix socket by default (local), bypassing SSL requirement.
+    this.withHealthCheck({
+      test: ["CMD-SHELL", "pg_isready -U postgres"],
+      interval: 1_000,
+      timeout: 5_000,
+      retries: 10,
+    });
+    this.withWaitStrategy(Wait.forHealthCheck());
+    this.withStartupTimeout(30_000);
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Sequence, type SequenceProps } from "../sequence.model.ts";
 import {
   AlterSequenceSetOptions,

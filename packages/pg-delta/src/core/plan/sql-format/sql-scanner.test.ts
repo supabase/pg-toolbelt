@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { isWordChar, readDollarTag, walkSql } from "./sql-scanner.ts";
 
 describe("isWordChar", () => {

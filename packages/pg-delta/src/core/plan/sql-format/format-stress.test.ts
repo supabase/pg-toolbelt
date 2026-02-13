@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { formatSqlStatements } from "../sql-format.ts";
 
 describe("stress tests", () => {

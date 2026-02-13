@@ -2,10 +2,10 @@
  * Test configuration and utilities for pg-delta integration tests.
  */
 
+import { expect } from "bun:test";
 import { inspect } from "node:util";
 import debug from "debug";
 import type { Pool } from "pg";
-import { expect } from "vitest";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
@@ -78,17 +78,17 @@ export async function roundtripFidelityTest(
   if (initialSetup) {
     await expect(
       mainSession.query([...sessionConfig, initialSetup].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
     await expect(
       branchSession.query([...sessionConfig, initialSetup].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
   }
 
   // Execute the test SQL in the BRANCH database only
   if (testSql) {
     await expect(
       branchSession.query([...sessionConfig, testSql].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
   }
 
   // Extract catalogs from both databases
@@ -160,7 +160,8 @@ export async function roundtripFidelityTest(
   // Verify expected terms are the same as the generated SQL
   if (expectedSqlTerms) {
     if (expectedSqlTerms === "same-as-test-sql") {
-      expect(migrationScript).toStrictEqual(testSql);
+      // biome-ignore lint/style/noNonNullAssertion: testSql is guaranteed defined when expectedSqlTerms === "same-as-test-sql"
+      expect(migrationScript).toStrictEqual(testSql!);
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }

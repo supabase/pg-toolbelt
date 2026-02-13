@@ -6,23 +6,23 @@
  * functions to be created first.
  */
 
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`table-function circular dependency (pg${pgVersion})`, () => {
-    test("function with RETURNS SETOF table", async ({ db }) => {
-      // This tests the case where a function references a table in its return type
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+  describe(`table-function circular dependency (pg${pgVersion})`, () => {
+    test(
+      "function with RETURNS SETOF table",
+      withDb(pgVersion, async (db) => {
+        // This tests the case where a function references a table in its return type
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
             -- Create the table first
             CREATE TABLE test_schema.items (
               id bigserial PRIMARY KEY,
@@ -40,20 +40,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               SELECT * FROM test_schema.items WHERE price > 100
             $function$;
           `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("table with function-based default and function with RETURNS SETOF", async ({
-      db,
-    }) => {
-      // This tests both circular dependency cases:
-      // 1. Function depends on table (RETURNS SETOF)
-      // 2. Table depends on function (DEFAULT)
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "table with function-based default and function with RETURNS SETOF",
+      withDb(pgVersion, async (db) => {
+        // This tests both circular dependency cases:
+        // 1. Function depends on table (RETURNS SETOF)
+        // 2. Table depends on function (DEFAULT)
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
             -- Create a helper function first
             CREATE FUNCTION test_schema.next_order_number()
             RETURNS integer
@@ -86,18 +87,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               ORDER BY created_at DESC
             $function$;
           `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("complex circular dependencies with multiple tables and functions", async ({
-      db,
-    }) => {
-      // This tests a more complex scenario with multiple inter-dependent objects
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "complex circular dependencies with multiple tables and functions",
+      withDb(pgVersion, async (db) => {
+        // This tests a more complex scenario with multiple inter-dependent objects
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
             -- Create initial function
             CREATE FUNCTION test_schema.generate_id()
             RETURNS bigint
@@ -144,16 +146,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             STABLE
             AS $function$SELECT count(*) FROM test_schema.customers$function$;
           `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with function returning table", async ({ db }) => {
-      // Test that functions returning tables work with materialized views too
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: "CREATE SCHEMA test_schema;",
-        testSql: dedent`
+    test(
+      "materialized view with function returning table",
+      withDb(pgVersion, async (db) => {
+        // Test that functions returning tables work with materialized views too
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
             CREATE TABLE test_schema.transactions (
               id bigserial PRIMARY KEY,
               amount numeric(10,2),
@@ -173,7 +178,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             FROM test_schema.transactions
             GROUP BY status;
           `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

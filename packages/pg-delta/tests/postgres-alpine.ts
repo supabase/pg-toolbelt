@@ -15,9 +15,13 @@ export class PostgresAlpineContainer extends GenericContainer {
   constructor(image: string) {
     super(image);
     this.withExposedPorts(POSTGRES_PORT);
-    this.withWaitStrategy(
-      Wait.forSuccessfulCommand("pg_isready -U postgres -h localhost"),
-    );
+    this.withHealthCheck({
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"],
+      interval: 1_000,
+      timeout: 5_000,
+      retries: 10,
+    });
+    this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(120_000);
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",

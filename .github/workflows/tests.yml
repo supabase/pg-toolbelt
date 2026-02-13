@@ -1,0 +1,209 @@
+name: Tests
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    branches:
+      - main
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    if: github.event.pull_request.draft == false
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      pg-delta: ${{ steps.changes.outputs.pg-delta }}
+      pg-topo: ${{ steps.changes.outputs.pg-topo }}
+      root: ${{ steps.changes.outputs.root }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Detect changes
+        id: changes
+        uses: ./.github/actions/detect-changes
+
+  check-types:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+    needs: detect-changes
+    name: Check types
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Check types (pg-delta)
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-delta' check-types
+      - name: Check types (pg-topo)
+        if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-topo' check-types
+
+  format-and-lint:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Format and lint
+        run: bun run format-and-lint
+
+  knip:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+    needs: detect-changes
+    name: Knip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Knip (pg-delta)
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-delta' knip
+      - name: Knip (pg-topo)
+        if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-topo' knip
+
+  pg-delta-unit:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Unit tests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run unit tests
+        working-directory: packages/pg-delta
+        run: bun test src/ --coverage
+
+  pg-delta-integration:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: [15, 17]
+        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard_total: [12]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run integration tests (shard)
+        working-directory: packages/pg-delta
+        env:
+          PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
+        run: |
+          # List all integration test files deterministically
+          ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
+          TOTAL=${{ matrix.shard_total }}
+          INDEX=$(( ${{ matrix.shard_index }} - 1 ))
+          # Select files for this shard using modulo
+          SHARD_FILES=$(echo "$ALL_FILES" | awk "NR % $TOTAL == $INDEX")
+          if [ -z "$SHARD_FILES" ]; then
+            echo "No test files for this shard, skipping"
+            exit 0
+          fi
+          echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
+          echo "$SHARD_FILES"
+          echo "$SHARD_FILES" | xargs bun test --timeout 60000 --preload ./tests/global-setup.ts --concurrent --max-concurrency=4
+
+  pg-delta-integration-pg15-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - pg-delta-integration
+    name: "pg-delta: Integration (PostgreSQL 15)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
+            echo "Integration matrix status: ${{ needs.pg-delta-integration.result }}"
+            exit 1
+          fi
+
+  pg-delta-integration-pg17-compat:
+    if: always() && github.event.pull_request.draft == false
+    needs:
+      - pg-delta-integration
+    name: "pg-delta: Integration (PostgreSQL 17)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate integration matrix status
+        run: |
+          if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
+            echo "Integration matrix status: ${{ needs.pg-delta-integration.result }}"
+            exit 1
+          fi
+
+  pg-topo-tests:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-topo: Tests"
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Run tests
+        working-directory: packages/pg-topo
+        run: bun test --concurrent --max-concurrency=8
+
+  release-preview:
+    needs:
+      - check-types
+      - format-and-lint
+      - knip
+      - pg-delta-unit
+      - pg-delta-integration-pg15-compat
+      - pg-delta-integration-pg17-compat
+      - pg-topo-tests
+    if: always() && !cancelled()
+    name: Release preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Build all packages
+        run: bun run build
+      - name: Release preview
+        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo

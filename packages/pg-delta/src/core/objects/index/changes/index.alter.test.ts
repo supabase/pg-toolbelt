@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Index, type IndexProps } from "../index.model.ts";
 import {
   AlterIndexSetStatistics,

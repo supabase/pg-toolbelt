@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { View, type ViewProps } from "../view.model.ts";
 import {
   AlterViewChangeOwner,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { DEFAULT_OPTIONS } from "./constants.ts";
 import type { NormalizedOptions } from "./types.ts";
 import { wrapStatement } from "./wrap.ts";

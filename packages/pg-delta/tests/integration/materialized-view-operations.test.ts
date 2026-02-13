@@ -2,21 +2,21 @@
  * Integration tests for PostgreSQL materialized view operations.
  */
 
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { describe } from "vitest";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { getTest } from "../utils.ts";
+import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  const test = getTest(pgVersion);
-
-  describe.concurrent(`materialized view operations (pg${pgVersion})`, () => {
-    test("create new materialized view", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+  describe(`materialized view operations (pg${pgVersion})`, () => {
+    test(
+      "create new materialized view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -25,21 +25,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             active boolean DEFAULT true
           );
         `,
-        testSql: dedent`
+          testSql: dedent`
           CREATE MATERIALIZED VIEW test_schema.active_users AS
           SELECT id, name, email
           FROM test_schema.users
           WHERE active = true
           WITH NO DATA;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("drop existing materialized view", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "drop existing materialized view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -53,17 +56,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           WHERE active = true
           WITH NO DATA;
         `,
-        testSql: `
+          testSql: `
           DROP MATERIALIZED VIEW test_schema.active_users;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("replace materialized view definition", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "replace materialized view definition",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -78,7 +84,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           WHERE active = true
           WITH NO DATA;
         `,
-        testSql: dedent`
+          testSql: dedent`
           DROP MATERIALIZED VIEW test_schema.user_summary;
           CREATE MATERIALIZED VIEW test_schema.user_summary AS
           SELECT id, name, email
@@ -87,14 +93,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY name
           WITH NO DATA;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with aggregations", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "materialized view with aggregations",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA analytics;
           CREATE TABLE analytics.sales (
             id integer PRIMARY KEY,
@@ -103,7 +112,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             sale_date date
           );
         `,
-        testSql: dedent`
+          testSql: dedent`
           CREATE MATERIALIZED VIEW analytics.monthly_sales AS
           SELECT
             DATE_TRUNC('month', sale_date) as month,
@@ -114,14 +123,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ORDER BY month
           WITH NO DATA;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view with joins", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "materialized view with joins",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA ecommerce;
           CREATE TABLE ecommerce.customers (
             id integer PRIMARY KEY,
@@ -134,7 +146,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             total decimal(10,2)
           );
         `,
-        testSql: `
+          testSql: `
           CREATE MATERIALIZED VIEW ecommerce.customer_orders AS
           SELECT
             c.id as customer_id,
@@ -146,14 +158,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           GROUP BY c.id, c.name
           WITH NO DATA;
         `,
-      });
-    });
+        });
+      }),
+    );
 
-    test("materialized view comments", async ({ db }) => {
-      await roundtripFidelityTest({
-        mainSession: db.main,
-        branchSession: db.branch,
-        initialSetup: `
+    test(
+      "materialized view comments",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
           CREATE SCHEMA test_schema;
           CREATE TABLE test_schema.users (
             id integer PRIMARY KEY,
@@ -162,10 +177,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE MATERIALIZED VIEW test_schema.user_names AS
           SELECT id, name FROM test_schema.users WITH NO DATA;
         `,
-        testSql: `
+          testSql: `
           COMMENT ON MATERIALIZED VIEW test_schema.user_names IS 'user names matview';
         `,
-      });
-    });
+        });
+      }),
+    );
   });
 }

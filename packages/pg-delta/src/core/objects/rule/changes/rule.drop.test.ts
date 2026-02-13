@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Rule } from "../rule.model.ts";
 import { DropRule } from "./rule.drop.ts";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Enum } from "../enum.model.ts";
 import { CreateEnum } from "./enum.create.ts";
 

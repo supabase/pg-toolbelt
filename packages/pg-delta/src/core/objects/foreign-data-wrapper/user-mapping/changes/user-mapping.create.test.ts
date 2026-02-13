@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { UserMapping } from "../user-mapping.model.ts";
 import { CreateUserMapping } from "./user-mapping.create.ts";
 

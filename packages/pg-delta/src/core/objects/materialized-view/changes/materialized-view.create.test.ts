@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedView } from "./materialized-view.create.ts";
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { Domain, type DomainProps } from "../domain.model.ts";
 import {
   AlterDomainAddConstraint,

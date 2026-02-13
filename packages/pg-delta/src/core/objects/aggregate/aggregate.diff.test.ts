@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "bun:test";
 import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffAggregates } from "./aggregate.diff.ts";
 import { Aggregate } from "./aggregate.model.ts";
@@ -189,7 +189,7 @@ describe.concurrent("aggregate.diff", () => {
         grantee: "role_with_option",
         privilege: "EXECUTE",
         grantable: false,
-      },
+      } as never,
     ]);
 
     const revokeGrantOption = changes.find(
@@ -205,7 +205,11 @@ describe.concurrent("aggregate.diff", () => {
         change.grantee === "role_removed",
     ) as RevokeAggregatePrivileges | undefined;
     expect(revokePrivilege?.privileges).toEqual([
-      { grantee: "role_removed", privilege: "EXECUTE", grantable: false },
+      {
+        grantee: "role_removed",
+        privilege: "EXECUTE",
+        grantable: false,
+      } as never,
     ]);
   });
 });
