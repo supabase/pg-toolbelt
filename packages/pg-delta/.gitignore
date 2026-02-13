@@ -137,9 +137,3 @@ dist
 
 # Temporary files
 .tmp
-
-# node_modules
-node_modules/
-
-# dist
-dist/

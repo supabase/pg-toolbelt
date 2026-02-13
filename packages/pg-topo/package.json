@@ -1,0 +1,32 @@
+{
+  "name": "pg-topo",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "test": "bun test --concurrent --max-concurrency=8",
+    "check-types": "tsc --noEmit",
+    "knip": "bunx knip"
+  },
+  "dependencies": {
+    "@pgsql/traverse": "^17.2.4",
+    "plpgsql-parser": "^0.5.4"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^11.11.0",
+    "testcontainers": "^11.11.0",
+    "typescript": "^5.9.3"
+  }
+}
