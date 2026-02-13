@@ -142,8 +142,4 @@ dist
 node_modules/
 
 # dist
-<<<<<<< HEAD
 dist/
-=======
-dist/
->>>>>>> 2193a5b (wip: cleanup still some failing tests)

@@ -94,6 +94,7 @@ class ContainerManager {
       // Uses pg Pool instead of container.exec() because testcontainers exec()
       // hangs under Bun.
       const adminPool = createPool(container.getConnectionUri(), {
+        max: 2,
         onError: suppressShutdownError,
       });
       this.adminPools.set(version, adminPool);
@@ -165,11 +166,11 @@ class ContainerManager {
     // Use onError to suppress expected shutdown errors from idle connections
     const poolMain = createPool(
       container.getConnectionUriForDatabase(dbNameMain),
-      { onError: suppressShutdownError },
+      { max: 5, onError: suppressShutdownError },
     );
     const poolBranch = createPool(
       container.getConnectionUriForDatabase(dbNameBranch),
-      { onError: suppressShutdownError },
+      { max: 5, onError: suppressShutdownError },
     );
 
     const cleanup = async () => {
@@ -183,7 +184,7 @@ class ContainerManager {
             // Connect to the database to drop subscriptions
             const dbPool = createPool(
               container.getConnectionUriForDatabase(dbName),
-              { onError: suppressShutdownError },
+              { max: 1, onError: suppressShutdownError },
             );
             try {
               const subsResult = await dbPool.query(
@@ -232,9 +233,11 @@ class ContainerManager {
     ]);
 
     const poolMain = createPool(containerMain.getConnectionUri(), {
+      max: 5,
       onError: suppressShutdownError,
     });
     const poolBranch = createPool(containerBranch.getConnectionUri(), {
+      max: 5,
       onError: suppressShutdownError,
     });
 
