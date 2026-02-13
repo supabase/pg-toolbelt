@@ -7,7 +7,7 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 ## Packages
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema diff and migration tool. Compares two live databases and generates DDL migration scripts.
-- **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Analyzes `.sql` files, extracts dependencies, and produces a deterministic execution order.
+- **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files.
 
 ## Quick Reference
 

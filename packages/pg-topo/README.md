@@ -20,7 +20,7 @@ Execution order then becomes fragile:
 
 ## Current Scope
 
-- Library API only (no CLI yet)
+- Pure library API (no CLI yet, no filesystem dependency in core)
 - Static analysis only in publishable library code
 - Deterministic output for the same input set
 - Runtime validation is test-support code in this repository (not part of public API)
@@ -30,7 +30,7 @@ Execution order then becomes fragile:
 When published:
 
 ```bash
-bun add pg-topo
+bun add @supabase/pg-topo
 ```
 
 For local development in this repo:
@@ -41,12 +41,16 @@ bun install
 
 ## Quick Start
 
-```ts
-import { analyzeAndSort } from "pg-topo";
+The core API accepts a list of SQL content strings (each string can contain multiple statements):
 
-const result = await analyzeAndSort({
-  roots: ["./schema"], // files and/or directories
-});
+```ts
+import { analyzeAndSort } from "@supabase/pg-topo";
+
+const result = await analyzeAndSort([
+  "create schema app;",
+  "create table app.users(id int primary key, email text not null);",
+  "create view app.user_emails as select email from app.users;",
+]);
 
 if (result.diagnostics.length > 0) {
   for (const diagnostic of result.diagnostics) {
@@ -55,18 +59,34 @@ if (result.diagnostics.length > 0) {
 }
 
 const sortedSql = result.ordered.map((statement) => statement.sql).join("\n\n");
-await Bun.write("./dist/sorted-schema.sql", `${sortedSql}\n`);
+console.log(sortedSql);
 ```
+
+## Using with Files
+
+If you want to point at directories or `.sql` files on disk, use the filesystem adapter:
+
+```ts
+import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
+
+const result = await analyzeAndSortFromFiles(["./schema"]);
+```
+
+`analyzeAndSortFromFiles` discovers `.sql` files, reads them, and delegates to the core `analyzeAndSort`. This is the only part of the package that uses Node `fs`.
 
 ## Public API
 
-`analyzeAndSort(options)` is exported from the package entrypoint (`src/index.ts` in this repo).
+### `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>`
+
+Pure library function. Accepts an array of SQL content strings. No filesystem access.
+
+### `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>`
+
+Filesystem adapter. Accepts file paths and/or directory paths. Discovers `.sql` files, reads them, and calls `analyzeAndSort` internally.
+
+### `AnalyzeResult`
 
 ```ts
-type AnalyzeOptions = {
-  roots: string[];
-};
-
 type AnalyzeResult = {
   ordered: StatementNode[];
   diagnostics: Diagnostic[];
@@ -96,6 +116,9 @@ Each item includes:
 - extracted `provides` / `requires`
 - stable `id` (`filePath`, `statementIndex`)
 
+For the core `analyzeAndSort`, `filePath` uses synthetic source labels (e.g. `<input:0>`, `<input:1>`).  
+For `analyzeAndSortFromFiles`, `filePath` is the relative path to the source `.sql` file.
+
 ### `diagnostics`
 
 Static diagnostics emitted by the library:
@@ -116,9 +139,9 @@ Graph metadata includes:
 - `edges` (`from`, `to`, `reason`, optional `objectRef`)
 - `cycleGroups`
 
-## Input Discovery Rules
+## Input Discovery Rules (filesystem adapter only)
 
-Given `roots`, `pg-topo`:
+Given `roots`, `analyzeAndSortFromFiles`:
 
 - accepts `.sql` files directly
 - recursively scans directories for `.sql` files
@@ -132,7 +155,7 @@ Ordering combines:
 1. dependency graph edges (`requires` -> `provides`)
 2. phase ordering (`bootstrap`, `pre_data`, `data_structures`, `routines`, `post_data`, `privileges`)
 3. statement-class priority tie-breaks (pg_dump-inspired)
-4. stable source tie-breakers (file path + statement index)
+4. stable source tie-breakers (source label + statement index)
 
 ## Annotations
 

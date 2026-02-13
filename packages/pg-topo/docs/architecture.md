@@ -19,14 +19,15 @@ Package entrypoint:
 
 - `src/index.ts` (re-export target in `package.json` `exports["."]`)
 
-Function export:
+Function exports:
 
-- `analyzeAndSort(options: AnalyzeOptions): Promise<AnalyzeResult>`
+- `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>` — pure library, no filesystem
   - implemented in `src/analyze-and-sort.ts`
+- `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>` — filesystem adapter
+  - implemented in `src/from-files.ts`
 
 Type exports from `src/index.ts`:
 
-- `AnalyzeOptions`
 - `AnalyzeResult`
 - `AnnotationHints`
 - `Diagnostic`
@@ -42,8 +43,6 @@ Type exports from `src/index.ts`:
 
 Current primary result shape:
 
-- `AnalyzeOptions`
-  - `roots: string[]`
 - `AnalyzeResult`
   - `ordered: StatementNode[]`
   - `diagnostics: Diagnostic[]`
@@ -51,7 +50,8 @@ Current primary result shape:
 
 Behavior:
 
-- Static pipeline only (discover, parse, classify, extract, graph, topo-sort, diagnostics)
+- Static pipeline only (parse, classify, extract, graph, topo-sort, diagnostics)
+- Discovery is handled by the filesystem adapter (`src/from-files.ts`), not the core library
 
 ## 3) Runtime and parser stack
 

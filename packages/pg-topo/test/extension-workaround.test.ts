@@ -11,15 +11,11 @@ afterAll(fixtures.cleanup);
 
 describe("postgres runtime validation", () => {
   test("keeps extension object dependencies unresolved in static analysis", async () => {
-    const root = await createSqlFixture({
-      "00_table.sql":
-        "create table public.demo(id uuid default extensions.uuid_generate_v4() primary key);",
-      "01_schema.sql": "create schema extensions;",
-      "02_extension.sql":
-        'create extension if not exists "uuid-ossp" with schema extensions;',
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "create table public.demo(id uuid default extensions.uuid_generate_v4() primary key);",
+      "create schema extensions;",
+      'create extension if not exists "uuid-ossp" with schema extensions;',
+    ]);
     const unresolved = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
     );

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import path from "node:path";
-import { analyzeAndSort } from "../src/analyze-and-sort";
 import type { StatementClass } from "../src/classify/classify-statement";
+import { analyzeAndSortFromFiles } from "../src/from-files";
 import type { AnalyzeResult } from "../src/model/types";
 import { analyzeResultFingerprint } from "./support/fingerprint";
 import { expectRandomizedRuntimeOutcomeEnvelope } from "./support/fixture-regression";
@@ -11,7 +11,7 @@ import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-run
 
 const fixtureRoot = path.resolve(import.meta.dir, "fixtures/diverse-schema");
 const baselineFingerprint =
-  "183ffe7af35049667c012912034598c183f4edb88fee9bd10d8be223d4ec0c1f";
+  "b59889b78255e7428b00e6695c30cf375816b359533ce008ab17a4a8f76ae11a";
 
 let baselineResult: AnalyzeResult;
 let looseValidationDiagnosticsPromise: Promise<RuntimeDiagnostic[]> | null =
@@ -35,7 +35,7 @@ const getLooseValidationDiagnostics = async (): Promise<
 
 describe("diverse schema fixture", () => {
   beforeAll(async () => {
-    baselineResult = await analyzeAndSort({ roots: [fixtureRoot] });
+    baselineResult = await analyzeAndSortFromFiles([fixtureRoot]);
   });
 
   test("handles the diverse corpus without unknown statement classes", () => {

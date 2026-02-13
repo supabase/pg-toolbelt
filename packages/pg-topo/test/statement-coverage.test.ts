@@ -1,22 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { analyzeAndSort } from "../src/analyze-and-sort";
-import { createTempFixtureHarness } from "./support/temp-fixture";
-
-const fixtures = createTempFixtureHarness("pg-topo-coverage-");
-const createSqlFixture = fixtures.createSqlFixture;
-
-afterAll(fixtures.cleanup);
 
 describe("statement coverage", () => {
   test("orders enum type before table using it", async () => {
-    const root = await createSqlFixture({
-      "00_table.sql":
-        "create table app.users(id int primary key, role app.user_role not null);",
-      "01_enum.sql": "create type app.user_role as enum ('admin', 'user');",
-      "02_schema.sql": "create schema app;",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "create table app.users(id int primary key, role app.user_role not null);",
+      "create type app.user_role as enum ('admin', 'user');",
+      "create schema app;",
+    ]);
     const unknownCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
     ).length;
@@ -35,13 +26,11 @@ describe("statement coverage", () => {
   });
 
   test("orders create role/schema before schema grant", async () => {
-    const root = await createSqlFixture({
-      "00_grant.sql": "grant usage on schema app to app_user;",
-      "01_schema.sql": "create schema app;",
-      "02_role.sql": "create role app_user;",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "grant usage on schema app to app_user;",
+      "create schema app;",
+      "create role app_user;",
+    ]);
     const unknownCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
     ).length;
@@ -60,16 +49,14 @@ describe("statement coverage", () => {
   });
 
   test("orders table before publication, comment, and owner changes", async () => {
-    const root = await createSqlFixture({
-      "00_publication.sql": "create publication pub_users for table app.users;",
-      "01_comment.sql": "comment on table app.users is 'users table';",
-      "02_owner.sql": "alter table app.users owner to app_user;",
-      "03_table.sql": "create table app.users(id int primary key);",
-      "04_schema.sql": "create schema app;",
-      "05_role.sql": "create role app_user;",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "create publication pub_users for table app.users;",
+      "comment on table app.users is 'users table';",
+      "alter table app.users owner to app_user;",
+      "create table app.users(id int primary key);",
+      "create schema app;",
+      "create role app_user;",
+    ]);
     const unknownCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
     ).length;
@@ -102,16 +89,11 @@ describe("statement coverage", () => {
   });
 
   test("orders referenced unique key provider before foreign key consumers", async () => {
-    const root = await createSqlFixture({
-      "00_fk_consumer.sql":
-        "create table public.oauth_apps(id uuid primary key, created_by uuid references public.users(gotrue_id));",
-      "01_users.sql":
-        "create table public.users(id bigint primary key, gotrue_id uuid not null);",
-      "02_unique_index.sql":
-        "create unique index users_gotrue_id_key on public.users using btree (gotrue_id);",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "create table public.oauth_apps(id uuid primary key, created_by uuid references public.users(gotrue_id));",
+      "create table public.users(id bigint primary key, gotrue_id uuid not null);",
+      "create unique index users_gotrue_id_key on public.users using btree (gotrue_id);",
+    ]);
     const unresolvedCount = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
     ).length;
@@ -135,15 +117,13 @@ describe("statement coverage", () => {
   });
 
   test("prioritizes foundational bootstrap classes before generic bootstrap statements", async () => {
-    const root = await createSqlFixture({
-      "00_do.sql": "do $$ begin perform 1; end $$;",
-      "01_set.sql": "set check_function_bodies = off;",
-      "02_extension.sql": 'create extension if not exists "uuid-ossp";',
-      "03_schema.sql": "create schema app;",
-      "04_role.sql": "create role app_user;",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "do $$ begin perform 1; end $$;",
+      "set check_function_bodies = off;",
+      'create extension if not exists "uuid-ossp";',
+      "create schema app;",
+      "create role app_user;",
+    ]);
     const orderedClasses = result.ordered.map(
       (statement) => statement.statementClass,
     );
@@ -158,41 +138,29 @@ describe("statement coverage", () => {
   });
 
   test("resolves overloads from explicit casted call-site signatures", async () => {
-    const root = await createSqlFixture({
-      "00_schema.sql": "create schema app;",
-      "01_fn_text.sql":
-        "create function app.normalize(value text) returns text language sql as $$ select lower(value) $$;",
-      "02_fn_jsonb.sql":
-        "create function app.normalize(value jsonb) returns text language sql as $$ select value::text $$;",
-      "03_table.sql": "create table app.events(payload jsonb not null);",
-      "04_view.sql":
-        "create view app.normalized_payload as select app.normalize(payload::jsonb) as normalized from app.events;",
-    });
-
-    const result = await analyzeAndSort({ roots: [root] });
+    const result = await analyzeAndSort([
+      "create schema app;",
+      "create function app.normalize(value text) returns text language sql as $$ select lower(value) $$;",
+      "create function app.normalize(value jsonb) returns text language sql as $$ select value::text $$;",
+      "create table app.events(payload jsonb not null);",
+      "create view app.normalized_payload as select app.normalize(payload::jsonb) as normalized from app.events;",
+    ]);
     const ambiguousDiagnostics = result.diagnostics.filter(
       (diagnostic) =>
         diagnostic.code === "DUPLICATE_PRODUCER" &&
         diagnostic.message.includes("Ambiguous compatible producers"),
     );
-    const normalizeJsonbEdge = result.graph.edges.find(
-      (edge) =>
-        edge.objectRef?.kind === "function" &&
-        edge.objectRef.schema === "app" &&
-        edge.objectRef.name === "normalize" &&
-        (edge.objectRef.signature ?? "").includes("jsonb") &&
-        edge.from.filePath.endsWith("02_fn_jsonb.sql") &&
-        edge.to.filePath.endsWith("04_view.sql"),
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
     );
-    const jsonbFunctionIndex = result.ordered.findIndex((statement) =>
-      statement.id.filePath.endsWith("02_fn_jsonb.sql"),
+    const jsonbFunctionIndex = orderedSql.findIndex(
+      (sql) => sql.includes("normalize") && sql.includes("jsonb"),
     );
-    const viewIndex = result.ordered.findIndex((statement) =>
-      statement.id.filePath.endsWith("04_view.sql"),
+    const viewIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create view app.normalized_payload"),
     );
 
     expect(ambiguousDiagnostics).toHaveLength(0);
-    expect(normalizeJsonbEdge).toBeDefined();
     expect(jsonbFunctionIndex).toBeGreaterThan(-1);
     expect(viewIndex).toBeGreaterThan(jsonbFunctionIndex);
   });

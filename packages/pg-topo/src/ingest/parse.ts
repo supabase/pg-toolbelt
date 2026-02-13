@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import {
   deparseSql,
   loadModule as loadPlpgsqlParserModule,
@@ -29,7 +27,7 @@ export type ParsedStatement = {
   annotations: AnnotationHints;
 };
 
-type ParseFileResult = {
+type ParseContentResult = {
   statements: ParsedStatement[];
   diagnostics: Diagnostic[];
 };
@@ -42,9 +40,6 @@ const ensureParserModuleLoaded = async (): Promise<void> => {
   }
   await parserModuleLoadPromise;
 };
-
-const toStablePath = (absolutePath: string): string =>
-  path.relative(process.cwd(), absolutePath).split(path.sep).join("/");
 
 const ensureStatementTerminator = (sql: string): string =>
   sql.trimEnd().endsWith(";") ? sql.trim() : `${sql.trim()};`;
@@ -84,22 +79,22 @@ const extractStatementSql = async (
   return "";
 };
 
-export const parseSqlFile = async (
-  absolutePath: string,
-): Promise<ParseFileResult> => {
+export const parseSqlContent = async (
+  content: string,
+  sourceLabel: string,
+): Promise<ParseContentResult> => {
   const diagnostics: Diagnostic[] = [];
-  const fileContent = await readFile(absolutePath, "utf-8");
   await ensureParserModuleLoaded();
 
   let parseResult: RawParserResult;
   try {
-    parseResult = parseSql(fileContent) as RawParserResult;
+    parseResult = parseSql(content) as RawParserResult;
   } catch (error) {
     diagnostics.push({
       code: "PARSE_ERROR",
       message: error instanceof Error ? error.message : "Unknown parser error.",
       statementId: {
-        filePath: toStablePath(absolutePath),
+        filePath: sourceLabel,
         statementIndex: 0,
       },
     });
@@ -116,19 +111,19 @@ export const parseSqlFile = async (
         code: "PARSE_ERROR",
         message: "Parser returned an empty statement node.",
         statementId: {
-          filePath: toStablePath(absolutePath),
+          filePath: sourceLabel,
           statementIndex: index,
         },
       });
       continue;
     }
 
-    const sql = await extractStatementSql(fileContent, statement);
+    const sql = await extractStatementSql(content, statement);
     const annotationResult = parseAnnotations(sql);
 
     statements.push({
       id: {
-        filePath: toStablePath(absolutePath),
+        filePath: sourceLabel,
         statementIndex: index,
       },
       ast: statement.stmt,
@@ -140,7 +135,7 @@ export const parseSqlFile = async (
       diagnostics.push({
         ...diagnostic,
         statementId: {
-          filePath: toStablePath(absolutePath),
+          filePath: sourceLabel,
           statementIndex: index,
         },
       });

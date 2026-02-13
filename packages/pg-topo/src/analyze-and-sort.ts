@@ -6,11 +6,9 @@ import {
 import { extractDependencies } from "./extract/extract-dependencies.ts";
 import { buildGraph, type EdgeMetadata } from "./graph/build-graph.ts";
 import { compareStatementIndices, topoSort } from "./graph/topo-sort.ts";
-import { discoverSqlFiles } from "./ingest/discover.ts";
-import { type ParsedStatement, parseSqlFile } from "./ingest/parse.ts";
+import { type ParsedStatement, parseSqlContent } from "./ingest/parse.ts";
 import { objectRefKey } from "./model/object-ref.ts";
 import type {
-  AnalyzeOptions,
   AnalyzeResult,
   Diagnostic,
   GraphEdge,
@@ -105,42 +103,36 @@ const buildGraphReport = (
   };
 };
 
-export const analyzeAndSort = async (
-  options: AnalyzeOptions,
-): Promise<AnalyzeResult> => {
-  const roots = options.roots ?? [];
-  const diagnostics: Diagnostic[] = [];
+const EMPTY_RESULT: AnalyzeResult = {
+  ordered: [],
+  diagnostics: [],
+  graph: {
+    nodeCount: 0,
+    edges: [],
+    cycleGroups: [],
+  },
+};
 
-  if (roots.length === 0) {
-    diagnostics.push({
-      code: "DISCOVERY_ERROR",
-      message:
-        "No roots provided. Pass at least one SQL file or directory root.",
-    });
+export const analyzeAndSort = async (sql: string[]): Promise<AnalyzeResult> => {
+  if (sql.length === 0) {
     return {
-      ordered: [],
-      diagnostics,
-      graph: {
-        nodeCount: 0,
-        edges: [],
-        cycleGroups: [],
-      },
+      ...EMPTY_RESULT,
+      diagnostics: [
+        {
+          code: "DISCOVERY_ERROR",
+          message: "No SQL input provided.",
+        },
+      ],
     };
   }
 
-  const discovery = await discoverSqlFiles(roots);
-  for (const missingRoot of discovery.missingRoots) {
-    diagnostics.push({
-      code: "DISCOVERY_ERROR",
-      message: `Root does not exist: '${missingRoot}'.`,
-    });
-  }
-
+  const diagnostics: Diagnostic[] = [];
   const parsedStatements: ParsedStatement[] = [];
-  for (const sqlFilePath of discovery.files) {
-    const parsedFile = await parseSqlFile(sqlFilePath);
-    parsedStatements.push(...parsedFile.statements);
-    diagnostics.push(...parsedFile.diagnostics);
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const parsed = await parseSqlContent(sql[i], `<input:${i}>`);
+    parsedStatements.push(...parsed.statements);
+    diagnostics.push(...parsed.diagnostics);
   }
 
   const statementNodes: StatementNode[] = [];

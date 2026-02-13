@@ -2,7 +2,7 @@
 
 ## What This Package Does
 
-Topological sorting for SQL DDL statements. Reads `.sql` files, parses them, extracts object dependencies, and returns statements in a valid execution order.
+Topological sorting for SQL DDL statements. Parses SQL strings, extracts object dependencies, and returns statements in a valid execution order. The core library is pure (no filesystem dependency).
 
 ## Commands
 
@@ -15,25 +15,36 @@ bun run format-and-lint     # Biome check
 
 ## Architecture
 
-7-stage pipeline: Discover -> Parse -> Classify -> Extract -> Build Graph -> Topo Sort -> Result
+6-stage pipeline: Parse -> Classify -> Extract -> Build Graph -> Topo Sort -> Result
 
-- `src/ingest/` -- SQL file discovery and parsing (plpgsql-parser)
+- `src/ingest/parse.ts` -- SQL content parsing (plpgsql-parser), no filesystem
 - `src/classify/` -- Statement classification (38 types)
 - `src/extract/` -- Dependency extraction from AST
 - `src/graph/` -- Graph building and topological sort (Kahn's algorithm)
 - `src/annotations/` -- SQL comment annotation parsing (`-- pg-topo:` directives)
 - `src/model/` -- Core types and ObjectRef identity
+- `src/from-files.ts` -- Filesystem adapter (discovery + read + delegates to core)
+- `src/ingest/discover.ts` -- SQL file discovery (used only by from-files adapter)
 
 ## Test Patterns
 
 Tests use `bun:test` with testcontainers for PostgreSQL runtime validation:
 - `test/global-setup.ts` -- Preloaded to pull Docker images
 - `test/support/postgres/postgres-container.ts` -- Container lifecycle using Bun's native SQL class
-- Tests create temporary fixture directories with SQL files
+- Unit tests use inline SQL strings directly with `analyzeAndSort(sql: string[])`
+- Integration tests use `analyzeAndSortFromFiles(roots)` or `analyzeAndSortFromRandomizedStatements` for filesystem fixtures
 
 ## Key API
 
 ```typescript
-import { analyzeAndSort } from "@supabase/pg-topo";
-const { ordered, diagnostics, graph } = await analyzeAndSort({ roots: ["./sql/"] });
+import { analyzeAndSort, analyzeAndSortFromFiles } from "@supabase/pg-topo";
+
+// Pure library (no filesystem)
+const { ordered, diagnostics, graph } = await analyzeAndSort([
+  "create table app.users(id int primary key);",
+  "create view app.user_ids as select id from app.users;",
+]);
+
+// Filesystem adapter (discovers and reads .sql files)
+const result = await analyzeAndSortFromFiles(["./sql/"]);
 ```

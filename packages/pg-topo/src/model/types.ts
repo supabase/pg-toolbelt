@@ -101,10 +101,6 @@ export type GraphReport = {
   cycleGroups: StatementId[][];
 };
 
-export type AnalyzeOptions = {
-  roots: string[];
-};
-
 export type AnalyzeResult = {
   ordered: StatementNode[];
   diagnostics: Diagnostic[];
