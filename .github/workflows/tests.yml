@@ -101,7 +101,7 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run unit tests
         working-directory: packages/pg-delta
-        run: bun test src/ --coverage
+        run: bun test --concurrent --timeout 15000 --coverage src/
 
   pg-delta-integration:
     if: >-
@@ -139,7 +139,7 @@ jobs:
           fi
           echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
           echo "$SHARD_FILES"
-          echo "$SHARD_FILES" | xargs bun test
+          echo "$SHARD_FILES" | xargs bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts --max-concurrency=4
 
   pg-delta-integration-pg15-compat:
     if: always() && github.event.pull_request.draft == false
@@ -184,7 +184,7 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run tests
         working-directory: packages/pg-topo
-        run: bun test
+        run: bun test --concurrent --timeout 15000 --preload ./test/global-setup.ts
 
   release-preview:
     needs:

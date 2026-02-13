@@ -26,7 +26,7 @@
   "bugs": "https://github.com/supabase/pg-toolbelt/issues",
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node --format esm && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
-    "test": "bun test --concurrent --max-concurrency=8",
+    "test": "bun test --timeout 15000 --preload ./test/global-setup.ts --concurrent --max-concurrency=8",
     "check-types": "tsc --noEmit",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip"
