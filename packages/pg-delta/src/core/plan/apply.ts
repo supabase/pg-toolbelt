@@ -9,7 +9,7 @@ import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
-import { createPool } from "../postgres-config.ts";
+import { createPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
 
@@ -181,8 +181,8 @@ export async function applyPlan(
     };
   } finally {
     const closers: Promise<unknown>[] = [];
-    if (shouldCloseCurrent) closers.push(currentPool.end());
-    if (shouldCloseDesired) closers.push(desiredPool.end());
+    if (shouldCloseCurrent) closers.push(endPool(currentPool));
+    if (shouldCloseDesired) closers.push(endPool(desiredPool));
     if (closers.length) {
       await Promise.all(closers);
     }

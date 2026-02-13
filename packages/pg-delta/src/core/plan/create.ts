@@ -20,7 +20,7 @@ import {
   compileSerializeDSL,
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
-import { createPool } from "../postgres-config.ts";
+import { createPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
@@ -84,7 +84,7 @@ async function parseSslConfig(
 
   // Handle different SSL modes
   if (sslmode === "disable") {
-    return { cleanedUrl };
+    return { cleanedUrl, ssl: false };
   }
 
   if (
@@ -113,20 +113,30 @@ async function parseSslConfig(
       return envValue || undefined;
     };
 
-    // Get CA certificate value (needed for verify-ca, verify-full, and libpq compatibility with require/prefer)
+    const hasExplicitVerification =
+      sslmode === "verify-ca" || sslmode === "verify-full";
+
+    // Get CA certificate value.
+    // - verify-ca/verify-full: check query param first, then env var
+    // - require/prefer: only check query param (libpq backward compatibility
+    //   requires an explicit root CA *file*, not a global env var)
     const caEnvVar =
       connectionType === "source"
         ? "PGDELTA_SOURCE_SSLROOTCERT"
         : "PGDELTA_TARGET_SSLROOTCERT";
-    const caValue = await getCertValue(sslrootcert, caEnvVar);
+    let caValue: string | undefined;
+    if (sslrootcert) {
+      // Explicit file path in query param — always honour it
+      caValue = await getCertValue(sslrootcert, caEnvVar);
+    } else if (hasExplicitVerification) {
+      // verify-ca / verify-full without file path — fall back to env var
+      caValue = await getCertValue(null, caEnvVar);
+    }
+    // require/prefer without sslrootcert: no CA cert, no verification
 
     // Determine if we should verify the CA chain
-    // - verify-ca and verify-full: always verify CA
-    // - require/prefer with CA cert provided: verify CA (libpq backward compatibility)
     //   From PostgreSQL docs: "if a root CA file exists, the behavior of sslmode=require
     //   will be the same as that of verify-ca"
-    const hasExplicitVerification =
-      sslmode === "verify-ca" || sslmode === "verify-full";
     const hasLibpqCompatibility =
       (sslmode === "require" || sslmode === "prefer") && caValue !== undefined;
     const shouldVerifyCa = hasExplicitVerification || hasLibpqCompatibility;
@@ -188,8 +198,8 @@ async function parseSslConfig(
     return { ssl, cleanedUrl };
   }
 
-  // No sslmode specified or invalid value - no SSL configuration
-  return { cleanedUrl };
+  // No sslmode specified or invalid value - explicitly disable SSL
+  return { cleanedUrl, ssl: false };
 }
 
 export async function createPlan(
@@ -212,7 +222,7 @@ export async function createPlan(
   if (typeof source === "string") {
     const sslConfig = await parseSslConfig(source, "source");
     sourcePool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
       onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries
@@ -230,7 +240,8 @@ export async function createPlan(
   if (typeof target === "string") {
     const sslConfig = await parseSslConfig(target, "target");
     targetPool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl ? { ssl: sslConfig.ssl } : {}),
+
+      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
       onError,
       onConnect: async (client) => {
         // Force fully qualified names in catalog queries
@@ -245,17 +256,26 @@ export async function createPlan(
     targetPool = target;
   }
 
+  const sourceExtraction = extractCatalog(sourcePool);
+  const targetExtraction = extractCatalog(targetPool);
+
   try {
     const [fromCatalog, toCatalog] = await Promise.all([
-      extractCatalog(sourcePool),
-      extractCatalog(targetPool),
+      sourceExtraction,
+      targetExtraction,
     ]);
 
     return buildPlanForCatalogs(fromCatalog, toCatalog, options);
+  } catch (error) {
+    // When one extraction fails, the other may still have in-flight queries.
+    // Wait for both to settle before pool cleanup to prevent unhandled
+    // rejections from connections being terminated mid-flight.
+    await Promise.allSettled([sourceExtraction, targetExtraction]);
+    throw error;
   } finally {
     const closers: Promise<unknown>[] = [];
-    if (shouldCloseSource) closers.push(sourcePool.end());
-    if (shouldCloseTarget) closers.push(targetPool.end());
+    if (shouldCloseSource) closers.push(endPool(sourcePool));
+    if (shouldCloseTarget) closers.push(endPool(targetPool));
     if (closers.length) {
       await Promise.all(closers);
     }

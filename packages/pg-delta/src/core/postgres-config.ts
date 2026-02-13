@@ -134,3 +134,36 @@ export function createPool(
 
   return pool;
 }
+
+/**
+ * End a pool and wait for all client sockets to fully close.
+ *
+ * pg-pool's `pool.end()` resolves once clients are removed from its
+ * internal bookkeeping, but the underlying `client.end()` calls (which
+ * close the TCP/TLS sockets) are fired asynchronously *after* that.
+ * If the server (e.g. a test container) is stopped right after
+ * `pool.end()` resolves, the still-open sockets receive an unexpected
+ * RST and emit unhandled "Connection terminated unexpectedly" errors.
+ *
+ * This helper waits for every `remove` event — which pg-pool emits
+ * inside each `client.end()` callback — ensuring all sockets are
+ * truly closed before it resolves.
+ */
+export function endPool(pool: Pool): Promise<void> {
+  const clientCount = pool.totalCount;
+
+  if (clientCount === 0) {
+    return pool.end();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let removed = 0;
+    pool.on("remove", function onRemove() {
+      if (++removed >= clientCount) {
+        pool.removeListener("remove", onRemove);
+        resolve();
+      }
+    });
+    pool.end().catch(reject);
+  });
+}
