@@ -40,7 +40,7 @@ describe("sql formatting snapshots", () => {
       revoke create on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- schema.revoke_grant_option
-      revoke grant option for usage
+      revoke grant option for USAGE
           on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- extension.create
@@ -436,7 +436,7 @@ describe("sql formatting snapshots", () => {
       comment on publication pub_custom is null;
 
       -- view.create
-      create view public.test_view with (security_barrier=true, check_option=local) as SELECT *
+      create view public.test_view with (security_barrier=true, check_option=local) AS SELECT *
       FROM test_table;
 
       -- view.drop
@@ -467,13 +467,13 @@ describe("sql formatting snapshots", () => {
       revoke grant option for select on public.test_view from app_reader;
 
       -- rule.create
-      create rule test_rule as ON INSERT TO public.test_table DO INSTEAD NOTHING;
+      create rule test_rule AS ON INSERT TO public.test_table DO INSTEAD NOTHING;
 
       -- rule.drop
       drop rule test_rule on public.test_table;
 
       -- rule.replace
-      create or replace rule test_rule as ON INSERT TO public.test_table DO INSTEAD NOTHING;
+      create or replace rule test_rule AS ON INSERT TO public.test_table DO INSTEAD NOTHING;
 
       -- rule.alter.set_enabled
       alter table public.test_table
@@ -488,7 +488,7 @@ describe("sql formatting snapshots", () => {
       -- procedure.create
       create procedure public.test_procedure()
           language plpgsql
-          as $$ begin null; end; $$;
+          AS $$ begin null; end; $$;
 
       -- procedure.drop
       drop procedure public.test_procedure();
@@ -506,12 +506,12 @@ describe("sql formatting snapshots", () => {
           language plpgsql
           stable
           security definer
-          parallel safe
+          parallel SAFE
           cost 100
           rows 10
           strict
           set search_path to 'pg_catalog', 'public'
-          as $function$ BEGIN RETURN QUERY SELECT count(*)::bigint, avg(value)::numeric FROM generate_series(1, p_limit_count_default); END; $function$;
+          AS $function$ BEGIN RETURN QUERY SELECT count(*)::bigint, avg(value)::numeric FROM generate_series(1, p_limit_count_default); END; $function$;
 
       -- function.drop
       drop function
@@ -542,7 +542,7 @@ describe("sql formatting snapshots", () => {
 
       -- function.alter.set_parallel
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name parallel
-          restricted;
+          RESTRICTED;
 
       -- function.comment
       comment on function
@@ -591,16 +591,16 @@ describe("sql formatting snapshots", () => {
 
       -- sequence.grant
       grant select,
-          usage
+          USAGE
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq to app_user;
 
       -- sequence.revoke
-      revoke usage
+      revoke USAGE
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
       -- sequence.revoke_grant_option
-      revoke grant option for usage
+      revoke grant option for USAGE
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
@@ -612,7 +612,7 @@ describe("sql formatting snapshots", () => {
 
       -- policy.create_restrictive
       create policy restrict_delete on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          as restrictive
+          as RESTRICTIVE
           for delete
           to authenticated, service_role
           using (auth.uid() = owner_id)
@@ -700,7 +700,7 @@ describe("sql formatting snapshots", () => {
       -- matview.create
       create materialized view analytics.daily_stats
           with (fillfactor=70)
-          as SELECT date_trunc('day', created_at) AS day, count(*) AS total
+          AS SELECT date_trunc('day', created_at) AS day, count(*) AS total
       FROM public.events
       GROUP BY 1 WITH DATA;
 
@@ -745,7 +745,7 @@ describe("sql formatting snapshots", () => {
           , stype       = anycompatiblearray
           , combinefunc = array_cat
           , initcond    = '{}'
-          , parallel safe
+          , parallel SAFE
           , strict
       );
 
@@ -821,13 +821,13 @@ describe("sql formatting snapshots", () => {
       revoke grant option for all on language plv8 from app_user;
 
       -- role.create
-      create role app_user with login connection limit 100;
+      create role app_user with LOGIN connection limit 100;
 
       -- role.drop
       drop role app_user;
 
       -- role.alter.set_options
-      alter role app_user with nosuperuser createdb;
+      alter role app_user with NOSUPERUSER CREATEDB;
 
       -- role.alter.set_config
       alter role app_user set statement_timeout to '60000';
