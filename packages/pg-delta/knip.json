@@ -1,5 +1,7 @@
 {
+  "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["tests/global-setup.ts"],
   "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"],
-  "ignoreBinaries": ["biome", "changeset"]
+  "ignoreBinaries": ["biome", "changeset"],
+  "ignoreFiles": ["tests/global-setup.ts"]
 }

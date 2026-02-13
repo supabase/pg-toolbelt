@@ -51,9 +51,8 @@
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
     "pgdelta": "bun src/cli/bin/cli.ts",
-    "test": "bun test --preload ./tests/global-setup.ts --timeout 60000",
     "test:unit": "bun test src/",
-    "test:integration": "bun test --preload ./tests/global-setup.ts --timeout 60000 --concurrent --max-concurrency=4 tests/",
+    "test:integration": "bun test --concurrent --max-concurrency=8 tests/",
     "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
   },
   "dependencies": {

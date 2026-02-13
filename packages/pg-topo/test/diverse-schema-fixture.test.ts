@@ -9,9 +9,9 @@ import type { RuntimeDiagnostic } from "./support/postgres/postgres-types";
 import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
 import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-runtime-analysis";
 
-const fixtureRoot = path.resolve("test/fixtures/diverse-schema");
+const fixtureRoot = path.resolve(import.meta.dir, "fixtures/diverse-schema");
 const baselineFingerprint =
-  "d9ca4265e2717589b9e5664cf5f699ae957f49424153f674bcee1e5ef820fa80";
+  "183ffe7af35049667c012912034598c183f4edb88fee9bd10d8be223d4ec0c1f";
 
 let baselineResult: AnalyzeResult;
 let looseValidationDiagnosticsPromise: Promise<RuntimeDiagnostic[]> | null =

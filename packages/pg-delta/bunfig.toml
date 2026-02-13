@@ -1,2 +1,4 @@
+
 [test]
-timeout = 60000
+preload = ["./tests/global-setup.ts"]
+timeout = 15000
