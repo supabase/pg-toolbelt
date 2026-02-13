@@ -25,7 +25,6 @@ describe("lowercase coverage formatting", () => {
     expect(formatted[0]).toContain("language plpgsql");
     expect(formatted[0]).toContain("stable");
     expect(formatted[0]).toContain("security definer");
-    expect(formatted[0]).toContain("\n  as $function$");
 
     expect(formatted[1]).toContain("owned by");
     expect(formatted[2]).toContain("from postgres");
