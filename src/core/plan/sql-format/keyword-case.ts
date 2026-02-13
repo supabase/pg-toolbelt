@@ -1,11 +1,7 @@
 import { KEYWORDS } from "./constants.ts";
 import { isWordChar, walkSql } from "./sql-scanner.ts";
-import type { NormalizedOptions } from "./types.ts";
-
-const SETTING_PAREN_KEYWORDS = new Set(["WITH", "SET", "OPTIONS", "RESET"]);
-const KEY_VALUE_LINE_PATTERN = /^\s*,?\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*/;
-
-type Range = { start: number; end: number };
+import { scanTokens } from "./tokenizer.ts";
+import type { NormalizedOptions, Token } from "./types.ts";
 
 export function applyKeywordCase(
   statement: string,
@@ -16,7 +12,6 @@ export function applyKeywordCase(
       ? (value: string) => value.toUpperCase()
       : (value: string) => value.toLowerCase();
 
-  const settingRanges = findSettingParenRanges(statement);
   let output = "";
   let skipUntil = -1;
 
@@ -31,11 +26,7 @@ export function applyKeywordCase(
         }
         const word = statement.slice(index, end);
         const upper = word.toUpperCase();
-        output += shouldPreserveWordCase(statement, index, settingRanges)
-          ? word
-          : KEYWORDS.has(upper)
-            ? transform(word)
-            : word;
+        output += KEYWORDS.has(upper) ? transform(word) : word;
         skipUntil = end;
         return true;
       }
@@ -49,77 +40,168 @@ export function applyKeywordCase(
     },
   );
 
+  return applyContextualPublicCase(output, options);
+}
+
+function applyContextualPublicCase(
+  statement: string,
+  options: NormalizedOptions,
+): string {
+  const tokens = scanTokens(statement);
+  if (tokens.length === 0) return statement;
+
+  const commandStarts: number[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i].depth !== 0) continue;
+    if (tokens[i].upper === "GRANT" || tokens[i].upper === "REVOKE") {
+      commandStarts.push(i);
+    }
+  }
+  if (commandStarts.length === 0) return statement;
+
+  const publicValue = options.keywordCase === "upper" ? "PUBLIC" : "public";
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
+
+  for (let i = 0; i < commandStarts.length; i += 1) {
+    const segmentStart = commandStarts[i];
+    const segmentEnd =
+      i + 1 < commandStarts.length ? commandStarts[i + 1] : tokens.length;
+    const command = tokens[segmentStart].upper;
+
+    if (command === "GRANT") {
+      collectGrantPublic(
+        statement,
+        tokens,
+        segmentStart,
+        segmentEnd,
+        publicValue,
+        replacements,
+      );
+    } else {
+      collectRevokePublic(
+        statement,
+        tokens,
+        segmentStart,
+        segmentEnd,
+        publicValue,
+        replacements,
+      );
+    }
+  }
+
+  if (replacements.length === 0) return statement;
+
+  replacements.sort((a, b) => b.start - a.start);
+  let output = statement;
+  for (const replacement of replacements) {
+    output = `${output.slice(0, replacement.start)}${replacement.value}${output.slice(replacement.end)}`;
+  }
   return output;
 }
 
-function shouldPreserveWordCase(
+function collectGrantPublic(
   statement: string,
-  wordStart: number,
-  settingRanges: Range[],
-): boolean {
-  return (
-    isInsideSettingRange(wordStart, settingRanges) ||
-    isKeyValueLine(statement, wordStart)
+  tokens: Token[],
+  segmentStart: number,
+  segmentEnd: number,
+  publicValue: string,
+  replacements: Array<{ start: number; end: number; value: string }>,
+): void {
+  const toIndex = findTopLevelToken(tokens, segmentStart + 1, segmentEnd, "TO");
+  if (toIndex === -1) return;
+
+  const stopIndex = findFirstTopLevelToken(
+    tokens,
+    toIndex + 1,
+    segmentEnd,
+    new Set(["WITH"]),
   );
-}
+  const granteeEnd = stopIndex === -1 ? segmentEnd : stopIndex;
 
-function isInsideSettingRange(index: number, ranges: Range[]): boolean {
-  return ranges.some((range) => index > range.start && index < range.end);
-}
-
-function isKeyValueLine(statement: string, wordStart: number): boolean {
-  const lineStart = statement.lastIndexOf("\n", wordStart - 1) + 1;
-  const lineEndIndex = statement.indexOf("\n", wordStart);
-  const lineEnd = lineEndIndex === -1 ? statement.length : lineEndIndex;
-  const line = statement.slice(lineStart, lineEnd);
-  return KEY_VALUE_LINE_PATTERN.test(line);
-}
-
-function findSettingParenRanges(statement: string): Range[] {
-  const ranges: Range[] = [];
-  const openParens: number[] = [];
-  let skipUntil = -1;
-  let expectSettingParen = false;
-  let expectSettingParenFrom = -1;
-
-  walkSql(
+  collectPublicReplacements(
     statement,
-    (index, char, depth) => {
-      if (index < skipUntil) return true;
-
-      if (expectSettingParen && index >= expectSettingParenFrom) {
-        if (/\s/.test(char)) return true;
-        if (char === "(" && depth === 0) {
-          openParens.push(index);
-          expectSettingParen = false;
-          return true;
-        }
-        expectSettingParen = false;
-      }
-
-      if (char === ")" && depth === 0 && openParens.length > 0) {
-        const start = openParens.pop()!;
-        ranges.push({ start, end: index + 1 });
-        return true;
-      }
-
-      if (isWordChar(char)) {
-        let end = index + 1;
-        while (end < statement.length && isWordChar(statement[end])) {
-          end += 1;
-        }
-        const upper = statement.slice(index, end).toUpperCase();
-        if (depth === 0 && SETTING_PAREN_KEYWORDS.has(upper)) {
-          expectSettingParen = true;
-          expectSettingParenFrom = end;
-        }
-        skipUntil = end;
-      }
-
-      return true;
-    },
-    { trackDepth: true },
+    tokens,
+    toIndex + 1,
+    granteeEnd,
+    publicValue,
+    replacements,
   );
+}
 
-  return ranges;
+function collectRevokePublic(
+  statement: string,
+  tokens: Token[],
+  segmentStart: number,
+  segmentEnd: number,
+  publicValue: string,
+  replacements: Array<{ start: number; end: number; value: string }>,
+): void {
+  const fromIndex = findTopLevelToken(
+    tokens,
+    segmentStart + 1,
+    segmentEnd,
+    "FROM",
+  );
+  if (fromIndex === -1) return;
+
+  const stopIndex = findFirstTopLevelToken(
+    tokens,
+    fromIndex + 1,
+    segmentEnd,
+    new Set(["CASCADE", "RESTRICT"]),
+  );
+  const granteeEnd = stopIndex === -1 ? segmentEnd : stopIndex;
+
+  collectPublicReplacements(
+    statement,
+    tokens,
+    fromIndex + 1,
+    granteeEnd,
+    publicValue,
+    replacements,
+  );
+}
+
+function collectPublicReplacements(
+  statement: string,
+  tokens: Token[],
+  start: number,
+  end: number,
+  publicValue: string,
+  replacements: Array<{ start: number; end: number; value: string }>,
+): void {
+  for (let i = start; i < end; i += 1) {
+    const token = tokens[i];
+    if (token.depth !== 0 || token.upper !== "PUBLIC") continue;
+    if (isDotAdjacent(statement, token)) continue;
+    replacements.push({ start: token.start, end: token.end, value: publicValue });
+  }
+}
+
+function findTopLevelToken(
+  tokens: Token[],
+  start: number,
+  end: number,
+  upper: string,
+): number {
+  for (let i = start; i < end; i += 1) {
+    if (tokens[i].depth === 0 && tokens[i].upper === upper) return i;
+  }
+  return -1;
+}
+
+function findFirstTopLevelToken(
+  tokens: Token[],
+  start: number,
+  end: number,
+  candidates: Set<string>,
+): number {
+  for (let i = start; i < end; i += 1) {
+    if (tokens[i].depth === 0 && candidates.has(tokens[i].upper)) return i;
+  }
+  return -1;
+}
+
+function isDotAdjacent(statement: string, token: Token): boolean {
+  return statement[token.start - 1] === "." || statement[token.end] === ".";
 }

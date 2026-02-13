@@ -216,6 +216,12 @@ export function formatKeyValueItems(
     let line = items[index].trim();
     if (entry) {
       let key = entry.key;
+      if (options.keywordCase !== "preserve") {
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
+      }
       if (options.alignKeyValues) {
         key = key.padEnd(maxKey);
       }
@@ -302,6 +308,12 @@ export function formatMixedItems(
     let line = items[index].trim();
     if (entry) {
       let key = entry.key;
+      if (options.keywordCase !== "preserve") {
+        key =
+          options.keywordCase === "upper"
+            ? key.toUpperCase()
+            : key.toLowerCase();
+      }
       if (options.alignKeyValues) {
         key = key.padEnd(maxKey);
       }

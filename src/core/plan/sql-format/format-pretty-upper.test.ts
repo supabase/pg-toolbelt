@@ -222,7 +222,7 @@ describe("sql formatting snapshots", () => {
         LC_COLLATE    = 'en_US',
         LC_CTYPE      = 'en_US',
         PROVIDER      = icu,
-        DETERMINISTIC = false,
+        DETERMINISTIC = FALSE,
         RULES         = '& A < a <<< à',
         VERSION       = '1.0'
       );
@@ -249,7 +249,7 @@ describe("sql formatting snapshots", () => {
         created_at timestamptz DEFAULT now(),
         ref_id     BIGINT,
         computed   BIGINT      GENERATED ALWAYS AS (id * 2) STORED
-      ) WITH (fillfactor=70, autovacuum_enabled=false);
+      ) WITH (fillfactor=70, autovacuum_enabled=FALSE);
 
       -- table.drop
       DROP TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test;
@@ -329,7 +329,7 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.set_storage_params
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
-        SET (fillfactor=80, autovacuum_enabled=true);
+        SET (fillfactor=80, autovacuum_enabled=TRUE);
 
       -- table.alter.reset_storage_params
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -394,7 +394,7 @@ describe("sql formatting snapshots", () => {
 
       -- publication.alter.set_options
       ALTER PUBLICATION pub_custom
-        SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = false);
+        SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = FALSE);
 
       -- publication.alter.set_all_tables
       ALTER PUBLICATION pub_custom SET FOR ALL TABLES;
@@ -429,7 +429,7 @@ describe("sql formatting snapshots", () => {
       COMMENT ON PUBLICATION pub_custom IS NULL;
 
       -- view.create
-      CREATE VIEW public.test_view WITH (security_barrier=true, check_option=local) AS SELECT *
+      CREATE VIEW public.test_view WITH (security_barrier=TRUE, check_option=LOCAL) AS SELECT *
       FROM test_table;
 
       -- view.drop
@@ -439,7 +439,7 @@ describe("sql formatting snapshots", () => {
       ALTER VIEW public.test_view OWNER TO new_owner;
 
       -- view.alter.set_options
-      ALTER VIEW public.test_view SET (security_barrier=true, check_option=cascaded);
+      ALTER VIEW public.test_view SET (security_barrier=TRUE, check_option=CASCADED);
 
       -- view.alter.reset_options
       ALTER VIEW public.test_view RESET (security_barrier);
@@ -847,12 +847,12 @@ describe("sql formatting snapshots", () => {
         CONNECTION 'host=primary.db port=5432 dbname=mydb'
         PUBLICATION pub_custom
         WITH (
-          slot_name          = 'sub_replica_slot',
-          binary             = true,
-          streaming          = 'parallel',
-          synchronous_commit = 'remote_apply',
-          disable_on_error   = true,
-          failover           = true
+          SLOT_NAME          = 'sub_replica_slot',
+          BINARY             = TRUE,
+          STREAMING          = 'parallel',
+          SYNCHRONOUS_COMMIT = 'remote_apply',
+          DISABLE_ON_ERROR   = TRUE,
+          FAILOVER           = TRUE
         );
 
       -- subscription.drop
@@ -877,9 +877,9 @@ describe("sql formatting snapshots", () => {
       -- subscription.alter.set_options
       ALTER SUBSCRIPTION sub_replica
         SET (
-          binary             = true,
-          streaming          = 'parallel',
-          synchronous_commit = 'remote_apply'
+          BINARY             = TRUE,
+          STREAMING          = 'parallel',
+          SYNCHRONOUS_COMMIT = 'remote_apply'
         );
 
       -- subscription.alter.set_owner
@@ -1033,13 +1033,13 @@ describe("sql formatting snapshots", () => {
 
       -- user_mapping.create
       CREATE USER MAPPING FOR app_user SERVER remote_server
-        OPTIONS (user 'remote_app', password 'secret123');
+        OPTIONS (USER 'remote_app', PASSWORD 'secret123');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER remote_server;
 
       -- user_mapping.alter.set_options
-      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password 'new_secret');"
+      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET PASSWORD 'new_secret');"
     `);
   });
 });

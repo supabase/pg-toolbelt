@@ -13,72 +13,106 @@ const lowerOpts: NormalizedOptions = {
 };
 
 describe("applyKeywordCase", () => {
-  it("transforms standard keywords", () => {
-    expect(applyKeywordCase("create table my_table", upperOpts))
-      .toMatchInlineSnapshot(`"CREATE TABLE my_table"`);
-    expect(applyKeywordCase("CREATE TABLE my_table", lowerOpts))
-      .toMatchInlineSnapshot(`"create table my_table"`);
+  it("transforms keywords to upper case", () => {
+    const result = applyKeywordCase("create table foo", upperOpts);
+    expect(result).toBe("CREATE TABLE foo");
   });
 
-  it("preserves quoted/comment content", () => {
-    expect(
-      applyKeywordCase("create -- drop table\ntable foo default 'create table'", upperOpts),
-    ).toMatchInlineSnapshot(`
-      "CREATE -- drop table
-      TABLE foo DEFAULT 'create table'"
-    `);
+  it("transforms keywords to lower case", () => {
+    const result = applyKeywordCase("CREATE TABLE foo", lowerOpts);
+    expect(result).toBe("create table foo");
   });
 
-  it("covers expanded lowercase keywords", () => {
-    expect(
-      applyKeywordCase(
-        "REVOKE GRANT OPTION FOR USAGE ON SCHEMA app FROM role_x; PARALLEL SAFE PARALLEL UNSAFE AS RESTRICTIVE RESTRICTED LOGIN NOSUPERUSER CREATEDB;",
-        lowerOpts,
-      ),
-    ).toMatchInlineSnapshot(
-      `"revoke grant option for usage on schema app from role_x; parallel safe parallel unsafe as restrictive restricted login nosuperuser createdb;"`,
+  it("preserves non-keywords in both modes", () => {
+    const upper = applyKeywordCase("create my_table", upperOpts);
+    expect(upper).toBe("CREATE my_table");
+
+    const lower = applyKeywordCase("CREATE my_table", lowerOpts);
+    expect(lower).toBe("create my_table");
+  });
+
+  it("does not transform quoted identifiers", () => {
+    const result = applyKeywordCase('"create" table foo', upperOpts);
+    expect(result).toBe('"create" TABLE foo');
+  });
+
+  it("does not transform content inside single quotes", () => {
+    const result = applyKeywordCase("default 'create table'", upperOpts);
+    expect(result).toBe("DEFAULT 'create table'");
+  });
+
+  it("does not transform content inside comments", () => {
+    const result = applyKeywordCase(
+      "create -- drop table\ntable foo",
+      upperOpts,
     );
+    expect(result).toBe("CREATE -- drop table\nTABLE foo");
   });
 
-  it("does not normalize PUBLIC", () => {
-    expect(applyKeywordCase("GRANT USAGE ON SCHEMA public TO PUBLIC;", lowerOpts))
-      .toMatchInlineSnapshot(`"grant usage on schema public to PUBLIC;"`);
-    expect(applyKeywordCase("GRANT USAGE ON SCHEMA public TO PUBLIC;", upperOpts))
-      .toMatchInlineSnapshot(`"GRANT USAGE ON SCHEMA public TO PUBLIC;"`);
-  });
-
-  it("preserves key=value lines in multiline blocks", () => {
-    const sql = `CREATE COLLATION public.test (
-  LOCALE = 'en_US',
-  DETERMINISTIC = false,
-  VERSION = '1.0'
-)`;
-
-    expect(applyKeywordCase(sql, lowerOpts)).toMatchInlineSnapshot(`
-      "create collation public.test (
-        LOCALE = 'en_US',
-        DETERMINISTIC = false,
-        VERSION = '1.0'
-      )"
-    `);
-    expect(applyKeywordCase(sql, upperOpts)).toMatchInlineSnapshot(`
-      "CREATE COLLATION public.test (
-        LOCALE = 'en_US',
-        DETERMINISTIC = false,
-        VERSION = '1.0'
-      )"
-    `);
-  });
-
-  it("preserves key=value settings inside SET/WITH/OPTIONS/RESET parentheses", () => {
+  it("covers broader PostgreSQL keywords in lower mode", () => {
     const sql =
-      "ALTER PUBLICATION pub_custom SET (publish = 'insert, update', publish_via_partition_root = false)";
-
-    expect(applyKeywordCase(sql, lowerOpts)).toMatchInlineSnapshot(
-      `"alter publication pub_custom set (publish = 'insert, update', publish_via_partition_root = false)"`,
+      "RETURNS BOOLEAN SECURITY DEFINER STABLE FROM ENABLE ROW LEVEL SECURITY PRIMARY KEY REPLICA IDENTITY FULL OWNED BY VALUES OF ALWAYS CURRENT_TIMESTAMP";
+    const result = applyKeywordCase(sql, lowerOpts);
+    expect(result).toBe(
+      "returns boolean security definer stable from enable row level security primary key replica identity full owned by values of always current_timestamp",
     );
-    expect(applyKeywordCase(sql, upperOpts)).toMatchInlineSnapshot(
-      `"ALTER PUBLICATION pub_custom SET (publish = 'insert, update', publish_via_partition_root = false)"`,
+  });
+
+  it("covers SAFE, UNSAFE, and RESTRICTIVE keywords", () => {
+    const sql = "PARALLEL SAFE PARALLEL UNSAFE AS RESTRICTIVE";
+    const lower = applyKeywordCase(sql, lowerOpts);
+    expect(lower).toBe("parallel safe parallel unsafe as restrictive");
+
+    const upper = applyKeywordCase(lower, upperOpts);
+    expect(upper).toBe("PARALLEL SAFE PARALLEL UNSAFE AS RESTRICTIVE");
+  });
+
+  it("normalizes PUBLIC in GRANT/REVOKE grantee positions", () => {
+    const grant = "GRANT USAGE ON SCHEMA public TO PUBLIC;";
+    const revoke = "REVOKE USAGE ON SCHEMA public FROM PUBLIC;";
+
+    expect(applyKeywordCase(grant, lowerOpts)).toBe(
+      "grant usage on schema public to public;",
+    );
+    expect(applyKeywordCase(revoke, lowerOpts)).toBe(
+      "revoke usage on schema public from public;",
+    );
+
+    expect(applyKeywordCase(grant, upperOpts)).toBe(
+      "GRANT USAGE ON SCHEMA public TO PUBLIC;",
+    );
+    expect(applyKeywordCase(revoke, upperOpts)).toBe(
+      "REVOKE USAGE ON SCHEMA public FROM PUBLIC;",
+    );
+  });
+
+  it("normalizes PUBLIC in ALTER DEFAULT PRIVILEGES grant/revoke clauses", () => {
+    const grant =
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA public GRANT SELECT ON TABLES TO PUBLIC;";
+    const revoke =
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA public REVOKE SELECT ON TABLES FROM PUBLIC;";
+
+    expect(applyKeywordCase(grant, lowerOpts)).toBe(
+      "alter default privileges for role app_user in schema public grant select on tables to public;",
+    );
+    expect(applyKeywordCase(revoke, lowerOpts)).toBe(
+      "alter default privileges for role app_user in schema public revoke select on tables from public;",
+    );
+  });
+
+  it("does not rewrite public schema/object identifiers", () => {
+    const schemaGrant = "GRANT USAGE ON SCHEMA public TO app_user;";
+    const tableFrom = "SELECT * FROM PUBLIC.table_name;";
+    const functionCall = "SELECT PUBLIC.fn_name();";
+
+    expect(applyKeywordCase(schemaGrant, upperOpts)).toBe(
+      "GRANT USAGE ON SCHEMA public TO app_user;",
+    );
+    expect(applyKeywordCase(tableFrom, lowerOpts)).toBe(
+      "select * from PUBLIC.table_name;",
+    );
+    expect(applyKeywordCase(functionCall, lowerOpts)).toBe(
+      "select PUBLIC.fn_name();",
     );
   });
 });
