@@ -4,9 +4,7 @@ import { analyzeAndSort } from "./analyze-and-sort.ts";
 import { discoverSqlFiles } from "./ingest/discover.ts";
 import type { AnalyzeResult, Diagnostic } from "./model/types.ts";
 
-const computeCommonBase = async (
-  resolvedRoots: string[],
-): Promise<string> => {
+const computeCommonBase = async (resolvedRoots: string[]): Promise<string> => {
   if (resolvedRoots.length === 0) {
     return process.cwd();
   }
@@ -15,9 +13,7 @@ const computeCommonBase = async (
   const dirs: string[] = [];
   for (const root of resolvedRoots) {
     const rootStats = await stat(root).catch(() => undefined);
-    dirs.push(
-      rootStats?.isFile() ? path.dirname(root) : root,
-    );
+    dirs.push(rootStats?.isFile() ? path.dirname(root) : root);
   }
 
   if (dirs.length === 1) {
