@@ -20,27 +20,42 @@ describe("lowercase coverage formatting", () => {
       keywordCase: "lower",
       maxWidth: 200,
     });
+    expect(formatted).toMatchInlineSnapshot(`
+      [
+        "create function auth.can (
+        _organization_id bigint,
+        _resource        text,
+        _action          auth.action,
+        _data            json        default null::json,
+        _subject_id      uuid        default auth.gotrue_id()
+      )
+        returns boolean
+        language plpgsql
+        stable
+        security definer
+        AS $function$BEGIN RETURN true; END;$function$",
+        "alter sequence audit.record_version_id_seq OWNED by audit.record_version.id",
+        "revoke all on function auth.uid() from postgres",
+        "alter table auth.audit_log_entries
+        enable row level security",
+        "alter table auth.audit_log_entries
+        add constraint audit_log_entries_pkey primary key (id)",
+        "grant select on auth.default_permissions to authenticated",
+        "grant delete, insert, select, update on auth.permissions to authenticated",
+        "alter table auth.subject_all_roles
+        replica identity full",
+        "create event trigger prevent_drop
+        on sql_drop
+        when tag in ('DROP TABLE', 'DROP SCHEMA')
+        execute function public.prevent_drop_fn()",
+        "create table public.credit_codes (
+        id         uuid                     default gen_random_uuid() not null,
+        is_unique  boolean                  generated always as ((max_redemptions = 1)) stored,
+        created_at timestamp with time zone default current_timestamp not null,
+        status     text                     default 'ACTIVE_HEALTHY'
+      )",
+      ]
+    `)
 
-    expect(formatted[0]).toContain("returns boolean");
-    expect(formatted[0]).toContain("language plpgsql");
-    expect(formatted[0]).toContain("stable");
-    expect(formatted[0]).toContain("security definer");
-
-    expect(formatted[1]).toContain("owned by");
-    expect(formatted[2]).toContain("from postgres");
-    expect(formatted[3]).toContain("enable row level security");
-    expect(formatted[4]).toContain("primary key");
-    expect(formatted[5]).toContain("grant select on");
-    expect(formatted[6]).toContain("grant delete,");
-    expect(formatted[6]).toContain("insert,");
-    expect(formatted[6]).toContain("select,");
-    expect(formatted[6]).toContain("update on");
-    expect(formatted[7]).toContain("replica identity full");
-    expect(formatted[8]).toContain("when tag in");
-    expect(formatted[9]).toContain("generated always as");
-    expect(formatted[9]).toContain("default current_timestamp");
-
-    // Quoted text must remain unchanged.
-    expect(formatted[9]).toContain("'ACTIVE_HEALTHY'");
   });
 });

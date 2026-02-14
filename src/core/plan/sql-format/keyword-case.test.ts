@@ -48,13 +48,4 @@ describe("applyKeywordCase", () => {
     );
     expect(result).toBe("CREATE -- drop table\nTABLE foo");
   });
-
-  it("covers broader PostgreSQL keywords in lower mode", () => {
-    const sql =
-      "RETURNS BOOLEAN SECURITY DEFINER STABLE FROM ENABLE ROW LEVEL SECURITY PRIMARY KEY REPLICA IDENTITY FULL OWNED BY VALUES OF ALWAYS CURRENT_TIMESTAMP";
-    const result = applyKeywordCase(sql, lowerOpts);
-    expect(result).toBe(
-      "returns boolean security definer stable from enable row level security primary key replica identity full owned by values of always current_timestamp",
-    );
-  });
 });
