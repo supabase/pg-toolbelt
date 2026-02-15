@@ -386,7 +386,7 @@ describe("sql formatting snapshots", () => {
         public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit (
         id,
         title
-      ) WHERE (published = TRUE),
+      ) WHERE (published = true),
         TABLE public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN SCHEMA analytics;
 
       -- publication.drop
@@ -403,7 +403,7 @@ describe("sql formatting snapshots", () => {
       ALTER PUBLICATION pub_custom
         SET TABLE
         public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit
-        (id, title) WHERE (published = TRUE),
+        (id, title) WHERE (published = true),
         TABLE public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN SCHEMA analytics;
 
       -- publication.alter.add_tables

@@ -9,6 +9,7 @@ describe("protectSegments", () => {
     expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
     expect(result.text).not.toContain("BEGIN NULL");
     expect(result.placeholders.size).toBeGreaterThan(0);
+    expect(result.skipPostProcess).toBe(false);
   });
 
   it("protects view body after AS", () => {
@@ -50,6 +51,45 @@ Enhanced wrapper method for the primary auth.can() function. Utilize this wrappe
     expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
     const restored = restorePlaceholders(result.text, result.placeholders);
     expect(restored).toBe(sql);
+  });
+
+  it("preserves backslash-escaped quotes in E strings", () => {
+    const sql =
+      "COMMENT ON FUNCTION public.fn() IS E'keep \\'quote\\' exact';";
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
+    const restored = restorePlaceholders(result.text, result.placeholders);
+    expect(restored).toBe(sql);
+    expect(result.skipPostProcess).toBe(false);
+  });
+
+  it("preserves backslash-escaped quotes in U& strings", () => {
+    const sql =
+      "COMMENT ON FUNCTION public.fn() IS U&'keep \\'quote\\' exact';";
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
+    const restored = restorePlaceholders(result.text, result.placeholders);
+    expect(restored).toBe(sql);
+    expect(result.skipPostProcess).toBe(false);
+  });
+
+  it("flags malformed escape-string comments as unsafe for post-processing", () => {
+    const sql = "COMMENT ON FUNCTION public.fn() IS E'unterminated \\'";
+    const result = protectSegments(sql, DEFAULT_OPTIONS);
+    expect(result.text).toBe(sql);
+    expect(result.placeholders.size).toBe(0);
+    expect(result.skipPostProcess).toBe(true);
+  });
+
+  it("flags unterminated dollar-quoted content as unsafe for post-processing", () => {
+    const sql = "CREATE FUNCTION public.fn() RETURNS text AS $fn$select 1";
+    const result = protectSegments(sql, {
+      ...DEFAULT_OPTIONS,
+      preserveRoutineBodies: false,
+      preserveViewBodies: false,
+      preserveRuleBodies: false,
+    });
+    expect(result.skipPostProcess).toBe(true);
   });
 
   it("does not protect COMMENT ... IS NULL", () => {

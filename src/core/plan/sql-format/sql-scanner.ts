@@ -45,6 +45,38 @@ export function isWordChar(char: string): boolean {
 }
 
 /**
+ * Return true when the single quote at `quoteIndex` starts a PostgreSQL
+ * escape string literal (`E'...'` or `U&'...'`).
+ */
+export function isEscapeStringQuoteStart(
+  text: string,
+  quoteIndex: number,
+): boolean {
+  if (text[quoteIndex] !== "'") return false;
+
+  const prev = text[quoteIndex - 1];
+  const prev2 = text[quoteIndex - 2];
+  const prev3 = text[quoteIndex - 3];
+
+  if (
+    (prev === "E" || prev === "e") &&
+    (prev2 === undefined || !isWordChar(prev2))
+  ) {
+    return true;
+  }
+
+  if (
+    prev === "&" &&
+    (prev2 === "U" || prev2 === "u") &&
+    (prev3 === undefined || !isWordChar(prev3))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Read a dollar-quote tag starting at `start` (which must be `$`).
  * Returns the full tag including both `$` delimiters, e.g. `$$` or `$fn$`.
  */
@@ -82,6 +114,7 @@ export function walkSql(
   const onSkipped = options?.onSkipped;
 
   let inSingleQuote = false;
+  let singleQuoteEscapeMode = false;
   let inDoubleQuote = false;
   let inLineComment = false;
   let inBlockComment = false;
@@ -129,6 +162,16 @@ export function walkSql(
 
     // --- Inside single-quoted string ---
     if (inSingleQuote) {
+      if (singleQuoteEscapeMode && char === "\\") {
+        if (next !== undefined) {
+          onSkipped?.(`\\${next}`);
+          i += 2;
+        } else {
+          onSkipped?.(char);
+          i += 1;
+        }
+        continue;
+      }
       if (char === "'") {
         if (next === "'") {
           onSkipped?.("''");
@@ -136,6 +179,7 @@ export function walkSql(
           continue;
         }
         inSingleQuote = false;
+        singleQuoteEscapeMode = false;
       }
       onSkipped?.(char);
       i += 1;
@@ -172,6 +216,7 @@ export function walkSql(
     }
     if (char === "'") {
       inSingleQuote = true;
+      singleQuoteEscapeMode = isEscapeStringQuoteStart(text, i);
       onSkipped?.(char);
       i += 1;
       continue;

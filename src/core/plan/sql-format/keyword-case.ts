@@ -1,12 +1,161 @@
-import { KEYWORDS } from "./constants.ts";
 import { parseDefinitionItem } from "./format-utils.ts";
 import { isWordChar, walkSql } from "./sql-scanner.ts";
 import { findTopLevelParen, scanTokens, skipQualifiedName } from "./tokenizer.ts";
+import type { Token } from "./types.ts";
 import type { NormalizedOptions } from "./types.ts";
 
 type Range = { start: number; end: number };
+type ProtectedRangeResult = { ranges: Range[]; unsafe: boolean };
 
 const OPTION_LIST_KEYWORDS = new Set(["WITH", "SET", "OPTIONS", "RESET"]);
+const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
+  "ADD",
+  "AGGREGATE",
+  "ALL",
+  "ALTER",
+  "ALWAYS",
+  "AS",
+  "ATTRIBUTE",
+  "AUTHORIZATION",
+  "BY",
+  "CACHE",
+  "CALLED",
+  "CASCADE",
+  "CHECK",
+  "COLLATE",
+  "COLLATION",
+  "COLUMN",
+  "COMMENT",
+  "CONNECTION",
+  "CONSTRAINT",
+  "COST",
+  "CREATE",
+  "CREATEDB",
+  "CURRENT_TIMESTAMP",
+  "CYCLE",
+  "DATA",
+  "DEFAULT",
+  "DEFERRED",
+  "DEFINER",
+  "DELETE",
+  "DISABLE",
+  "DO",
+  "DOMAIN",
+  "DROP",
+  "EACH",
+  "ENABLE",
+  "END",
+  "ENUM",
+  "EVENT",
+  "EXECUTE",
+  "EXISTS",
+  "EXTENSION",
+  "FOR",
+  "FOREIGN",
+  "FROM",
+  "FULL",
+  "FUNCTION",
+  "GENERATED",
+  "GRANT",
+  "HANDLER",
+  "IDENTITY",
+  "IF",
+  "IMMUTABLE",
+  "IN",
+  "INDEX",
+  "INCREMENT",
+  "INHERITS",
+  "INITIALLY",
+  "INLINE",
+  "INSERT",
+  "IS",
+  "KEY",
+  "LANGUAGE",
+  "LEAKPROOF",
+  "LEVEL",
+  "LOGIN",
+  "MATERIALIZED",
+  "MAXVALUE",
+  "MATCH",
+  "MINVALUE",
+  "NO",
+  "NOSUPERUSER",
+  "NOT",
+  "NULL",
+  "OF",
+  "ON",
+  "ONLY",
+  "OPTION",
+  "OPTIONS",
+  "OR",
+  "OWNED",
+  "OWNER",
+  "PERMISSIVE",
+  "PARALLEL",
+  "PARTITION",
+  "POLICY",
+  "PRIMARY",
+  "PROCEDURE",
+  "PUBLICATION",
+  "PRIVILEGES",
+  "RANGE",
+  "REFRESH",
+  "REFERENCES",
+  "REPLACE",
+  "REPLICA",
+  "RESET",
+  "RESTRICT",
+  "RESTRICTED",
+  "RESTRICTIVE",
+  "RETURNS",
+  "REVOKE",
+  "ROLE",
+  "ROW",
+  "ROWS",
+  "RULE",
+  "SAFE",
+  "SCHEMA",
+  "SECURITY",
+  "SELECT",
+  "SEQUENCE",
+  "SERVER",
+  "SET",
+  "STABLE",
+  "STORED",
+  "STRICT",
+  "SUBSCRIPTION",
+  "SUPPORT",
+  "TABLE",
+  "TABLES",
+  "TABLESPACE",
+  "TAG",
+  "TEMP",
+  "TEMPORARY",
+  "TO",
+  "TRIGGER",
+  "TRUSTED",
+  "TYPE",
+  "UNIQUE",
+  "UNLOGGED",
+  "UNSAFE",
+  "UPDATE",
+  "USER",
+  "USAGE",
+  "USING",
+  "VALIDATE",
+  "VALID",
+  "VALUES",
+  "VERSION",
+  "VIEW",
+  "VOLATILE",
+  "WHEN",
+  "WHERE",
+  "WINDOW",
+  "WITH",
+  "WITHOUT",
+  "WRAPPER",
+  "MAPPING",
+]);
 const ALTER_TYPE_BOUNDARY_KEYWORDS = new Set([
   "COLLATE",
   "USING",
@@ -19,11 +168,17 @@ export function applyKeywordCase(
   statement: string,
   options: NormalizedOptions,
 ): string {
+  const tokens = scanTokens(statement);
   const transform =
     options.keywordCase === "upper"
       ? (value: string) => value.toUpperCase()
       : (value: string) => value.toLowerCase();
-  const protectedRanges = collectProtectedRanges(statement);
+  const protectedResult = collectProtectedRanges(statement, tokens);
+  if (protectedResult.unsafe) {
+    return statement;
+  }
+  const protectedRanges = protectedResult.ranges;
+  const caseableTokenStarts = collectCaseableTokenStarts(statement, tokens);
 
   let output = "";
   let skipUntil = -1;
@@ -45,15 +200,11 @@ export function applyKeywordCase(
           end += 1;
         }
         const word = statement.slice(index, end);
-        const upper = word.toUpperCase();
         const range = protectedRanges[rangeIndex];
         const isProtected =
           range !== undefined && range.start < end && index < range.end;
-        output += isProtected
-          ? word
-          : KEYWORDS.has(upper)
-            ? transform(word)
-            : word;
+        const shouldCase = !isProtected && caseableTokenStarts.has(index);
+        output += shouldCase ? transform(word) : word;
         skipUntil = end;
         return true;
       }
@@ -70,40 +221,272 @@ export function applyKeywordCase(
   return output;
 }
 
-function collectProtectedRanges(statement: string): Range[] {
-  const tokens = scanTokens(statement);
-  if (tokens.length === 0) return [];
+function collectCaseableTokenStarts(
+  statement: string,
+  tokens: ReturnType<typeof scanTokens>,
+): Set<number> {
+  const caseable = new Set<number>();
 
+  const topLevelTokens: Array<{ token: Token; index: number }> = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i].depth === 0) {
+      topLevelTokens.push({ token: tokens[i], index: i });
+    }
+  }
+  if (topLevelTokens.length === 0) return caseable;
+
+  const command = topLevelTokens[0].token.upper;
+  const objectNameTokenIndexes = new Set<number>();
+  for (let topIndex = 0; topIndex < topLevelTokens.length; topIndex += 1) {
+    if (isLikelyObjectNameToken(command, topLevelTokens, topIndex)) {
+      objectNameTokenIndexes.add(topLevelTokens[topIndex].index);
+    }
+  }
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const upper = token.upper;
+    if (!STRUCTURAL_TOP_LEVEL_KEYWORDS.has(upper)) continue;
+    if (objectNameTokenIndexes.has(index)) continue;
+    if (isQualifiedIdentifierToken(statement, token)) continue;
+
+    const prev = tokens[index - 1]?.upper;
+    if (!isCaseableInContext(command, upper, prev)) continue;
+
+    caseable.add(token.start);
+  }
+
+  return caseable;
+}
+
+function isLikelyObjectNameToken(
+  command: string,
+  topLevelTokens: Array<{ token: Token; index: number }>,
+  topIndex: number,
+): boolean {
+  if (command === "CREATE") {
+    let cursor = 1;
+    if (
+      topLevelTokens[cursor]?.token.upper === "OR" &&
+      topLevelTokens[cursor + 1]?.token.upper === "REPLACE"
+    ) {
+      cursor += 2;
+    }
+    if (
+      topLevelTokens[cursor]?.token.upper === "TEMP" ||
+      topLevelTokens[cursor]?.token.upper === "TEMPORARY" ||
+      topLevelTokens[cursor]?.token.upper === "UNLOGGED"
+    ) {
+      cursor += 1;
+    }
+    const shape = readObjectShape(topLevelTokens, cursor);
+    if (!shape.hasDirectName) {
+      return false;
+    }
+
+    let nameIndex = shape.objectEnd + 1;
+    if (
+      topLevelTokens[nameIndex]?.token.upper === "IF" &&
+      topLevelTokens[nameIndex + 1]?.token.upper === "NOT" &&
+      topLevelTokens[nameIndex + 2]?.token.upper === "EXISTS"
+    ) {
+      nameIndex += 3;
+    }
+
+    return topIndex === nameIndex;
+  }
+
+  if (command === "DROP") {
+    const shape = readObjectShape(topLevelTokens, 1);
+    if (!shape.hasDirectName) {
+      return false;
+    }
+    let nameIndex = shape.objectEnd + 1;
+    if (
+      topLevelTokens[nameIndex]?.token.upper === "IF" &&
+      topLevelTokens[nameIndex + 1]?.token.upper === "EXISTS"
+    ) {
+      nameIndex += 2;
+    }
+    return topIndex === nameIndex;
+  }
+
+  if (command === "ALTER") {
+    const shape = readObjectShape(topLevelTokens, 1);
+    if (!shape.hasDirectName) {
+      return false;
+    }
+    let nameIndex = shape.objectEnd + 1;
+
+    if (
+      topLevelTokens[nameIndex]?.token.upper === "IF" &&
+      topLevelTokens[nameIndex + 1]?.token.upper === "EXISTS"
+    ) {
+      nameIndex += 2;
+    }
+    if (topLevelTokens[nameIndex]?.token.upper === "ONLY") {
+      nameIndex += 1;
+    }
+    return topIndex === nameIndex;
+  }
+
+  if (command === "COMMENT") {
+    const onIndex = findTopLevelIndex(topLevelTokens, "ON");
+    if (onIndex < 0) return false;
+    const shape = readObjectShape(topLevelTokens, onIndex + 1);
+    if (!shape.hasDirectName) {
+      return false;
+    }
+    return topIndex === shape.objectEnd + 1;
+  }
+
+  return false;
+}
+
+function isCaseableInContext(
+  command: string,
+  upper: string,
+  prev: string | undefined,
+): boolean {
+  if (command === "COMMENT") {
+    return (
+      upper === "COMMENT" ||
+      upper === "ON" ||
+      upper === "IS" ||
+      upper === "NULL" ||
+      prev === "ON" ||
+      (prev === "MATERIALIZED" && upper === "VIEW") ||
+      (prev === "FOREIGN" && upper === "TABLE") ||
+      (prev === "EVENT" && upper === "TRIGGER")
+    );
+  }
+
+  if (upper === "SAFE" || upper === "UNSAFE" || upper === "RESTRICTED") {
+    return prev === "PARALLEL";
+  }
+  if (upper === "RESTRICTIVE" || upper === "PERMISSIVE") {
+    return prev === "AS";
+  }
+  if (upper === "DEFINER") {
+    return prev === "SECURITY";
+  }
+  if (upper === "LEVEL") {
+    return prev === "ROW";
+  }
+  if (upper === "KEY") {
+    return prev === "PRIMARY" || prev === "FOREIGN";
+  }
+  if (upper === "IDENTITY") {
+    return prev === "REPLICA" || prev === "AS";
+  }
+  if (upper === "OR") {
+    return command === "CREATE" && prev === "CREATE";
+  }
+  if (upper === "REPLACE") {
+    return prev === "OR";
+  }
+  if (upper === "AS" && command === "CREATE") {
+    return true;
+  }
+
+  return true;
+}
+
+function isQualifiedIdentifierToken(statement: string, token: Token): boolean {
+  if (token.upper === "NEW" || token.upper === "OLD") {
+    return false;
+  }
+  const before = statement[token.start - 1];
+  const after = statement[token.end];
+  return before === "." || after === ".";
+}
+
+function findTopLevelIndex(
+  topLevelTokens: Array<{ token: Token; index: number }>,
+  keyword: string,
+): number {
+  for (let i = 0; i < topLevelTokens.length; i += 1) {
+    if (topLevelTokens[i].token.upper === keyword) return i;
+  }
+  return -1;
+}
+
+function readObjectShape(
+  topLevelTokens: Array<{ token: Token; index: number }>,
+  start: number,
+): { objectEnd: number; hasDirectName: boolean } {
+  const first = topLevelTokens[start]?.token.upper;
+  const second = topLevelTokens[start + 1]?.token.upper;
+  const third = topLevelTokens[start + 2]?.token.upper;
+
+  if (!first) {
+    return { objectEnd: start, hasDirectName: false };
+  }
+  if (first === "FOREIGN" && second === "DATA" && third === "WRAPPER") {
+    return { objectEnd: start + 2, hasDirectName: true };
+  }
+  if (first === "FOREIGN" && second === "TABLE") {
+    return { objectEnd: start + 1, hasDirectName: true };
+  }
+  if (first === "MATERIALIZED" && second === "VIEW") {
+    return { objectEnd: start + 1, hasDirectName: true };
+  }
+  if (first === "EVENT" && second === "TRIGGER") {
+    return { objectEnd: start + 1, hasDirectName: true };
+  }
+  if (first === "USER" && second === "MAPPING") {
+    return { objectEnd: start + 1, hasDirectName: false };
+  }
+  if (first === "DEFAULT" && second === "PRIVILEGES") {
+    return { objectEnd: start + 1, hasDirectName: false };
+  }
+
+  return { objectEnd: start, hasDirectName: true };
+}
+
+function collectProtectedRanges(
+  statement: string,
+  tokens: ReturnType<typeof scanTokens>,
+): ProtectedRangeResult {
+  if (tokens.length === 0) return { ranges: [], unsafe: false };
   const ranges: Range[] = [];
-  collectCheckClauseRanges(statement, tokens, ranges);
-  collectOptionAssignmentRanges(statement, tokens, ranges);
+  let unsafe = false;
+
+  unsafe = collectCheckClauseRanges(statement, tokens, ranges) || unsafe;
+  unsafe = collectOptionAssignmentRanges(statement, tokens, ranges) || unsafe;
   collectDefinitionRanges(statement, tokens, ranges);
-  return mergeRanges(ranges);
+
+  return { ranges: mergeRanges(ranges), unsafe };
 }
 
 function collectCheckClauseRanges(
   statement: string,
   tokens: ReturnType<typeof scanTokens>,
   ranges: Range[],
-): void {
+): boolean {
+  let unsafe = false;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
-    if (token.depth !== 0 || token.upper !== "CHECK") continue;
+    if (token.upper !== "CHECK") continue;
 
     const open = findImmediateParen(statement, token.end);
     if (open < 0) continue;
 
     const close = findMatchingParen(statement, open);
-    if (close < 0) continue;
+    if (close < 0) {
+      unsafe = true;
+      continue;
+    }
 
+    const clauseDepth = token.depth;
     let end = close + 1;
-    const nextIndex = findTopLevelTokenAtOrAfter(tokens, end, i + 1);
+    const nextIndex = findTokenAtDepthAtOrAfter(tokens, end, i + 1, clauseDepth);
     const noToken = nextIndex >= 0 ? tokens[nextIndex] : undefined;
     const inheritToken = nextIndex >= 0 ? tokens[nextIndex + 1] : undefined;
     if (
-      noToken?.depth === 0 &&
+      noToken?.depth === clauseDepth &&
       noToken.upper === "NO" &&
-      inheritToken?.depth === 0 &&
+      inheritToken?.depth === clauseDepth &&
       inheritToken.upper === "INHERIT"
     ) {
       end = inheritToken.end;
@@ -111,38 +494,52 @@ function collectCheckClauseRanges(
 
     ranges.push({ start: token.start, end });
   }
+
+  return unsafe;
 }
 
 function collectOptionAssignmentRanges(
   statement: string,
   tokens: ReturnType<typeof scanTokens>,
   ranges: Range[],
-): void {
+): boolean {
+  let unsafe = false;
   for (const token of tokens) {
     if (token.depth !== 0 || !OPTION_LIST_KEYWORDS.has(token.upper)) continue;
     const open = findImmediateParen(statement, token.end);
     if (open < 0) continue;
     const close = findMatchingParen(statement, open);
-    if (close < 0) continue;
-    collectAssignmentItemRanges(statement, open, close, ranges);
+    if (close < 0) {
+      unsafe = true;
+      continue;
+    }
+    if (token.upper === "OPTIONS") {
+      collectAllOptionItemRanges(statement, open, close, ranges);
+    } else {
+      collectAssignmentItemRanges(statement, open, close, ranges);
+    }
   }
 
-  collectCreateOptionBlockAssignmentRanges(statement, tokens, ranges);
+  unsafe =
+    collectCreateOptionBlockAssignmentRanges(statement, tokens, ranges) || unsafe;
+
+  return unsafe;
 }
 
 function collectCreateOptionBlockAssignmentRanges(
   statement: string,
   tokens: ReturnType<typeof scanTokens>,
   ranges: Range[],
-): void {
-  if (tokens[0]?.upper !== "CREATE") return;
+): boolean {
+  let unsafe = false;
+  if (tokens[0]?.upper !== "CREATE") return false;
 
   if (tokens[1]?.upper === "COLLATION") {
     const parens = findTopLevelParen(statement, tokens[1].end);
     if (parens) {
       collectAssignmentItemRanges(statement, parens.open, parens.close, ranges);
     }
-    return;
+    return unsafe;
   }
 
   if (tokens[1]?.upper === "TYPE") {
@@ -159,19 +556,23 @@ function collectCreateOptionBlockAssignmentRanges(
           parens.close,
           ranges,
         );
+      } else {
+        unsafe = true;
       }
-      return;
+      return unsafe;
     }
-    return;
+    return unsafe;
   }
 
   if (tokens[1]?.upper === "AGGREGATE") {
     const argParens = findTopLevelParen(statement, tokens[1].end);
-    if (!argParens) return;
+    if (!argParens) return true;
     const optParens = findTopLevelParen(statement, argParens.close + 1);
-    if (!optParens) return;
+    if (!optParens) return true;
     collectAssignmentItemRanges(statement, optParens.open, optParens.close, ranges);
   }
+
+  return unsafe;
 }
 
 function collectAssignmentItemRanges(
@@ -190,6 +591,20 @@ function collectAssignmentItemRanges(
     const value = item.text.slice(equalsIndex + 1).trim();
     if (key.length === 0 || value.length === 0) continue;
 
+    ranges.push({ start: item.start, end: item.end });
+  }
+}
+
+function collectAllOptionItemRanges(
+  statement: string,
+  open: number,
+  close: number,
+  ranges: Range[],
+): void {
+  const content = statement.slice(open + 1, close);
+  const items = splitTopLevelCommaItems(content, open + 1);
+  for (const item of items) {
+    if (item.text.trim().length === 0) continue;
     ranges.push({ start: item.start, end: item.end });
   }
 }
@@ -545,13 +960,14 @@ function findMatchingParen(statement: string, open: number): number {
   return close;
 }
 
-function findTopLevelTokenAtOrAfter(
+function findTokenAtDepthAtOrAfter(
   tokens: ReturnType<typeof scanTokens>,
   position: number,
   startIndex: number,
+  depth: number,
 ): number {
   for (let i = startIndex; i < tokens.length; i += 1) {
-    if (tokens[i].depth === 0 && tokens[i].start >= position) return i;
+    if (tokens[i].depth === depth && tokens[i].start >= position) return i;
   }
   return -1;
 }

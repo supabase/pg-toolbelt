@@ -130,15 +130,17 @@ function formatStatement(
     formatAlterGeneric(protectedSegments.text, tokens, options) ??
     formatGeneric(protectedSegments.text, tokens, options);
 
-  if (options.keywordCase !== "preserve") {
+  if (!protectedSegments.skipPostProcess && options.keywordCase !== "preserve") {
     formatted = applyKeywordCase(formatted, options);
   }
 
-  formatted = wrapStatement(
-    formatted,
-    options,
-    protectedSegments.noWrapPlaceholders,
-  );
+  if (!protectedSegments.skipPostProcess) {
+    formatted = wrapStatement(
+      formatted,
+      options,
+      protectedSegments.noWrapPlaceholders,
+    );
+  }
   formatted = restorePlaceholders(formatted, protectedSegments.placeholders);
 
   if (commentLines.length > 0) {

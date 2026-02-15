@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isWordChar, readDollarTag, walkSql } from "./sql-scanner.ts";
+import {
+  isEscapeStringQuoteStart,
+  isWordChar,
+  readDollarTag,
+  walkSql,
+} from "./sql-scanner.ts";
 
 describe("isWordChar", () => {
   it("returns true for letters, digits, and underscore", () => {
@@ -41,6 +46,18 @@ describe("readDollarTag", () => {
   });
 });
 
+describe("isEscapeStringQuoteStart", () => {
+  it("detects E and U& escape-string prefixes", () => {
+    expect(isEscapeStringQuoteStart("E'abc'", 1)).toBe(true);
+    expect(isEscapeStringQuoteStart("u&'abc'", 2)).toBe(true);
+  });
+
+  it("does not treat plain strings as escape strings", () => {
+    expect(isEscapeStringQuoteStart("'abc'", 0)).toBe(false);
+    expect(isEscapeStringQuoteStart("fooe'abc'", 4)).toBe(false);
+  });
+});
+
 describe("walkSql", () => {
   it("skips single-quoted strings", () => {
     const chars: string[] = [];
@@ -58,6 +75,24 @@ describe("walkSql", () => {
       return true;
     });
     expect(chars.join("")).toBe("a  b");
+  });
+
+  it("skips E strings with backslash-escaped quotes", () => {
+    const chars: string[] = [];
+    walkSql("a E'it\\'s still quoted' b", (_, char) => {
+      chars.push(char);
+      return true;
+    });
+    expect(chars.join("")).toBe("a E b");
+  });
+
+  it("skips U& strings with backslash-escaped quotes", () => {
+    const chars: string[] = [];
+    walkSql("a U&'it\\'s still quoted' b", (_, char) => {
+      chars.push(char);
+      return true;
+    });
+    expect(chars.join("")).toBe("a U& b");
   });
 
   it("skips double-quoted identifiers", () => {

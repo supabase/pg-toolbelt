@@ -27,4 +27,5 @@ export type ProtectedSegments = {
   text: string;
   placeholders: Map<string, string>;
   noWrapPlaceholders: Set<string>;
+  skipPostProcess: boolean;
 };

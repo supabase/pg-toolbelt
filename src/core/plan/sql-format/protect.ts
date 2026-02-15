@@ -1,4 +1,4 @@
-import { readDollarTag } from "./sql-scanner.ts";
+import { isEscapeStringQuoteStart, readDollarTag } from "./sql-scanner.ts";
 import { scanTokens } from "./tokenizer.ts";
 import type { NormalizedOptions, ProtectedSegments, Token } from "./types.ts";
 
@@ -6,6 +6,7 @@ type ProtectState = {
   placeholders: Map<string, string>;
   noWrapPlaceholders: Set<string>;
   counter: number;
+  skipPostProcess: boolean;
 };
 
 export function protectSegments(
@@ -15,54 +16,44 @@ export function protectSegments(
   let text = statement;
   const placeholders = new Map<string, string>();
   const noWrapPlaceholders = new Set<string>();
-  let counter = 0;
+  const state: ProtectState = {
+    placeholders,
+    noWrapPlaceholders,
+    counter: 0,
+    skipPostProcess: false,
+  };
 
   if (options.preserveRoutineBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["FUNCTION", "PROCEDURE"], {
-      placeholders,
-      noWrapPlaceholders,
-      counter,
-    }));
+    ({ text } = protectTailAfterAs(text, ["FUNCTION", "PROCEDURE"], state));
   }
 
   if (options.preserveViewBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["VIEW"], {
-      placeholders,
-      noWrapPlaceholders,
-      counter,
-    }));
+    ({ text } = protectTailAfterAs(text, ["VIEW"], state));
   }
 
   if (options.preserveRuleBodies) {
-    ({ text, counter } = protectTailAfterAs(text, ["RULE"], {
-      placeholders,
-      noWrapPlaceholders,
-      counter,
-    }));
+    ({ text } = protectTailAfterAs(text, ["RULE"], state));
   }
 
-  ({ text, counter } = protectCommentLiteral(text, {
+  ({ text } = protectCommentLiteral(text, state));
+
+  ({ text } = protectDollarQuotes(text, state));
+
+  return {
+    text,
     placeholders,
     noWrapPlaceholders,
-    counter,
-  }));
-
-  ({ text, counter } = protectDollarQuotes(text, {
-    placeholders,
-    noWrapPlaceholders,
-    counter,
-  }));
-
-  return { text, placeholders, noWrapPlaceholders };
+    skipPostProcess: state.skipPostProcess,
+  };
 }
 
 function protectTailAfterAs(
   text: string,
   objectKeywords: string[],
   state: ProtectState,
-): { text: string; counter: number } {
+): { text: string } {
   const tokens = scanTokens(text);
-  if (tokens.length === 0) return { text, counter: state.counter };
+  if (tokens.length === 0) return { text };
 
   for (let i = 0; i < tokens.length; i += 1) {
     if (tokens[i].upper !== "CREATE") continue;
@@ -105,39 +96,40 @@ function protectTailAfterAs(
     state.placeholders.set(placeholder, text.slice(asToken.start));
     state.noWrapPlaceholders.add(placeholder);
     const updated = `${text.slice(0, asToken.start)}${placeholder}`;
-    return { text: updated, counter: state.counter };
+    return { text: updated };
   }
 
-  return { text, counter: state.counter };
+  return { text };
 }
 
 function protectCommentLiteral(
   text: string,
   state: ProtectState,
-): { text: string; counter: number } {
+): { text: string } {
   const tokens = scanTokens(text);
-  if (tokens.length < 4) return { text, counter: state.counter };
+  if (tokens.length < 4) return { text };
   if (tokens[0].upper !== "COMMENT" || tokens[1].upper !== "ON") {
-    return { text, counter: state.counter };
+    return { text };
   }
 
   const isToken = tokens
     .slice(2)
     .find((token) => token.depth === 0 && token.upper === "IS");
-  if (!isToken) return { text, counter: state.counter };
+  if (!isToken) return { text };
 
   let literalStart = isToken.end;
   while (literalStart < text.length && /\s/.test(text[literalStart])) {
     literalStart += 1;
   }
-  if (literalStart >= text.length) return { text, counter: state.counter };
+  if (literalStart >= text.length) return { text };
 
   if (/^NULL\b/i.test(text.slice(literalStart))) {
-    return { text, counter: state.counter };
+    return { text };
   }
 
   const first = text[literalStart];
   let quoteStart = -1;
+  let isEscapeString = false;
   if (first === "'") {
     quoteStart = literalStart;
   } else if (
@@ -145,19 +137,26 @@ function protectCommentLiteral(
     text[literalStart + 1] === "'"
   ) {
     quoteStart = literalStart + 1;
+    isEscapeString = true;
   } else if (
     (first === "U" || first === "u") &&
     text[literalStart + 1] === "&" &&
     text[literalStart + 2] === "'"
   ) {
     quoteStart = literalStart + 2;
+    isEscapeString = true;
   } else {
-    return { text, counter: state.counter };
+    return { text };
   }
 
   let literalEnd = -1;
   let cursor = quoteStart + 1;
   while (cursor < text.length) {
+    if (isEscapeString && text[cursor] === "\\") {
+      const hasEscapedChar = cursor + 1 < text.length;
+      cursor += hasEscapedChar ? 2 : 1;
+      continue;
+    }
     if (text[cursor] === "'") {
       if (text[cursor + 1] === "'") {
         cursor += 2;
@@ -169,22 +168,24 @@ function protectCommentLiteral(
     cursor += 1;
   }
   if (literalEnd === -1) {
-    return { text, counter: state.counter };
+    state.skipPostProcess = true;
+    return { text };
   }
 
   const placeholder = makePlaceholder(state.counter);
   state.counter += 1;
   state.placeholders.set(placeholder, text.slice(literalStart, literalEnd));
   const updated = `${text.slice(0, literalStart)}${placeholder}${text.slice(literalEnd)}`;
-  return { text: updated, counter: state.counter };
+  return { text: updated };
 }
 
 function protectDollarQuotes(
   text: string,
   state: ProtectState,
-): { text: string; counter: number } {
+): { text: string } {
   let output = "";
   let inSingleQuote = false;
+  let singleQuoteEscapeMode = false;
   let inDoubleQuote = false;
   let inLineComment = false;
   let inBlockComment = false;
@@ -216,6 +217,16 @@ function protectDollarQuotes(
     }
 
     if (inSingleQuote) {
+      if (singleQuoteEscapeMode && char === "\\") {
+        if (next !== undefined) {
+          output += `\\${next}`;
+          i += 2;
+        } else {
+          output += char;
+          i += 1;
+        }
+        continue;
+      }
       output += char;
       if (char === "'") {
         if (next === "'") {
@@ -224,6 +235,7 @@ function protectDollarQuotes(
           continue;
         }
         inSingleQuote = false;
+        singleQuoteEscapeMode = false;
       }
       i += 1;
       continue;
@@ -259,6 +271,7 @@ function protectDollarQuotes(
 
     if (char === "'") {
       inSingleQuote = true;
+      singleQuoteEscapeMode = isEscapeStringQuoteStart(text, i);
       output += char;
       i += 1;
       continue;
@@ -287,6 +300,7 @@ function protectDollarQuotes(
           i = end + tag.length;
           continue;
         }
+        state.skipPostProcess = true;
         output += char;
         i += 1;
         continue;
@@ -297,7 +311,7 @@ function protectDollarQuotes(
     i += 1;
   }
 
-  return { text: output, counter: state.counter };
+  return { text: output };
 }
 
 export function restorePlaceholders(

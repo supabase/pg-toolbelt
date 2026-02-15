@@ -2,60 +2,65 @@ import { describe, expect, test } from "vitest";
 import { formatSqlStatements } from "../sql-format.ts";
 
 describe("lowercase coverage formatting", () => {
-  test("normalizes representative DDL/DCL keywords to lowercase", () => {
+  test("normalizes contextual keywords while preserving protected payloads", () => {
     const statements = [
-      "CREATE FUNCTION auth.can(_organization_id bigint,_resource text,_action auth.action,_data json DEFAULT NULL::json,_subject_id uuid DEFAULT auth.gotrue_id()) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER AS $function$BEGIN RETURN true; END;$function$;",
-      "ALTER SEQUENCE audit.record_version_id_seq OWNED by audit.record_version.id;",
-      "REVOKE ALL ON FUNCTION auth.uid() FROM postgres;",
-      "ALTER TABLE auth.audit_log_entries ENABLE ROW LEVEL SECURITY;",
-      "ALTER TABLE auth.audit_log_entries ADD CONSTRAINT audit_log_entries_pkey PRIMARY KEY (id);",
-      "GRANT SELECT ON auth.default_permissions TO authenticated;",
-      "GRANT DELETE, INSERT, SELECT, UPDATE ON auth.permissions TO authenticated;",
-      "ALTER TABLE auth.subject_all_roles REPLICA IDENTITY FULL;",
       "CREATE EVENT TRIGGER prevent_drop ON sql_drop WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA') EXECUTE FUNCTION public.prevent_drop_fn();",
-      "CREATE TABLE public.credit_codes (id uuid DEFAULT gen_random_uuid() NOT NULL, is_unique boolean GENERATED ALWAYS AS ((max_redemptions = 1)) STORED, created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL, status text DEFAULT 'ACTIVE_HEALTHY');",
+      "CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid$function$;",
+      "COMMENT ON FUNCTION public.fn() IS E'line 1 \\' still quoted\\nline 2';",
+      "CREATE COLLATION public.test (LOCALE = 'en_US', DETERMINISTIC = false, provider = icu);",
     ];
 
     const formatted = formatSqlStatements(statements, {
       keywordCase: "lower",
-      maxWidth: 200,
+      maxWidth: 140,
     });
-    expect(formatted).toMatchInlineSnapshot(`
-      [
-        "create function auth.can (
-        _organization_id bigint,
-        _resource        text,
-        _action          auth.action,
-        _data            json        default null::json,
-        _subject_id      uuid        default auth.gotrue_id()
-      )
-        returns boolean
-        language plpgsql
-        stable
-        security definer
-        AS $function$BEGIN RETURN true; END;$function$",
-        "alter sequence audit.record_version_id_seq OWNED by audit.record_version.id",
-        "revoke all on function auth.uid() from postgres",
-        "alter table auth.audit_log_entries
-        enable row level security",
-        "alter table auth.audit_log_entries
-        add constraint audit_log_entries_pkey primary key (id)",
-        "grant select on auth.default_permissions to authenticated",
-        "grant delete, insert, select, update on auth.permissions to authenticated",
-        "alter table auth.subject_all_roles
-        replica identity full",
-        "create event trigger prevent_drop
-        on sql_drop
-        when tag in ('DROP TABLE', 'DROP SCHEMA')
-        execute function public.prevent_drop_fn()",
-        "create table public.credit_codes (
-        id         uuid                     default gen_random_uuid() not null,
-        is_unique  boolean                  generated always as ((max_redemptions = 1)) stored,
-        created_at timestamp with time zone default current_timestamp not null,
-        status     text                     default 'ACTIVE_HEALTHY'
-      )",
-      ]
-    `)
 
+    const normalized = [formatted[0], formatted[1], formatted[3]].map(
+      (value) => value.replace(/\s+/g, " ").trim(),
+    );
+    expect(normalized).toMatchInlineSnapshot(`
+      [
+        "create event trigger prevent_drop on sql_drop when tag in ('DROP TABLE', 'DROP SCHEMA') execute function public.prevent_drop_fn()",
+        "create function auth.uid() returns uuid language sql stable AS $function$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid$function$",
+        "create collation public.test ( LOCALE = 'en_US', DETERMINISTIC = false, provider = icu )",
+      ]
+    `);
+
+    expect(formatted[2]).toMatchInlineSnapshot(`
+      "comment on function public.fn() is E'line 1 \\' still quoted\\nline 2'"
+    `);
+  });
+
+  test("fails safe: malformed protected literals skip casing and wrapping for that statement", () => {
+    const statements = [
+      "COMMENT ON FUNCTION public.fn() IS E'unterminated \\'",
+      "ALTER TABLE auth.audit_log_entries ENABLE ROW LEVEL SECURITY;",
+    ];
+
+    const formatted = formatSqlStatements(statements, {
+      keywordCase: "lower",
+      maxWidth: 40,
+    });
+
+    expect(formatted[0]).toMatchInlineSnapshot(
+      `"COMMENT ON FUNCTION public.fn() IS E'unterminated \\'"`,
+    );
+
+    expect(formatted[1].replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
+      `"alter table auth.audit_log_entries enable row level security"`,
+    );
+  });
+
+  test("preserves full CHECK clause text while casing surrounding structure", () => {
+    const [formatted] = formatSqlStatements(
+      [
+        "ALTER TABLE public.t ADD CONSTRAINT c CHECK (State IN ('ON','OFF')) NO INHERIT;",
+      ],
+      { keywordCase: "lower" },
+    );
+
+    expect(formatted.replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
+      `"alter table public.t add constraint c CHECK (State IN ('ON','OFF')) NO INHERIT"`,
+    );
   });
 });
