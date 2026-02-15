@@ -1,8 +1,11 @@
 import { parseDefinitionItem } from "./format-utils.ts";
 import { isWordChar, walkSql } from "./sql-scanner.ts";
-import { findTopLevelParen, scanTokens, skipQualifiedName } from "./tokenizer.ts";
-import type { Token } from "./types.ts";
-import type { NormalizedOptions } from "./types.ts";
+import {
+  findTopLevelParen,
+  scanTokens,
+  skipQualifiedName,
+} from "./tokenizer.ts";
+import type { NormalizedOptions, Token } from "./types.ts";
 
 type Range = { start: number; end: number };
 type ProtectedRangeResult = { ranges: Range[]; unsafe: boolean };
@@ -480,7 +483,12 @@ function collectCheckClauseRanges(
 
     const clauseDepth = token.depth;
     let end = close + 1;
-    const nextIndex = findTokenAtDepthAtOrAfter(tokens, end, i + 1, clauseDepth);
+    const nextIndex = findTokenAtDepthAtOrAfter(
+      tokens,
+      end,
+      i + 1,
+      clauseDepth,
+    );
     const noToken = nextIndex >= 0 ? tokens[nextIndex] : undefined;
     const inheritToken = nextIndex >= 0 ? tokens[nextIndex + 1] : undefined;
     if (
@@ -521,7 +529,8 @@ function collectOptionAssignmentRanges(
   }
 
   unsafe =
-    collectCreateOptionBlockAssignmentRanges(statement, tokens, ranges) || unsafe;
+    collectCreateOptionBlockAssignmentRanges(statement, tokens, ranges) ||
+    unsafe;
 
   return unsafe;
 }
@@ -569,7 +578,12 @@ function collectCreateOptionBlockAssignmentRanges(
     if (!argParens) return true;
     const optParens = findTopLevelParen(statement, argParens.close + 1);
     if (!optParens) return true;
-    collectAssignmentItemRanges(statement, optParens.open, optParens.close, ranges);
+    collectAssignmentItemRanges(
+      statement,
+      optParens.open,
+      optParens.close,
+      ranges,
+    );
   }
 
   return unsafe;
@@ -639,7 +653,12 @@ function collectCreateDefinitionRanges(
           token.start < parens.open,
       );
       if (!hasPartitionBeforeColumns) {
-        collectDefinitionRangesFromParen(statement, parens.open, parens.close, ranges);
+        collectDefinitionRangesFromParen(
+          statement,
+          parens.open,
+          parens.close,
+          ranges,
+        );
       }
     }
   }
@@ -656,7 +675,12 @@ function collectCreateDefinitionRanges(
     if (asIndex !== -1) {
       const parens = findTopLevelParen(statement, tokens[asIndex].end);
       if (parens) {
-        collectDefinitionRangesFromParen(statement, parens.open, parens.close, ranges);
+        collectDefinitionRangesFromParen(
+          statement,
+          parens.open,
+          parens.close,
+          ranges,
+        );
       }
     }
   }
@@ -687,7 +711,12 @@ function collectCreateDefinitionRanges(
     ) {
       const parens = findTopLevelParen(statement, tokens[i + 1].end);
       if (parens) {
-        collectDefinitionRangesFromParen(statement, parens.open, parens.close, ranges);
+        collectDefinitionRangesFromParen(
+          statement,
+          parens.open,
+          parens.close,
+          ranges,
+        );
       }
     }
   }
@@ -735,7 +764,10 @@ function collectAlterDefinitionRanges(
 
     if (token.upper === "ADD") {
       let defIndex = i + 1;
-      if (tokens[defIndex]?.depth === 0 && tokens[defIndex].upper === "COLUMN") {
+      if (
+        tokens[defIndex]?.depth === 0 &&
+        tokens[defIndex].upper === "COLUMN"
+      ) {
         defIndex += 1;
       }
       if (
@@ -857,8 +889,9 @@ function splitTopLevelCommaItems(
 
   return rawRanges
     .map((range) => trimRange(content, range.start, range.end, offset))
-    .filter((item): item is { text: string; start: number; end: number } =>
-      item !== null
+    .filter(
+      (item): item is { text: string; start: number; end: number } =>
+        item !== null,
     );
 }
 

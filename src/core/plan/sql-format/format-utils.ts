@@ -130,7 +130,7 @@ type DefinitionBounds = {
   tailStart: number;
 };
 
-export type ParsedDefinitionItem = {
+type ParsedDefinitionItem = {
   name: string;
   type: string;
   tail: string;

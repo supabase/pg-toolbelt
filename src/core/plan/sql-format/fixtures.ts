@@ -2804,14 +2804,3 @@ const renderChanges = (changes: ChangeCase[]): string[] =>
 export function renderScript(options?: SqlFormatOptions): string {
   return formatSqlScript(renderChanges(changeCases), options);
 }
-
-export function renderScriptSubset(
-  labels: string[],
-  options?: SqlFormatOptions,
-): string {
-  const selected = labels
-    .map((label) => changeCases.find((changeCase) => changeCase.label === label))
-    .filter((changeCase): changeCase is ChangeCase => changeCase !== undefined);
-
-  return formatSqlScript(renderChanges(selected), options);
-}

@@ -15,8 +15,8 @@ describe("lowercase coverage formatting", () => {
       maxWidth: 140,
     });
 
-    const normalized = [formatted[0], formatted[1], formatted[3]].map(
-      (value) => value.replace(/\s+/g, " ").trim(),
+    const normalized = [formatted[0], formatted[1], formatted[3]].map((value) =>
+      value.replace(/\s+/g, " ").trim(),
     );
     expect(normalized).toMatchInlineSnapshot(`
       [

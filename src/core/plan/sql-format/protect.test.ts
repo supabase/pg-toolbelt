@@ -54,8 +54,7 @@ Enhanced wrapper method for the primary auth.can() function. Utilize this wrappe
   });
 
   it("preserves backslash-escaped quotes in E strings", () => {
-    const sql =
-      "COMMENT ON FUNCTION public.fn() IS E'keep \\'quote\\' exact';";
+    const sql = "COMMENT ON FUNCTION public.fn() IS E'keep \\'quote\\' exact';";
     const result = protectSegments(sql, DEFAULT_OPTIONS);
     expect(result.text).toContain("__PGDELTA_PLACEHOLDER_");
     const restored = restorePlaceholders(result.text, result.placeholders);
