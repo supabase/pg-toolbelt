@@ -4,16 +4,22 @@
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "bun": "./src/index.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./integrations/supabase": {
       "bun": "./src/core/integrations/supabase.ts",
       "import": "./dist/core/integrations/supabase.js",
-      "types": "./dist/core/integrations/supabase.d.ts"
+      "require": "./dist/core/integrations/supabase.js",
+      "types": "./dist/core/integrations/supabase.d.ts",
+      "default": "./dist/core/integrations/supabase.js"
     }
   },
   "bin": {
