@@ -53,7 +53,7 @@
     "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "pg": "^8.17.2",
-    "pg-topo": "workspace:*",
+    "@supabase/pg-topo": "https://pkg.pr.new/supabase/pg-delta/@supabase/pg-topo@108",
     "plpgsql-parser": "^0.5.4",
     "zod": "^4.2.1"
   },

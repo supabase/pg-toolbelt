@@ -14,7 +14,7 @@ import { groupChangesByFile } from "./grouper.ts";
 import type {
   DeclarativeSchemaOutput,
   FileEntry,
-  PrefixGrouping,
+  Grouping,
 } from "./types.ts";
 
 // ============================================================================
@@ -44,7 +44,7 @@ export interface ExportOptions {
    * Group entities by name prefix into consolidated files or subdirectories.
    * Supports automatic partition detection and/or explicit prefix lists.
    */
-  prefixGrouping?: PrefixGrouping;
+  grouping?: Grouping;
 }
 
 /**
@@ -96,7 +96,7 @@ export function exportDeclarativeSchema(
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
-  const mapper = createFileMapper(options?.prefixGrouping);
+  const mapper = createFileMapper(options?.grouping);
   const groups = groupChangesByFile(declarativeChanges, mapper);
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>

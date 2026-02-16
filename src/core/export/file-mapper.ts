@@ -8,7 +8,7 @@ import {
   getObjectSchema,
   getParentInfo,
 } from "../plan/serialize.ts";
-import type { FileCategory, FilePath, PrefixGrouping } from "./types.ts";
+import type { FileCategory, FilePath, Grouping } from "./types.ts";
 
 // ============================================================================
 // Helpers
@@ -339,15 +339,27 @@ export interface CompiledPattern {
 
 /**
  * Compile user-facing `GroupingPattern[]` into `CompiledPattern[]`.
- * Strings are turned into `new RegExp(str)`.
+ * Strings are turned into `new RegExp(str)`. Invalid regex strings are skipped
+ * (no throw), so the returned array may be shorter than the input.
  */
 export function compilePatterns(
   patterns: import("./types.ts").GroupingPattern[],
 ): CompiledPattern[] {
-  return patterns.map((p) => ({
-    regex: typeof p.pattern === "string" ? new RegExp(p.pattern) : p.pattern,
-    name: p.name,
-  }));
+  const result: CompiledPattern[] = [];
+  for (const p of patterns) {
+    let regex: RegExp;
+    if (typeof p.pattern === "string") {
+      try {
+        regex = new RegExp(p.pattern);
+      } catch {
+        continue;
+      }
+    } else {
+      regex = p.pattern;
+    }
+    result.push({ regex, name: p.name });
+  }
+  return result;
 }
 
 /**
@@ -358,12 +370,17 @@ export function compilePatterns(
  * `getFilePath` function is returned unchanged.
  */
 export function createFileMapper(
-  grouping?: PrefixGrouping,
+  grouping?: Grouping,
 ): (change: Change) => FilePath {
   if (!grouping) return getFilePath;
 
-  const compiled = compilePatterns(grouping.patterns ?? []);
-  const autoPartitions = grouping.autoDetectPartitions !== false; // default true
+  let compiled: CompiledPattern[];
+  try {
+    compiled = compilePatterns(grouping.groupPatterns ?? []);
+  } catch {
+    compiled = [];
+  }
+  const autoPartitions = grouping.autoGroupPartitions !== false; // default true
   const flatSet = new Set(grouping.flatSchemas ?? []);
 
   return (change: Change): FilePath => {
@@ -482,7 +499,7 @@ export function resolveGroupName(
 export function applyGrouping(
   filePath: FilePath,
   prefix: string,
-  mode: PrefixGrouping["mode"],
+  mode: Grouping["mode"],
 ): FilePath {
   const schema = filePath.metadata.schemaName ?? "";
   const category = filePath.category as FileCategory;

@@ -6,13 +6,13 @@
  * database using iterative rounds to handle any remaining dependency gaps.
  */
 
-import { analyzeAndSort } from "pg-topo";
-import type { Diagnostic, StatementNode } from "pg-topo";
+import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
+import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
 import { createPool } from "../postgres-config.ts";
 import {
-  roundApply,
   type ApplyResult,
   type RoundResult,
+  roundApply,
   type StatementEntry,
 } from "./round-apply.ts";
 
@@ -84,7 +84,7 @@ export async function applyDeclarativeSchema(
   } = options;
 
   // Step 1: Use pg-topo to analyze and sort the SQL files
-  const analyzeResult = await analyzeAndSort({ roots: [schemaPath] });
+  const analyzeResult = await analyzeAndSortFromFiles([schemaPath]);
 
   const { ordered, diagnostics } = analyzeResult;
 
@@ -129,4 +129,9 @@ export async function applyDeclarativeSchema(
 }
 
 // Re-export types for convenience
-export type { ApplyResult, RoundResult, StatementEntry, StatementError } from "./round-apply.ts";
+export type {
+  ApplyResult,
+  RoundResult,
+  StatementEntry,
+  StatementError,
+} from "./round-apply.ts";

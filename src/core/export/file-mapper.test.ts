@@ -373,7 +373,7 @@ describe("createFileMapper", () => {
   it("groups partition tables into parent file (single-file mode)", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: true,
+      autoGroupPartitions: true,
     });
 
     const parent = tableChange({ schema: "public", name: "events" });
@@ -392,7 +392,7 @@ describe("createFileMapper", () => {
   it("groups partition tables into subdirectory (subdirectory mode)", () => {
     const mapper = createFileMapper({
       mode: "subdirectory",
-      autoDetectPartitions: true,
+      autoGroupPartitions: true,
     });
 
     const partition = tableChange({
@@ -408,8 +408,8 @@ describe("createFileMapper", () => {
   it("groups by prefix regex (single-file mode)", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: false,
-      patterns: [{ pattern: /^project/, name: "project" }],
+      autoGroupPartitions: false,
+      groupPatterns: [{ pattern: /^project/, name: "project" }],
     });
 
     const change = tableChange({
@@ -422,8 +422,8 @@ describe("createFileMapper", () => {
   it("groups by contains regex (subdirectory mode)", () => {
     const mapper = createFileMapper({
       mode: "subdirectory",
-      autoDetectPartitions: false,
-      patterns: [{ pattern: /organization/, name: "organization" }],
+      autoGroupPartitions: false,
+      groupPatterns: [{ pattern: /organization/, name: "organization" }],
     });
 
     const change = tableChange({
@@ -438,8 +438,8 @@ describe("createFileMapper", () => {
   it("groups by suffix regex (single-file mode)", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: false,
-      patterns: [{ pattern: /tokens$/, name: "tokens" }],
+      autoGroupPartitions: false,
+      groupPatterns: [{ pattern: /tokens$/, name: "tokens" }],
     });
 
     const change = tableChange({ schema: "public", name: "access_tokens" });
@@ -449,8 +449,8 @@ describe("createFileMapper", () => {
   it("does not group unrelated tables", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: true,
-      patterns: [{ pattern: /^project/, name: "project" }],
+      autoGroupPartitions: true,
+      groupPatterns: [{ pattern: /^project/, name: "project" }],
     });
 
     const change = tableChange({ schema: "public", name: "users" });
@@ -460,8 +460,8 @@ describe("createFileMapper", () => {
   it("first pattern wins when multiple match", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: false,
-      patterns: [
+      autoGroupPartitions: false,
+      groupPatterns: [
         { pattern: /^organization/, name: "org-prefix" },
         { pattern: /organization/, name: "org-contains" },
       ],
@@ -479,8 +479,8 @@ describe("createFileMapper", () => {
   it("chains partition auto-detect through regex (kubernetes scenario)", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: true,
-      patterns: [{ pattern: /^kubernetes/, name: "kubernetes" }],
+      autoGroupPartitions: true,
+      groupPatterns: [{ pattern: /^kubernetes/, name: "kubernetes" }],
     });
 
     // Parent table
@@ -517,8 +517,8 @@ describe("createFileMapper", () => {
   it("all pattern types combined end-to-end", () => {
     const mapper = createFileMapper({
       mode: "subdirectory",
-      autoDetectPartitions: false,
-      patterns: [
+      autoGroupPartitions: false,
+      groupPatterns: [
         { pattern: /^project/, name: "project" },
         { pattern: /organization/, name: "organization" },
         { pattern: /keys$/, name: "keys" },
@@ -548,8 +548,8 @@ describe("createFileMapper", () => {
   it("accepts string patterns (compiled as regex)", () => {
     const mapper = createFileMapper({
       mode: "single-file",
-      autoDetectPartitions: false,
-      patterns: [{ pattern: "^billing", name: "billing" }],
+      autoGroupPartitions: false,
+      groupPatterns: [{ pattern: "^billing", name: "billing" }],
     });
 
     const change = tableChange({
@@ -647,7 +647,7 @@ describe("createFileMapper with flatSchemas", () => {
     const mapper = createFileMapper({
       mode: "single-file",
       flatSchemas: ["partman"],
-      patterns: [{ pattern: /^template/, name: "template" }],
+      groupPatterns: [{ pattern: /^template/, name: "template" }],
     });
 
     // The table name matches the regex, but since the schema is flat, we
@@ -683,7 +683,7 @@ describe("createFileMapper with flatSchemas", () => {
     const mapper = createFileMapper({
       mode: "subdirectory",
       flatSchemas: ["partman"],
-      patterns: [{ pattern: /^project/, name: "project" }],
+      groupPatterns: [{ pattern: /^project/, name: "project" }],
     });
 
     // Flat schema → flattened

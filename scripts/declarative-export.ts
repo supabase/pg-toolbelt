@@ -1,32 +1,56 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Change } from "../src/core/change.types.ts";
+import type { Integration } from "../src/core/integrations/integration.types.ts";
 import { exportDeclarativeSchema } from "../src/core/export/index.ts";
-import { evaluatePattern } from "../src/core/integrations/filter/dsl.ts";
+import {
+  compileFilterDSL,
+  evaluatePattern,
+} from "../src/core/integrations/filter/dsl.ts";
+import { compileSerializeDSL } from "../src/core/integrations/serialize/dsl.ts";
+import { supabase } from "../src/core/integrations/supabase.ts";
 import { createPlan } from "../src/core/plan/index.ts";
 
 const sourceUrl = process.env.SOURCE_URL!;
 const targetUrl = process.env.TARGET_URL!;
-const outputDir = path.resolve("declarative-schemas");
+const outputDir = path.resolve(
+  process.env.OUTPUT_DIR ?? "declarative-schemas",
+);
+const integrationEnv = process.env.INTEGRATION;
 
 try {
-  // Optional: platform-db compatibility filter. Exclude extensions that
-  // require shared_preload_libraries in postgresql.conf, since the target
-  // database may not have them pre-loaded. Also exclude functions/procedures
-  // written in languages provided by those extensions (e.g. plv8).
-  const platformDbExclusions = {
-    or: [
-      {
-        type: "extension" as const,
-        extension: ["pgaudit", "pg_cron", "plv8", "pg_stat_statements"],
-      },
-      { procedureLanguage: ["plv8"] },
-    ],
-  };
-  const filter = (change: Change) =>
-    !evaluatePattern(platformDbExclusions, change);
+  let planResult: Awaited<ReturnType<typeof createPlan>>;
+  let exportIntegration: Integration | undefined;
 
-  const planResult = await createPlan(sourceUrl, targetUrl, { filter });
+  if (integrationEnv === "supabase") {
+    const filterFn = supabase.filter
+      ? compileFilterDSL(supabase.filter)
+      : undefined;
+    const serializeFn = supabase.serialize
+      ? compileSerializeDSL(supabase.serialize)
+      : undefined;
+    planResult = await createPlan(sourceUrl, targetUrl, {
+      filter: filterFn,
+      serialize: serializeFn,
+    });
+    exportIntegration =
+      serializeFn !== undefined ? { serialize: serializeFn } : undefined;
+  } else {
+    // Default: platform-db compatibility filter. Exclude extensions that
+    // require shared_preload_libraries in postgresql.conf.
+    const platformDbExclusions = {
+      or: [
+        {
+          type: "extension" as const,
+          extension: ["pgaudit", "pg_cron", "plv8", "pg_stat_statements"],
+        },
+        { procedureLanguage: ["plv8"] },
+      ],
+    };
+    const filter = (change: Change) =>
+      !evaluatePattern(platformDbExclusions, change);
+    planResult = await createPlan(sourceUrl, targetUrl, { filter });
+  }
 
   if (!planResult) {
     console.log("No changes detected.");
@@ -37,6 +61,7 @@ try {
   // pg-topo (static dependency analysis) + round-based engine. The export
   // focuses purely on clean, human-friendly file grouping.
   const output = exportDeclarativeSchema(planResult, {
+    integration: exportIntegration,
     formatOptions: {
       keywordCase: "lower",
       maxWidth: 180,
@@ -44,10 +69,10 @@ try {
     },
     // Entity grouping: merge partitioned tables automatically and group
     // related entities by regex patterns. First match wins.
-    prefixGrouping: {
+    grouping: {
       mode: "single-file",
-      autoDetectPartitions: true,
-      patterns: [
+      autoGroupPartitions: true,
+      groupPatterns: [
         // Contains-style (substring)
         { pattern: /project/, name: "project" },
         { pattern: /wal/, name: "wal" },

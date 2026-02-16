@@ -9,7 +9,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { analyzeAndSort } from "pg-topo";
+import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
 import { describe, expect } from "vitest";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
@@ -72,7 +72,7 @@ async function testDeclarativeApply(options: {
     }
 
     // 4. Use pg-topo to analyze and sort the SQL files
-    const analyzeResult = await analyzeAndSort({ roots: [tempDir] });
+    const analyzeResult = await analyzeAndSortFromFiles([tempDir]);
     const statements: StatementEntry[] = analyzeResult.ordered.map((node) => ({
       id: `${node.id.filePath}:${node.id.statementIndex}`,
       sql: node.sql,

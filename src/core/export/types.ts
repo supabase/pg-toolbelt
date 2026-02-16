@@ -67,7 +67,7 @@ export interface GroupingPattern {
   name: string;
 }
 
-export interface PrefixGrouping {
+export interface Grouping {
   /** How grouped entities are organized on disk. */
   mode: "single-file" | "subdirectory";
   /**
@@ -79,12 +79,12 @@ export interface PrefixGrouping {
    * - `{ pattern: /organization/, name: "organization" }` – contains
    * - `{ pattern: /tokens$/, name: "tokens" }` – suffix
    */
-  patterns?: GroupingPattern[];
+  groupPatterns?: GroupingPattern[];
   /**
    * Automatically detect partitioned tables and group partitions with
    * their parent table.  Defaults to `true`.
    */
-  autoDetectPartitions?: boolean;
+  autoGroupPartitions?: boolean;
   /**
    * Schemas to flatten: all objects are merged into one file per category.
    * e.g. `schemas/partman/tables.sql` instead of `schemas/partman/tables/foo.sql`.

@@ -2,18 +2,25 @@
 set -e
 
 CONTAINER_NAME="pgdelta-dogfooding"
-CONTAINER_PORT=6543
+CONTAINER_PORT=6544
 ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
 DB_NAME="declarative_test"
 DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
 
+SOURCE_URL="postgres://postgres:postgres@db-empty.platform.orb.local:5432/postgres"
+TARGET_URL="postgres://postgres:postgres@db.platform.orb.local:5432/postgres"
+FILTER_DSL='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
+
 # ──────────────────────────────────────────────────────────────
 # 1. Export declarative schema from source
 # ──────────────────────────────────────────────────────────────
-rm -rf ./declarative-schemas/*
-export SOURCE_URL="postgres://postgres:postgres@db-empty.platform.orb.local:5432/postgres"
-export TARGET_URL="postgres://postgres:postgres@db.platform.orb.local:5432/postgres"
-pnpm dlx tsx scripts/declarative-export.ts
+echo "Exporting declarative schema..."
+pnpm pgdelta declarative export \
+  --source "$SOURCE_URL" \
+  --target "$TARGET_URL" \
+  --output ./declarative-schemas \
+  --force \
+  --filter "$FILTER_DSL"
 
 # ──────────────────────────────────────────────────────────────
 # 2. Start platform-db container
@@ -43,8 +50,8 @@ psql "$ADMIN_URL" -c "CREATE DATABASE ${DB_NAME} TEMPLATE template0" --quiet
 # ──────────────────────────────────────────────────────────────
 # Uses pg-topo for static dependency analysis and topological ordering,
 # then applies statements round-by-round to handle any remaining gaps.
-echo "Applying declarative schema via declarative-apply..."
-pnpm pgdelta declarative-apply \
+echo "Applying declarative schema via declarative apply..."
+pnpm pgdelta declarative apply \
   --path ./declarative-schemas \
   --target "$DB_URL" \
   --verbose
@@ -52,8 +59,7 @@ pnpm pgdelta declarative-apply \
 # ──────────────────────────────────────────────────────────────
 # 4. Verify roundtrip: diff applied DB vs original (expect 0 changes)
 # ──────────────────────────────────────────────────────────────
-# Same filter as declarative-export (exclude platform-db-specific extensions).
-FILTER_DSL='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
+# Same filter as export (exclude platform-db-specific extensions).
 echo "Verifying roundtrip: diff applied DB vs original (expect 0 changes)..."
 VERIFY_OUTPUT=$(pnpm pgdelta plan --source "$DB_URL" --target "$TARGET_URL" --filter "$FILTER_DSL" 2>&1) || true
 if echo "$VERIFY_OUTPUT" | grep -q "No changes detected."; then
