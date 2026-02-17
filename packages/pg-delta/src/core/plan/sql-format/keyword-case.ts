@@ -627,7 +627,9 @@ function collectAssignmentItemRanges(
     const value = item.text.slice(equalsIndex + 1).trim();
     if (key.length === 0 || value.length === 0) continue;
 
-    ranges.push({ start: item.start, end: item.end });
+    // Only protect the value side so keys can be cased
+    const valueStart = item.start + equalsIndex + 1;
+    ranges.push({ start: valueStart, end: item.end });
   }
 }
 

@@ -195,7 +195,7 @@ describe("sql formatting snapshots", () => {
       create type public.daterange_custom as range (
             SUBTYPE         = date
           , SUBTYPE_OPCLASS = public.date_ops
-          , COLLATION       = "en_US"
+          , collation       = "en_US"
           , CANONICAL       = public.canon_fn
           , SUBTYPE_DIFF    = public.diff_fn
       );
@@ -229,7 +229,7 @@ describe("sql formatting snapshots", () => {
           , PROVIDER      = icu
           , DETERMINISTIC = false
           , RULES         = '& A < a <<< à'
-          , VERSION       = '1.0'
+          , version       = '1.0'
       );
 
       -- collation.drop
