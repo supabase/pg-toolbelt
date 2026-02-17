@@ -19,222 +19,191 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-type-check:
+  detect-changes:
     if: github.event.pull_request.draft == false
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      pg-delta: ${{ steps.changes.outputs.pg-delta }}
+      pg-topo: ${{ steps.changes.outputs.pg-topo }}
+      root: ${{ steps.changes.outputs.root }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Detect changes
+        id: changes
+        uses: ./.github/actions/detect-changes
+
+  check-types:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+    needs: detect-changes
     name: Check types
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping type check for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
+      - name: Check types (pg-delta)
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-delta' check-types
+      - name: Check types (pg-topo)
+        if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-topo' check-types
 
-      - name: Check types
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm check-types
-
-  test-format-and-lint:
-    if: github.event.pull_request.draft == false
+  format-and-lint:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping format and lint for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
-
       - name: Format and lint
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm format-and-lint
+        run: bun run format-and-lint
 
-  test-knip:
-    if: github.event.pull_request.draft == false
+  knip:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+    needs: detect-changes
     name: Knip
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping knip for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
+      - name: Knip (pg-delta)
+        if: needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-delta' knip
+      - name: Knip (pg-topo)
+        if: needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true'
+        run: bun run --filter '@supabase/pg-topo' knip
 
-      - name: Knip
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm knip
-
-  test-unit:
-    if: github.event.pull_request.draft == false
-    name: Unit tests
+  pg-delta-unit:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Unit tests"
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping unit tests for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
-
       - name: Run unit tests
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm test --project=unit --coverage
+        working-directory: packages/pg-delta
+        run: bun test --concurrent --timeout 15000 --coverage src/
 
-      # TODO: Uncomment this when we have the repository made public
-      # - uses: coverallsapp/github-action@v2
-      #   with:
-      #     github-token: ${{ secrets.GITHUB_TOKEN }}
-      #     path-to-lcov: coverage/lcov.info
-
-  test-integration:
-    if: github.event.pull_request.draft == false
-    name: Integration tests (PostgreSQL ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  pg-delta-integration:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         postgres_version: [15, 17]
         shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         shard_total: [12]
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping integration tests for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
-
-      - name: Run integration tests
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      - name: Run integration tests (shard)
+        working-directory: packages/pg-delta
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
-        run: pnpm test --project=integration --coverage --reporter=blob --outputFile.blob=.vitest-reports/blob-pg${{ matrix.postgres_version }}-${{ matrix.shard_index }}-${{ matrix.shard_total }}.json --shard=${{ matrix.shard_index }}/${{ matrix.shard_total }} --passWithNoTests
+        run: |
+          # List all integration test files deterministically
+          ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
+          TOTAL=${{ matrix.shard_total }}
+          INDEX=$(( ${{ matrix.shard_index }} - 1 ))
+          # Select files for this shard using modulo
+          SHARD_FILES=$(echo "$ALL_FILES" | awk "NR % $TOTAL == $INDEX")
+          if [ -z "$SHARD_FILES" ]; then
+            echo "No test files for this shard, skipping"
+            exit 0
+          fi
+          echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
+          echo "$SHARD_FILES"
+          echo "$SHARD_FILES" | xargs bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts --max-concurrency=4
 
-      - name: Upload integration blob report
-        if: ${{ !cancelled() && github.event.pull_request.user.login != 'supabase-releaser[bot]' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-blob-report-pg${{ matrix.postgres_version }}-s${{ matrix.shard_index }}
-          path: .vitest-reports/*
-          include-hidden-files: true
-          retention-days: 1
-
-  test-integration-pg15-compat:
+  pg-delta-integration-pg15-compat:
     if: always() && github.event.pull_request.draft == false
     needs:
-      - test-integration
-    name: Integration tests (PostgreSQL 15)
+      - pg-delta-integration
+    name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
     steps:
       - name: Validate integration matrix status
         run: |
-          if [ "${{ needs.test-integration.result }}" != "success" ]; then
-            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+          if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
+            echo "Integration matrix status: ${{ needs.pg-delta-integration.result }}"
             exit 1
           fi
 
-  test-integration-pg17-compat:
+  pg-delta-integration-pg17-compat:
     if: always() && github.event.pull_request.draft == false
     needs:
-      - test-integration
-    name: Integration tests (PostgreSQL 17)
+      - pg-delta-integration
+    name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
     steps:
       - name: Validate integration matrix status
         run: |
-          if [ "${{ needs.test-integration.result }}" != "success" ]; then
-            echo "Integration matrix status: ${{ needs.test-integration.result }}"
+          if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
+            echo "Integration matrix status: ${{ needs.pg-delta-integration.result }}"
             exit 1
           fi
 
-  test-integration-merge-reports:
-    if: github.event.pull_request.draft == false
-    needs:
-      - test-integration
-    name: Integration tests (merge shard reports)
+  pg-topo-tests:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
+    needs: detect-changes
+    name: "pg-topo: Tests"
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if release bot
-        if: github.event.pull_request.user.login == 'supabase-releaser[bot]'
-        run: |
-          echo "✓ Skipping integration report merge for release bot"
-          exit 0
-
       - name: Checkout
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: actions/checkout@v6
-
       - name: Setup
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
         uses: ./.github/actions/setup
-
-      - name: Download integration blob reports
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        uses: actions/download-artifact@v4
-        with:
-          path: .vitest-reports
-          pattern: integration-blob-report-*
-          merge-multiple: true
-
-      - name: Merge integration reports and coverage
-        if: github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        run: pnpm vitest --merge-reports=.vitest-reports --project=integration --coverage --reporter=default --passWithNoTests
+      - name: Run tests
+        working-directory: packages/pg-topo
+        run: bun test --concurrent --timeout 15000 --preload ./test/global-setup.ts
 
   release-preview:
     needs:
-      - test-type-check
-      - test-format-and-lint
-      - test-knip
-      - test-unit
-      - test-integration
-      - test-integration-pg15-compat
-      - test-integration-pg17-compat
-      - test-integration-merge-reports
+      - check-types
+      - format-and-lint
+      - knip
+      - pg-delta-unit
+      - pg-delta-integration-pg15-compat
+      - pg-delta-integration-pg17-compat
+      - pg-topo-tests
+    if: always() && !cancelled()
     name: Release preview
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
       - name: Setup
         uses: ./.github/actions/setup
-
+      - name: Build all packages
+        run: bun run build
       - name: Release preview
-        run: pnpm build && pnpx pkg-pr-new publish
+        run: bunx pkg-pr-new publish ./packages/pg-delta ./packages/pg-topo

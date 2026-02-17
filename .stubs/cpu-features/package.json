@@ -1,0 +1,6 @@
+{
+  "name": "cpu-features",
+  "version": "0.0.10",
+  "description": "Stub for optional cpu-features native addon (avoids C++20 build on install)",
+  "main": "index.js"
+}

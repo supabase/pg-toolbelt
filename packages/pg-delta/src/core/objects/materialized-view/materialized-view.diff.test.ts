@@ -1,0 +1,102 @@
+import { describe, expect, test } from "bun:test";
+import { DefaultPrivilegeState } from "../base.default-privileges.ts";
+import {
+  AlterMaterializedViewChangeOwner,
+  AlterMaterializedViewSetStorageParams,
+} from "./changes/materialized-view.alter.ts";
+import { CreateMaterializedView } from "./changes/materialized-view.create.ts";
+import { DropMaterializedView } from "./changes/materialized-view.drop.ts";
+import { diffMaterializedViews } from "./materialized-view.diff.ts";
+import {
+  MaterializedView,
+  type MaterializedViewProps,
+} from "./materialized-view.model.ts";
+
+const base: MaterializedViewProps = {
+  schema: "public",
+  name: "mv1",
+  definition: "select 1",
+  row_security: false,
+  force_row_security: false,
+  has_indexes: false,
+  has_rules: false,
+  has_triggers: false,
+  has_subclasses: false,
+  is_populated: true,
+  replica_identity: "d",
+  is_partition: false,
+  options: null,
+  partition_bound: null,
+  owner: "o1",
+  comment: null,
+  columns: [],
+  privileges: [],
+};
+
+const testContext = {
+  version: 170000,
+  currentUser: "postgres",
+  defaultPrivilegeState: new DefaultPrivilegeState({}),
+  mainRoles: {},
+};
+
+describe.concurrent("materialized-view.diff", () => {
+  test("create and drop", () => {
+    const mv = new MaterializedView(base);
+    const created = diffMaterializedViews(
+      testContext,
+      {},
+      { [mv.stableId]: mv },
+    );
+    expect(created[0]).toBeInstanceOf(CreateMaterializedView);
+    const dropped = diffMaterializedViews(
+      testContext,
+      { [mv.stableId]: mv },
+      {},
+    );
+    expect(dropped[0]).toBeInstanceOf(DropMaterializedView);
+  });
+
+  test("alter owner", () => {
+    const main = new MaterializedView(base);
+    const branch = new MaterializedView({ ...base, owner: "o2" });
+    const changes = diffMaterializedViews(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(AlterMaterializedViewChangeOwner);
+  });
+
+  test("drop + create on non-alterable change", () => {
+    const main = new MaterializedView(base);
+    const branch = new MaterializedView({ ...base, definition: "select 2" });
+    const changes = diffMaterializedViews(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropMaterializedView);
+    expect(changes[1]).toBeInstanceOf(CreateMaterializedView);
+  });
+
+  test("alter storage parameters: set and reset", () => {
+    const main = new MaterializedView({
+      ...base,
+      options: ["fillfactor=90", "autovacuum_enabled=false"],
+    });
+    const branch = new MaterializedView({
+      ...base,
+      options: ["fillfactor=70", "user_catalog_table=true"],
+    });
+    const changes = diffMaterializedViews(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof AlterMaterializedViewSetStorageParams),
+    ).toBe(true);
+  });
+});

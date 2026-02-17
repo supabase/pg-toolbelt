@@ -6,7 +6,7 @@ on:
       - main
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Build
-        run: pnpm build
+        run: bun run build
 
       - name: Generate token
         id: app-token
@@ -39,13 +39,10 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          version: pnpm run version
-          publish: pnpm changeset publish
+          version: bun run version
+          publish: bunx changeset publish
           commit: "chore: release"
           title: "chore: release"
         env:
-          # Needs access to push to main
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # Use OIDC for npm authentication instead of NPM_TOKEN
-          NPM_TOKEN: '' # https://github.com/changesets/changesets/issues/1152#issuecomment-3190884868
-        
+          NPM_TOKEN: ''

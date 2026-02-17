@@ -1,0 +1,47 @@
+{
+  "name": "@supabase/pg-topo",
+  "version": "0.1.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "author": "Supabase",
+  "license": "MIT",
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-topo"
+  },
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external plpgsql-parser --external @libpg-query/parser --external @pgsql/traverse && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "test": "bun test --timeout 15000 --preload ./test/global-setup.ts --concurrent --max-concurrency=8",
+    "check-types": "tsc --noEmit",
+    "format-and-lint": "biome check . --error-on-warnings",
+    "knip": "knip"
+  },
+  "dependencies": {
+    "@pgsql/traverse": "^17.2.4",
+    "plpgsql-parser": "^0.5.4"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^11.11.0",
+    "@types/bun": "^1.3.9",
+    "knip": "^5.75.2",
+    "testcontainers": "^11.11.0",
+    "typescript": "^5.9.3"
+  }
+}
