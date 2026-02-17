@@ -312,9 +312,7 @@ export async function roundApply(
       if (appliedThisRound === 0 && deferred.length > 0) {
         // Collect the latest error for each stuck statement
         const stuckStatements = deferred.map((stmt) => {
-          const lastError = roundErrors.find(
-            (e) => e.statement.id === stmt.id,
-          );
+          const lastError = roundErrors.find((e) => e.statement.id === stmt.id);
           return (
             lastError ?? {
               statement: stmt,
@@ -360,10 +358,7 @@ export async function roundApply(
     // Final validation pass: re-run functions with check_function_bodies = on
     let validationErrors: StatementError[] | undefined;
     if (finalValidation && appliedFunctions.length > 0) {
-      validationErrors = await validateFunctionBodies(
-        client,
-        appliedFunctions,
-      );
+      validationErrors = await validateFunctionBodies(client, appliedFunctions);
     }
 
     return {

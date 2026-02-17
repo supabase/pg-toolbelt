@@ -38,12 +38,8 @@ async function testDeclarativeApply(options: {
   // 1. Set up initial schema in branch (and optionally main)
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
   if (initialSetup) {
-    await mainSession.query(
-      [...sessionConfig, initialSetup].join(";\n\n"),
-    );
-    await branchSession.query(
-      [...sessionConfig, initialSetup].join(";\n\n"),
-    );
+    await mainSession.query([...sessionConfig, initialSetup].join(";\n\n"));
+    await branchSession.query([...sessionConfig, initialSetup].join(";\n\n"));
   }
 
   // Execute the test SQL in branch only
@@ -117,32 +113,30 @@ async function testDeclarativeApply(options: {
 for (const pgVersion of POSTGRES_VERSIONS) {
   const test = getTest(pgVersion);
 
-  describe.sequential(
-    `declarative-apply round-based (pg${pgVersion})`,
-    () => {
-      test("simple table with index", async ({ db }) => {
-        const result = await testDeclarativeApply({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: "CREATE SCHEMA test_schema;",
-          testSql: `
+  describe.sequential(`declarative-apply round-based (pg${pgVersion})`, () => {
+    test("simple table with index", async ({ db }) => {
+      const result = await testDeclarativeApply({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "CREATE SCHEMA test_schema;",
+        testSql: `
             CREATE TABLE test_schema.users (
               id integer PRIMARY KEY,
               name text NOT NULL
             );
             CREATE INDEX users_name_idx ON test_schema.users (name);
           `,
-        });
-
-        // Should complete in a small number of rounds (pg-topo orders well)
-        expect(result.apply.totalRounds).toBeLessThanOrEqual(3);
       });
 
-      test("multiple schemas with cross-references", async ({ db }) => {
-        await testDeclarativeApply({
-          mainSession: db.main,
-          branchSession: db.branch,
-          testSql: `
+      // Should complete in a small number of rounds (pg-topo orders well)
+      expect(result.apply.totalRounds).toBeLessThanOrEqual(3);
+    });
+
+    test("multiple schemas with cross-references", async ({ db }) => {
+      await testDeclarativeApply({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: `
             CREATE SCHEMA schema_a;
             CREATE SCHEMA schema_b;
             CREATE TABLE schema_a.parent (id integer PRIMARY KEY);
@@ -151,15 +145,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               parent_id integer REFERENCES schema_a.parent(id)
             );
           `,
-        });
       });
+    });
 
-      test("views and functions", async ({ db }) => {
-        await testDeclarativeApply({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: "CREATE SCHEMA test_schema;",
-          testSql: `
+    test("views and functions", async ({ db }) => {
+      await testDeclarativeApply({
+        mainSession: db.main,
+        branchSession: db.branch,
+        initialSetup: "CREATE SCHEMA test_schema;",
+        testSql: `
             CREATE TABLE test_schema.users (id integer, name text);
             CREATE VIEW test_schema.user_names AS
               SELECT name FROM test_schema.users;
@@ -168,16 +162,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               AS $$ SELECT count(*)::integer FROM test_schema.users; $$
               LANGUAGE sql;
           `,
-        });
       });
+    });
 
-      test("complex dependency chain resolves across rounds", async ({
-        db,
-      }) => {
-        await testDeclarativeApply({
-          mainSession: db.main,
-          branchSession: db.branch,
-          testSql: `
+    test("complex dependency chain resolves across rounds", async ({ db }) => {
+      await testDeclarativeApply({
+        mainSession: db.main,
+        branchSession: db.branch,
+        testSql: `
             CREATE SCHEMA app;
             CREATE TYPE app.user_status AS ENUM ('active', 'inactive');
             CREATE SEQUENCE app.users_id_seq;
@@ -198,8 +190,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               FROM app.users u
               JOIN app.posts p ON p.author_id = u.id;
           `,
-        });
       });
-    },
-  );
+    });
+  });
 }

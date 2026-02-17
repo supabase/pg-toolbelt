@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient, QueryResult } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import {
+  type RoundResult,
   roundApply,
   type StatementEntry,
-  type RoundResult,
 } from "./round-apply.ts";
 
 // ---------------------------------------------------------------------------
@@ -14,9 +14,7 @@ import {
  * Create a mock PoolClient that executes queries against a provided handler.
  * The handler receives the SQL and can either resolve or throw a pg-style error.
  */
-function createMockClient(
-  queryHandler: (sql: string) => void,
-): PoolClient {
+function createMockClient(queryHandler: (sql: string) => void): PoolClient {
   return {
     query: vi.fn(async (sql: string) => {
       queryHandler(sql);
@@ -138,10 +136,7 @@ describe("roundApply", () => {
     const client = createMockClient((sql: string) => {
       if (sql.startsWith("SET ")) return;
       if (sql.includes("CREATE EXTENSION")) {
-        throw pgError(
-          "58P01",
-          "extension pgaudit control file not found",
-        );
+        throw pgError("58P01", "extension pgaudit control file not found");
       }
     });
     const pool = createMockPool(client);
@@ -172,7 +167,7 @@ describe("roundApply", () => {
     expect(result.status).toBe("error");
     expect(result.totalApplied).toBe(1);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors![0].code).toBe("42601");
+    expect(result.errors?.[0].code).toBe("42601");
   });
 
   it("should call onRoundComplete callback", async () => {
@@ -255,7 +250,7 @@ describe("roundApply", () => {
       { id: "stuck", sql: "CREATE TABLE stuck (id int);" },
     ];
 
-    let appliedCount = 0;
+    let _appliedCount = 0;
 
     const client = createMockClient((sql: string) => {
       if (sql.startsWith("SET ")) return;
@@ -264,7 +259,7 @@ describe("roundApply", () => {
         throw pgError("42P01", "relation does not exist");
       }
       // Each non-stuck statement succeeds once
-      appliedCount++;
+      _appliedCount++;
     });
     const pool = createMockPool(client);
 
@@ -280,7 +275,7 @@ describe("roundApply", () => {
     expect(result.totalRounds).toBe(2);
     expect(result.totalApplied).toBe(3);
     expect(result.stuckStatements).toHaveLength(1);
-    expect(result.stuckStatements![0].statement.id).toBe("stuck");
+    expect(result.stuckStatements?.[0].statement.id).toBe("stuck");
   });
 
   it("should handle multi-round resolution with many statements", async () => {

@@ -22,18 +22,68 @@ export interface FileDiffResult {
 // File tree
 // ============================================================================
 
+export interface BuildFileTreeOptions {
+  /** When provided, leaf paths are prefixed with + / ~ / - and colorized (created / updated / deleted). */
+  diff?: FileDiffResult;
+  /** When true, only paths that are created, updated, or deleted are shown; unchanged are omitted. Includes diff.deleted in the tree. */
+  diffFocus?: boolean;
+}
+
+type FileStatus = "created" | "updated" | "deleted" | "unchanged";
+
+function getFileStatus(path: string, diff: FileDiffResult): FileStatus {
+  if (diff.created.includes(path)) return "created";
+  if (diff.updated.includes(path)) return "updated";
+  if (diff.deleted.includes(path)) return "deleted";
+  return "unchanged";
+}
+
+function formatLeafSegment(segment: string, status: FileStatus): string {
+  switch (status) {
+    case "created":
+      return chalk.green("+ " + segment);
+    case "updated":
+      return chalk.yellow("~ " + segment);
+    case "deleted":
+      return chalk.red("- " + segment);
+    default:
+      return chalk.dim(segment);
+  }
+}
+
 /**
  * Build a directory tree string from file paths.
  * Groups by directory, shows files as leaves with indentation.
+ * When options.diff is provided, leaf names are prefixed with + (created), ~ (updated), - (deleted) and colorized.
+ * When options.diffFocus is true, only changed paths (and their ancestors) are shown; unchanged files are omitted.
  *
  * @param files - Array of relative file paths (e.g. ["schemas/public/schema.sql", "schemas/public/tables/users.sql"])
  * @param outputDir - Display name for the root (e.g. "declarative-schemas")
+ * @param options - Optional diff and diffFocus for symbols and filtering
  */
-export function buildFileTree(files: string[], outputDir: string): string {
-  const lines: string[] = [];
-  const tree = new Map<string, Set<string>>(); // parent path -> child paths (relative)
+export function buildFileTree(
+  files: string[],
+  outputDir: string,
+  options?: BuildFileTreeOptions,
+): string {
+  const { diff, diffFocus } = options ?? {};
+  let pathsToShow = files;
 
-  for (const filePath of files) {
+  if (diffFocus && diff) {
+    const changed = new Set<string>([
+      ...diff.created,
+      ...diff.updated,
+      ...diff.deleted,
+    ]);
+    pathsToShow = [...changed];
+    if (pathsToShow.length === 0) {
+      return chalk.dim("(no file changes)");
+    }
+  }
+
+  const tree = new Map<string, Set<string>>();
+
+  for (const filePath of pathsToShow) {
     const segments = filePath.split("/");
     let parent = "";
     for (let i = 0; i < segments.length; i++) {
@@ -49,11 +99,18 @@ export function buildFileTree(files: string[], outputDir: string): string {
     }
   }
 
+  const lines: string[] = [];
+
   function emit(relPath: string, indent: number, isLast: boolean): void {
     const segment = relPath ? path.basename(relPath) : outputDir;
     const prefix =
       indent === 0 ? "" : "  ".repeat(indent) + (isLast ? "└── " : "├── ");
-    lines.push(prefix + segment);
+    const isLeaf = !tree.has(relPath);
+    const displaySegment =
+      diff && isLeaf
+        ? formatLeafSegment(segment, getFileStatus(relPath, diff))
+        : segment;
+    lines.push(prefix + displaySegment);
     const children = tree.get(relPath);
     if (children) {
       const sorted = [...children].sort((a, b) =>
@@ -76,10 +133,7 @@ export function buildFileTree(files: string[], outputDir: string): string {
 /**
  * Recursively collect relative paths of all files under a directory.
  */
-async function collectExistingFiles(
-  dir: string,
-  base = "",
-): Promise<string[]> {
+async function collectExistingFiles(dir: string, base = ""): Promise<string[]> {
   const entries = await readdir(path.join(dir, base), { withFileTypes: true });
   const files: string[] = [];
   for (const e of entries) {
@@ -172,21 +226,21 @@ export function formatExportSummary(
   if (diff.created.length > 0) {
     lines.push(
       chalk.green(
-        `${verb ? verb + " create" : "Created"}: ${diff.created.length} file(s)`,
+        `${verb ? `${verb} create` : "Created"}: ${diff.created.length} file(s)`,
       ),
     );
   }
   if (diff.updated.length > 0) {
     lines.push(
       chalk.yellow(
-        `${verb ? verb + " update" : "Updated"}: ${diff.updated.length} file(s)`,
+        `${verb ? `${verb} update` : "Updated"}: ${diff.updated.length} file(s)`,
       ),
     );
   }
   if (diff.deleted.length > 0) {
     lines.push(
       chalk.red(
-        `${verb ? verb + " delete" : "Deleted"}: ${diff.deleted.length} file(s)`,
+        `${verb ? `${verb} delete` : "Deleted"}: ${diff.deleted.length} file(s)`,
       ),
     );
   }

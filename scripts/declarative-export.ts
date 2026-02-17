@@ -1,21 +1,24 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Change } from "../src/core/change.types.ts";
-import type { Integration } from "../src/core/integrations/integration.types.ts";
 import { exportDeclarativeSchema } from "../src/core/export/index.ts";
 import {
   compileFilterDSL,
   evaluatePattern,
 } from "../src/core/integrations/filter/dsl.ts";
+import type { Integration } from "../src/core/integrations/integration.types.ts";
 import { compileSerializeDSL } from "../src/core/integrations/serialize/dsl.ts";
 import { supabase } from "../src/core/integrations/supabase.ts";
 import { createPlan } from "../src/core/plan/index.ts";
 
-const sourceUrl = process.env.SOURCE_URL!;
-const targetUrl = process.env.TARGET_URL!;
-const outputDir = path.resolve(
-  process.env.OUTPUT_DIR ?? "declarative-schemas",
-);
+const sourceUrl = process.env.SOURCE_URL;
+const targetUrl = process.env.TARGET_URL;
+if (!sourceUrl || !targetUrl) {
+  throw new Error(
+    "SOURCE_URL and TARGET_URL environment variables are required",
+  );
+}
+const outputDir = path.resolve(process.env.OUTPUT_DIR ?? "declarative-schemas");
 const integrationEnv = process.env.INTEGRATION;
 
 try {

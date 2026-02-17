@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Change } from "../change.types.ts";
 import {
-  type CompiledPattern,
   applyGrouping,
+  type CompiledPattern,
   compilePatterns,
   createFileMapper,
   flattenSchema,
@@ -105,12 +105,7 @@ describe("resolveGroupName", () => {
         parentSchema: "public",
       });
       expect(
-        resolveGroupName(
-          change,
-          tableFP("events_p20260107"),
-          noPatterns,
-          true,
-        ),
+        resolveGroupName(change, tableFP("events_p20260107"), noPatterns, true),
       ).toBe("events");
     });
 
@@ -166,12 +161,7 @@ describe("resolveGroupName", () => {
         { pattern: /^unrelated/, name: "unrelated" },
       ]);
       expect(
-        resolveGroupName(
-          change,
-          tableFP("events_p20260107"),
-          patterns,
-          true,
-        ),
+        resolveGroupName(change, tableFP("events_p20260107"), patterns, true),
       ).toBe("events");
     });
   });
@@ -222,12 +212,10 @@ describe("resolveGroupName", () => {
 
     it("matches plurals with prefix regex (users matches /^user/)", () => {
       const change = tableChange({ schema: "public", name: "users" });
-      const patterns = compilePatterns([
-        { pattern: /^user/, name: "user" },
-      ]);
-      expect(
-        resolveGroupName(change, tableFP("users"), patterns, false),
-      ).toBe("user");
+      const patterns = compilePatterns([{ pattern: /^user/, name: "user" }]);
+      expect(resolveGroupName(change, tableFP("users"), patterns, false)).toBe(
+        "user",
+      );
     });
 
     it("first matching pattern wins (ordering controls priority)", () => {
@@ -273,12 +261,7 @@ describe("resolveGroupName", () => {
         { pattern: "^billing", name: "billing" },
       ]);
       expect(
-        resolveGroupName(
-          change,
-          tableFP("billing_invoices"),
-          patterns,
-          false,
-        ),
+        resolveGroupName(change, tableFP("billing_invoices"), patterns, false),
       ).toBe("billing");
     });
   });
@@ -430,9 +413,7 @@ describe("createFileMapper", () => {
       schema: "public",
       name: "get_organization_role",
     });
-    expect(mapper(change).path).toBe(
-      "schemas/public/organization/tables.sql",
-    );
+    expect(mapper(change).path).toBe("schemas/public/organization/tables.sql");
   });
 
   it("groups by suffix regex (single-file mode)", () => {
@@ -471,9 +452,7 @@ describe("createFileMapper", () => {
       schema: "public",
       name: "organization_members",
     });
-    expect(mapper(change).path).toBe(
-      "schemas/public/tables/org-prefix.sql",
-    );
+    expect(mapper(change).path).toBe("schemas/public/tables/org-prefix.sql");
   });
 
   it("chains partition auto-detect through regex (kubernetes scenario)", () => {
@@ -488,9 +467,7 @@ describe("createFileMapper", () => {
       schema: "public",
       name: "kubernetes_resource_events",
     });
-    expect(mapper(parent).path).toBe(
-      "schemas/public/tables/kubernetes.sql",
-    );
+    expect(mapper(parent).path).toBe("schemas/public/tables/kubernetes.sql");
 
     // Partition: auto-detect → parent "kubernetes_resource_events" → /^kubernetes/ matches
     const partition = tableChange({
@@ -500,18 +477,14 @@ describe("createFileMapper", () => {
       parentName: "kubernetes_resource_events",
       parentSchema: "public",
     });
-    expect(mapper(partition).path).toBe(
-      "schemas/public/tables/kubernetes.sql",
-    );
+    expect(mapper(partition).path).toBe("schemas/public/tables/kubernetes.sql");
 
     // Another kubernetes table
     const other = tableChange({
       schema: "public",
       name: "kubernetes_clusters",
     });
-    expect(mapper(other).path).toBe(
-      "schemas/public/tables/kubernetes.sql",
-    );
+    expect(mapper(other).path).toBe("schemas/public/tables/kubernetes.sql");
   });
 
   it("all pattern types combined end-to-end", () => {
@@ -623,7 +596,10 @@ describe("createFileMapper with flatSchemas", () => {
       flatSchemas: ["partman"],
     });
 
-    const t1 = tableChange({ schema: "partman", name: "template_public_events" });
+    const t1 = tableChange({
+      schema: "partman",
+      name: "template_public_events",
+    });
     const t2 = tableChange({
       schema: "partman",
       name: "template_public_wal_verification_results",
@@ -687,7 +663,10 @@ describe("createFileMapper with flatSchemas", () => {
     });
 
     // Flat schema → flattened
-    const t1 = tableChange({ schema: "partman", name: "template_public_events" });
+    const t1 = tableChange({
+      schema: "partman",
+      name: "template_public_events",
+    });
     expect(mapper(t1).path).toBe("schemas/partman/tables.sql");
 
     // Non-flat schema → regex patterns apply

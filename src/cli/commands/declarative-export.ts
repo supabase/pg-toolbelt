@@ -140,6 +140,11 @@ export const declarativeExportCommand = buildCommand({
         brief: "Show tree and summary without writing files",
         optional: true,
       },
+      "diff-focus": {
+        kind: "boolean",
+        brief: "Show only files that changed (created/updated/deleted) in the tree",
+        optional: true,
+      },
       verbose: {
         kind: "boolean",
         brief: "Show detailed output",
@@ -171,6 +176,7 @@ Flags:
   format-options - SQL format options as JSON
   force          - Remove output directory before writing (full replace)
   dry-run        - Show tree and summary only, do not write files
+  diff-focus     - Show only changed files (created/updated/deleted) in the tree
   verbose        - Show detailed output
 
 After export, a tip is printed with the command to apply the schema to an empty database.
@@ -191,6 +197,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
       "format-options"?: SqlFormatOptions;
       force?: boolean;
       "dry-run"?: boolean;
+      "diff-focus"?: boolean;
       verbose?: boolean;
     },
   ) {
@@ -261,16 +268,21 @@ After export, a tip is printed with the command to apply the schema to an empty 
 
     this.process.stdout.write("\n");
     this.process.stdout.write(
-      buildFileTree(
+      `${buildFileTree(
         output.files.map((f) => f.path),
         path.basename(outputDir) || outputDir,
-      ) + "\n",
+        { diff, diffFocus: !!flags["diff-focus"] },
+      )}\n`,
+    );
+    this.process.stdout.write("\n");
+    this.process.stdout.write(
+      `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted\n`,
     );
     this.process.stdout.write("\n");
 
     const summary = formatExportSummary(diff, !!flags["dry-run"]);
     if (summary) {
-      this.process.stdout.write(summary + "\n");
+      this.process.stdout.write(`${summary}\n`);
     }
 
     const totalChanges = planResult.sortedChanges.length;

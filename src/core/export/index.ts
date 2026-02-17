@@ -11,11 +11,7 @@ import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
 import { formatSqlScript } from "../plan/statements.ts";
 import { createFileMapper } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
-import type {
-  DeclarativeSchemaOutput,
-  FileEntry,
-  Grouping,
-} from "./types.ts";
+import type { DeclarativeSchemaOutput, FileEntry, Grouping } from "./types.ts";
 
 // ============================================================================
 // Types
