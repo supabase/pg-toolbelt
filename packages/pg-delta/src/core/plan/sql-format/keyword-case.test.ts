@@ -69,7 +69,7 @@ describe("applyKeywordCase", () => {
       "ALTER TABLE public.t ADD CONSTRAINT c CHECK (State IN ('ON','OFF')) NO INHERIT";
     const result = applyKeywordCase(sql, lowerOpts);
     expect(result).toMatchInlineSnapshot(
-      `"alter table public.t add constraint c CHECK (State IN ('ON','OFF')) NO INHERIT"`,
+      `"alter table public.t add constraint c check (State IN ('ON','OFF')) no inherit"`,
     );
   });
 

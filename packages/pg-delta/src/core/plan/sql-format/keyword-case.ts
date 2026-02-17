@@ -74,6 +74,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "IN",
   "INDEX",
   "INCREMENT",
+  "INHERIT",
   "INHERITS",
   "INITIALLY",
   "INLINE",
@@ -503,26 +504,7 @@ function collectCheckClauseRanges(
       continue;
     }
 
-    const clauseDepth = token.depth;
-    let end = close + 1;
-    const nextIndex = findTokenAtDepthAtOrAfter(
-      tokens,
-      end,
-      i + 1,
-      clauseDepth,
-    );
-    const noToken = nextIndex >= 0 ? tokens[nextIndex] : undefined;
-    const inheritToken = nextIndex >= 0 ? tokens[nextIndex + 1] : undefined;
-    if (
-      noToken?.depth === clauseDepth &&
-      noToken.upper === "NO" &&
-      inheritToken?.depth === clauseDepth &&
-      inheritToken.upper === "INHERIT"
-    ) {
-      end = inheritToken.end;
-    }
-
-    ranges.push({ start: token.start, end });
+    ranges.push({ start: open, end: close + 1 });
   }
 
   return unsafe;
@@ -1015,18 +997,6 @@ function findMatchingParen(statement: string, open: number): number {
   );
 
   return close;
-}
-
-function findTokenAtDepthAtOrAfter(
-  tokens: ReturnType<typeof scanTokens>,
-  position: number,
-  startIndex: number,
-  depth: number,
-): number {
-  for (let i = startIndex; i < tokens.length; i += 1) {
-    if (tokens[i].depth === depth && tokens[i].start >= position) return i;
-  }
-  return -1;
 }
 
 function findNextTopLevelComma(text: string, start: number): number {

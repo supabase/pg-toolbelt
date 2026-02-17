@@ -66,7 +66,7 @@ describe("sql formatting snapshots", () => {
           collate mycoll
           default 'hello'
           not null
-          CHECK (VALUE <> '');
+          check (VALUE <> '');
 
       -- domain.drop
       drop domain public.test_domain_all;
@@ -93,7 +93,7 @@ describe("sql formatting snapshots", () => {
 
       -- domain.alter.add_constraint
       alter domain public.test_domain_all
-          add constraint domain_len_chk CHECK (char_length(VALUE) <= 255) not valid;
+          add constraint domain_len_chk check (char_length(VALUE) <= 255) not valid;
 
       -- domain.alter.drop_constraint
       alter domain public.test_domain_all
@@ -616,7 +616,7 @@ describe("sql formatting snapshots", () => {
           for delete
           to authenticated, service_role
           using (auth.uid() = owner_id)
-          with CHECK (status <> 'locked');
+          with check (status <> 'locked');
 
       -- policy.drop
       drop policy allow_select_own on public.table_with_very_long_name_for_formatting_and_wrapping_test;
@@ -633,7 +633,7 @@ describe("sql formatting snapshots", () => {
       -- policy.alter.set_with_check
       alter policy public.allow_select_own
           on public.table_with_very_long_name_for_formatting_and_wrapping_test with
-          CHECK (auth.uid() = user_id);
+          check (auth.uid() = user_id);
 
       -- policy.comment
       comment on policy allow_select_own
