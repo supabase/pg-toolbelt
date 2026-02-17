@@ -31,7 +31,7 @@ describe("lowercase coverage formatting", () => {
     );
   });
 
-  test("fails safe: malformed protected literals skip casing and wrapping for that statement", () => {
+  test("fails safe: malformed protected literals skip casing but still wrap", () => {
     const statements = [
       "COMMENT ON FUNCTION public.fn() IS E'unterminated \\'",
       "ALTER TABLE auth.audit_log_entries ENABLE ROW LEVEL SECURITY;",
@@ -42,7 +42,8 @@ describe("lowercase coverage formatting", () => {
       maxWidth: 40,
     });
 
-    expect(formatted[0]).toMatchInlineSnapshot(
+    // Malformed statement: casing skipped (stays uppercase) but wrapping still applies
+    expect(formatted[0].replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
       `"COMMENT ON FUNCTION public.fn() IS E'unterminated \\'"`,
     );
 

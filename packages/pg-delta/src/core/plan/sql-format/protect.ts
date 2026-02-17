@@ -6,7 +6,7 @@ type ProtectState = {
   placeholders: Map<string, string>;
   noWrapPlaceholders: Set<string>;
   counter: number;
-  skipPostProcess: boolean;
+  skipCasing: boolean;
 };
 
 export function protectSegments(
@@ -20,7 +20,7 @@ export function protectSegments(
     placeholders,
     noWrapPlaceholders,
     counter: 0,
-    skipPostProcess: false,
+    skipCasing: false,
   };
 
   if (options.preserveRoutineBodies) {
@@ -43,7 +43,7 @@ export function protectSegments(
     text,
     placeholders,
     noWrapPlaceholders,
-    skipPostProcess: state.skipPostProcess,
+    skipCasing: state.skipCasing,
   };
 }
 
@@ -167,7 +167,7 @@ function protectCommentLiteral(
     cursor += 1;
   }
   if (literalEnd === -1) {
-    state.skipPostProcess = true;
+    state.skipCasing = true;
     return { text };
   }
 
@@ -299,7 +299,7 @@ function protectDollarQuotes(
           i = end + tag.length;
           continue;
         }
-        state.skipPostProcess = true;
+        state.skipCasing = true;
         output += char;
         i += 1;
         continue;
