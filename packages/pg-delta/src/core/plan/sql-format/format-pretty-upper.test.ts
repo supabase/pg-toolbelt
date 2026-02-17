@@ -12,7 +12,7 @@ describe("sql formatting snapshots", () => {
     expect(output).toMatchInlineSnapshot(`
       "-- format: { keywordCase: 'upper' }
       -- schema.create
-      CREATE SCHEMA application_schema_with_very_long_name_for_wrapping_tests AUTHORIZATION admin;
+      CREATE SCHEMA application_schema_with_very_long_name_for_wrapping_tests AUTHORIZATION ADMIN;
 
       -- schema.drop
       DROP SCHEMA application_schema_with_very_long_name_for_wrapping_tests;
@@ -56,7 +56,7 @@ describe("sql formatting snapshots", () => {
       COMMENT ON EXTENSION pgcrypto IS NULL;
 
       -- domain.create
-      CREATE DOMAIN public.test_domain_all AS custom.text[][]
+      CREATE DOMAIN public.test_domain_all AS custom.TEXT[][]
         COLLATE mycoll
         DEFAULT 'hello'
         NOT NULL
@@ -145,8 +145,8 @@ describe("sql formatting snapshots", () => {
 
       -- type.composite.create
       CREATE TYPE public.test_type AS (
-        id   integer,
-        name text    COLLATE "en_US"
+        id   INTEGER,
+        NAME TEXT    COLLATE "en_US"
       );
 
       -- type.composite.drop
@@ -156,13 +156,13 @@ describe("sql formatting snapshots", () => {
       ALTER TYPE public.test_type OWNER TO new_owner;
 
       -- type.composite.alter.add_attribute
-      ALTER TYPE public.test_type ADD ATTRIBUTE age integer;
+      ALTER TYPE public.test_type ADD ATTRIBUTE age INTEGER;
 
       -- type.composite.alter.drop_attribute
-      ALTER TYPE public.test_type DROP ATTRIBUTE name;
+      ALTER TYPE public.test_type DROP ATTRIBUTE NAME;
 
       -- type.composite.alter.alter_attr_type
-      ALTER TYPE public.test_type ALTER ATTRIBUTE name TYPE varchar(255) COLLATE "C";
+      ALTER TYPE public.test_type ALTER ATTRIBUTE NAME TYPE VARCHAR(255) COLLATE "C";
 
       -- type.composite.comment
       COMMENT ON TYPE public.test_type IS 'composite comment';
@@ -221,7 +221,7 @@ describe("sql formatting snapshots", () => {
         LC_COLLATE    = 'en_US',
         LC_CTYPE      = 'en_US',
         PROVIDER      = icu,
-        DETERMINISTIC = false,
+        DETERMINISTIC = FALSE,
         RULES         = '& A < a <<< à',
         VERSION       = '1.0'
       );
@@ -243,19 +243,19 @@ describe("sql formatting snapshots", () => {
 
       -- table.create
       CREATE TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test (
-        id         bigint      GENERATED ALWAYS AS IDENTITY NOT NULL,
-        status     text        COLLATE "en_US" DEFAULT 'pending',
+        id         BIGINT      GENERATED ALWAYS AS IDENTITY NOT NULL,
+        status     TEXT        COLLATE "en_US" DEFAULT 'pending',
         created_at timestamptz DEFAULT now(),
-        ref_id     bigint,
-        computed   bigint      GENERATED ALWAYS AS (id * 2) STORED
-      ) WITH (fillfactor=70, autovacuum_enabled=false);
+        ref_id     BIGINT,
+        computed   BIGINT      GENERATED ALWAYS AS (id * 2) STORED
+      ) WITH (fillfactor=70, autovacuum_enabled=FALSE);
 
       -- table.drop
       DROP TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- table.alter.add_column
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
-        ADD COLUMN email text COLLATE "en_US" DEFAULT 'user@example.com' NOT NULL;
+        ADD COLUMN email TEXT COLLATE "en_US" DEFAULT 'user@example.com' NOT NULL;
 
       -- table.alter.drop_column
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -263,7 +263,7 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.column_type
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
-        ALTER COLUMN status TYPE character varying(255) COLLATE "C";
+        ALTER COLUMN status TYPE CHARACTER VARYING(255) COLLATE "C";
 
       -- table.alter.column_set_default
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -328,7 +328,7 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.set_storage_params
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
-        SET (fillfactor=80, autovacuum_enabled=true);
+        SET (fillfactor=80, autovacuum_enabled=TRUE);
 
       -- table.alter.reset_storage_params
       ALTER TABLE public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -385,7 +385,7 @@ describe("sql formatting snapshots", () => {
         public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit (
         id,
         title
-      ) WHERE (published = true),
+      ) WHERE (published = TRUE),
         TABLE public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN SCHEMA analytics;
 
       -- publication.drop
@@ -393,7 +393,7 @@ describe("sql formatting snapshots", () => {
 
       -- publication.alter.set_options
       ALTER PUBLICATION pub_custom
-        SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = false);
+        SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = FALSE);
 
       -- publication.alter.set_all_tables
       ALTER PUBLICATION pub_custom SET FOR ALL TABLES;
@@ -402,7 +402,7 @@ describe("sql formatting snapshots", () => {
       ALTER PUBLICATION pub_custom
         SET TABLE
         public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit
-        (id, title) WHERE (published = true),
+        (id, title) WHERE (published = TRUE),
         TABLE public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN SCHEMA analytics;
 
       -- publication.alter.add_tables
@@ -428,7 +428,7 @@ describe("sql formatting snapshots", () => {
       COMMENT ON PUBLICATION pub_custom IS NULL;
 
       -- view.create
-      CREATE VIEW public.test_view WITH (security_barrier=true, check_option=local) AS SELECT *
+      CREATE VIEW public.test_view WITH (security_barrier=TRUE, check_option=LOCAL) AS SELECT *
       FROM test_table;
 
       -- view.drop
@@ -438,7 +438,7 @@ describe("sql formatting snapshots", () => {
       ALTER VIEW public.test_view OWNER TO new_owner;
 
       -- view.alter.set_options
-      ALTER VIEW public.test_view SET (security_barrier=true, check_option=cascaded);
+      ALTER VIEW public.test_view SET (security_barrier=TRUE, check_option=CASCADED);
 
       -- view.alter.reset_options
       ALTER VIEW public.test_view RESET (security_barrier);
@@ -487,13 +487,13 @@ describe("sql formatting snapshots", () => {
 
       -- function.create
       CREATE FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name (
-        "p_schema_name_for_analytics" text,
-        "p_table_name_for_metrics"    text,
-        "p_limit_count_default"       integer DEFAULT 100
+        "p_schema_name_for_analytics" TEXT,
+        "p_table_name_for_metrics"    TEXT,
+        "p_limit_count_default"       INTEGER DEFAULT 100
       )
         RETURNS TABLE (
-          total   bigint,
-          average numeric
+          total   BIGINT,
+          average NUMERIC
         )
         LANGUAGE plpgsql
         STABLE
@@ -508,8 +508,8 @@ describe("sql formatting snapshots", () => {
       -- function.drop
       DROP FUNCTION
         public.calculate_metrics_for_analytics_dashboard_with_extended_name(IN
-        "p_schema_name_for_analytics" text,
-        IN "p_table_name_for_metrics" text, IN "p_limit_count_default" integer);
+        "p_schema_name_for_analytics" TEXT,
+        IN "p_table_name_for_metrics" TEXT, IN "p_limit_count_default" INTEGER);
 
       -- function.alter.change_owner
       ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name OWNER TO
@@ -538,26 +538,26 @@ describe("sql formatting snapshots", () => {
 
       -- function.comment
       COMMENT ON FUNCTION
-        public.calculate_metrics_for_analytics_dashboard_with_extended_name(text,text,integer) IS
+        public.calculate_metrics_for_analytics_dashboard_with_extended_name(TEXT,TEXT,INTEGER) IS
         'Calculate metrics for a given table';
 
       -- function.drop_comment
       COMMENT ON FUNCTION
-        public.calculate_metrics_for_analytics_dashboard_with_extended_name(text,text,integer) IS NULL;
+        public.calculate_metrics_for_analytics_dashboard_with_extended_name(TEXT,TEXT,INTEGER) IS NULL;
 
       -- function.grant
       GRANT ALL ON FUNCTION
-        public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) TO
+        public.calculate_metrics_for_analytics_dashboard_with_extended_name(TEXT, TEXT, INTEGER) TO
         app_user WITH GRANT OPTION;
 
       -- function.revoke
       REVOKE ALL ON FUNCTION
-        public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) FROM
+        public.calculate_metrics_for_analytics_dashboard_with_extended_name(TEXT, TEXT, INTEGER) FROM
         app_user;
 
       -- function.revoke_grant_option
       REVOKE GRANT OPTION FOR ALL ON FUNCTION
-        public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) FROM
+        public.calculate_metrics_for_analytics_dashboard_with_extended_name(TEXT, TEXT, INTEGER) FROM
         app_user;
 
       -- sequence.create
@@ -637,7 +637,7 @@ describe("sql formatting snapshots", () => {
       CREATE UNIQUE INDEX idx_t_fmt_status
         ON public.table_with_very_long_name_for_formatting_and_wrapping_test (status)
         WITH (fillfactor='90')
-        WHERE (status <> 'archived'::text);
+        WHERE (status <> 'archived'::TEXT);
 
       -- index.create_gin
       CREATE INDEX idx_t_fmt_search ON public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -713,10 +713,10 @@ describe("sql formatting snapshots", () => {
       COMMENT ON MATERIALIZED VIEW analytics.daily_stats IS NULL;
 
       -- matview.column_comment
-      COMMENT ON COLUMN analytics.daily_stats.day IS 'day bucket';
+      COMMENT ON COLUMN analytics.daily_stats.DAY IS 'day bucket';
 
       -- matview.drop_column_comment
-      COMMENT ON COLUMN analytics.daily_stats.day IS NULL;
+      COMMENT ON COLUMN analytics.daily_stats.DAY IS NULL;
 
       -- matview.grant
       GRANT SELECT ON analytics.daily_stats TO app_reader;
@@ -846,11 +846,11 @@ describe("sql formatting snapshots", () => {
         PUBLICATION pub_custom
         WITH (
           SLOT_NAME          = 'sub_replica_slot',
-          BINARY             = true,
+          BINARY             = TRUE,
           STREAMING          = 'parallel',
           SYNCHRONOUS_COMMIT = 'remote_apply',
-          DISABLE_ON_ERROR   = true,
-          FAILOVER           = true
+          DISABLE_ON_ERROR   = TRUE,
+          FAILOVER           = TRUE
         );
 
       -- subscription.drop
@@ -875,7 +875,7 @@ describe("sql formatting snapshots", () => {
       -- subscription.alter.set_options
       ALTER SUBSCRIPTION sub_replica
         SET (
-          BINARY             = true,
+          BINARY             = TRUE,
           STREAMING          = 'parallel',
           SYNCHRONOUS_COMMIT = 'remote_apply'
         );
@@ -927,8 +927,8 @@ describe("sql formatting snapshots", () => {
 
       -- foreign_table.create
       CREATE FOREIGN TABLE public.remote_users (
-        id    integer,
-        email text
+        id    INTEGER,
+        email TEXT
       ) SERVER remote_server OPTIONS (schema_name 'public', table_name 'users');
 
       -- foreign_table.drop
@@ -940,7 +940,7 @@ describe("sql formatting snapshots", () => {
 
       -- foreign_table.alter.add_column
       ALTER FOREIGN TABLE public.remote_users
-        ADD COLUMN name text NOT NULL DEFAULT 'unknown';
+        ADD COLUMN NAME TEXT NOT NULL DEFAULT 'unknown';
 
       -- foreign_table.alter.drop_column
       ALTER FOREIGN TABLE public.remote_users
@@ -948,7 +948,7 @@ describe("sql formatting snapshots", () => {
 
       -- foreign_table.alter.column_type
       ALTER FOREIGN TABLE public.remote_users
-        ALTER COLUMN id TYPE bigint;
+        ALTER COLUMN id TYPE BIGINT;
 
       -- foreign_table.alter.column_set_default
       ALTER FOREIGN TABLE public.remote_users
@@ -1031,13 +1031,13 @@ describe("sql formatting snapshots", () => {
 
       -- user_mapping.create
       CREATE USER MAPPING FOR app_user SERVER remote_server
-        OPTIONS (user 'remote_app', password 'secret123');
+        OPTIONS (USER 'remote_app', PASSWORD 'secret123');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER remote_server;
 
       -- user_mapping.alter.set_options
-      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password 'new_secret');"
+      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET PASSWORD 'new_secret');"
     `);
   });
 });

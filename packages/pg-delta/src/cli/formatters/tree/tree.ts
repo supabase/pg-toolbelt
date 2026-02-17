@@ -18,7 +18,7 @@ export function formatTree(plan: HierarchicalPlan): string {
   lines.push(
     chalk.bold(`📋 Migration Plan: ${total} change${total !== 1 ? "s" : ""}`),
   );
-  const summary = buildSummaryLine(plan);
+  const summary = buildPlanSummaryTable(plan);
   if (summary) {
     lines.push("");
     lines.push(summary);
@@ -54,8 +54,9 @@ function countTotalChanges(plan: HierarchicalPlan): number {
 
 /**
  * Build summary as a table showing counts by entity type and operation.
+ * Exported for use by declarative-export to show the same summary style.
  */
-function buildSummaryLine(plan: HierarchicalPlan): string {
+function buildPlanSummaryTable(plan: HierarchicalPlan): string {
   // Count by object type
   const byType: Record<
     string,

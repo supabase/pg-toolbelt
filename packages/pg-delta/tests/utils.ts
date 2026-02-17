@@ -16,7 +16,7 @@ function suppressShutdownError(err: Error & { code?: string }) {
   console.error("Pool error:", err);
 }
 
-type DbFixture = { main: Pool; branch: Pool };
+export type DbFixture = { main: Pool; branch: Pool };
 
 /**
  * Default test utility using Alpine PostgreSQL containers with single container per version.

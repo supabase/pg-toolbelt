@@ -4,6 +4,13 @@
  * This module exports the public API for the pg-delta library.
  */
 
+export { exportDeclarativeSchema } from "./core/export/index.ts";
+export type {
+  DeclarativeSchemaOutput,
+  FileCategory,
+  FileEntry,
+  FileMetadata,
+} from "./core/export/types.ts";
 export type { IntegrationDSL } from "./core/integrations/integration-dsl.ts";
 export { applyPlan } from "./core/plan/apply.ts";
 // Core operations

@@ -19,6 +19,7 @@
       },
       "dependencies": {
         "@stricli/core": "^1.2.4",
+        "@supabase/pg-topo": "workspace:*",
         "@ts-safeql/sql-tag": "^0.2.0",
         "chalk": "^5.6.2",
         "debug": "^4.3.7",
@@ -40,7 +41,7 @@
     },
     "packages/pg-topo": {
       "name": "@supabase/pg-topo",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@pgsql/traverse": "^17.2.4",
         "plpgsql-parser": "^0.5.4",

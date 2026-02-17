@@ -53,9 +53,11 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun test tests/
 ## Test Patterns
 
 ### pg-delta unit tests
+
 Standard `describe`/`test`/`expect` from `bun:test`. No database needed. Located in `packages/pg-delta/src/**/*.test.ts`.
 
 ### pg-delta integration tests
+
 Use `withDb(pgVersion, callback)` / `withDbIsolated(pgVersion, callback)` wrapper from `tests/utils.ts`. Located in `packages/pg-delta/tests/**/*.test.ts`.
 
 ```typescript
@@ -65,14 +67,18 @@ import { POSTGRES_VERSIONS } from "../constants.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`my feature (pg${pgVersion})`, () => {
-    test("test name", withDb(pgVersion, async (db) => {
-      // db.main and db.branch are pg Pool instances
-    }));
+    test(
+      "test name",
+      withDb(pgVersion, async (db) => {
+        // db.main and db.branch are pg Pool instances
+      }),
+    );
   });
 }
 ```
 
 ### pg-topo tests
+
 Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packages/pg-topo/test/`.
 
 ## CI

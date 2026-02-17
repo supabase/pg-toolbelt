@@ -84,6 +84,25 @@ export class CreateTable extends CreateTableChange {
           }
         }
       }
+
+      // Function dependencies from DEFAULT expressions.
+      // Schema-qualified function calls in defaults (e.g., auth.role(),
+      // extensions.uuid_generate_v4()) must exist before the table is created.
+      // This is a best-effort approach to avoid false dependency errors.
+      // TODO: Implement a more robust solution.
+      if (col.default && !col.is_identity && !col.is_generated) {
+        // Match schema.name( - allow optional double quotes around identifiers (pg_get_expr output)
+        const funcCallRegex = /"?(\w+)"?\s*\.\s*"?(\w+)"?\s*\(/g;
+        const defaultStr = String(col.default);
+        let match = funcCallRegex.exec(defaultStr);
+        while (match !== null) {
+          const [, funcSchema, funcName] = match;
+          if (funcSchema && funcName && isUserDefinedTypeSchema(funcSchema)) {
+            dependencies.add(stableId.procedure(funcSchema, funcName));
+          }
+          match = funcCallRegex.exec(defaultStr);
+        }
+      }
     }
 
     return Array.from(dependencies);

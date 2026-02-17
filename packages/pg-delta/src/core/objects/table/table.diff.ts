@@ -242,6 +242,19 @@ export function diffTables(
       changes.push(new AlterTableForceRowLevelSecurity({ table: branchTable }));
     }
 
+    // REPLICA IDENTITY: If non-default, emit ALTER TABLE ... REPLICA IDENTITY
+    if (branchTable.replica_identity !== "d") {
+      // Skip 'i' (USING INDEX) — handled by index changes
+      if (branchTable.replica_identity !== "i") {
+        changes.push(
+          new AlterTableSetReplicaIdentity({
+            table: branchTable,
+            mode: branchTable.replica_identity,
+          }),
+        );
+      }
+    }
+
     changes.push(
       ...createAlterConstraintChange(
         // Create a dummy table with no constraints do diff constraints against
