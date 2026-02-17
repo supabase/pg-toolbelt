@@ -1,170 +1,61 @@
+# pg-toolbelt
+
+Monorepo for Supabase PostgreSQL tooling.
+
+## Packages
+
+| Package | Description | npm |
+|---------|-------------|-----|
+| [`@supabase/pg-delta`](./packages/pg-delta) | PostgreSQL schema diff and migration tool | [![npm](https://img.shields.io/npm/v/@supabase/pg-delta)](https://www.npmjs.com/package/@supabase/pg-delta) |
+| [`@supabase/pg-topo`](./packages/pg-topo) | Topological sorting for SQL DDL statements | [![npm](https://img.shields.io/npm/v/@supabase/pg-topo)](https://www.npmjs.com/package/@supabase/pg-topo) |
+
+## Development
+
+### Prerequisites
+
+- [Bun](https://bun.sh) (latest)
+- [Docker](https://www.docker.com/) (for integration tests)
+- Node.js >= 20 (for TypeScript compilation)
+
+### Setup
+
+```bash
+bun install
+```
+
+### Commands
+
+```bash
+bun run build           # Build all packages
+bun run test            # Test all packages
+bun run test:pg-delta   # Test pg-delta only
+bun run test:pg-topo    # Test pg-topo only
+bun run check-types     # Type check all packages
+bun run format-and-lint # Format and lint all code
+```
+
+### Working with individual packages
+
+```bash
 # pg-delta
+cd packages/pg-delta
+bun test src/           # Unit tests only
+bun test tests/         # Integration tests only (requires Docker)
 
-PostgreSQL migrations made easy.
+# pg-topo
+cd packages/pg-topo
+bun test                # All tests (requires Docker)
+```
 
-Generate migration scripts by comparing two PostgreSQL databases. Automatically detects schema differences and creates safe, ordered migration scripts.
+### Releasing
 
-## Features
-
-- 🔍 Compare databases and generate migration scripts automatically
-- 🔒 Safety-first: detects data-loss operations and requires explicit confirmation
-- 📋 Plan-based workflow: preview changes before applying, store plans for version control
-- 🎯 Integration DSL: filter and customize serialization with JSON-based rules
-- 🛠️ Developer-friendly: interactive CLI with tree-formatted change previews
-
-## Installation
+This monorepo uses [changesets](https://github.com/changesets/changesets) for versioning.
 
 ```bash
-npm install @supabase/pg-delta
+bunx changeset          # Create a changeset
+bun run version         # Apply changesets to update versions
+bunx changeset publish  # Publish to npm
 ```
-
-Or use with `npx`:
-
-```bash
-npx @supabase/pg-delta --source <source> --target <target>
-```
-
-## Quick Start
-
-### CLI Usage
-
-The CLI provides three main commands:
-
-**Sync (default)** - Plan and apply changes in one go:
-
-```bash
-pg-delta sync \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db
-```
-
-**Plan** - Preview changes before applying:
-
-```bash
-pg-delta plan \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db \
-  --output plan.json
-```
-
-**Plan (SQL output with formatting)** - Opt-in post-formatting for SQL scripts:
-
-```bash
-pg-delta plan \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db \
-  --format sql \
-  --sql-format \
-  --sql-format-options '{"keywordCase":"upper","maxWidth":100}'
-```
-
-Available SQL format options (JSON):
-- `keywordCase`: `upper` | `lower` | `preserve`
-- `indent`: number of spaces per level
-- `maxWidth`: line width for wrapping
-- `commaStyle`: `trailing` | `leading`
-- `alignColumns`: boolean
-- `alignKeyValues`: boolean
-- `preserveRoutineBodies`: boolean
-- `preserveViewBodies`: boolean
-- `preserveRuleBodies`: boolean
-
-**Apply** - Apply a previously created plan:
-
-```bash
-pg-delta apply \
-  --plan plan.json \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db
-```
-
-### Using Integrations
-
-Use built-in integrations or custom JSON files:
-
-```bash
-# Built-in Supabase integration
-pg-delta sync --source <source> --target <target> --integration supabase
-
-# Custom integration file
-pg-delta sync --source <source> --target <target> --integration ./my-integration.json
-```
-
-### Programmatic Usage
-
-```typescript
-import { main } from "@supabase/pg-delta";
-
-const result = await main(
-  "postgresql://source",
-  "postgresql://target"
-);
-
-if (result) {
-  console.log(result.migrationScript);
-}
-```
-
-For plan-based workflow:
-
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
-
-// Create a plan
-const planResult = await createPlan(sourceUrl, targetUrl, {
-  filter: { schema: "public" },
-  serialize: [{ when: { type: "schema" }, options: { skipAuthorization: true } }]
-});
-
-if (planResult) {
-  // Apply the plan
-  const result = await applyPlan(
-    planResult.plan,
-    sourceUrl,
-    targetUrl
-  );
-}
-```
-
-## Documentation
-
-- [CLI Reference](./docs/cli.md) - Complete CLI documentation with all commands and options
-- [API Reference](./docs/api.md) - Programmatic API documentation
-- [Integrations](./docs/integrations.md) - Using and creating integrations with the DSL system
-- [Sorting & Safety](./docs/sorting.md) - How migrations are ordered for safety
-
-## Key Concepts
-
-### Plan-Based Workflow
-
-`pg-delta` uses a plan-based workflow that provides:
-
-- **Preview before apply**: Review changes before executing them
-- **Self-contained plans**: Plans store filtering and serialization rules
-- **Reproducibility**: Plans can be version-controlled and shared
-- **Safety checks**: Automatic detection of data-loss operations
-
-### Integration DSL
-
-Integrations use a JSON-based DSL for filtering and serialization:
-
-- **Filter DSL**: Pattern matching to include/exclude changes
-- **Serialization DSL**: Rules to customize SQL generation
-- **Serializable**: Can be stored in plans and passed as CLI flags
-
-See [Integrations Documentation](./docs/integrations.md) for complete details.
-
-## Use Cases
-
-- Generate migrations between environments (dev → staging → production)
-- Compare database states and review differences
-- Automate migration creation in CI/CD pipelines
-- Maintain schema version control with plan files
-- Filter platform-specific changes (e.g., Supabase system schemas)
-
-## Contributing
-
-Contributions welcome! Feel free to submit issues and pull requests.
 
 ## License
 

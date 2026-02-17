@@ -1,7 +1,0 @@
-onlyBuiltDependencies:
-  - '@biomejs/biome'
-  - cpu-features
-  - esbuild
-  - oxc-resolver
-  - protobufjs
-  - ssh2

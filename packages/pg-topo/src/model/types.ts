@@ -1,0 +1,108 @@
+import type { StatementClass } from "../classify/classify-statement.ts";
+
+export const OBJECT_KINDS = [
+  "schema",
+  "language",
+  "extension",
+  "foreign_data_wrapper",
+  "foreign_server",
+  "type",
+  "domain",
+  "collation",
+  "sequence",
+  "table",
+  "constraint",
+  "index",
+  "function",
+  "procedure",
+  "aggregate",
+  "view",
+  "materialized_view",
+  "trigger",
+  "event_trigger",
+  "policy",
+  "publication",
+  "subscription",
+  "role",
+] as const;
+
+export type ObjectKind = (typeof OBJECT_KINDS)[number];
+
+export type PhaseTag =
+  | "bootstrap"
+  | "pre_data"
+  | "data_structures"
+  | "routines"
+  | "post_data"
+  | "privileges";
+
+export type StatementId = {
+  filePath: string;
+  statementIndex: number;
+};
+
+export type ObjectRef = {
+  kind: ObjectKind;
+  schema?: string;
+  name: string;
+  signature?: string;
+};
+
+export type AnnotationHints = {
+  phase?: PhaseTag;
+  dependsOn: ObjectRef[];
+  requires: ObjectRef[];
+  provides: ObjectRef[];
+};
+
+export type StatementNode = {
+  id: StatementId;
+  sql: string;
+  statementClass: StatementClass;
+  provides: ObjectRef[];
+  requires: ObjectRef[];
+  phase: PhaseTag;
+  annotations: AnnotationHints;
+};
+
+export type DiagnosticCode =
+  | "PARSE_ERROR"
+  | "DISCOVERY_ERROR"
+  | "UNKNOWN_STATEMENT_CLASS"
+  | "UNRESOLVED_DEPENDENCY"
+  | "DUPLICATE_PRODUCER"
+  | "CYCLE_DETECTED"
+  | "INVALID_ANNOTATION";
+
+export type Diagnostic = {
+  code: DiagnosticCode;
+  message: string;
+  statementId?: StatementId;
+  objectRefs?: ObjectRef[];
+  suggestedFix?: string;
+  details?: Record<string, unknown>;
+};
+
+export type GraphEdgeReason =
+  | "requires"
+  | "requires_constraint_key"
+  | "requires_compatible";
+
+export type GraphEdge = {
+  from: StatementId;
+  to: StatementId;
+  reason: GraphEdgeReason;
+  objectRef?: ObjectRef;
+};
+
+export type GraphReport = {
+  nodeCount: number;
+  edges: GraphEdge[];
+  cycleGroups: StatementId[][];
+};
+
+export type AnalyzeResult = {
+  ordered: StatementNode[];
+  diagnostics: Diagnostic[];
+  graph: GraphReport;
+};

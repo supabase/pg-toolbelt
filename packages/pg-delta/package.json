@@ -1,0 +1,85 @@
+{
+  "name": "@supabase/pg-delta",
+  "version": "1.0.0-alpha.3",
+  "description": "PostgreSQL migrations made easy",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./integrations/supabase": {
+      "bun": "./src/core/integrations/supabase.ts",
+      "import": "./dist/core/integrations/supabase.js",
+      "require": "./dist/core/integrations/supabase.js",
+      "types": "./dist/core/integrations/supabase.d.ts",
+      "default": "./dist/core/integrations/supabase.js"
+    }
+  },
+  "bin": {
+    "pgdelta": "./dist/cli/bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pg",
+    "postgres",
+    "migrations",
+    "diff",
+    "pg-delta",
+    "pgdelta"
+  ],
+  "author": "Supabase",
+  "license": "MIT",
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-delta"
+  },
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "format-and-lint": "biome check . --error-on-warnings",
+    "knip": "knip",
+    "pgdelta": "bun src/cli/bin/cli.ts",
+    "test": "bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts",
+    "test:unit": "bun test --concurrent src/",
+    "test:integration": "bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts --max-concurrency=4 tests/",
+    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
+  },
+  "dependencies": {
+    "@stricli/core": "^1.2.4",
+    "@ts-safeql/sql-tag": "^0.2.0",
+    "chalk": "^5.6.2",
+    "debug": "^4.3.7",
+    "pg": "^8.17.2",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@tsconfig/node-ts": "^23.6.2",
+    "@tsconfig/node24": "^24.0.3",
+    "@types/bun": "^1.3.9",
+    "@types/debug": "^4.1.12",
+    "@types/node": "^24.10.4",
+    "@types/pg": "^8.11.10",
+    "dedent": "^1.7.1",
+    "knip": "^5.75.2",
+    "testcontainers": "^11.10.0",
+    "typescript": "^5.9.3"
+  }
+}

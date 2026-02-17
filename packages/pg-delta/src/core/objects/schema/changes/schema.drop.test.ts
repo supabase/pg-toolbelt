@@ -1,0 +1,20 @@
+import { describe, expect, test } from "bun:test";
+import { Schema } from "../schema.model.ts";
+import { DropSchema } from "./schema.drop.ts";
+
+describe("schema", () => {
+  test("drop", () => {
+    const schema = new Schema({
+      name: "test_schema",
+      owner: "test",
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new DropSchema({
+      schema,
+    });
+
+    expect(change.serialize()).toBe("DROP SCHEMA test_schema");
+  });
+});

@@ -1,0 +1,30 @@
+name: Detect Changes
+description: Detect which packages have changed
+
+outputs:
+  pg-delta:
+    description: Whether pg-delta changed
+    value: ${{ steps.filter.outputs.pg-delta }}
+  pg-topo:
+    description: Whether pg-topo changed
+    value: ${{ steps.filter.outputs.pg-topo }}
+  root:
+    description: Whether root config changed
+    value: ${{ steps.filter.outputs.root }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          pg-delta:
+            - 'packages/pg-delta/**'
+          pg-topo:
+            - 'packages/pg-topo/**'
+          root:
+            - 'package.json'
+            - 'bunfig.toml'
+            - 'biome.json'
+            - '.changeset/**'

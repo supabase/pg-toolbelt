@@ -1,8 +1,0 @@
-{
-  "recommendations": [
-    "thebearingedge.vscode-sql-lit",
-    "biomejs.biome",
-    "vitest.explorer"
-  ],
-  "unwantedRecommendations": ["esbenp.prettier-vscode"]
-}

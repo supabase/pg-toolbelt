@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["tests/global-setup.ts", "src/**/*.test.ts", "tests/**/*.ts"],
+  "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"],
+  "ignoreBinaries": ["biome", "changeset"],
+  "ignoreFiles": ["tests/global-setup.ts"],
+  "ignoreIssues": {
+    "src/core/objects/**/*.model.ts": ["types"]
+  }
+}

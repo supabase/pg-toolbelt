@@ -1,0 +1,432 @@
+/**
+ * Plan creation - the main entry point for creating migration plans.
+ */
+
+import { readFile } from "node:fs/promises";
+import type { Pool } from "pg";
+import { escapeIdentifier } from "pg";
+import { diffCatalogs } from "../catalog.diff.ts";
+import type { Catalog } from "../catalog.model.ts";
+import { extractCatalog } from "../catalog.model.ts";
+import type { Change } from "../change.types.ts";
+import type { DiffContext } from "../context.ts";
+import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
+import {
+  compileFilterDSL,
+  type FilterDSL,
+} from "../integrations/filter/dsl.ts";
+import type { Integration } from "../integrations/integration.types.ts";
+import {
+  compileSerializeDSL,
+  type SerializeDSL,
+} from "../integrations/serialize/dsl.ts";
+import { createPool, endPool } from "../postgres-config.ts";
+import { sortChanges } from "../sort/sort-changes.ts";
+import { classifyChangesRisk } from "./risk.ts";
+import type { CreatePlanOptions, Plan } from "./types.ts";
+
+// ============================================================================
+// Plan Creation
+// ============================================================================
+
+/**
+ * Create a migration plan by comparing two databases.
+ *
+ * @param fromUrl - Source database connection URL (current state)
+ * @param toUrl - Target database connection URL (desired state)
+ * @param options - Optional configuration
+ * @returns A Plan if there are changes, null if databases are identical
+ */
+type ConnectionInput = string | Pool;
+
+type SslConfig = {
+  ssl?:
+    | boolean
+    | {
+        rejectUnauthorized: boolean;
+        ca?: string;
+        cert?: string;
+        key?: string;
+        /**
+         * Custom server identity check function.
+         * Used to skip hostname verification for verify-ca mode.
+         * Returns undefined to indicate success (no error).
+         */
+        checkServerIdentity?: () => undefined;
+      };
+  cleanedUrl: string;
+};
+
+/**
+ * Parse SSL configuration from a PostgreSQL connection URL.
+ * Supports sslmode (require, verify-ca, verify-full, prefer, disable).
+ * Certificates can be provided via:
+ * - Query string parameters (file paths): sslrootcert, sslcert, sslkey (preferred)
+ * - Environment variables (content): PGDELTA_SOURCE_SSLROOTCERT/SSLCERT/SSLKEY or PGDELTA_TARGET_SSLROOTCERT/SSLCERT/SSLKEY
+ * Returns SSL options for the postgres.js library and a cleaned URL without SSL-related query parameters.
+ */
+async function parseSslConfig(
+  url: string,
+  connectionType: "source" | "target",
+): Promise<SslConfig> {
+  const urlObj = new URL(url);
+  const sslmode = urlObj.searchParams.get("sslmode");
+  const sslrootcert = urlObj.searchParams.get("sslrootcert");
+  const sslcert = urlObj.searchParams.get("sslcert");
+  const sslkey = urlObj.searchParams.get("sslkey");
+
+  // Remove SSL-related query parameters since we parse them ourselves
+  urlObj.searchParams.delete("sslmode");
+  urlObj.searchParams.delete("sslrootcert");
+  urlObj.searchParams.delete("sslcert");
+  urlObj.searchParams.delete("sslkey");
+  const cleanedUrl = urlObj.toString();
+
+  // Handle different SSL modes
+  if (sslmode === "disable") {
+    return { cleanedUrl, ssl: false };
+  }
+
+  if (
+    sslmode === "require" ||
+    sslmode === "prefer" ||
+    sslmode === "verify-ca" ||
+    sslmode === "verify-full"
+  ) {
+    // Helper function to get certificate value: query param (file path) takes precedence over env var (content)
+    const getCertValue = async (
+      queryParam: string | null,
+      envVarName: string,
+    ): Promise<string | undefined> => {
+      // Prefer query parameter (file path)
+      if (queryParam) {
+        try {
+          return await readFile(queryParam, "utf-8");
+        } catch (error) {
+          throw new Error(
+            `Failed to read certificate file '${queryParam}': ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      // Fallback to environment variable (content)
+      const envValue = process.env[envVarName];
+      return envValue || undefined;
+    };
+
+    const hasExplicitVerification =
+      sslmode === "verify-ca" || sslmode === "verify-full";
+
+    // Get CA certificate value.
+    // - verify-ca/verify-full: check query param first, then env var
+    // - require/prefer: only check query param (libpq backward compatibility
+    //   requires an explicit root CA *file*, not a global env var)
+    const caEnvVar =
+      connectionType === "source"
+        ? "PGDELTA_SOURCE_SSLROOTCERT"
+        : "PGDELTA_TARGET_SSLROOTCERT";
+    let caValue: string | undefined;
+    if (sslrootcert) {
+      // Explicit file path in query param — always honour it
+      caValue = await getCertValue(sslrootcert, caEnvVar);
+    } else if (hasExplicitVerification) {
+      // verify-ca / verify-full without file path — fall back to env var
+      caValue = await getCertValue(null, caEnvVar);
+    }
+    // require/prefer without sslrootcert: no CA cert, no verification
+
+    // Determine if we should verify the CA chain
+    //   From PostgreSQL docs: "if a root CA file exists, the behavior of sslmode=require
+    //   will be the same as that of verify-ca"
+    const hasLibpqCompatibility =
+      (sslmode === "require" || sslmode === "prefer") && caValue !== undefined;
+    const shouldVerifyCa = hasExplicitVerification || hasLibpqCompatibility;
+
+    // Determine if we should verify hostname
+    // - verify-full: verify both CA and hostname
+    // - verify-ca: verify CA only (skip hostname)
+    // - require/prefer with CA (libpq compat): behaves like verify-ca (skip hostname)
+    const shouldVerifyHostname = sslmode === "verify-full";
+
+    const ssl: {
+      rejectUnauthorized: boolean;
+      ca?: string;
+      cert?: string;
+      key?: string;
+      checkServerIdentity?: () => undefined;
+    } = {
+      rejectUnauthorized: shouldVerifyCa,
+    };
+
+    // Add CA certificate if verifying
+    if (shouldVerifyCa && caValue) {
+      ssl.ca = caValue;
+    }
+
+    // For verify-ca and libpq compatibility mode: skip hostname verification
+    // This matches PostgreSQL semantics where verify-ca only checks the CA chain
+    if (shouldVerifyCa && !shouldVerifyHostname) {
+      ssl.checkServerIdentity = () => undefined;
+    }
+
+    // Get client certificate (optional, for mutual TLS)
+    const certEnvVar =
+      connectionType === "source"
+        ? "PGDELTA_SOURCE_SSLCERT"
+        : "PGDELTA_TARGET_SSLCERT";
+    const certValue = await getCertValue(sslcert, certEnvVar);
+    if (certValue) {
+      ssl.cert = certValue;
+    }
+
+    // Get client key (optional, for mutual TLS, required if cert is provided)
+    const keyEnvVar =
+      connectionType === "source"
+        ? "PGDELTA_SOURCE_SSLKEY"
+        : "PGDELTA_TARGET_SSLKEY";
+    const keyValue = await getCertValue(sslkey, keyEnvVar);
+    if (keyValue) {
+      ssl.key = keyValue;
+    }
+
+    // Warn if cert is provided without key (or vice versa)
+    if ((ssl.cert && !ssl.key) || (!ssl.cert && ssl.key)) {
+      throw new Error(
+        "Both client certificate and key must be provided together for mutual TLS",
+      );
+    }
+
+    return { ssl, cleanedUrl };
+  }
+
+  // No sslmode specified or invalid value - explicitly disable SSL
+  return { cleanedUrl, ssl: false };
+}
+
+export async function createPlan(
+  source: ConnectionInput,
+  target: ConnectionInput,
+  options: CreatePlanOptions = {},
+): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> {
+  let sourcePool: Pool;
+  let targetPool: Pool;
+  let shouldCloseSource = false;
+  let shouldCloseTarget = false;
+
+  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
+  const onError = (err: Error & { code?: string }) => {
+    if (err.code !== "57P01") {
+      console.error("Pool error:", err);
+    }
+  };
+
+  if (typeof source === "string") {
+    const sslConfig = await parseSslConfig(source, "source");
+    sourcePool = createPool(sslConfig.cleanedUrl, {
+      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+      onError,
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
+    });
+    shouldCloseSource = true;
+  } else {
+    sourcePool = source;
+  }
+
+  if (typeof target === "string") {
+    const sslConfig = await parseSslConfig(target, "target");
+    targetPool = createPool(sslConfig.cleanedUrl, {
+      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+      onError,
+      onConnect: async (client) => {
+        // Force fully qualified names in catalog queries
+        await client.query("SET search_path = ''");
+        if (options.role) {
+          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+        }
+      },
+    });
+    shouldCloseTarget = true;
+  } else {
+    targetPool = target;
+  }
+
+  const sourceExtraction = extractCatalog(sourcePool);
+  const targetExtraction = extractCatalog(targetPool);
+
+  try {
+    const [fromCatalog, toCatalog] = await Promise.all([
+      sourceExtraction,
+      targetExtraction,
+    ]);
+
+    return buildPlanForCatalogs(fromCatalog, toCatalog, options);
+  } catch (error) {
+    // When one extraction fails, the other may still have in-flight queries.
+    // Wait for both to settle before pool cleanup to prevent unhandled
+    // rejections from connections being terminated mid-flight.
+    await Promise.allSettled([sourceExtraction, targetExtraction]);
+    throw error;
+  } finally {
+    const closers: Promise<unknown>[] = [];
+    if (shouldCloseSource) closers.push(endPool(sourcePool));
+    if (shouldCloseTarget) closers.push(endPool(targetPool));
+    if (closers.length) {
+      await Promise.all(closers);
+    }
+  }
+}
+
+/**
+ * Build a plan (and supporting artifacts) from already extracted catalogs.
+ */
+function buildPlanForCatalogs(
+  fromCatalog: Catalog,
+  toCatalog: Catalog,
+  options: CreatePlanOptions = {},
+): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
+  const changes = diffCatalogs(fromCatalog, toCatalog, {
+    role: options.role,
+  });
+
+  const filterOption = options.filter;
+  const serializeOption = options.serialize;
+  const ctx: DiffContext = {
+    mainCatalog: fromCatalog,
+    branchCatalog: toCatalog,
+  };
+
+  // Determine if filter/serialize are DSL or functions, and extract DSL for storage
+  const isFilterDSL = filterOption && typeof filterOption !== "function";
+  const isSerializeDSL =
+    serializeOption && typeof serializeOption !== "function";
+  const filterDSL = isFilterDSL ? (filterOption as FilterDSL) : undefined;
+  const serializeDSL = isSerializeDSL
+    ? (serializeOption as SerializeDSL)
+    : undefined;
+
+  // Build final integration: compile DSL if needed, use functions directly otherwise
+  let finalIntegration: Integration | undefined;
+  if (filterOption || serializeOption) {
+    finalIntegration = {
+      filter:
+        typeof filterOption === "function"
+          ? filterOption
+          : filterDSL
+            ? compileFilterDSL(filterDSL)
+            : undefined,
+      serialize:
+        typeof serializeOption === "function"
+          ? serializeOption
+          : serializeDSL
+            ? compileSerializeDSL(serializeDSL)
+            : undefined,
+    };
+  }
+
+  // Use filter from final integration
+  const filterFn = finalIntegration?.filter;
+
+  const filteredChanges = filterFn
+    ? changes.filter((change) => filterFn(change))
+    : changes;
+
+  if (filteredChanges.length === 0) {
+    return null;
+  }
+
+  const sortedChanges = sortChanges(ctx, filteredChanges);
+  const plan = buildPlan(
+    ctx,
+    sortedChanges,
+    options,
+    filterDSL,
+    serializeDSL,
+    finalIntegration,
+  );
+
+  return { plan, sortedChanges, ctx };
+}
+
+// ============================================================================
+// Plan Building
+// ============================================================================
+
+/**
+ * Build a Plan from sorted changes.
+ */
+function buildPlan(
+  ctx: DiffContext,
+  changes: Change[],
+  options?: CreatePlanOptions,
+  filterDSL?: FilterDSL,
+  serializeDSL?: SerializeDSL,
+  integration?: Integration,
+): Plan {
+  const role = options?.role;
+  const statements = generateStatements(changes, {
+    integration,
+    role,
+  });
+  const risk = classifyChangesRisk(changes);
+
+  const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+    ctx.mainCatalog,
+    changes,
+  );
+  const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
+
+  return {
+    version: 1,
+    source: { fingerprint: fingerprintFrom },
+    target: { fingerprint: fingerprintTo },
+    statements,
+    role,
+    filter: filterDSL,
+    serialize: serializeDSL,
+    risk,
+  };
+}
+
+/**
+ * Generate the individual SQL statements that make up the plan.
+ */
+function generateStatements(
+  changes: Change[],
+  options?: {
+    integration?: Integration;
+    role?: string;
+  },
+): string[] {
+  const statements: string[] = [];
+
+  if (options?.role) {
+    statements.push(`SET ROLE ${escapeIdentifier(options.role)}`);
+  }
+
+  if (hasRoutineChanges(changes)) {
+    statements.push("SET check_function_bodies = false");
+  }
+
+  for (const change of changes) {
+    const sql = options?.integration?.serialize?.(change) ?? change.serialize();
+    statements.push(sql);
+  }
+
+  return statements;
+}
+
+/**
+ * Check if any changes involve routines (procedures or aggregates).
+ * Used to determine if we need to disable function body checking.
+ */
+function hasRoutineChanges(changes: Change[]): boolean {
+  return changes.some(
+    (change) =>
+      change.objectType === "procedure" || change.objectType === "aggregate",
+  );
+}
