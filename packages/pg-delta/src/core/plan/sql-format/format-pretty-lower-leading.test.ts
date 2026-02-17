@@ -924,10 +924,10 @@ describe("sql formatting snapshots", () => {
           );
 
       -- fdw.comment
-      comment on foreign DATA WRAPPER postgres_fdw is 'PostgreSQL foreign data wrapper';
+      comment on foreign data wrapper postgres_fdw is 'PostgreSQL foreign data wrapper';
 
       -- fdw.drop_comment
-      comment on foreign DATA WRAPPER postgres_fdw is null;
+      comment on foreign data wrapper postgres_fdw is null;
 
       -- fdw.grant
       grant all on foreign data wrapper postgres_fdw to app_user;

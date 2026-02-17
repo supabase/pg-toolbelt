@@ -377,7 +377,8 @@ function isCaseableInContext(
       upper === "NULL" ||
       prev === "ON" ||
       (prev === "MATERIALIZED" && upper === "VIEW") ||
-      (prev === "FOREIGN" && upper === "TABLE") ||
+      (prev === "FOREIGN" && (upper === "TABLE" || upper === "DATA")) ||
+      (prev === "DATA" && upper === "WRAPPER") ||
       (prev === "EVENT" && upper === "TRIGGER")
     );
   }
