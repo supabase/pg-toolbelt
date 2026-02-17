@@ -8,7 +8,10 @@
  * 4. Optional final validation pass for function bodies
  */
 
+import debug from "debug";
 import type { Pool, PoolClient } from "pg";
+
+const debugApply = debug("pg-delta:declarative-apply");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -260,6 +263,7 @@ export async function roundApply(
     }
 
     for (let round = 1; round <= maxRounds && pending.length > 0; round++) {
+      debugApply("round %d: %d pending", round, pending.length);
       const roundErrors: StatementError[] = [];
       const deferred: StatementEntry[] = [];
       let appliedThisRound = 0;
@@ -287,6 +291,11 @@ export async function roundApply(
           if (
             isEnvironmentCapabilityError(code, message, stmt.statementClass)
           ) {
+            debugApply(
+              "skipped %s: %s",
+              stmt.id,
+              pgErr.message ?? code ?? "environment/capability",
+            );
             skipped.push(stmt);
             totalSkipped++;
             continue;
@@ -294,6 +303,14 @@ export async function roundApply(
 
           // Check if this is a dependency error (retryable)
           if (isDependencyError(code)) {
+            debugApply(
+              "deferred %s: %s - %s",
+              stmt.id,
+              code,
+              pgErr.message ?? "Unknown error",
+            );
+            if (pgErr.detail) debugApply("  detail: %s", pgErr.detail);
+            if (pgErr.hint) debugApply("  hint: %s", pgErr.hint);
             deferred.push(stmt);
             roundErrors.push({
               statement: stmt,
@@ -309,6 +326,14 @@ export async function roundApply(
 
           // Hard failure - non-dependency, non-environment error
           failedThisRound++;
+          debugApply(
+            "failed %s: %s - %s",
+            stmt.id,
+            code,
+            pgErr.message ?? "Unknown error",
+          );
+          if (pgErr.detail) debugApply("  detail: %s", pgErr.detail);
+          if (pgErr.hint) debugApply("  hint: %s", pgErr.hint);
           const stmtError: StatementError = {
             statement: stmt,
             code,
@@ -321,6 +346,26 @@ export async function roundApply(
           roundErrors.push(stmtError);
           hardFailed.push(stmtError);
           allErrors.push(stmtError);
+        }
+      }
+
+      if (debugApply.enabled && deferred.length > 0) {
+        debugApply(
+          "Round %d complete: %d applied, %d deferred, %d failed",
+          round,
+          appliedThisRound,
+          deferred.length,
+          failedThisRound,
+        );
+        for (const e of roundErrors.filter((er) => er.isDependencyError)) {
+          debugApply(
+            "  deferred %s: %s - %s",
+            e.statement.id,
+            e.code,
+            e.message,
+          );
+          if (e.detail) debugApply("    detail: %s", e.detail);
+          if (e.hint) debugApply("    hint: %s", e.hint);
         }
       }
 

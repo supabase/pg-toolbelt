@@ -1,13 +1,16 @@
 /**
  * Declarative schema apply – orchestrator.
  *
- * Reads SQL files from a directory, uses pg-topo for static dependency
- * analysis and topological ordering, then applies statements to a target
- * database using iterative rounds to handle any remaining dependency gaps.
+ * Accepts pre-read SQL content (file path + sql string per file), uses pg-topo
+ * for static dependency analysis and topological ordering, then applies
+ * statements to a target database using iterative rounds to handle any
+ * remaining dependency gaps. File discovery and reading are done by the caller
+ * (e.g. CLI) so I/O errors can be handled there.
  */
 
+import type { Pool } from "pg";
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
-import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
+import { analyzeAndSort } from "@supabase/pg-topo";
 import { createPool } from "../postgres-config.ts";
 import {
   type ApplyResult,
@@ -16,15 +19,21 @@ import {
   type StatementEntry,
 } from "./round-apply.ts";
 
+export type { SqlFileEntry } from "./discover-sql.ts";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
+import type { SqlFileEntry } from "./discover-sql.ts";
+
 export interface DeclarativeApplyOptions {
-  /** Path to the SQL files directory (or a single .sql file) */
-  schemaPath: string;
-  /** Target database connection URL */
-  targetUrl: string;
+  /** Pre-read SQL files: filePath (relative) and sql content. Caller does discovery and read. */
+  content: SqlFileEntry[];
+  /** Target database connection URL (required if pool is not provided) */
+  targetUrl?: string;
+  /** Existing pool to use (caller owns it; not closed). If provided, targetUrl is ignored. */
+  pool?: Pool;
   /** Max rounds before giving up (default: 100) */
   maxRounds?: number;
   /** Run final function body validation (default: true) */
@@ -59,6 +68,17 @@ function toStatementEntries(nodes: StatementNode[]): StatementEntry[] {
   }));
 }
 
+function remapStatementId(
+  statementId: { filePath: string; statementIndex: number } | undefined,
+  filePathMap: Map<string, string>,
+): typeof statementId {
+  if (!statementId) return undefined;
+  return {
+    ...statementId,
+    filePath: filePathMap.get(statementId.filePath) ?? statementId.filePath,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -66,8 +86,8 @@ function toStatementEntries(nodes: StatementNode[]): StatementEntry[] {
 /**
  * Apply a declarative SQL schema to a target database.
  *
- * 1. Discover and parse SQL files using pg-topo
- * 2. Build dependency graph and compute topological order
+ * 1. Call pg-topo analyzeAndSort on the provided SQL strings
+ * 2. Remap synthetic statement IDs to caller-provided file paths
  * 3. Apply statements round-by-round to the target database
  * 4. Optionally validate function bodies in a final pass
  */
@@ -75,18 +95,54 @@ export async function applyDeclarativeSchema(
   options: DeclarativeApplyOptions,
 ): Promise<DeclarativeApplyResult> {
   const {
-    schemaPath,
+    content,
     targetUrl,
+    pool: providedPool,
     maxRounds = 100,
     validateFunctionBodies = true,
     disableCheckFunctionBodies = true,
     onRoundComplete,
   } = options;
 
-  // Step 1: Use pg-topo to analyze and sort the SQL files
-  const analyzeResult = await analyzeAndSortFromFiles([schemaPath]);
+
+  if (content.length === 0) {
+    return {
+      apply: {
+        status: "success",
+        totalRounds: 0,
+        totalApplied: 0,
+        totalSkipped: 0,
+        rounds: [],
+      },
+      diagnostics: [],
+      totalStatements: 0,
+    };
+  }
+
+  // Step 1: pg-topo analyze and sort (no file I/O; uses synthetic <input:i> paths)
+  const sqlContents = content.map((entry) => entry.sql);
+  const analyzeResult = await analyzeAndSort(sqlContents);
 
   const { ordered, diagnostics } = analyzeResult;
+
+  // Step 2: Remap <input:i> to real file paths
+  const filePathMap = new Map<string, string>();
+  for (let i = 0; i < content.length; i += 1) {
+    filePathMap.set(`<input:${i}>`, content[i].filePath);
+  }
+
+  const remappedOrdered = ordered.map((node) => ({
+    ...node,
+    id: {
+      ...node.id,
+      filePath: filePathMap.get(node.id.filePath) ?? node.id.filePath,
+    },
+  }));
+
+  const remappedDiagnostics = diagnostics.map((d) => ({
+    ...d,
+    statementId: remapStatementId(d.statementId, filePathMap),
+  }));
 
   if (ordered.length === 0) {
     return {
@@ -97,16 +153,22 @@ export async function applyDeclarativeSchema(
         totalSkipped: 0,
         rounds: [],
       },
-      diagnostics,
+      diagnostics: remappedDiagnostics,
       totalStatements: 0,
     };
   }
 
-  // Step 2: Convert to statement entries
-  const statements = toStatementEntries(ordered);
-
-  // Step 3: Connect to target database and apply
-  const pool = createPool(targetUrl);
+  // Step 3: Convert to statement entries and apply
+  const statements = toStatementEntries(remappedOrdered);
+  let pool: Pool;
+  if (providedPool != null) {
+    pool = providedPool;
+  } else if (targetUrl != null) {
+    pool = createPool(targetUrl);
+  } else {
+    throw new Error("Either targetUrl or pool must be provided");
+  }
+  const ownsPool = providedPool == null;
 
   try {
     const applyResult = await roundApply({
@@ -120,11 +182,13 @@ export async function applyDeclarativeSchema(
 
     return {
       apply: applyResult,
-      diagnostics,
-      totalStatements: ordered.length,
+      diagnostics: remappedDiagnostics,
+      totalStatements: remappedOrdered.length,
     };
   } finally {
-    await pool.end();
+    if (ownsPool) {
+      await pool.end();
+    }
   }
 }
 

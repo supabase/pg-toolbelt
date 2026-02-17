@@ -9,14 +9,11 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
 import { describe, expect } from "vitest";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
-import {
-  roundApply,
-  type StatementEntry,
-} from "../../src/core/declarative-apply/round-apply.ts";
+import { applyDeclarativeSchema } from "../../src/core/declarative-apply/index.ts";
+import { loadDeclarativeSchema } from "../../src/core/declarative-apply/discover-sql.ts";
 import { exportDeclarativeSchema } from "../../src/core/export/index.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
@@ -25,7 +22,7 @@ import { getTest } from "../utils.ts";
 
 /**
  * Helper: export declarative schema from branch DB, write to temp dir,
- * then apply to main DB using pg-topo + round-based engine.
+ * then apply to main DB using loadDeclarativeSchema + applyDeclarativeSchema (content-based).
  */
 async function testDeclarativeApply(options: {
   mainSession: import("pg").Pool;
@@ -67,28 +64,23 @@ async function testDeclarativeApply(options: {
       await writeFile(filePath, file.sql);
     }
 
-    // 4. Use pg-topo to analyze and sort the SQL files
-    const analyzeResult = await analyzeAndSortFromFiles([tempDir]);
-    const statements: StatementEntry[] = analyzeResult.ordered.map((node) => ({
-      id: `${node.id.filePath}:${node.id.statementIndex}`,
-      sql: node.sql,
-      statementClass: node.statementClass,
-    }));
-
-    // 5. Apply using round-based engine directly with the test pool
-    const applyResult = await roundApply({
+    // 4. Load content via discover + read (CLI-style), then apply via content-based API
+    const content = await loadDeclarativeSchema(tempDir);
+    const result = await applyDeclarativeSchema({
+      content,
       pool: mainSession,
-      statements,
       maxRounds: 50,
+      validateFunctionBodies: true,
       disableCheckFunctionBodies: true,
-      finalValidation: true,
     });
 
-    // 6. Verify the result
+    const { apply: applyResult } = result;
+
+    // 5. Verify the result
     expect(applyResult.status).toBe("success");
     expect(applyResult.totalApplied).toBeGreaterThan(0);
 
-    // 7. Verify the schema matches by diffing main vs branch
+    // 6. Verify the schema matches by diffing main vs branch
     const mainCatalog = await extractCatalog(mainSession);
     const branchCatalog = await extractCatalog(branchSession);
     const remainingChanges = diffCatalogs(mainCatalog, branchCatalog);
@@ -102,8 +94,8 @@ async function testDeclarativeApply(options: {
 
     return {
       apply: applyResult,
-      diagnostics: analyzeResult.diagnostics,
-      totalStatements: analyzeResult.ordered.length,
+      diagnostics: result.diagnostics,
+      totalStatements: result.totalStatements,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });

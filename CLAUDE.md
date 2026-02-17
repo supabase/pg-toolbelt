@@ -196,7 +196,7 @@ When adding support for a new PostgreSQL object type:
 - `@stricli/core`: CLI framework
 - `@ts-safeql/sql-tag`: Type-safe SQL
 - `zod`: Schema validation
-- `debug`: Debug logging (use `DEBUG=pg-delta:* pnpm pgdelta ...`)
+- `debug`: Debug logging (use `DEBUG=pg-delta:* pnpm pgdelta ...`). For declarative apply, `DEBUG=pg-delta:declarative-apply` (or `DEBUG=pg-delta:*`) shows which statements are deferred, why they were deferred, and per-round summaries.
 
 **Development:**
 - `vitest`: Testing framework

@@ -1,3 +1,4 @@
+import debug from "debug";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -309,5 +310,43 @@ describe("roundApply", () => {
     expect(result.status).toBe("success");
     expect(result.totalRounds).toBe(3);
     expect(result.totalApplied).toBe(3);
+  });
+
+  it("should log deferred statement id and reason when DEBUG=pg-delta:declarative-apply", async () => {
+    const statements: StatementEntry[] = [
+      { id: "table", sql: "CREATE TABLE test.users (id int);" },
+      { id: "schema", sql: "CREATE SCHEMA test;" },
+    ];
+
+    const appliedSet = new Set<string>();
+    const client = createMockClient((sql: string) => {
+      if (sql.startsWith("SET ")) return;
+      if (sql.includes("CREATE TABLE") && !appliedSet.has("schema")) {
+        throw pgError("3F000", 'schema "test" does not exist');
+      }
+      if (sql.includes("CREATE SCHEMA")) appliedSet.add("schema");
+    });
+    const pool = createMockPool(client);
+
+    const logs: string[] = [];
+    const originalLog = debug.log;
+    debug.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    };
+    debug.enable("pg-delta:declarative-apply");
+    try {
+      const result = await roundApply({ pool, statements });
+      expect(result.status).toBe("success");
+      expect(result.rounds[0].deferred).toBe(1);
+
+      const logText = logs.join("\n");
+      expect(logText).toContain("deferred");
+      expect(logText).toContain("table");
+      expect(logText).toContain("3F000");
+      expect(logText).toMatch(/schema.*does not exist/i);
+    } finally {
+      debug.log = originalLog;
+      debug.disable();
+    }
   });
 });

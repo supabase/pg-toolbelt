@@ -13,6 +13,7 @@ import {
   type RoundResult,
   type StatementError,
 } from "../../core/declarative-apply/index.ts";
+import { loadDeclarativeSchema } from "../../core/declarative-apply/discover-sql.ts";
 
 /** Convert 1-based character offset in SQL to 1-based line and column. */
 function positionToLineColumn(
@@ -208,6 +209,8 @@ Exit codes:
   0 - Success (all statements applied)
   1 - Error (hard failures or validation errors)
   2 - Stuck (dependency cycle or unresolvable ordering)
+
+Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (which statements are deferred and why).
     `.trim(),
   },
   async func(
@@ -240,10 +243,29 @@ Exit codes:
 
     this.process.stdout.write(`Analyzing SQL files in ${flags.path}...\n`);
 
+    let content: Array<{ filePath: string; sql: string }>;
+    try {
+      content = await loadDeclarativeSchema(flags.path);
+    } catch (error) {
+      this.process.stderr.write(
+        `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    if (content.length === 0) {
+      this.process.stderr.write(
+        `No .sql files found in '${flags.path}'. Pass a directory containing .sql files or a single .sql file.\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     let result: DeclarativeApplyResult;
     try {
       result = await applyDeclarativeSchema({
-        schemaPath: flags.path,
+        content,
         targetUrl: flags.target,
         maxRounds: flags["max-rounds"],
         validateFunctionBodies: !flags["no-validate-functions"],
