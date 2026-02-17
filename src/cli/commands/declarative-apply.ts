@@ -3,13 +3,154 @@
  * using pg-topo static analysis + round-based execution.
  */
 
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
 import {
   applyDeclarativeSchema,
   type DeclarativeApplyResult,
   type RoundResult,
+  type StatementError,
 } from "../../core/declarative-apply/index.ts";
+
+/** Convert 1-based character offset in SQL to 1-based line and column. */
+function positionToLineColumn(
+  sql: string,
+  position: number,
+): { line: number; column: number } {
+  const lines = sql.split("\n");
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length + (i < lines.length - 1 ? 1 : 0);
+    if (position <= offset + lineLen) {
+      return { line: i + 1, column: position - offset };
+    }
+    offset += lineLen;
+  }
+  const last = lines.length;
+  const lastLineLen = lines[last - 1]?.length ?? 0;
+  return { line: last, column: lastLineLen + 1 };
+}
+
+/** Parse statement id "filePath:statementIndex" into components. */
+function parseStatementId(
+  id: string,
+): { filePath: string; statementIndex: number } | null {
+  const lastColon = id.lastIndexOf(":");
+  if (lastColon === -1) return null;
+  const filePath = id.slice(0, lastColon);
+  const n = Number.parseInt(id.slice(lastColon + 1), 10);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return { filePath, statementIndex: n };
+}
+
+/**
+ * Resolve the full path to a .sql file from schema path (dir or single file) and relative file path.
+ */
+async function resolveSqlFilePath(
+  schemaPath: string,
+  relativeFilePath: string,
+): Promise<string> {
+  try {
+    const statResult = await stat(schemaPath);
+    const baseDir = statResult.isFile() ? path.dirname(schemaPath) : schemaPath;
+    return path.join(baseDir, relativeFilePath);
+  } catch {
+    return path.join(schemaPath, relativeFilePath);
+  }
+}
+
+/**
+ * Find the 0-based start offset of statementSql in fileContent. Tries exact match, then trimmed.
+ * Returns -1 if not found.
+ */
+function findStatementStartInFile(
+  fileContent: string,
+  statementSql: string,
+): number {
+  const exact = fileContent.indexOf(statementSql);
+  if (exact !== -1) return exact;
+  const trimmedStmt = statementSql.trim();
+  if (!trimmedStmt) return -1;
+  const trimmed = fileContent.indexOf(trimmedStmt);
+  if (trimmed !== -1) return trimmed;
+  return -1;
+}
+
+/**
+ * Format a StatementError in pgAdmin-style. Resolves the .sql file and shows line/column in the file.
+ */
+async function formatStatementError(
+  err: StatementError,
+  schemaPath: string,
+): Promise<string> {
+  const lines: string[] = [];
+  lines.push(`ERROR:  ${err.message}`);
+  if (err.detail) {
+    lines.push(`Detail: ${err.detail}`);
+  }
+  lines.push(`SQL state: ${err.code}`);
+  if (err.position !== undefined && err.statement.sql.length > 0) {
+    lines.push(`Character: ${err.position}`);
+    const pos = Math.max(
+      0,
+      Math.min(err.position - 1, err.statement.sql.length),
+    );
+    const contextStart = Math.max(0, pos - 40);
+    const contextEnd = Math.min(err.statement.sql.length, pos + 40);
+    const snippet = err.statement.sql.slice(contextStart, contextEnd);
+    const oneLine = snippet.replace(/\s+/g, " ").trim();
+    lines.push(`Context: ${oneLine || "(empty)"}`);
+  }
+  if (err.hint) {
+    lines.push(`Hint: ${err.hint}`);
+  }
+  const parsed = parseStatementId(err.statement.id);
+  if (parsed) {
+    let locationLine: string;
+    try {
+      const fullPath = await resolveSqlFilePath(schemaPath, parsed.filePath);
+      const fileContent = await readFile(fullPath, "utf-8");
+      const statementStart = findStatementStartInFile(
+        fileContent,
+        err.statement.sql,
+      );
+      if (
+        statementStart !== -1 &&
+        err.position !== undefined &&
+        err.statement.sql.length > 0
+      ) {
+        const fileErrorOffset = statementStart + (err.position - 1);
+        const fileErrorPosition = Math.min(
+          fileErrorOffset + 1,
+          fileContent.length,
+        );
+        const { line, column } = positionToLineColumn(
+          fileContent,
+          Math.max(1, fileErrorPosition),
+        );
+        locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
+      } else {
+        locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
+      }
+    } catch {
+      if (err.position !== undefined && err.statement.sql.length > 0) {
+        const { line, column } = positionToLineColumn(
+          err.statement.sql,
+          err.position,
+        );
+        locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex}, line ${line}, column ${column})`;
+      } else {
+        locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
+      }
+    }
+    lines.push(locationLine);
+  } else {
+    lines.push(`Location: ${err.statement.id}`);
+  }
+  return lines.map((l) => `  ${l}`).join("\n");
+}
 
 export const declarativeApplyCommand = buildCommand({
   parameters: {
@@ -165,11 +306,9 @@ Exit codes:
             ),
           );
           for (const err of apply.validationErrors) {
-            this.process.stderr.write(
-              chalk.yellow(
-                `  [${err.code}] ${err.statement.id}: ${err.message}\n`,
-              ),
-            );
+            const formatted = await formatStatementError(err, flags.path);
+            this.process.stderr.write(chalk.yellow(formatted));
+            this.process.stderr.write("\n\n");
           }
           process.exitCode = 1;
         } else {
@@ -186,20 +325,9 @@ Exit codes:
         );
         if (apply.stuckStatements) {
           for (const stuck of apply.stuckStatements) {
-            this.process.stderr.write(
-              chalk.red(
-                `  [${stuck.code}] ${stuck.statement.id}: ${stuck.message}\n`,
-              ),
-            );
-            if (verbose) {
-              // Show the SQL for debugging
-              const sqlPreview = stuck.statement.sql.slice(0, 200);
-              this.process.stderr.write(
-                chalk.dim(
-                  `    ${sqlPreview}${stuck.statement.sql.length > 200 ? "..." : ""}\n`,
-                ),
-              );
-            }
+            const formatted = await formatStatementError(stuck, flags.path);
+            this.process.stderr.write(chalk.red(formatted));
+            this.process.stderr.write("\n\n");
           }
         }
         process.exitCode = 2;
@@ -214,11 +342,9 @@ Exit codes:
         );
         if (apply.errors) {
           for (const err of apply.errors) {
-            this.process.stderr.write(
-              chalk.red(
-                `  [${err.code}] ${err.statement.id}: ${err.message}\n`,
-              ),
-            );
+            const formatted = await formatStatementError(err, flags.path);
+            this.process.stderr.write(chalk.red(formatted));
+            this.process.stderr.write("\n\n");
           }
         }
         if (apply.validationErrors && apply.validationErrors.length > 0) {
@@ -228,11 +354,9 @@ Exit codes:
             ),
           );
           for (const err of apply.validationErrors) {
-            this.process.stderr.write(
-              chalk.yellow(
-                `  [${err.code}] ${err.statement.id}: ${err.message}\n`,
-              ),
-            );
+            const formatted = await formatStatementError(err, flags.path);
+            this.process.stderr.write(chalk.yellow(formatted));
+            this.process.stderr.write("\n\n");
           }
         }
         process.exitCode = 1;

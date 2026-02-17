@@ -32,6 +32,12 @@ export interface StatementError {
   message: string;
   /** Whether this was classified as a dependency error */
   isDependencyError: boolean;
+  /** 1-based character offset in the statement SQL where the error occurred */
+  position?: number;
+  /** PostgreSQL error detail (e.g. token invalid) */
+  detail?: string;
+  /** PostgreSQL hint */
+  hint?: string;
 }
 
 export interface RoundResult {
@@ -184,6 +190,20 @@ function isDependencyError(code: string | undefined): boolean {
 
 interface PgError extends Error {
   code?: string;
+  /** 1-based character position in query (pg may send as string) */
+  position?: string | number;
+  detail?: string;
+  hint?: string;
+}
+
+function parsePgPosition(pos: string | number | undefined): number | undefined {
+  if (pos === undefined) return undefined;
+  if (typeof pos === "number" && Number.isInteger(pos) && pos > 0) return pos;
+  if (typeof pos === "string") {
+    const n = Number.parseInt(pos, 10);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +300,9 @@ export async function roundApply(
               code,
               message: pgErr.message ?? "Unknown error",
               isDependencyError: true,
+              position: parsePgPosition(pgErr.position),
+              detail: pgErr.detail,
+              hint: pgErr.hint,
             });
             continue;
           }
@@ -291,6 +314,9 @@ export async function roundApply(
             code,
             message: pgErr.message ?? "Unknown error",
             isDependencyError: false,
+            position: parsePgPosition(pgErr.position),
+            detail: pgErr.detail,
+            hint: pgErr.hint,
           };
           roundErrors.push(stmtError);
           hardFailed.push(stmtError);
@@ -411,6 +437,9 @@ async function validateFunctionBodies(
         code: pgErr.code ?? "",
         message: pgErr.message ?? "Unknown validation error",
         isDependencyError: false,
+        position: parsePgPosition(pgErr.position),
+        detail: pgErr.detail,
+        hint: pgErr.hint,
       });
     }
   }
