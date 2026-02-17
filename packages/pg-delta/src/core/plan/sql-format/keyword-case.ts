@@ -13,13 +13,17 @@ type ProtectedRangeResult = { ranges: Range[]; unsafe: boolean };
 const OPTION_LIST_KEYWORDS = new Set(["WITH", "SET", "OPTIONS", "RESET"]);
 const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "ADD",
+  "ADMIN",
+  "AFTER",
   "AGGREGATE",
   "ALL",
   "ALTER",
   "ALWAYS",
   "AS",
+  "ATTACH",
   "ATTRIBUTE",
   "AUTHORIZATION",
+  "BEFORE",
   "BY",
   "CACHE",
   "CALLED",
@@ -38,9 +42,11 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "CYCLE",
   "DATA",
   "DEFAULT",
+  "DEFERRABLE",
   "DEFERRED",
   "DEFINER",
   "DELETE",
+  "DETACH",
   "DISABLE",
   "DO",
   "DOMAIN",
@@ -54,6 +60,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "EXISTS",
   "EXTENSION",
   "FOR",
+  "FORCE",
   "FOREIGN",
   "FROM",
   "FULL",
@@ -70,12 +77,17 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "INHERITS",
   "INITIALLY",
   "INLINE",
+  "INPUT",
   "INSERT",
+  "INSTEAD",
+  "INVOKER",
   "IS",
   "KEY",
   "LANGUAGE",
   "LEAKPROOF",
   "LEVEL",
+  "LIMIT",
+  "LOGGED",
   "LOGIN",
   "MATERIALIZED",
   "MAXVALUE",
@@ -84,6 +96,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "NO",
   "NOSUPERUSER",
   "NOT",
+  "NOTHING",
   "NULL",
   "OF",
   "ON",
@@ -102,6 +115,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "PUBLICATION",
   "PRIVILEGES",
   "RANGE",
+  "REFERENCING",
   "REFRESH",
   "REFERENCES",
   "REPLACE",
@@ -124,6 +138,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "SERVER",
   "SET",
   "STABLE",
+  "STATISTICS",
   "STORED",
   "STRICT",
   "SUBSCRIPTION",
@@ -147,6 +162,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "USING",
   "VALIDATE",
   "VALID",
+  "VALIDATOR",
   "VALUES",
   "VERSION",
   "VIEW",
@@ -372,8 +388,11 @@ function isCaseableInContext(
   if (upper === "RESTRICTIVE" || upper === "PERMISSIVE") {
     return prev === "AS";
   }
-  if (upper === "DEFINER") {
+  if (upper === "DEFINER" || upper === "INVOKER") {
     return prev === "SECURITY";
+  }
+  if (upper === "ADMIN") {
+    return prev === "WITH" || prev === "REVOKE";
   }
   if (upper === "LEVEL") {
     return prev === "ROW";

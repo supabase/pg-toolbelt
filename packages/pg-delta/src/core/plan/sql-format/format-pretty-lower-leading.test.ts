@@ -132,7 +132,7 @@ describe("sql formatting snapshots", () => {
       alter type public.test_enum owner to new_owner;
 
       -- type.enum.alter.add_value
-      alter type public.test_enum add VALUE 'value4' AFTER 'value2';
+      alter type public.test_enum add VALUE 'value4' after 'value2';
 
       -- type.enum.comment
       comment on type public.test_enum is 'enum comment';
@@ -294,7 +294,7 @@ describe("sql formatting snapshots", () => {
       -- table.alter.add_fk_constraint
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
           add constraint fk_t_fmt_ref foreign key (ref_id) references public.other_table(id) match full
-              on update set null on delete cascade DEFERRABLE initially deferred;
+              on update set null on delete cascade deferrable initially deferred;
 
       -- table.alter.drop_constraint
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -310,7 +310,7 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.set_logged
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          set LOGGED;
+          set logged;
 
       -- table.alter.set_unlogged
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -326,11 +326,11 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.force_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          FORCE row level security;
+          force row level security;
 
       -- table.alter.no_force_rls
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
-          no FORCE row level security;
+          no force row level security;
 
       -- table.alter.set_storage_params
       alter table public.table_with_very_long_name_for_formatting_and_wrapping_test
@@ -346,11 +346,11 @@ describe("sql formatting snapshots", () => {
 
       -- table.alter.attach_partition
       alter table public.events
-          ATTACH partition public.events_2024 for values from ('2024-01-01') to ('2025-01-01');
+          attach partition public.events_2024 for values from ('2024-01-01') to ('2025-01-01');
 
       -- table.alter.detach_partition
       alter table public.events
-          DETACH partition public.events_2024;
+          detach partition public.events_2024;
 
       -- table.comment
       comment on table public.table_with_very_long_name_for_formatting_and_wrapping_test is
@@ -524,7 +524,7 @@ describe("sql formatting snapshots", () => {
           new_admin;
 
       -- function.alter.set_security
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name security INVOKER;
+      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name security invoker;
 
       -- function.alter.set_config
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name
@@ -535,7 +535,7 @@ describe("sql formatting snapshots", () => {
 
       -- function.alter.set_strictness
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name called
-          on null INPUT;
+          on null input;
 
       -- function.alter.set_leakproof
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name leakproof;
@@ -663,7 +663,7 @@ describe("sql formatting snapshots", () => {
       alter index public.idx_t_fmt_status set (fillfactor=80);
 
       -- index.alter.set_statistics
-      alter index public.idx_t_fmt_status alter column 1 set STATISTICS 500;
+      alter index public.idx_t_fmt_status alter column 1 set statistics 500;
 
       -- index.comment
       comment on index public.idx_t_fmt_status is 'index comment';
@@ -672,9 +672,9 @@ describe("sql formatting snapshots", () => {
       comment on index public.idx_t_fmt_status is null;
 
       -- trigger.create
-      create trigger trg_audit AFTER insert OR update
+      create trigger trg_audit after insert OR update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          REFERENCING OLD table as old_rows NEW table as new_rows for each row when (
+          referencing OLD table as old_rows NEW table as new_rows for each row when (
             (NEW.status is DISTINCT from OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
@@ -682,9 +682,9 @@ describe("sql formatting snapshots", () => {
       drop trigger trg_audit on public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- trigger.replace
-      create or replace trigger trg_audit AFTER insert OR update
+      create or replace trigger trg_audit after insert OR update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          REFERENCING OLD table as old_rows NEW table as new_rows for each row when (
+          referencing OLD table as old_rows NEW table as new_rows for each row when (
             (NEW.status is DISTINCT from OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
@@ -797,7 +797,7 @@ describe("sql formatting snapshots", () => {
       create trusted language plv8
           handler plv8_call_handler
           inline plv8_inline_handler
-          VALIDATOR plv8_call_validator;
+          validator plv8_call_validator;
 
       -- language.drop
       drop language plv8;
@@ -821,7 +821,7 @@ describe("sql formatting snapshots", () => {
       revoke grant option for all on language plv8 from app_user;
 
       -- role.create
-      create role app_user with login connection LIMIT 100;
+      create role app_user with login connection limit 100;
 
       -- role.drop
       drop role app_user;
@@ -839,13 +839,13 @@ describe("sql formatting snapshots", () => {
       comment on role app_user is null;
 
       -- role.grant_membership
-      grant app_user to dev_user with ADMIN option;
+      grant app_user to dev_user with admin option;
 
       -- role.revoke_membership
       revoke app_user from dev_user;
 
       -- role.revoke_membership_options
-      revoke ADMIN option for app_user from dev_user;
+      revoke admin option for app_user from dev_user;
 
       -- role.grant_default_privileges
       alter default privileges for role app_user in schema public grant select on tables to app_reader;
@@ -906,7 +906,7 @@ describe("sql formatting snapshots", () => {
       -- fdw.create
       create foreign data wrapper postgres_fdw
           handler postgres_fdw_handler
-          VALIDATOR postgres_fdw_validator
+          validator postgres_fdw_validator
           options (debug 'true');
 
       -- fdw.drop
