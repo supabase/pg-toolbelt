@@ -645,7 +645,7 @@ describe("sql formatting snapshots", () => {
           on public.table_with_very_long_name_for_formatting_and_wrapping_test is null;
 
       -- index.create
-      create unique INDEX idx_t_fmt_status
+      create unique index idx_t_fmt_status
           on public.table_with_very_long_name_for_formatting_and_wrapping_test (status)
           with (fillfactor='90')
           where (status <> 'archived'::text);
@@ -794,7 +794,7 @@ describe("sql formatting snapshots", () => {
       comment on event trigger prevent_drop is null;
 
       -- language.create
-      create trusted LANGUAGE plv8
+      create trusted language plv8
           handler plv8_call_handler
           inline plv8_inline_handler
           VALIDATOR plv8_call_validator;

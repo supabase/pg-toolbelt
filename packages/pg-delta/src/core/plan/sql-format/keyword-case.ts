@@ -275,10 +275,12 @@ function isLikelyObjectNameToken(
     ) {
       cursor += 2;
     }
-    if (
+    while (
       topLevelTokens[cursor]?.token.upper === "TEMP" ||
       topLevelTokens[cursor]?.token.upper === "TEMPORARY" ||
-      topLevelTokens[cursor]?.token.upper === "UNLOGGED"
+      topLevelTokens[cursor]?.token.upper === "UNLOGGED" ||
+      topLevelTokens[cursor]?.token.upper === "UNIQUE" ||
+      topLevelTokens[cursor]?.token.upper === "TRUSTED"
     ) {
       cursor += 1;
     }
