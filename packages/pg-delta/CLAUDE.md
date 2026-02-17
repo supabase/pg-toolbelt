@@ -35,14 +35,20 @@ import { POSTGRES_VERSIONS } from "../constants.ts";
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`feature (pg${pgVersion})`, () => {
     // Fast: shared container, database-level isolation
-    test("test name", withDb(pgVersion, async (db) => {
-      // db.main, db.branch are pg Pool instances
-    }));
+    test(
+      "test name",
+      withDb(pgVersion, async (db) => {
+        // db.main, db.branch are pg Pool instances
+      }),
+    );
 
     // Slow: fresh containers per test, full isolation
-    test("isolated test", withDbIsolated(pgVersion, async (db) => {
-      // db.main, db.branch are pg Pool instances
-    }));
+    test(
+      "isolated test",
+      withDbIsolated(pgVersion, async (db) => {
+        // db.main, db.branch are pg Pool instances
+      }),
+    );
   });
 }
 ```
