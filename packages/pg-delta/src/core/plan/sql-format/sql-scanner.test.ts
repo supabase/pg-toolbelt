@@ -47,9 +47,14 @@ describe("readDollarTag", () => {
 });
 
 describe("isEscapeStringQuoteStart", () => {
-  it("detects E and U& escape-string prefixes", () => {
+  it("detects E escape-string prefix", () => {
     expect(isEscapeStringQuoteStart("E'abc'", 1)).toBe(true);
-    expect(isEscapeStringQuoteStart("u&'abc'", 2)).toBe(true);
+    expect(isEscapeStringQuoteStart("e'abc'", 1)).toBe(true);
+  });
+
+  it("does not treat U& strings as escape strings", () => {
+    expect(isEscapeStringQuoteStart("U&'abc'", 2)).toBe(false);
+    expect(isEscapeStringQuoteStart("u&'abc'", 2)).toBe(false);
   });
 
   it("does not treat plain strings as escape strings", () => {
@@ -86,9 +91,9 @@ describe("walkSql", () => {
     expect(chars.join("")).toBe("a E b");
   });
 
-  it("skips U& strings with backslash-escaped quotes", () => {
+  it("skips U& strings using standard '' quoting (no backslash escaping)", () => {
     const chars: string[] = [];
-    walkSql("a U&'it\\'s still quoted' b", (_, char) => {
+    walkSql("a U&'it''s ok' b", (_, char) => {
       chars.push(char);
       return true;
     });

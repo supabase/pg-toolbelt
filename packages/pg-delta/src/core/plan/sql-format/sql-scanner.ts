@@ -46,7 +46,8 @@ export function isWordChar(char: string): boolean {
 
 /**
  * Return true when the single quote at `quoteIndex` starts a PostgreSQL
- * escape string literal (`E'...'` or `U&'...'`).
+ * escape string literal (`E'...'`). Only E-strings use backslash escaping;
+ * U&-strings use standard '' quoting (backslash is for Unicode escapes only).
  */
 export function isEscapeStringQuoteStart(
   text: string,
@@ -56,19 +57,10 @@ export function isEscapeStringQuoteStart(
 
   const prev = text[quoteIndex - 1];
   const prev2 = text[quoteIndex - 2];
-  const prev3 = text[quoteIndex - 3];
 
   if (
     (prev === "E" || prev === "e") &&
     (prev2 === undefined || !isWordChar(prev2))
-  ) {
-    return true;
-  }
-
-  if (
-    prev === "&" &&
-    (prev2 === "U" || prev2 === "u") &&
-    (prev3 === undefined || !isWordChar(prev3))
   ) {
     return true;
   }

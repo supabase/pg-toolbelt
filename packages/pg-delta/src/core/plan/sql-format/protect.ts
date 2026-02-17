@@ -144,7 +144,6 @@ function protectCommentLiteral(
     text[literalStart + 2] === "'"
   ) {
     quoteStart = literalStart + 2;
-    isEscapeString = true;
   } else {
     return { text };
   }
