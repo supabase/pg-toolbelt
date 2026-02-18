@@ -672,7 +672,7 @@ describe("sql formatting snapshots", () => {
       comment on index public.idx_t_fmt_status is null;
 
       -- trigger.create
-      create trigger trg_audit after insert OR update
+      create trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
           referencing OLD table as old_rows NEW table as new_rows for each row when (
             (NEW.status IS DISTINCT FROM OLD.status)
@@ -682,7 +682,7 @@ describe("sql formatting snapshots", () => {
       drop trigger trg_audit on public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- trigger.replace
-      create or replace trigger trg_audit after insert OR update
+      create or replace trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
           referencing OLD table as old_rows NEW table as new_rows for each row when (
             (NEW.status IS DISTINCT FROM OLD.status)

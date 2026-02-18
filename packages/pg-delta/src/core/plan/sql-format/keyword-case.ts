@@ -406,7 +406,7 @@ function isCaseableInContext(
     return prev === "REPLICA" || prev === "AS";
   }
   if (upper === "OR") {
-    return command === "CREATE" && prev === "CREATE";
+    return true;
   }
   if (upper === "REPLACE") {
     return prev === "OR";
