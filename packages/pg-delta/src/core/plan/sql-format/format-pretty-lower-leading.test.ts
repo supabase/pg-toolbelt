@@ -675,7 +675,7 @@ describe("sql formatting snapshots", () => {
       create trigger trg_audit after insert OR update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
           referencing OLD table as old_rows NEW table as new_rows for each row when (
-            (NEW.status is DISTINCT from OLD.status)
+            (NEW.status IS DISTINCT FROM OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.drop
@@ -685,7 +685,7 @@ describe("sql formatting snapshots", () => {
       create or replace trigger trg_audit after insert OR update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
           referencing OLD table as old_rows NEW table as new_rows for each row when (
-            (NEW.status is DISTINCT from OLD.status)
+            (NEW.status IS DISTINCT FROM OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.comment

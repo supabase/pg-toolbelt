@@ -491,20 +491,39 @@ function collectCheckClauseRanges(
   ranges: Range[],
 ): boolean {
   let unsafe = false;
+  const isTrigger =
+    tokens[0]?.upper === "CREATE" &&
+    tokens.some((t) => t.depth === 0 && t.upper === "TRIGGER");
+
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
-    if (token.upper !== "CHECK") continue;
 
-    const open = findImmediateParen(statement, token.end);
-    if (open < 0) continue;
+    if (token.upper === "CHECK") {
+      const open = findImmediateParen(statement, token.end);
+      if (open < 0) continue;
 
-    const close = findMatchingParen(statement, open);
-    if (close < 0) {
-      unsafe = true;
+      const close = findMatchingParen(statement, open);
+      if (close < 0) {
+        unsafe = true;
+        continue;
+      }
+
+      ranges.push({ start: open, end: close + 1 });
       continue;
     }
 
-    ranges.push({ start: open, end: close + 1 });
+    if (token.upper === "WHEN" && token.depth === 0 && isTrigger) {
+      const open = findImmediateParen(statement, token.end);
+      if (open < 0) continue;
+
+      const close = findMatchingParen(statement, open);
+      if (close < 0) {
+        unsafe = true;
+        continue;
+      }
+
+      ranges.push({ start: open, end: close + 1 });
+    }
   }
 
   return unsafe;
