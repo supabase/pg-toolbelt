@@ -14,6 +14,7 @@ export class SupabasePostgreSqlContainer extends GenericContainer {
 
   constructor(image: string) {
     super(image);
+    this.withLabels({ "pg-toolbelt.package": "pg-delta" });
     this.withExposedPorts(POSTGRES_PORT);
     this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(120_000);
