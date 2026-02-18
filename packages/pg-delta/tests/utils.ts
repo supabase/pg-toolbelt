@@ -8,11 +8,12 @@ import { containerManager } from "./container-manager.js";
 import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
 
 /**
- * Suppress expected shutdown errors from idle pool connections.
- * Error code 57P01 = admin_shutdown (container stopped while connection open)
+ * Suppress expected errors from idle pool connections.
+ * 57P01 = admin_shutdown (container stopped while connection open)
+ * 53100 = disk_full (container out of disk under heavy concurrent tests)
  */
 function suppressShutdownError(err: Error & { code?: string }) {
-  if (err.code === "57P01") return;
+  if (err.code === "57P01" || err.code === "53100") return;
   console.error("Pool error:", err);
 }
 

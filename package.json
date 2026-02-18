@@ -13,7 +13,7 @@
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "bun run --filter '*' knip",
     "test": "bun run --filter '*' test",
-    "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
+    "test:pg-delta": "cd packages/pg-delta && bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts --max-concurrency=4",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
     "version": "changeset version"
   },
