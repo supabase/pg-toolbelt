@@ -2,13 +2,17 @@
   "mode": "pre",
   "tag": "alpha",
   "initialVersions": {
-    "@supabase/pg-delta": "0.0.0"
+    "@supabase/pg-delta": "0.0.0",
+    "@supabase/pg-topo": "0.1.1"
   },
   "changesets": [
+    "brave-sails-kneel",
     "curvy-buckets-collect",
     "eight-moles-throw",
     "kind-balloons-invite",
     "major-cities-lose",
+    "many-bobcats-divide",
+    "rich-regions-sneeze",
     "slick-moons-turn",
     "tall-canyons-add"
   ]
