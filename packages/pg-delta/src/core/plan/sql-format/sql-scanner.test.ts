@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { isWordChar, readDollarTag, walkSql } from "./sql-scanner.ts";
+import {
+  isEscapeStringQuoteStart,
+  isWordChar,
+  readDollarTag,
+  walkSql,
+} from "./sql-scanner.ts";
 
 describe("isWordChar", () => {
   it("returns true for letters, digits, and underscore", () => {
@@ -17,15 +22,17 @@ describe("isWordChar", () => {
 
 describe("readDollarTag", () => {
   it("reads $$ tag", () => {
-    expect(readDollarTag("$$body$$", 0)).toBe("$$");
+    expect(readDollarTag("$$body$$", 0)).toMatchInlineSnapshot(`"$$"`);
   });
 
   it("reads named tag like $fn$", () => {
-    expect(readDollarTag("$fn$body$fn$", 0)).toBe("$fn$");
+    expect(readDollarTag("$fn$body$fn$", 0)).toMatchInlineSnapshot(`"$fn$"`);
   });
 
   it("reads $body$ tag", () => {
-    expect(readDollarTag("$body$content$body$", 0)).toBe("$body$");
+    expect(readDollarTag("$body$content$body$", 0)).toMatchInlineSnapshot(
+      `"$body$"`,
+    );
   });
 
   it("returns null for non-tag like $1+2", () => {
@@ -41,6 +48,23 @@ describe("readDollarTag", () => {
   });
 });
 
+describe("isEscapeStringQuoteStart", () => {
+  it("detects E escape-string prefix", () => {
+    expect(isEscapeStringQuoteStart("E'abc'", 1)).toBe(true);
+    expect(isEscapeStringQuoteStart("e'abc'", 1)).toBe(true);
+  });
+
+  it("does not treat U& strings as escape strings", () => {
+    expect(isEscapeStringQuoteStart("U&'abc'", 2)).toBe(false);
+    expect(isEscapeStringQuoteStart("u&'abc'", 2)).toBe(false);
+  });
+
+  it("does not treat plain strings as escape strings", () => {
+    expect(isEscapeStringQuoteStart("'abc'", 0)).toBe(false);
+    expect(isEscapeStringQuoteStart("fooe'abc'", 4)).toBe(false);
+  });
+});
+
 describe("walkSql", () => {
   it("skips single-quoted strings", () => {
     const chars: string[] = [];
@@ -48,7 +72,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
   });
 
   it("skips single-quoted strings with '' escapes", () => {
@@ -57,7 +81,25 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
+  });
+
+  it("skips E strings with backslash-escaped quotes", () => {
+    const chars: string[] = [];
+    walkSql("a E'it\\'s still quoted' b", (_, char) => {
+      chars.push(char);
+      return true;
+    });
+    expect(chars.join("")).toMatchInlineSnapshot(`"a E b"`);
+  });
+
+  it("skips U& strings using standard '' quoting (no backslash escaping)", () => {
+    const chars: string[] = [];
+    walkSql("a U&'it''s ok' b", (_, char) => {
+      chars.push(char);
+      return true;
+    });
+    expect(chars.join("")).toMatchInlineSnapshot(`"a U& b"`);
   });
 
   it("skips double-quoted identifiers", () => {
@@ -66,7 +108,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
   });
 
   it('skips double-quoted identifiers with "" escapes', () => {
@@ -75,7 +117,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
   });
 
   it("skips line comments", () => {
@@ -84,7 +126,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a b"`);
   });
 
   it("skips block comments", () => {
@@ -93,7 +135,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
   });
 
   it("skips dollar-quoted blocks", () => {
@@ -102,7 +144,7 @@ describe("walkSql", () => {
       chars.push(char);
       return true;
     });
-    expect(chars.join("")).toBe("a  b");
+    expect(chars.join("")).toMatchInlineSnapshot(`"a  b"`);
   });
 
   it("tracks parenthesis depth correctly", () => {
@@ -115,17 +157,46 @@ describe("walkSql", () => {
       },
       { trackDepth: true },
     );
-    expect(depths).toEqual([
-      ["a", 0],
-      ["(", 0],
-      ["b", 1],
-      ["(", 1],
-      ["c", 2],
-      [")", 1],
-      ["d", 1],
-      [")", 0],
-      ["e", 0],
-    ]);
+    expect(depths).toMatchInlineSnapshot(`
+      [
+        [
+          "a",
+          0,
+        ],
+        [
+          "(",
+          0,
+        ],
+        [
+          "b",
+          1,
+        ],
+        [
+          "(",
+          1,
+        ],
+        [
+          "c",
+          2,
+        ],
+        [
+          ")",
+          1,
+        ],
+        [
+          "d",
+          1,
+        ],
+        [
+          ")",
+          0,
+        ],
+        [
+          "e",
+          0,
+        ],
+      ]
+    `);
   });
 
   it("respects startIndex option", () => {
@@ -138,7 +209,7 @@ describe("walkSql", () => {
       },
       { startIndex: 2 },
     );
-    expect(chars.join("")).toBe("cde");
+    expect(chars.join("")).toMatchInlineSnapshot(`"cde"`);
   });
 
   it("calls onSkipped for skipped content", () => {
@@ -148,7 +219,13 @@ describe("walkSql", () => {
         skipped.push(chunk);
       },
     });
-    expect(skipped).toEqual(["'", "x", "'"]);
+    expect(skipped).toMatchInlineSnapshot(`
+      [
+        "'",
+        "x",
+        "'",
+      ]
+    `);
   });
 
   it("stops early when callback returns false", () => {
@@ -158,6 +235,6 @@ describe("walkSql", () => {
       if (char === "c") return false;
       return true;
     });
-    expect(chars.join("")).toBe("abc");
+    expect(chars.join("")).toMatchInlineSnapshot(`"abc"`);
   });
 });

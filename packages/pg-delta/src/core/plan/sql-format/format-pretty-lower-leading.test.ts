@@ -26,7 +26,8 @@ describe("sql formatting snapshots", () => {
       alter schema application_schema_with_very_long_name_for_wrapping_tests owner to new_admin;
 
       -- schema.comment
-      comment on schema application_schema_with_very_long_name_for_wrapping_tests is 'application schema';
+      comment on schema application_schema_with_very_long_name_for_wrapping_tests is
+          'application schema';
 
       -- schema.drop_comment
       comment on schema application_schema_with_very_long_name_for_wrapping_tests is null;
@@ -39,7 +40,7 @@ describe("sql formatting snapshots", () => {
       revoke create on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- schema.revoke_grant_option
-      revoke grant option for USAGE
+      revoke grant option for usage
           on schema application_schema_with_very_long_name_for_wrapping_tests from app_user;
 
       -- extension.create
@@ -65,7 +66,7 @@ describe("sql formatting snapshots", () => {
           collate mycoll
           default 'hello'
           not null
-          check (value <> '');
+          check (VALUE <> '');
 
       -- domain.drop
       drop domain public.test_domain_all;
@@ -92,7 +93,7 @@ describe("sql formatting snapshots", () => {
 
       -- domain.alter.add_constraint
       alter domain public.test_domain_all
-          add constraint domain_len_chk check (char_length(value) <= 255) not valid;
+          add constraint domain_len_chk check (char_length(VALUE) <= 255) not valid;
 
       -- domain.alter.drop_constraint
       alter domain public.test_domain_all
@@ -367,7 +368,8 @@ describe("sql formatting snapshots", () => {
 
       -- table.constraint_comment
       comment on constraint pk_t_fmt
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'primary key';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'primary key';
 
       -- table.drop_constraint_comment
       comment on constraint chk_t_fmt_status
@@ -504,7 +506,7 @@ describe("sql formatting snapshots", () => {
           language plpgsql
           stable
           security definer
-          parallel SAFE
+          parallel safe
           cost 100
           rows 10
           strict
@@ -540,7 +542,7 @@ describe("sql formatting snapshots", () => {
 
       -- function.alter.set_parallel
       alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name parallel
-          RESTRICTED;
+          restricted;
 
       -- function.comment
       comment on function
@@ -589,16 +591,16 @@ describe("sql formatting snapshots", () => {
 
       -- sequence.grant
       grant select,
-          USAGE
+          usage
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq to app_user;
 
       -- sequence.revoke
-      revoke USAGE
+      revoke usage
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
       -- sequence.revoke_grant_option
-      revoke grant option for USAGE
+      revoke grant option for usage
           on sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq from
           app_user;
 
@@ -610,7 +612,7 @@ describe("sql formatting snapshots", () => {
 
       -- policy.create_restrictive
       create policy restrict_delete on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          as RESTRICTIVE
+          as restrictive
           for delete
           to authenticated, service_role
           using (auth.uid() = owner_id)
@@ -626,7 +628,7 @@ describe("sql formatting snapshots", () => {
       -- policy.alter.set_using
       alter policy public.allow_select_own
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          using (auth.uid() = user_id and status = 'active');
+          using (auth.uid() = user_id AND status = 'active');
 
       -- policy.alter.set_with_check
       alter policy public.allow_select_own
@@ -635,7 +637,8 @@ describe("sql formatting snapshots", () => {
 
       -- policy.comment
       comment on policy allow_select_own
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'rls policy comment';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'rls policy comment';
 
       -- policy.drop_comment
       comment on policy allow_select_own
@@ -671,8 +674,8 @@ describe("sql formatting snapshots", () => {
       -- trigger.create
       create trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          referencing old table as old_rows new table as new_rows for each row when (
-            (new.status is distinct from old.status)
+          referencing OLD table as old_rows NEW table as new_rows for each row when (
+            (NEW.status IS DISTINCT FROM OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.drop
@@ -681,13 +684,14 @@ describe("sql formatting snapshots", () => {
       -- trigger.replace
       create or replace trigger trg_audit after insert or update
           on public.table_with_very_long_name_for_formatting_and_wrapping_test
-          referencing old table as old_rows new table as new_rows for each row when (
-            (new.status is distinct from old.status)
+          referencing OLD table as old_rows NEW table as new_rows for each row when (
+            (NEW.status IS DISTINCT FROM OLD.status)
       ) execute function public.audit_trigger_fn('arg1', 'arg2');
 
       -- trigger.comment
       comment on trigger trg_audit
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test is 'trigger comment';
+          on public.table_with_very_long_name_for_formatting_and_wrapping_test is
+          'trigger comment';
 
       -- trigger.drop_comment
       comment on trigger trg_audit
@@ -741,7 +745,7 @@ describe("sql formatting snapshots", () => {
           , stype       = anycompatiblearray
           , combinefunc = array_cat
           , initcond    = '{}'
-          , parallel SAFE
+          , parallel safe
           , strict
       );
 
@@ -817,13 +821,13 @@ describe("sql formatting snapshots", () => {
       revoke grant option for all on language plv8 from app_user;
 
       -- role.create
-      create role app_user with LOGIN connection limit 100;
+      create role app_user with login connection limit 100;
 
       -- role.drop
       drop role app_user;
 
       -- role.alter.set_options
-      alter role app_user with NOSUPERUSER CREATEDB;
+      alter role app_user with nosuperuser createdb;
 
       -- role.alter.set_config
       alter role app_user set statement_timeout to '60000';
@@ -915,8 +919,8 @@ describe("sql formatting snapshots", () => {
       -- fdw.alter.set_options
       alter foreign data wrapper postgres_fdw
           options (
-                set debug 'false'
-              , add use_remote_estimate ''
+                SET debug 'false'
+              , ADD use_remote_estimate ''
           );
 
       -- fdw.comment
@@ -977,7 +981,7 @@ describe("sql formatting snapshots", () => {
 
       -- foreign_table.alter.set_options
       alter foreign table public.remote_users
-          options (set fetch_size '1000');
+          options (SET fetch_size '1000');
 
       -- foreign_table.comment
       comment on foreign table public.remote_users is 'remote users table';
@@ -1019,8 +1023,8 @@ describe("sql formatting snapshots", () => {
       -- server.alter.set_options
       alter server remote_server
           options (
-                set host 'new.host'
-              , drop port
+                SET host 'new.host'
+              , DROP port
           );
 
       -- server.comment
@@ -1046,7 +1050,7 @@ describe("sql formatting snapshots", () => {
       drop user mapping for app_user server remote_server;
 
       -- user_mapping.alter.set_options
-      alter user mapping for app_user server remote_server options (set password 'new_secret');"
+      alter user mapping for app_user server remote_server options (SET password 'new_secret');"
     `);
   });
 });

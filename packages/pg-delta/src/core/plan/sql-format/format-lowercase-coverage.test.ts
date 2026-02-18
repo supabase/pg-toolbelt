@@ -2,43 +2,66 @@ import { describe, expect, test } from "bun:test";
 import { formatSqlStatements } from "../sql-format.ts";
 
 describe("lowercase coverage formatting", () => {
-  test("normalizes representative DDL/DCL keywords to lowercase", () => {
+  test("normalizes contextual keywords while preserving protected payloads", () => {
     const statements = [
-      "CREATE FUNCTION auth.can(_organization_id bigint,_resource text,_action auth.action,_data json DEFAULT NULL::json,_subject_id uuid DEFAULT auth.gotrue_id()) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER AS $function$BEGIN RETURN true; END;$function$;",
-      "ALTER SEQUENCE audit.record_version_id_seq OWNED by audit.record_version.id;",
-      "REVOKE ALL ON FUNCTION auth.uid() FROM postgres;",
-      "ALTER TABLE auth.audit_log_entries ENABLE ROW LEVEL SECURITY;",
-      "ALTER TABLE auth.audit_log_entries ADD CONSTRAINT audit_log_entries_pkey PRIMARY KEY (id);",
-      "GRANT SELECT ON auth.default_permissions TO authenticated;",
-      "GRANT DELETE, INSERT, SELECT, UPDATE ON auth.permissions TO authenticated;",
-      "ALTER TABLE auth.subject_all_roles REPLICA IDENTITY FULL;",
-      "CREATE TABLE public.credit_codes (id uuid DEFAULT gen_random_uuid() NOT NULL, is_unique boolean GENERATED ALWAYS AS ((max_redemptions = 1)) STORED, created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL, status text DEFAULT 'ACTIVE_HEALTHY');",
+      "CREATE EVENT TRIGGER prevent_drop ON sql_drop WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA') EXECUTE FUNCTION public.prevent_drop_fn();",
+      "CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $function$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid$function$;",
+      "COMMENT ON FUNCTION public.fn() IS E'line 1 \\' still quoted\\nline 2';",
+      "CREATE COLLATION public.test (LOCALE = 'en_US', DETERMINISTIC = false, provider = icu);",
     ];
 
     const formatted = formatSqlStatements(statements, {
       keywordCase: "lower",
-      maxWidth: 200,
+      maxWidth: 140,
     });
 
-    expect(formatted[0]).toContain("returns boolean");
-    expect(formatted[0]).toContain("language plpgsql");
-    expect(formatted[0]).toContain("stable");
-    expect(formatted[0]).toContain("security definer");
+    const normalized = [formatted[0], formatted[1], formatted[3]].map((value) =>
+      value.replace(/\s+/g, " ").trim(),
+    );
+    expect(normalized).toMatchInlineSnapshot(`
+      [
+        "create event trigger prevent_drop on sql_drop when tag in ('DROP TABLE', 'DROP SCHEMA') execute function public.prevent_drop_fn()",
+        "create function auth.uid() returns uuid language sql stable AS $function$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid$function$",
+        "create collation public.test ( locale = 'en_US', deterministic = false, provider = icu )",
+      ]
+    `);
 
-    expect(formatted[1]).toContain("owned by");
-    expect(formatted[2]).toContain("from postgres");
-    expect(formatted[3]).toContain("enable row level security");
-    expect(formatted[4]).toContain("primary key");
-    expect(formatted[5]).toContain("grant select on");
-    expect(formatted[6]).toContain("grant delete,");
-    expect(formatted[6]).toContain("insert,");
-    expect(formatted[6]).toContain("select,");
-    expect(formatted[6]).toContain("update on");
-    expect(formatted[7]).toContain("replica identity full");
-    expect(formatted[8]).toContain("generated always as");
-    expect(formatted[8]).toContain("default current_timestamp");
+    expect(formatted[2]).toMatchInlineSnapshot(
+      `"comment on function public.fn() is E'line 1 \\' still quoted\\nline 2'"`,
+    );
+  });
 
-    // Quoted text must remain unchanged.
-    expect(formatted[8]).toContain("'ACTIVE_HEALTHY'");
+  test("fails safe: malformed protected literals skip casing but still wrap", () => {
+    const statements = [
+      "COMMENT ON FUNCTION public.fn() IS E'unterminated \\'",
+      "ALTER TABLE auth.audit_log_entries ENABLE ROW LEVEL SECURITY;",
+    ];
+
+    const formatted = formatSqlStatements(statements, {
+      keywordCase: "lower",
+      maxWidth: 40,
+    });
+
+    // Malformed statement: casing skipped (stays uppercase) but wrapping still applies
+    expect(formatted[0].replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
+      `"COMMENT ON FUNCTION public.fn() IS E'unterminated \\'"`,
+    );
+
+    expect(formatted[1].replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
+      `"alter table auth.audit_log_entries enable row level security"`,
+    );
+  });
+
+  test("preserves full CHECK clause text while casing surrounding structure", () => {
+    const [formatted] = formatSqlStatements(
+      [
+        "ALTER TABLE public.t ADD CONSTRAINT c CHECK (State IN ('ON','OFF')) NO INHERIT;",
+      ],
+      { keywordCase: "lower" },
+    );
+
+    expect(formatted.replace(/\s+/g, " ").trim()).toMatchInlineSnapshot(
+      `"alter table public.t add constraint c check (State IN ('ON','OFF')) no inherit"`,
+    );
   });
 });

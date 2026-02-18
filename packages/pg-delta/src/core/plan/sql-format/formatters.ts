@@ -42,7 +42,6 @@ const FUNCTION_CLAUSE_KEYWORDS = new Set([
 
 const POLICY_CLAUSE_KEYWORDS = new Set(["FOR", "TO", "USING", "WITH"]);
 
-const EVENT_TRIGGER_CLAUSE_KEYWORDS = new Set(["ON", "WHEN", "EXECUTE"]);
 const TRIGGER_CLAUSE_KEYWORDS = new Set([
   "BEFORE",
   "AFTER",
@@ -51,6 +50,7 @@ const TRIGGER_CLAUSE_KEYWORDS = new Set([
   "WHEN",
   "EXECUTE",
 ]);
+const EVENT_TRIGGER_CLAUSE_KEYWORDS = new Set(["ON", "WHEN", "EXECUTE"]);
 
 const INDEX_CLAUSE_KEYWORDS = new Set(["WHERE", "WITH", "TABLESPACE"]);
 
