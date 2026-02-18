@@ -105,7 +105,9 @@ describe("restorePlaceholders", () => {
     placeholders.set("__PGDELTA_PLACEHOLDER_0__", "AS $$ body $$");
     const text = "CREATE FUNCTION foo() __PGDELTA_PLACEHOLDER_0__";
     const restored = restorePlaceholders(text, placeholders);
-    expect(restored).toBe("CREATE FUNCTION foo() AS $$ body $$");
+    expect(restored).toMatchInlineSnapshot(
+      `"CREATE FUNCTION foo() AS $$ body $$"`,
+    );
   });
 
   it("correctly handles $ characters in restored values", () => {
@@ -113,7 +115,7 @@ describe("restorePlaceholders", () => {
     placeholders.set("__PGDELTA_PLACEHOLDER_0__", "$$price$$");
     const text = "SELECT __PGDELTA_PLACEHOLDER_0__";
     const restored = restorePlaceholders(text, placeholders);
-    expect(restored).toBe("SELECT $$price$$");
+    expect(restored).toMatchInlineSnapshot(`"SELECT $$price$$"`);
   });
 
   it("round-trips protect → restore to produce original text", () => {

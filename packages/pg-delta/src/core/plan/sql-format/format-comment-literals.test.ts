@@ -73,18 +73,24 @@ this wrapper guarantees the seamless operation of all existing auth.can() checks
       maxWidth: 80,
     });
 
-    expect(extractCommentLiteral(first)).toBe(`'
-Enhanced wrapper method for the primary auth.can() function. Utilize this wrapper to specifically check for project-related permissions.
-'`);
+    expect(extractCommentLiteral(first)).toMatchInlineSnapshot(`
+      "'
+      Enhanced wrapper method for the primary auth.can() function. Utilize this wrapper to specifically check for project-related permissions.
+      '"
+    `);
 
-    expect(extractCommentLiteral(second)).toBe(`'
-Enhanced wrapper method for the primary auth.can() function. Utilize this wrapper to specifically check for project-related permissions.
-This method does not require _organization_id parameter.
-'`);
+    expect(extractCommentLiteral(second)).toMatchInlineSnapshot(`
+      "'
+      Enhanced wrapper method for the primary auth.can() function. Utilize this wrapper to specifically check for project-related permissions.
+      This method does not require _organization_id parameter.
+      '"
+    `);
 
-    expect(extractCommentLiteral(third)).toBe(`'
-Enhanced wrapper method for the primary auth.can() function. With the introduction of the _project_id parameter into auth.can(),
-this wrapper guarantees the seamless operation of all existing auth.can() checks.
-'`);
+    expect(extractCommentLiteral(third)).toMatchInlineSnapshot(`
+      "'
+      Enhanced wrapper method for the primary auth.can() function. With the introduction of the _project_id parameter into auth.can(),
+      this wrapper guarantees the seamless operation of all existing auth.can() checks.
+      '"
+    `);
   });
 });
