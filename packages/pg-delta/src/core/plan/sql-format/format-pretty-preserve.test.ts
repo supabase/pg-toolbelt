@@ -26,7 +26,8 @@ describe("sql formatting snapshots", () => {
       ALTER SCHEMA application_schema_with_very_long_name_for_wrapping_tests OWNER TO new_admin;
 
       -- schema.comment
-      COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS 'application schema';
+      COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS
+         'application schema';
 
       -- schema.drop_comment
       COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS NULL;
@@ -767,6 +768,7 @@ describe("sql formatting snapshots", () => {
 
       -- event_trigger.create
       CREATE EVENT TRIGGER prevent_drop
+         ON sql_drop
          WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA')
          EXECUTE FUNCTION public.prevent_drop_fn();
 

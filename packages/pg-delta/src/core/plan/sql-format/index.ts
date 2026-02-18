@@ -130,7 +130,7 @@ function formatStatement(
     formatAlterGeneric(protectedSegments.text, tokens, options) ??
     formatGeneric(protectedSegments.text, tokens, options);
 
-  if (options.keywordCase !== "preserve") {
+  if (!protectedSegments.skipCasing && options.keywordCase !== "preserve") {
     formatted = applyKeywordCase(formatted, options);
   }
 

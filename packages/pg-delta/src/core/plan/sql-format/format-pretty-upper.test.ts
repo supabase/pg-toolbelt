@@ -21,7 +21,8 @@ describe("sql formatting snapshots", () => {
       ALTER SCHEMA application_schema_with_very_long_name_for_wrapping_tests OWNER TO new_admin;
 
       -- schema.comment
-      COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS 'application schema';
+      COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS
+        'application schema';
 
       -- schema.drop_comment
       COMMENT ON SCHEMA application_schema_with_very_long_name_for_wrapping_tests IS NULL;
@@ -760,6 +761,7 @@ describe("sql formatting snapshots", () => {
 
       -- event_trigger.create
       CREATE EVENT TRIGGER prevent_drop
+        ON sql_drop
         WHEN TAG IN ('DROP TABLE', 'DROP SCHEMA')
         EXECUTE FUNCTION public.prevent_drop_fn();
 
@@ -845,12 +847,12 @@ describe("sql formatting snapshots", () => {
         CONNECTION 'host=primary.db port=5432 dbname=mydb'
         PUBLICATION pub_custom
         WITH (
-          SLOT_NAME          = 'sub_replica_slot',
-          BINARY             = true,
-          STREAMING          = 'parallel',
-          SYNCHRONOUS_COMMIT = 'remote_apply',
-          DISABLE_ON_ERROR   = true,
-          FAILOVER           = true
+          slot_name          = 'sub_replica_slot',
+          binary             = true,
+          streaming          = 'parallel',
+          synchronous_commit = 'remote_apply',
+          disable_on_error   = true,
+          failover           = true
         );
 
       -- subscription.drop
@@ -875,9 +877,9 @@ describe("sql formatting snapshots", () => {
       -- subscription.alter.set_options
       ALTER SUBSCRIPTION sub_replica
         SET (
-          BINARY             = true,
-          STREAMING          = 'parallel',
-          SYNCHRONOUS_COMMIT = 'remote_apply'
+          binary             = true,
+          streaming          = 'parallel',
+          synchronous_commit = 'remote_apply'
         );
 
       -- subscription.alter.set_owner

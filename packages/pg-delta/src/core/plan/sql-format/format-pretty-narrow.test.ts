@@ -592,7 +592,8 @@ describe("sql formatting snapshots", () => {
 
       -- rule.comment
       COMMENT ON RULE test_rule
-        ON public.test_table IS 'rule comment';
+        ON public.test_table IS
+        'rule comment';
 
       -- rule.drop_comment
       COMMENT ON RULE test_rule
@@ -939,6 +940,7 @@ describe("sql formatting snapshots", () => {
 
       -- event_trigger.create
       CREATE EVENT TRIGGER prevent_drop
+        ON sql_drop
         WHEN TAG IN
           ('DROP TABLE', 'DROP SCHEMA')
         EXECUTE FUNCTION

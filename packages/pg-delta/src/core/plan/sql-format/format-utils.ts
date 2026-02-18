@@ -77,7 +77,7 @@ export function formatColumnList(
   const items = splitByCommas(content);
   if (items.length === 0) return null;
 
-  const parsed = items.map((item) => parseColumnDefinition(item));
+  const parsed = items.map((item) => parseDefinitionItem(item));
   const maxName = parsed.reduce(
     (max, column) => (column ? Math.max(max, column.name.length) : max),
     0,
@@ -122,9 +122,24 @@ export function formatColumnList(
   return lines;
 }
 
-function parseColumnDefinition(
+type DefinitionBounds = {
+  nameStart: number;
+  nameEnd: number;
+  typeStart: number;
+  typeEnd: number;
+  tailStart: number;
+};
+
+type ParsedDefinitionItem = {
+  name: string;
+  type: string;
+  tail: string;
+  bounds: DefinitionBounds;
+};
+
+export function parseDefinitionItem(
   definition: string,
-): { name: string; type: string; tail: string } | null {
+): ParsedDefinitionItem | null {
   let i = 0;
   const trimmed = definition.trim();
   if (trimmed.length === 0) return null;
@@ -164,8 +179,13 @@ function parseColumnDefinition(
     return null;
   }
 
-  const rest = trimmed.slice(i).trimStart();
-  if (rest.length === 0) return null;
+  let restStart = i;
+  while (restStart < trimmed.length && /\s/.test(trimmed[restStart])) {
+    restStart += 1;
+  }
+  if (restStart >= trimmed.length) return null;
+
+  const rest = trimmed.slice(restStart);
 
   const boundaryKeywords = new Set([
     "COLLATE",
@@ -190,14 +210,36 @@ function parseColumnDefinition(
     }
   }
 
-  const type = (
-    boundaryIndex === null ? rest : rest.slice(0, boundaryIndex)
-  ).trimEnd();
-  const tail = boundaryIndex === null ? "" : rest.slice(boundaryIndex).trim();
+  let typeEnd =
+    boundaryIndex === null ? trimmed.length : restStart + boundaryIndex;
+  while (typeEnd > restStart && /\s/.test(trimmed[typeEnd - 1])) {
+    typeEnd -= 1;
+  }
+  let tailStart = typeEnd;
+  if (boundaryIndex !== null) {
+    tailStart = restStart + boundaryIndex;
+    while (tailStart < trimmed.length && /\s/.test(trimmed[tailStart])) {
+      tailStart += 1;
+    }
+  }
+
+  const type = trimmed.slice(restStart, typeEnd);
+  const tail = boundaryIndex === null ? "" : trimmed.slice(tailStart).trim();
 
   if (type.length === 0) return null;
 
-  return { name, type, tail };
+  return {
+    name,
+    type,
+    tail,
+    bounds: {
+      nameStart: 0,
+      nameEnd: name.length,
+      typeStart: restStart,
+      typeEnd,
+      tailStart,
+    },
+  };
 }
 
 export function formatKeyValueItems(
@@ -216,12 +258,6 @@ export function formatKeyValueItems(
     let line = items[index].trim();
     if (entry) {
       let key = entry.key;
-      if (options.keywordCase !== "preserve") {
-        key =
-          options.keywordCase === "upper"
-            ? key.toUpperCase()
-            : key.toLowerCase();
-      }
       if (options.alignKeyValues) {
         key = key.padEnd(maxKey);
       }
@@ -308,12 +344,6 @@ export function formatMixedItems(
     let line = items[index].trim();
     if (entry) {
       let key = entry.key;
-      if (options.keywordCase !== "preserve") {
-        key =
-          options.keywordCase === "upper"
-            ? key.toUpperCase()
-            : key.toLowerCase();
-      }
       if (options.alignKeyValues) {
         key = key.padEnd(maxKey);
       }
