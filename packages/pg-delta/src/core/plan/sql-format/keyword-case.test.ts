@@ -78,7 +78,7 @@ describe("applyKeywordCase", () => {
       "CREATE COLLATION public.test (LOCALE = 'en_US', DETERMINISTIC = false, provider = icu)";
     const result = applyKeywordCase(sql, lowerOpts);
     expect(result).toMatchInlineSnapshot(
-      `"create collation public.test (LOCALE = 'en_US', DETERMINISTIC = false, provider = icu)"`,
+      `"create collation public.test (locale = 'en_US', deterministic = false, provider = icu)"`,
     );
   });
 

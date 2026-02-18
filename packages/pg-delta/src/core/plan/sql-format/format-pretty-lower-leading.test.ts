@@ -193,11 +193,11 @@ describe("sql formatting snapshots", () => {
 
       -- type.range.create
       create type public.daterange_custom as range (
-            SUBTYPE         = date
-          , SUBTYPE_OPCLASS = public.date_ops
+            subtype         = date
+          , subtype_opclass = public.date_ops
           , collation       = "en_US"
-          , CANONICAL       = public.canon_fn
-          , SUBTYPE_DIFF    = public.diff_fn
+          , canonical       = public.canon_fn
+          , subtype_diff    = public.diff_fn
       );
 
       -- type.range.drop
@@ -223,12 +223,12 @@ describe("sql formatting snapshots", () => {
 
       -- collation.create
       create collation public.test (
-            LOCALE        = 'en_US'
-          , LC_COLLATE    = 'en_US'
-          , LC_CTYPE      = 'en_US'
-          , PROVIDER      = icu
-          , DETERMINISTIC = false
-          , RULES         = '& A < a <<< à'
+            locale        = 'en_US'
+          , lc_collate    = 'en_US'
+          , lc_ctype      = 'en_US'
+          , provider      = icu
+          , deterministic = false
+          , rules         = '& A < a <<< à'
           , version       = '1.0'
       );
 
@@ -741,10 +741,10 @@ describe("sql formatting snapshots", () => {
 
       -- aggregate.create
       create aggregate public.array_cat_agg(anycompatiblearray) (
-            SFUNC       = array_cat
-          , STYPE       = anycompatiblearray
-          , COMBINEFUNC = array_cat
-          , INITCOND    = '{}'
+            sfunc       = array_cat
+          , stype       = anycompatiblearray
+          , combinefunc = array_cat
+          , initcond    = '{}'
           , parallel safe
           , strict
       );

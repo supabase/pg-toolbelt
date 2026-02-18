@@ -22,7 +22,7 @@ describe("lowercase coverage formatting", () => {
       [
         "create event trigger prevent_drop on sql_drop when tag in ('DROP TABLE', 'DROP SCHEMA') execute function public.prevent_drop_fn()",
         "create function auth.uid() returns uuid language sql stable AS $function$SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid$function$",
-        "create collation public.test ( LOCALE = 'en_US', DETERMINISTIC = false, provider = icu )",
+        "create collation public.test ( locale = 'en_US', deterministic = false, provider = icu )",
       ]
     `);
 
