@@ -132,7 +132,7 @@ describe("sql formatting snapshots", () => {
       alter type public.test_enum owner to new_owner;
 
       -- type.enum.alter.add_value
-      alter type public.test_enum add VALUE 'value4' after 'value2';
+      alter type public.test_enum add value 'value4' after 'value2';
 
       -- type.enum.comment
       comment on type public.test_enum is 'enum comment';

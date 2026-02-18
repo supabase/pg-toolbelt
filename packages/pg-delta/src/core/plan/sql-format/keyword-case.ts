@@ -164,6 +164,7 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "VALIDATE",
   "VALID",
   "VALIDATOR",
+  "VALUE",
   "VALUES",
   "VERSION",
   "VIEW",
