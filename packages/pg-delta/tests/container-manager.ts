@@ -86,7 +86,6 @@ class ContainerManager {
         "[ContainerManager] Starting container for PostgreSQL %d...",
         version,
       );
-
       const container = await new PostgresAlpineContainer(image).start();
       this.containers.set(version, container);
 

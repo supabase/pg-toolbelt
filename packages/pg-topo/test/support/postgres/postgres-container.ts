@@ -42,6 +42,7 @@ const ensureContainer = async (): Promise<StartedPostgreSqlContainer> => {
     containerPromise = (async () => {
       await prewarmPostgresValidationImage();
       return new PostgreSqlContainer(POSTGRES_VALIDATION_IMAGE)
+        .withLabels({ "pg-toolbelt.package": "pg-topo" })
         .withWaitStrategy(Wait.forHealthCheck())
         .withStartupTimeout(120_000)
         .start();
