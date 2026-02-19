@@ -1,5 +1,16 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.4
+
+### Minor Changes
+
+- c267747: feat: add basic formatter to sql output
+
+### Patch Changes
+
+- 4f8faf3: fix(formatter): issue with EVENT TRIGGER clause
+- 1dacd2a: Handle constraint triggers in table introspection and trigger updates
+
 ## 1.0.0-alpha.3
 
 ### Patch Changes
