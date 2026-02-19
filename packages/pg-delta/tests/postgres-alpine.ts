@@ -14,6 +14,7 @@ export class PostgresAlpineContainer extends GenericContainer {
 
   constructor(image: string) {
     super(image);
+    this.withLabels({ "pg-toolbelt.package": "pg-delta" });
     this.withExposedPorts(POSTGRES_PORT);
     this.withHealthCheck({
       test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"],

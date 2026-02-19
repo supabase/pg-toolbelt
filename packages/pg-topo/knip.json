@@ -1,4 +1,5 @@
 {
-  "entry": ["test/global-setup.ts"],
+  "entry": ["test/global-setup.ts", "test/**/*.test.ts"],
+  "ignoreFiles": ["scripts/run-tests.ts"],
   "ignoreBinaries": ["biome"]
 }

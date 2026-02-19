@@ -20,6 +20,7 @@ export class PostgresSslContainer extends GenericContainer {
 
   constructor(image: string, certificates: SslCertificates) {
     super(image);
+    this.withLabels({ "pg-toolbelt.package": "pg-delta" });
     this.certificates = certificates;
     this.serverCertName = basename(certificates.serverCert);
     this.serverKeyName = basename(certificates.serverKey);

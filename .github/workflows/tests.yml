@@ -139,7 +139,7 @@ jobs:
           fi
           echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
           echo "$SHARD_FILES"
-          echo "$SHARD_FILES" | xargs bun test --concurrent --timeout 15000 --preload ./tests/global-setup.ts --max-concurrency=4
+          echo "$SHARD_FILES" | xargs bun run test
 
   pg-delta-integration-pg15-compat:
     if: always() && github.event.pull_request.draft == false
@@ -184,7 +184,7 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run tests
         working-directory: packages/pg-topo
-        run: bun test --concurrent --timeout 15000 --preload ./test/global-setup.ts
+        run: bun run test
 
   release-preview:
     needs:
