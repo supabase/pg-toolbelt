@@ -37,6 +37,34 @@ const addEdge = (
   graphState.edgeMetadata.set(edgeKey(fromIndex, toIndex), metadata);
 };
 
+// BFS reachability check: returns true if there is already a directed path
+// from `source` to `target` through existing edges. Used to avoid adding an
+// edge that would introduce a cycle.
+const hasPathTo = (
+  edges: Map<number, Set<number>>,
+  source: number,
+  target: number,
+): boolean => {
+  const visited = new Set<number>();
+  const queue = [source];
+  while (queue.length > 0) {
+    const current = queue.shift() as number;
+    if (current === target) {
+      return true;
+    }
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    for (const neighbor of edges.get(current) ?? []) {
+      if (!visited.has(neighbor)) {
+        queue.push(neighbor);
+      }
+    }
+  }
+  return false;
+};
+
 const candidateObjectKeysForRequirement = (
   requiredRef: ObjectRef,
   nodes: StatementNode[],
@@ -237,24 +265,42 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
         continue;
       }
 
+      // When prefix-based signature matching (for default params) finds multiple
+      // compatible overloads, create edges to ALL of them. For topological
+      // ordering this is correct: the consumer must come after every potential
+      // provider. A missing edge would cause runtime failures; an extra edge
+      // only adds a (harmless) ordering constraint.
+      //
+      // However, since prefix matching is more lenient than exact matching, a
+      // false-positive match could introduce a cycle. A cycle is strictly worse
+      // than a missing edge (the topo-sort drops cycle participants entirely,
+      // whereas a missing edge merely defers to a later round). So we check
+      // reachability before adding each edge: if the consumer already has a
+      // path to the candidate producer, adding the reverse edge would create a
+      // cycle and we skip it, emitting a diagnostic that suggests an explicit
+      // annotation to resolve the ambiguity.
       if (compatibleProducerIndices.length > 1) {
-        const candidateObjectKeys = candidateObjectKeysForRequirement(
-          requiredRef,
-          nodes,
-          "compatible",
-        );
-        diagnostics.push({
-          code: "DUPLICATE_PRODUCER",
-          message: `Ambiguous compatible producers found for '${requiredKey}'.`,
-          statementId: consumer.id,
-          objectRefs: [requiredRef],
-          suggestedFix:
-            "Add an explicit pg-topo:requires annotation with a more specific signature/schema.",
-          details: {
-            requiredObjectKey: requiredKey,
-            candidateObjectKeys,
-          },
-        });
+        for (const producerIndex of compatibleProducerIndices) {
+          if (typeof producerIndex !== "number") {
+            continue;
+          }
+          if (hasPathTo(graphState.edges, consumerIndex, producerIndex)) {
+            const producerNode = nodes[producerIndex];
+            diagnostics.push({
+              code: "DUPLICATE_PRODUCER",
+              message: `Skipped edge from '${producerNode?.id.filePath ?? "?"}' to '${consumer.id.filePath}' for '${objectRefKey(requiredRef)}': would create a dependency cycle.`,
+              statementId: consumer.id,
+              objectRefs: [requiredRef],
+              suggestedFix:
+                "Add an explicit pg-topo:requires annotation to disambiguate the intended dependency.",
+            });
+            continue;
+          }
+          addEdge(graphState, producerIndex, consumerIndex, {
+            reason: "requires_compatible",
+            objectRef: requiredRef,
+          });
+        }
         continue;
       }
 

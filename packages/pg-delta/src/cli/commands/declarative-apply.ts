@@ -279,12 +279,16 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
       return;
     }
 
-    // Report pg-topo diagnostics
+    // Report pg-topo diagnostics. UNRESOLVED_DEPENDENCY and DUPLICATE_PRODUCER
+    // are hidden by default (noisy in normal use) but surfaced in --verbose mode
+    // because they directly correlate with statements that will be deferred at
+    // runtime due to missing dependency edges.
     const warnings = result.diagnostics.filter(
       (d) =>
         d.code !== "UNKNOWN_STATEMENT_CLASS" &&
-        d.code !== "UNRESOLVED_DEPENDENCY" &&
-        d.code !== "DUPLICATE_PRODUCER",
+        (verbose ||
+          (d.code !== "UNRESOLVED_DEPENDENCY" &&
+            d.code !== "DUPLICATE_PRODUCER")),
     );
     if (warnings.length > 0 && verbose) {
       this.process.stderr.write(

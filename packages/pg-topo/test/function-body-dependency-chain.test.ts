@@ -116,9 +116,71 @@ const shuffleDeterministic = <T>(items: T[], seed: number): T[] => {
   return cloned;
 };
 
+const defaultParamOverloadStatements = [
+  "create schema auth;",
+  "create type auth.action as enum ('read', 'write');",
+  `create function auth.can(
+    org_id bigint, resource text, action auth.action,
+    data json default null, subject uuid default gen_random_uuid()
+  ) returns boolean language sql stable as $$ select true $$;`,
+  `create function auth.can(
+    org_id bigint, project_id bigint, resource text, action auth.action,
+    data json default null, subject uuid default gen_random_uuid()
+  ) returns boolean language sql stable as $$ select true $$;`,
+  "create table public.orgs(id bigint primary key, name text);",
+  `create view public.billing as
+    select * from public.orgs
+    where auth.can(id, 'billing', 'read'::auth.action);`,
+  "grant select on public.billing to current_user;",
+  `create function public.get_billing(public.orgs)
+    returns setof public.billing language sql stable
+    as $$ select * from public.billing where id = $1.id $$;`,
+];
+
+const cascadingViewTriggerStatements = [
+  "create schema auth;",
+  "create type auth.action as enum ('read', 'write');",
+  `create function auth.check(
+    org_id bigint, resource text, action auth.action,
+    data json default null
+  ) returns boolean language sql stable as $$ select true $$;`,
+  "create table public.items(id bigint primary key, org_id bigint, name text);",
+  `create view public.visible_items as
+    select * from public.items
+    where auth.check(org_id, 'items', 'read'::auth.action);`,
+  "grant select on public.visible_items to current_user;",
+  `create function public.notify_visible() returns trigger
+    language plpgsql as $$ begin return new; end $$;`,
+  `create trigger on_visible_insert
+    instead of insert on public.visible_items
+    for each row execute function public.notify_visible();`,
+];
+
 describe("function body dependency chains", () => {
   test("randomized function/table dependency chains still execute at runtime", async () => {
     const shuffled = shuffleDeterministic(complexFunctionChainStatements, 47);
+    const result = await analyzeAndSort(shuffled);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
+  test("function with default params and overloads called by view executes at runtime", async () => {
+    const shuffled = shuffleDeterministic(defaultParamOverloadStatements, 99);
+    const result = await analyzeAndSort(shuffled);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
+  test("cascading view-trigger chain with default-param function executes at runtime", async () => {
+    const shuffled = shuffleDeterministic(cascadingViewTriggerStatements, 42);
     const result = await analyzeAndSort(shuffled);
     const validation = await validateAnalyzeResultWithPostgres(result);
     const executionErrors = validation.diagnostics.filter(

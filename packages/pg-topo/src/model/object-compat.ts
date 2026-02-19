@@ -127,7 +127,12 @@ export const signaturesCompatible = (
   if (!requiredArgs || !providedArgs) {
     return false;
   }
-  if (requiredArgs.length !== providedArgs.length) {
+  // Allow fewer required args than provided: PostgreSQL functions with default
+  // parameters can be called with fewer arguments than declared. For example,
+  // auth.can(bigint,text,auth.action,json DEFAULT null,uuid DEFAULT ...) can be
+  // called with just 3 args. We compare only the overlapping prefix so that the
+  // call-site signature (N args) can match any provider with M >= N params.
+  if (requiredArgs.length > providedArgs.length) {
     return false;
   }
 
