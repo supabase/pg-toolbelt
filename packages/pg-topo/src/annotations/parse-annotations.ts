@@ -75,12 +75,13 @@ const indexOfCharOutsideQuotesAndParens = (
     }
 
     if (!inQuotes) {
+      if (depth === 0 && char === targetChar) {
+        return index;
+      }
       if (char === "(") {
         depth += 1;
       } else if (char === ")") {
         depth = Math.max(0, depth - 1);
-      } else if (depth === 0 && char === targetChar) {
-        return index;
       }
     }
   }

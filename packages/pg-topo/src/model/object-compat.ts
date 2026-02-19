@@ -56,10 +56,42 @@ const normalizeSignatureArg = (value: string): string => {
   return trimmed.toLowerCase();
 };
 
+// PostgreSQL uses canonical names internally (e.g. pg_catalog.int8) but users
+// write SQL-standard aliases (e.g. bigint). This map normalizes common aliases
+// so that annotation signatures like (bigint,uuid) match AST-extracted
+// signatures like (pg_catalog.int8,public.uuid).
+const PG_TYPE_ALIASES: Record<string, string> = {
+  bigint: "int8",
+  int8: "int8",
+  smallint: "int2",
+  int2: "int2",
+  integer: "int4",
+  int: "int4",
+  int4: "int4",
+  real: "float4",
+  float4: "float4",
+  "double precision": "float8",
+  float8: "float8",
+  boolean: "bool",
+  bool: "bool",
+  character: "bpchar",
+  bpchar: "bpchar",
+  "character varying": "varchar",
+  varchar: "varchar",
+  timestamp: "timestamp",
+  "timestamp without time zone": "timestamp",
+  timestamptz: "timestamptz",
+  "timestamp with time zone": "timestamptz",
+  serial: "int4",
+  bigserial: "int8",
+  smallserial: "int2",
+};
+
 const signatureArgBase = (value: string): string => {
   const parts = splitTopLevel(value, ".");
   const base = parts.at(-1) ?? value;
-  return normalizeSignatureArg(base);
+  const normalized = normalizeSignatureArg(base);
+  return PG_TYPE_ALIASES[normalized] ?? normalized;
 };
 
 const signatureArgHasSchema = (value: string): boolean =>

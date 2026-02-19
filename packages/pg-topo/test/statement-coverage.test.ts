@@ -245,6 +245,41 @@ describe("statement coverage", () => {
     expect(viewIndex).toBeGreaterThan(jsonbFunctionIndex);
   });
 
+  test("pg-topo:requires annotation supersedes ambiguous body-extracted requirement", async () => {
+    // When an annotation provides a concrete signature, the body-extracted
+    // (unknown,unknown) ref for the same function should be suppressed,
+    // avoiding false-positive cycle detection on overloaded functions.
+    const result = await analyzeAndSort([
+      "create schema app;",
+      "create table app.items(id int);",
+      "create function app.do_work(a int, b uuid) returns void language sql as $$ select null $$;",
+      "create function app.do_work(a text, b uuid) returns void language sql as $$ select null $$;",
+      // Annotation pins the dependency to the (int,uuid) overload.
+      // Without annotation, the body call `app.do_work(...)` extracts as
+      // (unknown,unknown) which matches both overloads and could trigger cycles.
+      "-- pg-topo:requires function:app.do_work(int,uuid)\ncreate function app.caller() returns void language sql as $$ select app.do_work(1, gen_random_uuid()) $$;",
+    ]);
+
+    const cycleSkipped = result.diagnostics.filter(
+      (d) => d.code === "CYCLE_EDGE_SKIPPED",
+    );
+    const unresolved = result.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    expect(cycleSkipped).toHaveLength(0);
+    expect(unresolved).toHaveLength(0);
+
+    const orderedSql = result.ordered.map((s) => s.sql.toLowerCase());
+    const targetFnIndex = orderedSql.findIndex(
+      (sql) => sql.includes("do_work") && sql.includes("a int"),
+    );
+    const callerIndex = orderedSql.findIndex((sql) =>
+      sql.includes("app.caller"),
+    );
+    expect(targetFnIndex).toBeGreaterThan(-1);
+    expect(callerIndex).toBeGreaterThan(targetFnIndex);
+  });
+
   test("skips cycle-creating edge from compatible overload and emits diagnostic", async () => {
     // Scenario: two overloads of app.process match a call with 1 arg via
     // prefix matching. One overload's body references the view (creating a
@@ -269,18 +304,23 @@ describe("statement coverage", () => {
       sql.includes("create view app.summary"),
     );
 
-    // No cycles: the edge from overload 2 -> view is skipped because the
-    // view already depends on overload 2 (would form a cycle).
     expect(cycleDetected).toHaveLength(0);
-    // The view should still appear in ordered output (not dropped)
     expect(viewIndex).toBeGreaterThan(-1);
 
-    // A DUPLICATE_PRODUCER diagnostic should be emitted for the skipped edge
     const skippedEdgeDiag = result.diagnostics.filter(
-      (d) =>
-        d.code === "DUPLICATE_PRODUCER" &&
-        d.message.includes("would create a dependency cycle"),
+      (d) => d.code === "CYCLE_EDGE_SKIPPED",
     );
     expect(skippedEdgeDiag.length).toBeGreaterThanOrEqual(1);
+
+    const diag = skippedEdgeDiag[0];
+    expect(diag).toBeDefined();
+    expect(diag?.message).toContain("would create a cycle");
+    expect(diag?.message).toContain("app.process");
+    expect(diag?.suggestedFix).toBeDefined();
+    expect(diag?.suggestedFix).toContain("pg-topo:requires");
+    expect(diag?.details).toBeDefined();
+    expect(diag?.details?.producerStatementId).toBeDefined();
+    expect(diag?.details?.producerProvides).toBeDefined();
+    expect(diag?.details?.consumerRequires).toBeDefined();
   });
 });

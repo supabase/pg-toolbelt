@@ -467,9 +467,11 @@ async function validateFunctionBodies(
   await client.query("SET check_function_bodies = on");
 
   for (const stmt of functions) {
-    // Convert CREATE FUNCTION to CREATE OR REPLACE FUNCTION for idempotency
+    // Convert CREATE FUNCTION to CREATE OR REPLACE FUNCTION for idempotency.
+    // The regex skips leading SQL line comments (-- ...) and whitespace that
+    // may be present from pg-topo annotations (e.g. -- pg-topo:requires ...).
     const replaceSql = stmt.sql.replace(
-      /^(CREATE\s+)(FUNCTION|PROCEDURE)/i,
+      /^((?:\s*--[^\n]*\n)*\s*CREATE\s+)(FUNCTION|PROCEDURE)/i,
       "$1OR REPLACE $2",
     );
 

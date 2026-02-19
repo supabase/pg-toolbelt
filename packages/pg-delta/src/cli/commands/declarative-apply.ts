@@ -117,21 +117,25 @@ async function formatStatementError(
         fileContent,
         err.statement.sql,
       );
-      if (
-        statementStart !== -1 &&
-        err.position !== undefined &&
-        err.statement.sql.length > 0
-      ) {
-        const fileErrorOffset = statementStart + (err.position - 1);
-        const fileErrorPosition = Math.min(
-          fileErrorOffset + 1,
-          fileContent.length,
-        );
-        const { line, column } = positionToLineColumn(
-          fileContent,
-          Math.max(1, fileErrorPosition),
-        );
-        locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
+      if (statementStart !== -1) {
+        if (err.position !== undefined && err.statement.sql.length > 0) {
+          const fileErrorOffset = statementStart + (err.position - 1);
+          const fileErrorPosition = Math.min(
+            fileErrorOffset + 1,
+            fileContent.length,
+          );
+          const { line, column } = positionToLineColumn(
+            fileContent,
+            Math.max(1, fileErrorPosition),
+          );
+          locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
+        } else {
+          const { line } = positionToLineColumn(
+            fileContent,
+            statementStart + 1,
+          );
+          locationLine = `Location: ${parsed.filePath}:${line}`;
+        }
       } else {
         locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
       }
@@ -279,30 +283,62 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
       return;
     }
 
-    // Report pg-topo diagnostics. UNRESOLVED_DEPENDENCY and DUPLICATE_PRODUCER
-    // are hidden by default (noisy in normal use) but surfaced in --verbose mode
-    // because they directly correlate with statements that will be deferred at
-    // runtime due to missing dependency edges.
-    const warnings = result.diagnostics.filter(
-      (d) =>
-        d.code !== "UNKNOWN_STATEMENT_CLASS" &&
-        (verbose ||
-          (d.code !== "UNRESOLVED_DEPENDENCY" &&
-            d.code !== "DUPLICATE_PRODUCER")),
-    );
+    // Report pg-topo diagnostics grouped by severity (least noisy first).
+    // UNKNOWN_STATEMENT_CLASS is always hidden; DUPLICATE_PRODUCER,
+    // CYCLE_EDGE_SKIPPED, and UNRESOLVED_DEPENDENCY are verbose-only.
+    const diagnosticDisplayOrder: Record<string, number> = {
+      UNKNOWN_STATEMENT_CLASS: 0,
+      DUPLICATE_PRODUCER: 1,
+      CYCLE_EDGE_SKIPPED: 2,
+      UNRESOLVED_DEPENDENCY: 3,
+    };
+    const diagnosticColor: Record<string, (s: string) => string> = {
+      DUPLICATE_PRODUCER: chalk.yellow,
+      CYCLE_EDGE_SKIPPED: chalk.red,
+      UNRESOLVED_DEPENDENCY: chalk.dim,
+    };
+    const verboseOnlyCodes = new Set([
+      "UNRESOLVED_DEPENDENCY",
+      "DUPLICATE_PRODUCER",
+      "CYCLE_EDGE_SKIPPED",
+    ]);
+    const warnings = result.diagnostics
+      .filter(
+        (d) =>
+          d.code !== "UNKNOWN_STATEMENT_CLASS" &&
+          (verbose || !verboseOnlyCodes.has(d.code)),
+      )
+      .sort(
+        (a, b) =>
+          (diagnosticDisplayOrder[a.code] ?? 99) -
+          (diagnosticDisplayOrder[b.code] ?? 99),
+      );
     if (warnings.length > 0 && verbose) {
       this.process.stderr.write(
         chalk.yellow(
           `\n${warnings.length} diagnostic(s) from static analysis:\n`,
         ),
       );
+      let lastCode = "";
       for (const diag of warnings) {
+        if (diag.code !== lastCode) {
+          if (lastCode !== "") {
+            this.process.stderr.write("\n");
+          }
+          lastCode = diag.code;
+        }
+        const colorFn = diagnosticColor[diag.code] ?? chalk.yellow;
         const location = diag.statementId
           ? ` (${diag.statementId.filePath}:${diag.statementId.statementIndex})`
           : "";
         this.process.stderr.write(
-          chalk.yellow(`  [${diag.code}]${location} ${diag.message}\n`),
+          colorFn(`  [${diag.code}]${location} ${diag.message}\n`),
         );
+        if (diag.suggestedFix) {
+          this.process.stderr.write(
+            colorFn(`    -> Fix: ${diag.suggestedFix}\n`),
+          );
+        }
       }
       this.process.stderr.write("\n");
     }

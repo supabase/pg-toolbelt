@@ -240,6 +240,35 @@ describe("roundApply", () => {
     expect(queryCalls).toContain("SET check_function_bodies = on");
   });
 
+  test("should handle annotated functions in final validation", async () => {
+    const statements: StatementEntry[] = [
+      {
+        id: "fn",
+        sql: "-- pg-topo:requires function:app.other(int)\n-- pg-topo:requires function:app.multiline(int)\nCREATE FUNCTION test_fn() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;",
+        statementClass: "CREATE_FUNCTION",
+      },
+    ];
+
+    const queryCalls: string[] = [];
+    const client = createMockClient((sql: string) => {
+      queryCalls.push(sql);
+    });
+    const pool = createMockPool(client);
+
+    const result = await roundApply({
+      pool,
+      statements,
+      finalValidation: true,
+    });
+
+    expect(result.status).toBe("success");
+    const validationCall = queryCalls.find((sql) =>
+      sql.includes("OR REPLACE FUNCTION"),
+    );
+    expect(validationCall).toBeDefined();
+    expect(validationCall).toContain("-- pg-topo:requires");
+  });
+
   test("should respect maxRounds limit", async () => {
     // Simulate a scenario where each round makes some progress but
     // never finishes: statements 1..5 succeed one per round based on

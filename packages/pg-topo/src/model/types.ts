@@ -72,6 +72,7 @@ export type DiagnosticCode =
   | "UNRESOLVED_DEPENDENCY"
   | "DUPLICATE_PRODUCER"
   | "CYCLE_DETECTED"
+  | "CYCLE_EDGE_SKIPPED"
   | "INVALID_ANNOTATION";
 
 export type Diagnostic = {

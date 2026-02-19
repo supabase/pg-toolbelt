@@ -65,6 +65,16 @@ const hasPathTo = (
   return false;
 };
 
+const sqlExcerpt = (sql: string, maxLength = 80): string => {
+  const firstLine = sql.split("\n")[0] ?? sql;
+  return firstLine.length > maxLength
+    ? `${firstLine.slice(0, maxLength)}...`
+    : firstLine;
+};
+
+const statementLabel = (node: StatementNode): string =>
+  `${node.id.filePath}:${node.id.statementIndex} (${sqlExcerpt(node.sql)})`;
+
 const candidateObjectKeysForRequirement = (
   requiredRef: ObjectRef,
   nodes: StatementNode[],
@@ -177,7 +187,7 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
       }
       diagnostics.push({
         code: "DUPLICATE_PRODUCER",
-        message: `Multiple statements provide '${producerKey}'.`,
+        message: `Multiple statements provide '${producerKey}'. This statement: ${sqlExcerpt(duplicateNode.sql)}`,
         objectRefs: sampleRef ? [sampleRef] : undefined,
         statementId: duplicateNode.id,
       });
@@ -286,13 +296,30 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
           }
           if (hasPathTo(graphState.edges, consumerIndex, producerIndex)) {
             const producerNode = nodes[producerIndex];
+            const producerLabel = producerNode
+              ? statementLabel(producerNode)
+              : `<unknown statement ${producerIndex}>`;
+            const consumerLabel = statementLabel(consumer);
+            const refKey = objectRefKey(requiredRef);
+            const producerSignatures = (producerNode?.provides ?? [])
+              .map(objectRefKey)
+              .join(", ");
             diagnostics.push({
-              code: "DUPLICATE_PRODUCER",
-              message: `Skipped edge from '${producerNode?.id.filePath ?? "?"}' to '${consumer.id.filePath}' for '${objectRefKey(requiredRef)}': would create a dependency cycle.`,
+              code: "CYCLE_EDGE_SKIPPED",
+              message:
+                `Skipped dependency on '${refKey}' ` +
+                `from producer ${producerLabel} ` +
+                `to consumer ${consumerLabel}: ` +
+                `adding this edge would create a cycle because the consumer already depends on the producer.`,
               statementId: consumer.id,
               objectRefs: [requiredRef],
               suggestedFix:
-                "Add an explicit pg-topo:requires annotation to disambiguate the intended dependency.",
+                `Add an explicit annotation to the consumer, e.g.: -- pg-topo:requires ${refKey.replace(":(unknown", ":(exact_type")}`,
+              details: {
+                producerStatementId: producerNode?.id,
+                producerProvides: producerSignatures,
+                consumerRequires: refKey,
+              },
             });
             continue;
           }
