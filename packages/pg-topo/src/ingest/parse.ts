@@ -121,10 +121,18 @@ export const parseSqlContent = async (
     const sql = await extractStatementSql(content, statement);
     const annotationResult = parseAnnotations(sql);
 
+    let sourceOffset = statement.stmt_location ?? 0;
+    while (
+      sourceOffset < content.length &&
+      /\s/.test(content[sourceOffset] ?? "")
+    ) {
+      sourceOffset += 1;
+    }
     statements.push({
       id: {
         filePath: sourceLabel,
         statementIndex: index,
+        sourceOffset,
       },
       ast: statement.stmt,
       sql,
@@ -137,6 +145,7 @@ export const parseSqlContent = async (
         statementId: {
           filePath: sourceLabel,
           statementIndex: index,
+          sourceOffset,
         },
       });
     }

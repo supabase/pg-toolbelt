@@ -314,6 +314,25 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
           (diagnosticDisplayOrder[b.code] ?? 99),
       );
     if (warnings.length > 0 && verbose) {
+      const fileContentCache = new Map<string, string>();
+      for (const diag of warnings) {
+        const id = diag.statementId;
+        if (
+          id &&
+          id.sourceOffset != null &&
+          id.filePath &&
+          !fileContentCache.has(id.filePath)
+        ) {
+          try {
+            const fullPath = await resolveSqlFilePath(flags.path, id.filePath);
+            const content = await readFile(fullPath, "utf-8");
+            fileContentCache.set(id.filePath, content);
+          } catch {
+            // Fall back to statementIndex display
+          }
+        }
+      }
+
       this.process.stderr.write(
         chalk.yellow(
           `\n${warnings.length} diagnostic(s) from static analysis:\n`,
@@ -328,9 +347,19 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
           lastCode = diag.code;
         }
         const colorFn = diagnosticColor[diag.code] ?? chalk.yellow;
-        const location = diag.statementId
-          ? ` (${diag.statementId.filePath}:${diag.statementId.statementIndex})`
-          : "";
+        let location = "";
+        if (diag.statementId) {
+          const id = diag.statementId;
+          const offset = id.sourceOffset;
+          const content =
+            offset != null ? fileContentCache.get(id.filePath) : undefined;
+          if (content != null && offset != null) {
+            const { line, column } = positionToLineColumn(content, offset + 1);
+            location = ` (${id.filePath}:${line}:${column})`;
+          } else {
+            location = ` (${id.filePath}:${id.statementIndex})`;
+          }
+        }
         this.process.stderr.write(
           colorFn(`  [${diag.code}]${location} ${diag.message}\n`),
         );

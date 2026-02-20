@@ -15,11 +15,12 @@ FILTER_DSL="${FILTER_DSL:-$DEFAULT_FILTER}"
 
 # Same format options as scripts/declarative-export.ts
 FORMAT_OPTIONS='{"keywordCase":"lower","maxWidth":180,"indent":4}'
-# Same group patterns as scripts/declarative-export.ts (pattern strings for CLI)
+## Same group patterns as scripts/declarative-export.ts (pattern strings for CLI)
 GROUP_PATTERNS='[{"pattern":"project","name":"project"},{"pattern":"wal","name":"wal"},{"pattern":"kubernetes","name":"kubernetes"},{"pattern":"^orb","name":"orb"},{"pattern":"^auth","name":"auth"},{"pattern":"^custom","name":"custom"},{"pattern":"^credit","name":"credit"},{"pattern":"user","name":"user"},{"pattern":"^oauth","name":"oauth"},{"pattern":"^can","name":"can"},{"pattern":"billing","name":"billing"},{"pattern":"organization","name":"organization"},{"pattern":"keys$","name":"keys"}]'
-# Same flat schemas as scripts/declarative-export.ts (deduplicated)
+# GROUP_PATTERNS='[]'
+## Same flat schemas as scripts/declarative-export.ts (deduplicated)
 FLAT_SCHEMAS="partman,pgboss,openfga,audit,extensions,integrations,orb,stripe"
-
+# FLAT_SCHEMAS="partman"
 # ──────────────────────────────────────────────────────────────
 # 1. Start platform-db container (used as source for export & apply target)
 # ──────────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ bun pgdelta declarative export "${EXPORT_OPTS[@]}"
 # Uses pg-topo for static dependency analysis and topological ordering,
 # then applies statements round-by-round to handle any remaining gaps.
 echo "Applying declarative schema via declarative apply..."
-bun pgdelta declarative apply \
+DEBUG=pg-delta:declarative-apply bun pgdelta declarative apply \
   --path "$OUTPUT_DIR" \
   --target "$DB_URL" \
   --verbose

@@ -67,4 +67,15 @@ describe("analyzeAndSort", () => {
     );
     expect(firstIds).toEqual(secondIds);
   });
+
+  test("statement ids include sourceOffset when parser provides location", async () => {
+    const result = await analyzeAndSort([
+      "create table public.t1(id int);",
+      "create table public.t2(id int);",
+    ]);
+    expect(result.ordered.length).toBeGreaterThanOrEqual(1);
+    const first = result.ordered[0];
+    expect(first?.id).toBeDefined();
+    expect(typeof first?.id.sourceOffset).toBe("number");
+  });
 });

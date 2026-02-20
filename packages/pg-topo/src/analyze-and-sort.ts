@@ -9,6 +9,7 @@ import { compareStatementIndices, topoSort } from "./graph/topo-sort.ts";
 import { type ParsedStatement, parseSqlContent } from "./ingest/parse.ts";
 import { objectRefKey } from "./model/object-ref.ts";
 import type {
+  AnalyzeOptions,
   AnalyzeResult,
   Diagnostic,
   GraphEdge,
@@ -113,7 +114,10 @@ const EMPTY_RESULT: AnalyzeResult = {
   },
 };
 
-export const analyzeAndSort = async (sql: string[]): Promise<AnalyzeResult> => {
+export const analyzeAndSort = async (
+  sql: string[],
+  options?: AnalyzeOptions,
+): Promise<AnalyzeResult> => {
   if (sql.length === 0) {
     return {
       ...EMPTY_RESULT,
@@ -165,7 +169,7 @@ export const analyzeAndSort = async (sql: string[]): Promise<AnalyzeResult> => {
     });
   }
 
-  const graphState = buildGraph(statementNodes);
+  const graphState = buildGraph(statementNodes, options?.externalProviders);
   diagnostics.push(...graphState.diagnostics);
 
   const topoResult = topoSort(statementNodes, graphState.edges);
@@ -184,7 +188,7 @@ export const analyzeAndSort = async (sql: string[]): Promise<AnalyzeResult> => {
         )
         .map(
           (statementId) =>
-            `${statementId.filePath}:${statementId.statementIndex}`,
+            `${statementId.filePath}:${statementId.statementIndex}${statementId.sourceOffset != null ? `@${statementId.sourceOffset}` : ""}`,
         );
       const cycleObjectKeys = [...graphState.edgeMetadata.entries()]
         .filter(([edge]) => {

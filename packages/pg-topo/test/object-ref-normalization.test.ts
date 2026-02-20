@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createObjectRef,
+  isBuiltInObjectRef,
   normalizeIdentifier,
   normalizeSignature,
   splitQualifiedName,
@@ -35,5 +36,14 @@ describe("object reference normalization", () => {
     expect(ref.schema).toBe("public");
     expect(ref.name).toBe("fn_a");
     expect(ref.signature).toBe("(int,text)");
+  });
+
+  test("isBuiltInObjectRef treats common pg_catalog types as built-in", () => {
+    expect(isBuiltInObjectRef({ kind: "type", name: "inet" })).toBe(true);
+    expect(isBuiltInObjectRef({ kind: "type", name: "name", schema: "public" })).toBe(true);
+    expect(isBuiltInObjectRef({ kind: "type", name: "event_trigger" })).toBe(true);
+    expect(isBuiltInObjectRef({ kind: "type", name: "oid" })).toBe(true);
+    expect(isBuiltInObjectRef({ kind: "type", name: "regclass" })).toBe(true);
+    expect(isBuiltInObjectRef({ kind: "type", name: "custom_type" })).toBe(false);
   });
 });

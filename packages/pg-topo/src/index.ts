@@ -2,6 +2,7 @@ export { analyzeAndSort } from "./analyze-and-sort.ts";
 export { analyzeAndSortFromFiles } from "./from-files.ts";
 
 export type {
+  AnalyzeOptions,
   AnalyzeResult,
   AnnotationHints,
   Diagnostic,

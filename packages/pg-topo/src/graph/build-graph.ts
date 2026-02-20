@@ -73,7 +73,34 @@ const sqlExcerpt = (sql: string, maxLength = 80): string => {
 };
 
 const statementLabel = (node: StatementNode): string =>
-  `${node.id.filePath}:${node.id.statementIndex} (${sqlExcerpt(node.sql)})`;
+  `${node.id.filePath}:${node.id.statementIndex}${node.id.sourceOffset != null ? `@${node.id.sourceOffset}` : ""} (${sqlExcerpt(node.sql)})`;
+
+const externalProviderSatisfies = (
+  requiredRef: ObjectRef,
+  externalByName: Map<string, ObjectRef[]>,
+): boolean => {
+  const candidates = externalByName.get(requiredRef.name.toLowerCase());
+  if (!candidates?.length) {
+    return false;
+  }
+  for (const provider of candidates) {
+    if (!isKindCompatible(requiredRef.kind, provider.kind)) {
+      continue;
+    }
+    if (
+      requiredRef.schema != null &&
+      requiredRef.schema !== "" &&
+      provider.schema !== requiredRef.schema
+    ) {
+      continue;
+    }
+    if (!signaturesCompatible(requiredRef.signature, provider.signature)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+};
 
 const candidateObjectKeysForRequirement = (
   requiredRef: ObjectRef,
@@ -143,7 +170,10 @@ const producerIndicesForRequirement = (
   return indices;
 };
 
-export const buildGraph = (nodes: StatementNode[]): GraphState => {
+export const buildGraph = (
+  nodes: StatementNode[],
+  externalProviders?: ObjectRef[],
+): GraphState => {
   const diagnostics: Diagnostic[] = [];
   const producersByKey = new Map<string, number[]>();
   const edges = new Map<number, Set<number>>();
@@ -154,6 +184,16 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
     producersByKey,
     diagnostics,
   };
+
+  const externalByName = new Map<string, ObjectRef[]>();
+  if (externalProviders) {
+    for (const ref of externalProviders) {
+      const key = ref.name.toLowerCase();
+      const list = externalByName.get(key) ?? [];
+      list.push(ref);
+      externalByName.set(key, list);
+    }
+  }
 
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
@@ -313,8 +353,7 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
                 `adding this edge would create a cycle because the consumer already depends on the producer.`,
               statementId: consumer.id,
               objectRefs: [requiredRef],
-              suggestedFix:
-                `Add an explicit annotation to the consumer, e.g.: -- pg-topo:requires ${refKey.replace(":(unknown", ":(exact_type")}`,
+              suggestedFix: `Add an explicit annotation to the consumer, e.g.: -- pg-topo:requires ${refKey.replace(":(unknown", ":(exact_type")}`,
               details: {
                 producerStatementId: producerNode?.id,
                 producerProvides: producerSignatures,
@@ -328,6 +367,10 @@ export const buildGraph = (nodes: StatementNode[]): GraphState => {
             objectRef: requiredRef,
           });
         }
+        continue;
+      }
+
+      if (externalProviderSatisfies(requiredRef, externalByName)) {
         continue;
       }
 

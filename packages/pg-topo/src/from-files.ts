@@ -2,7 +2,11 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { analyzeAndSort } from "./analyze-and-sort.ts";
 import { discoverSqlFiles } from "./ingest/discover.ts";
-import type { AnalyzeResult, Diagnostic } from "./model/types.ts";
+import type {
+  AnalyzeOptions,
+  AnalyzeResult,
+  Diagnostic,
+} from "./model/types.ts";
 
 const computeCommonBase = async (resolvedRoots: string[]): Promise<string> => {
   if (resolvedRoots.length === 0) {
@@ -38,6 +42,7 @@ const toStablePath = (absolutePath: string, basePath: string): string =>
 
 export const analyzeAndSortFromFiles = async (
   roots: string[],
+  options?: AnalyzeOptions,
 ): Promise<AnalyzeResult> => {
   if (roots.length === 0) {
     return {
@@ -76,7 +81,7 @@ export const analyzeAndSortFromFiles = async (
     sqlContents.push(content);
   }
 
-  const result = await analyzeAndSort(sqlContents);
+  const result = await analyzeAndSort(sqlContents, options);
 
   // Remap synthetic source labels (<input:N>) back to stable file paths
   const filePathMap = new Map<string, string>();

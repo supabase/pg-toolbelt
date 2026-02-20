@@ -54,4 +54,55 @@ describe("diagnostics", () => {
     const cycleStatements = `${cycleDiagnostic?.details?.cycleStatements ?? ""}`;
     expect(cycleStatements).toContain("<input:");
   });
+
+  test("externalProviders suppresses UNRESOLVED_DEPENDENCY for provided objects", async () => {
+    const sql = [
+      "create schema analytics;",
+      "create table analytics.accounts(id int primary key);",
+      "create view public.account_ids as select id from public.accounts;",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const unresolvedWithout = withoutProviders.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    expect(unresolvedWithout.length).toBeGreaterThan(0);
+
+    const externalProviders = [
+      { kind: "table" as const, schema: "public", name: "accounts" },
+    ];
+    const withProviders = await analyzeAndSort(sql, { externalProviders });
+    const unresolvedWith = withProviders.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    expect(unresolvedWith.length).toBeLessThan(unresolvedWithout.length);
+  });
+
+  test("externalProviders with signature mismatch uses compatibility (e.g. timezone)", async () => {
+    const sql = [
+      "create table public.events(ts timestamptz default timezone('utc'::text, now()) not null);",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const timezoneUnresolved = withoutProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("timezone"),
+    );
+    expect(timezoneUnresolved.length).toBeGreaterThan(0);
+
+    const externalProviders = [
+      {
+        kind: "function" as const,
+        schema: "public",
+        name: "timezone",
+        signature: "(text,timestamp with time zone)",
+      },
+    ];
+    const withProviders = await analyzeAndSort(sql, { externalProviders });
+    const timezoneUnresolvedWith = withProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("timezone"),
+    );
+    expect(timezoneUnresolvedWith.length).toBe(0);
+  });
 });

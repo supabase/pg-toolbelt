@@ -12,6 +12,7 @@ import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
 import { analyzeAndSort } from "@supabase/pg-topo";
 import type { Pool } from "pg";
 import { createPool } from "../postgres-config.ts";
+import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
   type ApplyResult,
   type RoundResult,
@@ -116,9 +117,22 @@ export async function applyDeclarativeSchema(
     };
   }
 
+  let pool: Pool;
+  if (providedPool != null) {
+    pool = providedPool;
+  } else if (targetUrl != null) {
+    pool = createPool(targetUrl);
+  } else {
+    throw new Error("Either targetUrl or pool must be provided");
+  }
+  const externalProviders =
+    pool != null ? await extractCatalogProviders(pool) : [];
+
   // Step 1: pg-topo analyze and sort (no file I/O; uses synthetic <input:i> paths)
   const sqlContents = content.map((entry) => entry.sql);
-  const analyzeResult = await analyzeAndSort(sqlContents);
+  const analyzeResult = await analyzeAndSort(sqlContents, {
+    externalProviders,
+  });
 
   const { ordered, diagnostics } = analyzeResult;
 
@@ -157,14 +171,6 @@ export async function applyDeclarativeSchema(
 
   // Step 3: Convert to statement entries and apply
   const statements = toStatementEntries(remappedOrdered);
-  let pool: Pool;
-  if (providedPool != null) {
-    pool = providedPool;
-  } else if (targetUrl != null) {
-    pool = createPool(targetUrl);
-  } else {
-    throw new Error("Either targetUrl or pool must be provided");
-  }
   const ownsPool = providedPool == null;
 
   try {

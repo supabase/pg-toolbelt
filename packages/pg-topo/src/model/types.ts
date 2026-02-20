@@ -39,7 +39,13 @@ export type PhaseTag =
 export type StatementId = {
   filePath: string;
   statementIndex: number;
+  /** Byte offset in original source content (for line:column resolution). */
+  sourceOffset?: number;
 };
+
+export interface AnalyzeOptions {
+  externalProviders?: ObjectRef[];
+}
 
 export type ObjectRef = {
   kind: ObjectKind;
