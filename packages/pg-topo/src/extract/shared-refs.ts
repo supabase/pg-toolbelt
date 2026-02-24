@@ -89,6 +89,20 @@ export const objectFromNameParts = (
     return null;
   }
 
+  if ((kind === "trigger" || kind === "policy") && parts.length >= 2) {
+    const objectName = parts.at(-1);
+    const relationName = parts.at(-2);
+    if (!objectName || !relationName) {
+      return null;
+    }
+
+    return createObjectRefFromAst(
+      kind,
+      `${relationName}.${objectName}`,
+      parts.at(-3) ?? fallbackSchema,
+    );
+  }
+
   if (parts.length === 1) {
     const first = parts[0];
     if (!first) {
