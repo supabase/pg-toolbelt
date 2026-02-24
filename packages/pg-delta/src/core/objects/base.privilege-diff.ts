@@ -261,8 +261,12 @@ export function diffPrivileges<T extends PrivilegeProps>(
   owner?: string,
   mainRoles?: Record<string, Role>,
 ): Map<string, PrivilegeDiffResult<T>> {
-  // Filter out superuser privileges from branch - PostgreSQL doesn't store GRANTs
+  // Filter out superuser privileges from both sides - PostgreSQL doesn't store GRANTs
   // to superusers in relacl because they already have all privileges implicitly
+  const mainPrivilegesFiltered = filterSuperuserPrivileges(
+    mainPrivileges,
+    mainRoles,
+  );
   const branchPrivilegesFiltered = filterSuperuserPrivileges(
     branchPrivileges,
     mainRoles,
@@ -270,8 +274,8 @@ export function diffPrivileges<T extends PrivilegeProps>(
 
   // Filter out owner privileges if owner is provided
   const mainFiltered = owner
-    ? filterOwnerPrivileges(mainPrivileges, owner)
-    : mainPrivileges;
+    ? filterOwnerPrivileges(mainPrivilegesFiltered, owner)
+    : mainPrivilegesFiltered;
   const branchFiltered = owner
     ? filterOwnerPrivileges(branchPrivilegesFiltered, owner)
     : branchPrivilegesFiltered;
