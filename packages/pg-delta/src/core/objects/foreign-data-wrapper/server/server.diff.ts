@@ -80,7 +80,6 @@ export function diffServers(
       effectiveDefaults,
       desiredPrivileges,
       createdServer.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -204,7 +203,6 @@ export function diffServers(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchServer.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

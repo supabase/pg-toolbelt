@@ -81,6 +81,10 @@ export function diffProcedures(
       "procedure",
       proc.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      proc.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     // Filter out PUBLIC's built-in default EXECUTE privilege (PostgreSQL grants it automatically)
     // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
     // This prevents generating unnecessary "GRANT EXECUTE TO PUBLIC" statements
@@ -92,10 +96,9 @@ export function diffProcedures(
     // and shouldn't be compared. Note: we use the final owner (proc.owner), not the
     // current user, because ownership change happens before privilege diffing.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       proc.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -349,7 +352,6 @@ export function diffProcedures(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchProcedure.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

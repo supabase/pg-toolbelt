@@ -73,6 +73,10 @@ export function diffRanges(
       "range",
       createdRange.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      createdRange.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
     // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
     // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
@@ -83,7 +87,7 @@ export function diffRanges(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the range owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       createdRange.owner,
     );
@@ -204,7 +208,6 @@ export function diffRanges(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchRange.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

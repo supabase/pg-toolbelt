@@ -80,15 +80,18 @@ export function diffForeignTables(
       "foreign_table",
       createdTable.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      createdTable.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = filterPublicBuiltInDefaults(
       "foreign_table",
       createdTable.privileges,
     );
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       createdTable.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -293,7 +296,6 @@ export function diffForeignTables(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchTable.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

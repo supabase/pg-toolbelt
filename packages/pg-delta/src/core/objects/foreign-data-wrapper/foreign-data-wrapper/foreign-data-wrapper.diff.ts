@@ -87,7 +87,6 @@ export function diffForeignDataWrappers(
       effectiveDefaults,
       desiredPrivileges,
       createdFdw.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -228,7 +227,6 @@ export function diffForeignDataWrappers(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchFdw.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

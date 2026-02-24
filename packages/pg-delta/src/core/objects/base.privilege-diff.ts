@@ -1,7 +1,5 @@
 import z from "zod";
 import type { Change } from "../change.types.ts";
-import type { Role } from "./role/role.model.ts";
-import { stableId } from "./utils.ts";
 
 /**
  * Privilege properties that all privilege objects share.
@@ -237,48 +235,20 @@ function filterOwnerPrivileges<T extends PrivilegeProps>(
 }
 
 /**
- * Filter out privileges for superuser roles, as PostgreSQL doesn't store
- * GRANTs to superusers in relacl (they already have all privileges implicitly).
- * Reference: https://www.postgresql.org/docs/current/role-attributes.html
- */
-function filterSuperuserPrivileges<T extends PrivilegeProps>(
-  privileges: T[],
-  mainRoles?: Record<string, Role>,
-): T[] {
-  if (!mainRoles) return privileges;
-  return privileges.filter((priv) => {
-    const role = mainRoles[stableId.role(priv.grantee)];
-    return !role?.is_superuser;
-  });
-}
-
-/**
  * Generic privilege diffing function that works for any object type
  */
 export function diffPrivileges<T extends PrivilegeProps>(
   mainPrivileges: T[],
   branchPrivileges: T[],
   owner?: string,
-  mainRoles?: Record<string, Role>,
 ): Map<string, PrivilegeDiffResult<T>> {
-  // Filter out superuser privileges from both sides - PostgreSQL doesn't store GRANTs
-  // to superusers in relacl because they already have all privileges implicitly
-  const mainPrivilegesFiltered = filterSuperuserPrivileges(
-    mainPrivileges,
-    mainRoles,
-  );
-  const branchPrivilegesFiltered = filterSuperuserPrivileges(
-    branchPrivileges,
-    mainRoles,
-  );
-
   // Filter out owner privileges if owner is provided
   const mainFiltered = owner
-    ? filterOwnerPrivileges(mainPrivilegesFiltered, owner)
-    : mainPrivilegesFiltered;
+    ? filterOwnerPrivileges(mainPrivileges, owner)
+    : mainPrivileges;
   const branchFiltered = owner
-    ? filterOwnerPrivileges(branchPrivilegesFiltered, owner)
-    : branchPrivilegesFiltered;
+    ? filterOwnerPrivileges(branchPrivileges, owner)
+    : branchPrivileges;
 
   const mainByGrantee = groupPrivilegesByGrantee(mainFiltered);
   const branchByGrantee = groupPrivilegesByGrantee(branchFiltered);

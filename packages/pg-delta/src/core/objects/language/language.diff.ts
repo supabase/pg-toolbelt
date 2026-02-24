@@ -121,7 +121,6 @@ export function diffLanguages(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchLanguage.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

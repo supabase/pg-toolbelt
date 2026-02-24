@@ -83,15 +83,17 @@ export function diffSequences(
       "sequence",
       createdSeq.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      createdSeq.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = createdSeq.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the sequence owner as the reference.
-    // Superuser privileges are filtered inside diffPrivileges.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       createdSeq.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -295,12 +297,10 @@ export function diffSequences(
       // PRIVILEGES
       // Filter out owner privileges - owner always has ALL privileges implicitly
       // and shouldn't be compared. Use branch owner as the reference.
-      // Superuser privileges are filtered inside diffPrivileges.
       const privilegeResults = diffPrivileges(
         mainSequence.privileges,
         branchSequence.privileges,
         branchSequence.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

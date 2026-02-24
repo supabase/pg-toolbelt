@@ -71,14 +71,17 @@ export function diffViews(
       "view",
       v.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      v.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = v.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the view owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       v.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -265,7 +268,6 @@ export function diffViews(
         mainView.privileges,
         branchView.privileges,
         branchView.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

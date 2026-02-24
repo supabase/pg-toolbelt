@@ -290,14 +290,17 @@ export function diffTables(
       "table",
       branchTable.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      branchTable.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = branchTable.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the table owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       branchTable.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -867,7 +870,6 @@ export function diffTables(
       mainTable.privileges,
       branchTable.privileges,
       branchTable.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

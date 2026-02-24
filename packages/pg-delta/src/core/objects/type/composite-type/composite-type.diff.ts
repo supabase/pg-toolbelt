@@ -92,6 +92,10 @@ export function diffCompositeTypes(
       "composite_type",
       ct.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      ct.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
     // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
     // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
@@ -102,7 +106,7 @@ export function diffCompositeTypes(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the composite type owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       ct.owner,
     );
@@ -313,7 +317,6 @@ export function diffCompositeTypes(
         mainPrivilegesFiltered,
         branchPrivilegesFiltered,
         branchCompositeType.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

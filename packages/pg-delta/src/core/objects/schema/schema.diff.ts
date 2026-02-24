@@ -60,14 +60,17 @@ export function diffSchemas(
       "schema",
       "",
     );
+    const creatorFilteredDefaults =
+      sc.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = sc.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the schema owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       sc.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -151,7 +154,6 @@ export function diffSchemas(
       mainSchema.privileges,
       branchSchema.privileges,
       branchSchema.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

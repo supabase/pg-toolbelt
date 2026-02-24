@@ -99,6 +99,10 @@ export function diffDomains(
       "domain",
       newDomain.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      newDomain.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     // Filter out PUBLIC's built-in default USAGE privilege (PostgreSQL grants it automatically)
     // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
     // This prevents generating unnecessary "GRANT USAGE TO PUBLIC" statements
@@ -109,10 +113,9 @@ export function diffDomains(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the domain owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       newDomain.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -304,7 +307,6 @@ export function diffDomains(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchDomain.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {

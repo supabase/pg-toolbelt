@@ -101,14 +101,17 @@ export function diffMaterializedViews(
       "materialized_view",
       mv.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      mv.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     const desiredPrivileges = mv.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the materialized view owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       mv.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -351,7 +354,6 @@ export function diffMaterializedViews(
         mainMaterializedView.privileges,
         branchMaterializedView.privileges,
         branchMaterializedView.owner,
-        ctx.mainRoles,
       );
 
       for (const [grantee, result] of privilegeResults) {

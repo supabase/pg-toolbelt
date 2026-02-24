@@ -65,6 +65,10 @@ export function diffAggregates(
       "aggregate",
       aggregate.schema ?? "",
     );
+    const creatorFilteredDefaults =
+      aggregate.owner !== ctx.currentUser
+        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+        : effectiveDefaults;
     // Filter out PUBLIC's built-in default EXECUTE privilege (PostgreSQL grants it automatically)
     // Reference: https://www.postgresql.org/docs/17/ddl-priv.html Table 5.2
     // This prevents generating unnecessary "GRANT EXECUTE TO PUBLIC" statements
@@ -75,10 +79,9 @@ export function diffAggregates(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the aggregate owner as the reference.
     const privilegeResults = diffPrivileges(
-      effectiveDefaults,
+      creatorFilteredDefaults,
       desiredPrivileges,
       aggregate.owner,
-      ctx.mainRoles,
     );
 
     // Generate grant changes
@@ -229,7 +232,6 @@ export function diffAggregates(
       mainPrivilegesFiltered,
       branchPrivilegesFiltered,
       branchAggregate.owner,
-      ctx.mainRoles,
     );
 
     for (const [grantee, result] of privilegeResults) {
