@@ -158,10 +158,24 @@ export function getParentInfo(change: Change): ParentInfo | null {
         change.index.table_relkind === "m" ? "materialized_view" : "table";
       return { type: parentType, name: change.index.table_name };
     }
-    case "trigger":
-      return { type: "table", name: change.trigger.table_name };
-    case "rule":
-      return { type: "table", name: change.rule.table_name };
+    case "trigger": {
+      const parentType =
+        change.trigger.table_relkind === "v"
+          ? "view"
+          : change.trigger.table_relkind === "m"
+            ? "materialized_view"
+            : "table";
+      return { type: parentType, name: change.trigger.table_name };
+    }
+    case "rule": {
+      const parentType =
+        change.rule.relation_kind === "v"
+          ? "view"
+          : change.rule.relation_kind === "m"
+            ? "materialized_view"
+            : "table";
+      return { type: parentType, name: change.rule.table_name };
+    }
     case "rls_policy":
       return { type: "table", name: change.policy.table_name };
     case "aggregate":

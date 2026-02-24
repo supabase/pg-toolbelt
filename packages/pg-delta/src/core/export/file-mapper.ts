@@ -304,19 +304,23 @@ export function getFilePath(change: Change): FilePath {
     case "rule": {
       const schema = requireSchema(change);
       const parent = getParentInfo(change);
-      if (!parent || parent.type !== "table") {
-        throw new Error(
-          `Expected table parent for ${change.objectType} change`,
-        );
+      if (!parent) {
+        throw new Error(`Expected parent for ${change.objectType} change`);
       }
-      const tableName = parent.name;
+      const parentName = parent.name;
+      const category =
+        parent.type === "view"
+          ? "views"
+          : parent.type === "materialized_view"
+            ? "matviews"
+            : "tables";
       return {
-        path: schemaPath(schema, "tables", `${tableName}.sql`),
-        category: "tables",
+        path: schemaPath(schema, category, `${parentName}.sql`),
+        category,
         metadata: {
-          objectType: "table",
+          objectType: parent.type,
           schemaName: schema,
-          objectName: tableName,
+          objectName: parentName,
         },
       };
     }

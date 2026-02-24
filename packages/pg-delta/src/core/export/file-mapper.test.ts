@@ -46,6 +46,47 @@ function tableFP(objectName: string, schema = "public"): FilePath {
   };
 }
 
+function triggerChange(opts: {
+  schema: string;
+  name: string;
+  tableName: string;
+  tableRelkind: "r" | "p" | "f" | "v" | "m";
+}): Change {
+  return {
+    objectType: "trigger",
+    operation: "create",
+    scope: "object",
+    trigger: {
+      schema: opts.schema,
+      name: opts.name,
+      table_name: opts.tableName,
+      table_relkind: opts.tableRelkind,
+    },
+    serialize: () =>
+      `CREATE TRIGGER ${opts.name} ON ${opts.schema}.${opts.tableName}`,
+  } as unknown as Change;
+}
+
+function ruleChange(opts: {
+  schema: string;
+  name: string;
+  tableName: string;
+  relationKind: "r" | "p" | "f" | "v" | "m";
+}): Change {
+  return {
+    objectType: "rule",
+    operation: "create",
+    scope: "object",
+    rule: {
+      schema: opts.schema,
+      name: opts.name,
+      table_name: opts.tableName,
+      relation_kind: opts.relationKind,
+    },
+    serialize: () => `CREATE RULE ${opts.name} AS ON SELECT TO ${opts.tableName}`,
+  } as unknown as Change;
+}
+
 // ============================================================================
 // compilePatterns
 // ============================================================================
@@ -370,6 +411,50 @@ describe("createFileMapper", () => {
       parentSchema: "public",
     });
     expect(mapper(partition).path).toBe("schemas/public/tables/events.sql");
+  });
+
+  test("maps trigger on view into views folder", () => {
+    const mapper = createFileMapper(undefined);
+    const change = triggerChange({
+      schema: "public",
+      name: "public_projects_on_insert",
+      tableName: "projects",
+      tableRelkind: "v",
+    });
+    expect(mapper(change).path).toBe("schemas/public/views/projects.sql");
+  });
+
+  test("maps trigger on table into tables folder", () => {
+    const mapper = createFileMapper(undefined);
+    const change = triggerChange({
+      schema: "public",
+      name: "users_on_insert",
+      tableName: "users",
+      tableRelkind: "r",
+    });
+    expect(mapper(change).path).toBe("schemas/public/tables/users.sql");
+  });
+
+  test("maps rule on view into views folder", () => {
+    const mapper = createFileMapper(undefined);
+    const change = ruleChange({
+      schema: "public",
+      name: "projects_read_rule",
+      tableName: "projects",
+      relationKind: "v",
+    });
+    expect(mapper(change).path).toBe("schemas/public/views/projects.sql");
+  });
+
+  test("maps rule on table into tables folder", () => {
+    const mapper = createFileMapper(undefined);
+    const change = ruleChange({
+      schema: "public",
+      name: "users_read_rule",
+      tableName: "users",
+      relationKind: "r",
+    });
+    expect(mapper(change).path).toBe("schemas/public/tables/users.sql");
   });
 
   test("groups partition tables into subdirectory (subdirectory mode)", () => {

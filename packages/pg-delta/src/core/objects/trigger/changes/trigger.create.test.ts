@@ -8,6 +8,7 @@ describe("trigger", () => {
       schema: "public",
       name: "test_trigger",
       table_name: "test_table",
+      table_relkind: "r",
       function_schema: "public",
       function_name: "test_function",
       trigger_type: (1 << 1) | (1 << 2) | (1 << 0), // BEFORE (1<<1) | INSERT (1<<2) | ROW (1<<0) = 7

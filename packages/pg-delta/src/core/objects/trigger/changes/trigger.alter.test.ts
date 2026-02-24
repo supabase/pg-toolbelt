@@ -9,6 +9,7 @@ describe.concurrent("trigger", () => {
         schema: "public",
         name: "test_trigger",
         table_name: "test_table",
+        table_relkind: "r",
         function_schema: "public",
         function_name: "test_function",
         trigger_type: 1 << 4, // UPDATE (1<<4) = 16, AFTER is default (0), STATEMENT is default (0)

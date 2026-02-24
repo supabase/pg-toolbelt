@@ -17,6 +17,7 @@ const base: Omit<
   schema: "public",
   name: "trg",
   table_name: "t",
+  table_relkind: "r",
   function_schema: "public",
   trigger_type: 1,
   enabled: "O",

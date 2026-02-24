@@ -8,6 +8,7 @@ describe("trigger", () => {
       schema: "public",
       name: "test_trigger",
       table_name: "test_table",
+      table_relkind: "r",
       function_schema: "public",
       function_name: "test_function",
       trigger_type: 66,

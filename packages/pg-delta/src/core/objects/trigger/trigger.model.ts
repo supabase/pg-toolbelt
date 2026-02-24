@@ -10,10 +10,19 @@ const TriggerEnabledSchema = z.enum([
   "A", // ALWAYS - trigger fires regardless of replication mode
 ]);
 
+const TriggerTableRelkindSchema = z.enum([
+  "r", // ordinary table
+  "p", // partitioned table
+  "f", // foreign table
+  "v", // view
+  "m", // materialized view
+]);
+
 const triggerPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
   table_name: z.string(),
+  table_relkind: TriggerTableRelkindSchema,
   function_schema: z.string(),
   function_name: z.string(),
   trigger_type: z.number(),
@@ -43,6 +52,7 @@ export class Trigger extends BasePgModel {
   public readonly schema: TriggerProps["schema"];
   public readonly name: TriggerProps["name"];
   public readonly table_name: TriggerProps["table_name"];
+  public readonly table_relkind: TriggerProps["table_relkind"];
   public readonly function_schema: TriggerProps["function_schema"];
   public readonly function_name: TriggerProps["function_name"];
   public readonly trigger_type: TriggerProps["trigger_type"];
@@ -72,6 +82,7 @@ export class Trigger extends BasePgModel {
     this.schema = props.schema;
     this.name = props.name;
     this.table_name = props.table_name;
+    this.table_relkind = props.table_relkind;
 
     // Data fields
     this.function_schema = props.function_schema;
@@ -164,6 +175,7 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
         tc.relnamespace::regnamespace::text as schema,
         quote_ident(t.tgname)               as name,
         quote_ident(tc.relname)             as table_name,
+        tc.relkind                          as table_relkind,
 
         fc.pronamespace::regnamespace::text as function_schema,
         quote_ident(fc.proname)             as function_name,
