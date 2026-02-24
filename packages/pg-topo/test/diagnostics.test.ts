@@ -105,4 +105,115 @@ describe("diagnostics", () => {
     );
     expect(timezoneUnresolvedWith.length).toBe(0);
   });
+
+  test("external aggregate providers satisfy function-call requirements", async () => {
+    const sql = [
+      "create table public.accounts(id int);",
+      "create view public.max_account as select max(id) from public.accounts;",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const unresolvedWithout = withoutProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("function:public:max"),
+    );
+    expect(unresolvedWithout.length).toBeGreaterThan(0);
+
+    const withProviders = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "aggregate",
+          schema: "public",
+          name: "max",
+          signature: "(integer)",
+        },
+      ],
+    });
+    const unresolvedWith = withProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("function:public:max"),
+    );
+    expect(unresolvedWith.length).toBe(0);
+  });
+
+  test("external variadic providers satisfy unknown-arity calls", async () => {
+    const sql = [
+      "create table public.events(meta jsonb default json_build_object('a', 1));",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const unresolvedWithout = withoutProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("json_build_object"),
+    );
+    expect(unresolvedWithout.length).toBeGreaterThan(0);
+
+    const withProviders = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "function",
+          schema: "public",
+          name: "json_build_object",
+          signature: "(any)",
+        },
+      ],
+    });
+    const unresolvedWith = withProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes("json_build_object"),
+    );
+    expect(unresolvedWith.length).toBe(0);
+  });
+
+  test("strict extension schema behavior remains unchanged", async () => {
+    const sql = [
+      "create table public.ids(id uuid default extensions.uuid_generate_v4());",
+    ];
+    const withMismatchedProvider = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "function",
+          schema: "public",
+          name: "uuid_generate_v4",
+          signature: "()",
+        },
+      ],
+    });
+    const unresolved = withMismatchedProvider.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        `${d.details?.requiredObjectKey ?? ""}`.includes(
+          "function:extensions:uuid_generate_v4",
+        ),
+    );
+    expect(unresolved.length).toBeGreaterThan(0);
+  });
+
+  test("comment on trigger and policy resolve to existing producers", async () => {
+    const sql = [
+      "create schema auth;",
+      "create table auth.users(id bigint primary key, email text, deleted_at timestamptz);",
+      "create function auth.touch_users_updated_at() returns trigger language plpgsql as $$ begin return new; end; $$;",
+      "create trigger initialise_auth_users_email before insert or update on auth.users for each row execute function auth.touch_users_updated_at();",
+      "create policy users_select_policy on auth.users for select using (deleted_at is null);",
+      "comment on trigger initialise_auth_users_email on auth.users is 'init email';",
+      "comment on policy users_select_policy on auth.users is 'policy docs';",
+    ];
+
+    const result = await analyzeAndSort(sql);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        (String(diagnostic.details?.requiredObjectKey ?? "").includes(
+          "initialise_auth_users_email",
+        ) ||
+          String(diagnostic.details?.requiredObjectKey ?? "").includes(
+            "users_select_policy",
+          )),
+    );
+
+    expect(unresolved.length).toBe(0);
+  });
 });

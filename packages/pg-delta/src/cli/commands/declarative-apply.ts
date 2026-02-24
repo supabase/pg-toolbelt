@@ -14,6 +14,7 @@ import {
   type RoundResult,
   type StatementError,
 } from "../../core/declarative-apply/index.ts";
+import type { Diagnostic } from "@supabase/pg-topo";
 
 /** Convert 1-based character offset in SQL to 1-based line and column. */
 function positionToLineColumn(
@@ -45,6 +46,70 @@ function parseStatementId(
   if (!Number.isInteger(n) || n < 0) return null;
   return { filePath, statementIndex: n };
 }
+
+export type DiagnosticDisplayEntry = {
+  diagnostic: Diagnostic;
+  location?: string;
+  requiredObjectKey?: string;
+};
+
+export type DiagnosticDisplayItem = {
+  code: string;
+  message: string;
+  suggestedFix?: string;
+  requiredObjectKey?: string;
+  locations: string[];
+};
+
+const requiredObjectKeyFromDiagnostic = (
+  diagnostic: Diagnostic,
+): string | undefined => {
+  const value = diagnostic.details?.requiredObjectKey;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
+  [
+    entry.diagnostic.code,
+    entry.diagnostic.message,
+    entry.diagnostic.suggestedFix ?? "",
+    entry.requiredObjectKey ?? "",
+  ].join("\u0000");
+
+export const buildDiagnosticDisplayItems = (
+  entries: DiagnosticDisplayEntry[],
+  grouped: boolean,
+): DiagnosticDisplayItem[] => {
+  if (!grouped) {
+    return entries.map((entry) => ({
+      code: entry.diagnostic.code,
+      message: entry.diagnostic.message,
+      suggestedFix: entry.diagnostic.suggestedFix,
+      requiredObjectKey: entry.requiredObjectKey,
+      locations: entry.location ? [entry.location] : [],
+    }));
+  }
+
+  const groupedItems = new Map<string, DiagnosticDisplayItem>();
+  for (const entry of entries) {
+    const key = diagnosticDisplayGroupKey(entry);
+    const existing = groupedItems.get(key);
+    if (!existing) {
+      groupedItems.set(key, {
+        code: entry.diagnostic.code,
+        message: entry.diagnostic.message,
+        suggestedFix: entry.diagnostic.suggestedFix,
+        requiredObjectKey: entry.requiredObjectKey,
+        locations: entry.location ? [entry.location] : [],
+      });
+      continue;
+    }
+    if (entry.location && !existing.locations.includes(entry.location)) {
+      existing.locations.push(entry.location);
+    }
+  }
+  return [...groupedItems.values()];
+};
 
 /**
  * Resolve the full path to a .sql file from schema path (dir or single file) and relative file path.
@@ -188,6 +253,12 @@ export const declarativeApplyCommand = buildCommand({
         brief: "Show detailed per-round progress",
         optional: true,
       },
+      "ungroup-diagnostics": {
+        kind: "boolean",
+        brief:
+          "Show full per-diagnostic detail instead of grouped summary output",
+        optional: true,
+      },
     },
     aliases: {
       p: "path",
@@ -225,9 +296,11 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
       "max-rounds"?: number;
       "no-validate-functions"?: boolean;
       verbose?: boolean;
+      "ungroup-diagnostics"?: boolean;
     },
   ) {
     const verbose = !!flags.verbose;
+    const ungroupDiagnostics = !!flags["ungroup-diagnostics"];
 
     const onRoundComplete = verbose
       ? (round: RoundResult) => {
@@ -338,16 +411,8 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
           `\n${warnings.length} diagnostic(s) from static analysis:\n`,
         ),
       );
-      let lastCode = "";
-      for (const diag of warnings) {
-        if (diag.code !== lastCode) {
-          if (lastCode !== "") {
-            this.process.stderr.write("\n");
-          }
-          lastCode = diag.code;
-        }
-        const colorFn = diagnosticColor[diag.code] ?? chalk.yellow;
-        let location = "";
+      const entries: DiagnosticDisplayEntry[] = warnings.map((diag) => {
+        let location: string | undefined;
         if (diag.statementId) {
           const id = diag.statementId;
           const offset = id.sourceOffset;
@@ -355,17 +420,57 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
             offset != null ? fileContentCache.get(id.filePath) : undefined;
           if (content != null && offset != null) {
             const { line, column } = positionToLineColumn(content, offset + 1);
-            location = ` (${id.filePath}:${line}:${column})`;
+            location = `${id.filePath}:${line}:${column}`;
           } else {
-            location = ` (${id.filePath}:${id.statementIndex})`;
+            location = `${id.filePath}:${id.statementIndex}`;
           }
         }
+        return {
+          diagnostic: diag,
+          location,
+          requiredObjectKey: requiredObjectKeyFromDiagnostic(diag),
+        };
+      });
+      const displayItems = buildDiagnosticDisplayItems(entries, !ungroupDiagnostics);
+
+      let lastCode = "";
+      const previewLimit = 5;
+      for (const item of displayItems) {
+        if (item.code !== lastCode) {
+          if (lastCode !== "") {
+            this.process.stderr.write("\n");
+          }
+          lastCode = item.code;
+        }
+        const colorFn = diagnosticColor[item.code] ?? chalk.yellow;
+        const location =
+          item.locations.length > 0 ? ` (${item.locations[0]})` : "";
+        const occurrences =
+          !ungroupDiagnostics && item.locations.length > 1
+            ? ` x${item.locations.length}`
+            : "";
         this.process.stderr.write(
-          colorFn(`  [${diag.code}]${location} ${diag.message}\n`),
+          colorFn(`  [${item.code}]${location}${occurrences} ${item.message}\n`),
         );
-        if (diag.suggestedFix) {
+        if (!ungroupDiagnostics && item.requiredObjectKey) {
           this.process.stderr.write(
-            colorFn(`    -> Fix: ${diag.suggestedFix}\n`),
+            colorFn(`    -> Object: ${item.requiredObjectKey}\n`),
+          );
+        }
+        if (!ungroupDiagnostics && item.locations.length > 1) {
+          for (const locationEntry of item.locations.slice(0, previewLimit)) {
+            this.process.stderr.write(colorFn(`    at ${locationEntry}\n`));
+          }
+          const remaining = item.locations.length - previewLimit;
+          if (remaining > 0) {
+            this.process.stderr.write(
+              colorFn(`    ... and ${remaining} more location(s)\n`),
+            );
+          }
+        }
+        if (item.suggestedFix) {
+          this.process.stderr.write(
+            colorFn(`    -> Fix: ${item.suggestedFix}\n`),
           );
         }
       }

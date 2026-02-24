@@ -94,7 +94,11 @@ const externalProviderSatisfies = (
     ) {
       continue;
     }
-    if (!signaturesCompatible(requiredRef.signature, provider.signature)) {
+    if (
+      !signaturesCompatible(requiredRef.signature, provider.signature, {
+        allowVariadicProviderTail: true,
+      })
+    ) {
       continue;
     }
     return true;

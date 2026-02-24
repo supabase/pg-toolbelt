@@ -13,7 +13,11 @@ export const isKindCompatible = (
     );
   }
   if (requiredKind === "function") {
-    return providedKind === "function" || providedKind === "procedure";
+    return (
+      providedKind === "function" ||
+      providedKind === "procedure" ||
+      providedKind === "aggregate"
+    );
   }
   if (requiredKind === "procedure") {
     return providedKind === "procedure" || providedKind === "function";
@@ -97,17 +101,37 @@ const signatureArgBase = (value: string): string => {
 const signatureArgHasSchema = (value: string): boolean =>
   splitTopLevel(value, ".").length > 1;
 
+const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
+  "any",
+  "anyarray",
+  "anycompatible",
+  "anycompatiblearray",
+  "anycompatiblenonarray",
+  "anycompatiblemultirange",
+  "anycompatiblerange",
+  "anyelement",
+  "anyenum",
+  "anymultirange",
+  "anynonarray",
+  "anyrange",
+]);
+
+const isPolymorphicProviderArg = (value: string): boolean =>
+  POLYMORPHIC_PROVIDER_TYPES.has(signatureArgBase(normalizeSignatureArg(value)));
+
 const signatureArgCompatible = (
   requiredArg: string,
   providedArg: string,
 ): boolean => {
   const normalizedRequired = normalizeSignatureArg(requiredArg);
   const normalizedProvided = normalizeSignatureArg(providedArg);
-
   if (normalizedRequired === "unknown" || normalizedRequired.length === 0) {
     return true;
   }
   if (normalizedProvided === "unknown" || normalizedProvided.length === 0) {
+    return true;
+  }
+  if (isPolymorphicProviderArg(normalizedProvided)) {
     return true;
   }
 
@@ -129,7 +153,11 @@ const signatureArgCompatible = (
 
 type SignatureCompatibilityOptions = {
   allowNamedArgumentsInRequirement?: boolean;
+  allowVariadicProviderTail?: boolean;
 };
+
+const isVariadicProviderArg = (value: string): boolean =>
+  isPolymorphicProviderArg(value);
 
 export const signaturesCompatible = (
   requiredSignature?: string,
@@ -158,6 +186,40 @@ export const signaturesCompatible = (
   const providedArgs = signatureArgs(providedSignature);
   if (!requiredArgs || !providedArgs) {
     return false;
+  }
+  if (
+    options.allowVariadicProviderTail &&
+    providedArgs.length > 0 &&
+    isVariadicProviderArg(providedArgs[providedArgs.length - 1] ?? "")
+  ) {
+    const fixedCount = providedArgs.length - 1;
+    if (requiredArgs.length < fixedCount) {
+      return false;
+    }
+    for (let index = 0; index < fixedCount; index += 1) {
+      const requiredArg = requiredArgs[index];
+      const providedArg = providedArgs[index];
+      if (typeof requiredArg !== "string" || typeof providedArg !== "string") {
+        return false;
+      }
+      if (!signatureArgCompatible(requiredArg, providedArg)) {
+        return false;
+      }
+    }
+    const variadicArg = providedArgs[providedArgs.length - 1];
+    if (typeof variadicArg !== "string") {
+      return false;
+    }
+    for (let index = fixedCount; index < requiredArgs.length; index += 1) {
+      const requiredArg = requiredArgs[index];
+      if (typeof requiredArg !== "string") {
+        return false;
+      }
+      if (!signatureArgCompatible(requiredArg, variadicArg)) {
+        return false;
+      }
+    }
+    return true;
   }
   // Allow fewer required args than provided: PostgreSQL functions with default
   // parameters can be called with fewer arguments than declared. For example,
