@@ -10,7 +10,7 @@ DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
 TARGET_URL="${TARGET_URL:-postgres://postgres:postgres@db.platform.orb.local:5432/postgres}"
 OUTPUT_DIR="${OUTPUT_DIR:-./declarative-schemas}"
 # Default filter: platform-db exclusions (single-quoted so JSON is preserved when overridden via env).
-DEFAULT_FILTER='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
+DEFAULT_FILTER='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron"]}]}}'
 FILTER_DSL="${FILTER_DSL:-$DEFAULT_FILTER}"
 
 # Same format options as scripts/declarative-export.ts
@@ -54,11 +54,14 @@ EXPORT_OPTS=(
   --target "$TARGET_URL"
   --output "$OUTPUT_DIR"
   --force
-  --grouping-mode single-file
-  --group-patterns "$GROUP_PATTERNS"
-  --flat-schemas "$FLAT_SCHEMAS"
+  # --grouping-mode single-file
+  --grouping-mode subdirectory
+  # --group-patterns "$GROUP_PATTERNS"
+  # --flat-schemas "$FLAT_SCHEMAS"
   --format-options "$FORMAT_OPTIONS"
   --filter "$FILTER_DSL"
+  --diff-focus
+  # --dry-run
 )
 
 echo "Exporting declarative schema..."
@@ -73,7 +76,7 @@ echo "Applying declarative schema via declarative apply..."
 DEBUG=pg-delta:declarative-apply bun pgdelta declarative apply \
   --path "$OUTPUT_DIR" \
   --target "$DB_URL" \
-  --verbose
+  # --verbose
 
 # ──────────────────────────────────────────────────────────────
 # 4. Verify roundtrip: diff applied DB vs original (expect 0 changes)

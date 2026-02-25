@@ -12,7 +12,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-./declarative-schemas}"
 MIGRATION_OUTPUT="${MIGRATION_OUTPUT:-./declarative-migration.sql}"
 
 # Default filter: platform-db exclusions (single-quoted so JSON is preserved when overridden via env).
-DEFAULT_FILTER='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron","plv8","pg_stat_statements"]},{"procedureLanguage":["plv8"]}]}}'
+DEFAULT_FILTER='{"not":{"or":[{"type":"extension","extension":["pgaudit","pg_cron"]}]}}'
 FILTER_DSL="${FILTER_DSL:-$DEFAULT_FILTER}"
 
 cleanup() {
