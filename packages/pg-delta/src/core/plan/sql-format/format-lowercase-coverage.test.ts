@@ -52,6 +52,58 @@ describe("lowercase coverage formatting", () => {
     );
   });
 
+  test("lowercases all ALTER DEFAULT PRIVILEGES object-type keywords", () => {
+    const statements = [
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA public GRANT ALL ON TABLES TO app_reader;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user GRANT ALL ON SEQUENCES TO app_reader;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user GRANT ALL ON ROUTINES TO PUBLIC;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user GRANT ALL ON TYPES TO PUBLIC;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA api GRANT ALL ON SCHEMAS TO app_admin;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user REVOKE ALL ON SEQUENCES FROM app_reader;",
+      "ALTER DEFAULT PRIVILEGES FOR ROLE app_user REVOKE ALL ON TYPES FROM PUBLIC;",
+    ];
+
+    const formatted = formatSqlStatements(statements, {
+      keywordCase: "lower",
+    });
+
+    const normalized = formatted.map((v) => v.replace(/\s+/g, " ").trim());
+    expect(normalized).toMatchInlineSnapshot(`
+      [
+        "alter default privileges for role app_user in schema public grant all on tables to app_reader",
+        "alter default privileges for role app_user grant all on sequences to app_reader",
+        "alter default privileges for role app_user grant all on routines to public",
+        "alter default privileges for role app_user grant all on types to public",
+        "alter default privileges for role app_user in schema api grant all on schemas to app_admin",
+        "alter default privileges for role app_user revoke all on sequences from app_reader",
+        "alter default privileges for role app_user revoke all on types from public",
+      ]
+    `);
+  });
+
+  test("lowercases PUBLIC in standalone GRANT/REVOKE statements", () => {
+    const statements = [
+      "GRANT ALL ON SCHEMA public TO PUBLIC;",
+      "GRANT EXECUTE ON FUNCTION public.my_fn() TO PUBLIC;",
+      "REVOKE ALL ON SCHEMA public FROM PUBLIC;",
+      "GRANT USAGE ON TYPE public.my_type TO PUBLIC;",
+    ];
+
+    const formatted = formatSqlStatements(statements, {
+      keywordCase: "lower",
+    });
+
+    const normalized = formatted.map((v) => v.replace(/\s+/g, " ").trim());
+    expect(normalized).toMatchInlineSnapshot(`
+      [
+        "grant all on schema public to public",
+        "grant execute on function public.my_fn() to public",
+        "revoke all on schema public from public",
+        "grant usage on type public.my_type to public",
+      ]
+    `);
+  });
+
   test("preserves full CHECK clause text while casing surrounding structure", () => {
     const [formatted] = formatSqlStatements(
       [

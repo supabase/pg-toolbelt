@@ -83,7 +83,8 @@ function ruleChange(opts: {
       table_name: opts.tableName,
       relation_kind: opts.relationKind,
     },
-    serialize: () => `CREATE RULE ${opts.name} AS ON SELECT TO ${opts.tableName}`,
+    serialize: () =>
+      `CREATE RULE ${opts.name} AS ON SELECT TO ${opts.tableName}`,
   } as unknown as Change;
 }
 
@@ -392,6 +393,18 @@ describe("createFileMapper", () => {
     const mapper = createFileMapper(undefined);
     const change = tableChange({ schema: "public", name: "users" });
     expect(mapper(change).path).toBe("schemas/public/tables/users.sql");
+  });
+
+  test("maps partition tables to parent file when no grouping is provided", () => {
+    const mapper = createFileMapper(undefined);
+    const partition = tableChange({
+      schema: "public",
+      name: "events_p20260107",
+      isPartition: true,
+      parentName: "events",
+      parentSchema: "public",
+    });
+    expect(mapper(partition).path).toBe("schemas/public/tables/events.sql");
   });
 
   test("groups partition tables into parent file (single-file mode)", () => {

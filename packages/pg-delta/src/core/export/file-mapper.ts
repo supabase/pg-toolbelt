@@ -200,6 +200,23 @@ export function getFilePath(change: Change): FilePath {
     case "table": {
       const schema = change.table.schema;
       const tableName = change.table.name;
+      // Partitions always go in the same file as their parent table.
+      if (change.table.is_partition && change.table.parent_name) {
+        const parentSchema = change.table.parent_schema ?? change.table.schema;
+        return {
+          path: schemaPath(
+            parentSchema,
+            "tables",
+            `${change.table.parent_name}.sql`,
+          ),
+          category: "tables",
+          metadata: {
+            objectType: "table",
+            schemaName: parentSchema,
+            objectName: change.table.parent_name,
+          },
+        };
+      }
       return {
         path: schemaPath(schema, "tables", `${tableName}.sql`),
         category: "tables",

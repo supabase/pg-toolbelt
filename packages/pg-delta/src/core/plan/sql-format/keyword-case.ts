@@ -207,6 +207,36 @@ const STRUCTURAL_TOP_LEVEL_KEYWORDS = new Set([
   "WRAPPER",
   "MAPPING",
 ]);
+const EMPTY_SCOPED_SET: ReadonlySet<string> = new Set();
+
+const ALTER_DEFAULT_PRIVILEGES_KEYWORDS: ReadonlySet<string> = new Set([
+  "PUBLIC",
+  "SEQUENCES",
+  "ROUTINES",
+  "TYPES",
+  "SCHEMAS",
+]);
+
+const GRANT_REVOKE_KEYWORDS: ReadonlySet<string> = new Set(["PUBLIC"]);
+
+function getStatementScopedKeywords(
+  topLevelTokens: Array<{ token: Token; index: number }>,
+): ReadonlySet<string> {
+  const first = topLevelTokens[0]?.token.upper;
+  const second = topLevelTokens[1]?.token.upper;
+  const third = topLevelTokens[2]?.token.upper;
+
+  if (first === "ALTER" && second === "DEFAULT" && third === "PRIVILEGES") {
+    return ALTER_DEFAULT_PRIVILEGES_KEYWORDS;
+  }
+
+  if (first === "GRANT" || first === "REVOKE") {
+    return GRANT_REVOKE_KEYWORDS;
+  }
+
+  return EMPTY_SCOPED_SET;
+}
+
 const ALTER_TYPE_BOUNDARY_KEYWORDS = new Set([
   "COLLATE",
   "USING",
@@ -287,6 +317,7 @@ function collectCaseableTokenStarts(
   if (topLevelTokens.length === 0) return caseable;
 
   const command = topLevelTokens[0].token.upper;
+  const scopedKeywords = getStatementScopedKeywords(topLevelTokens);
   const objectNameTokenIndexes = new Set<number>();
   for (let topIndex = 0; topIndex < topLevelTokens.length; topIndex += 1) {
     if (isLikelyObjectNameToken(command, topLevelTokens, topIndex)) {
@@ -297,7 +328,8 @@ function collectCaseableTokenStarts(
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     const upper = token.upper;
-    if (!STRUCTURAL_TOP_LEVEL_KEYWORDS.has(upper)) continue;
+    if (!STRUCTURAL_TOP_LEVEL_KEYWORDS.has(upper) && !scopedKeywords.has(upper))
+      continue;
     if (objectNameTokenIndexes.has(index)) continue;
     if (isQualifiedIdentifierToken(statement, token)) continue;
 
@@ -435,6 +467,9 @@ function isCaseableInContext(
   }
   if (upper === "IDENTITY") {
     return prev === "REPLICA" || prev === "AS";
+  }
+  if (upper === "PUBLIC") {
+    return prev === "TO" || prev === "FROM";
   }
   if (upper === "OR") {
     return true;
