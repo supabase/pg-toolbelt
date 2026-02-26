@@ -3,6 +3,7 @@ import debug from "debug";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import {
   type RoundResult,
+  rewriteAsOrReplace,
   roundApply,
   type StatementEntry,
 } from "./round-apply.ts";
@@ -341,6 +342,47 @@ describe("roundApply", () => {
     expect(result.totalApplied).toBe(3);
   });
 
+  test("should restore check_function_bodies when finalValidation is false", async () => {
+    const statements: StatementEntry[] = [
+      { id: "1", sql: "CREATE SCHEMA test;" },
+    ];
+    const queryCalls: string[] = [];
+    const client = createMockClient((sql: string) => {
+      queryCalls.push(sql);
+    });
+    const pool = createMockPool(client);
+
+    await roundApply({ pool, statements, finalValidation: false });
+
+    // Should see: SET off, CREATE SCHEMA, SET on (restore)
+    expect(queryCalls).toContain("SET check_function_bodies = off");
+    expect(queryCalls).toContain("SET check_function_bodies = on");
+    // Restore must come after the last statement
+    const offIdx = queryCalls.indexOf("SET check_function_bodies = off");
+    const onIdx = queryCalls.lastIndexOf("SET check_function_bodies = on");
+    expect(onIdx).toBeGreaterThan(offIdx);
+  });
+
+  test("should restore check_function_bodies when stuck", async () => {
+    const statements: StatementEntry[] = [
+      { id: "1", sql: "CREATE TABLE a (id int REFERENCES b(id));" },
+    ];
+    const queryCalls: string[] = [];
+    const client = createMockClient((sql: string) => {
+      queryCalls.push(sql);
+      if (!sql.startsWith("SET ")) {
+        throw pgError("42P01", "relation does not exist");
+      }
+    });
+    const pool = createMockPool(client);
+
+    const result = await roundApply({ pool, statements, maxRounds: 2 });
+    expect(result.status).toBe("stuck");
+    expect(
+      queryCalls.filter((s) => s === "SET check_function_bodies = on"),
+    ).toHaveLength(1);
+  });
+
   test("should log deferred statement id and reason when DEBUG=pg-delta:declarative-apply", async () => {
     const statements: StatementEntry[] = [
       { id: "table", sql: "CREATE TABLE test.users (id int);" },
@@ -377,5 +419,55 @@ describe("roundApply", () => {
       debug.log = originalLog;
       debug.disable();
     }
+  });
+});
+
+describe("rewriteAsOrReplace", () => {
+  test("adds OR REPLACE to CREATE FUNCTION", () => {
+    expect(
+      rewriteAsOrReplace(
+        "CREATE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;",
+      ),
+    ).toBe(
+      "CREATE OR REPLACE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;",
+    );
+  });
+
+  test("does not double-add OR REPLACE", () => {
+    const sql =
+      "CREATE OR REPLACE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    expect(rewriteAsOrReplace(sql)).toBe(sql);
+  });
+
+  test("handles CREATE PROCEDURE", () => {
+    expect(
+      rewriteAsOrReplace(
+        "CREATE PROCEDURE bar() AS $$ BEGIN END; $$ LANGUAGE plpgsql;",
+      ),
+    ).toBe(
+      "CREATE OR REPLACE PROCEDURE bar() AS $$ BEGIN END; $$ LANGUAGE plpgsql;",
+    );
+  });
+
+  test("does not double-add OR REPLACE on procedure", () => {
+    const sql =
+      "CREATE OR REPLACE PROCEDURE bar() AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    expect(rewriteAsOrReplace(sql)).toBe(sql);
+  });
+
+  test("preserves leading line comments", () => {
+    const sql =
+      "-- pg-topo:requires function:app.other(int)\nCREATE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    const result = rewriteAsOrReplace(sql);
+    expect(result).toContain("-- pg-topo:requires");
+    expect(result).toContain("OR REPLACE FUNCTION");
+  });
+
+  test("is case-insensitive", () => {
+    expect(
+      rewriteAsOrReplace(
+        "create function foo() returns void as $$ begin end; $$ language plpgsql;",
+      ),
+    ).toContain("OR REPLACE function");
   });
 });

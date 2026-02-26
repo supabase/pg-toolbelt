@@ -450,8 +450,27 @@ export async function roundApply(
       rounds,
     };
   } finally {
+    if (disableCheckFunctionBodies) {
+      try {
+        await client.query("SET check_function_bodies = on");
+      } catch {
+        // Best-effort restore; connection is being released anyway
+      }
+    }
     client.release();
   }
+}
+
+/**
+ * Rewrite a CREATE FUNCTION/PROCEDURE statement to use OR REPLACE for
+ * idempotent re-execution during validation. Handles leading line-comments
+ * (pg-topo annotations) and avoids double-adding OR REPLACE.
+ */
+export function rewriteAsOrReplace(sql: string): string {
+  return sql.replace(
+    /^((?:\s*--[^\n]*\n)*\s*CREATE\s+)(?!OR\s+REPLACE\b)(FUNCTION|PROCEDURE)/i,
+    "$1OR REPLACE $2",
+  );
 }
 
 /**
@@ -467,13 +486,7 @@ async function validateFunctionBodies(
   await client.query("SET check_function_bodies = on");
 
   for (const stmt of functions) {
-    // Convert CREATE FUNCTION to CREATE OR REPLACE FUNCTION for idempotency.
-    // The regex skips leading SQL line comments (-- ...) and whitespace that
-    // may be present from pg-topo annotations (e.g. -- pg-topo:requires ...).
-    const replaceSql = stmt.sql.replace(
-      /^((?:\s*--[^\n]*\n)*\s*CREATE\s+)(FUNCTION|PROCEDURE)/i,
-      "$1OR REPLACE $2",
-    );
+    const replaceSql = rewriteAsOrReplace(stmt.sql);
 
     try {
       await client.query(replaceSql);

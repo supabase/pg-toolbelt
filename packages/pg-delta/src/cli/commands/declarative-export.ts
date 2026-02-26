@@ -21,46 +21,12 @@ import {
 } from "../utils/export-display.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 
-function parseFilterDSL(value: string): FilterDSL {
+function parseJsonFlag<T>(label: string, value: string): T {
   try {
-    return JSON.parse(value) as FilterDSL;
+    return JSON.parse(value) as T;
   } catch (error) {
     throw new Error(
-      `Invalid filter JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function parseSerializeDSL(value: string): SerializeDSL {
-  try {
-    return JSON.parse(value) as SerializeDSL;
-  } catch (error) {
-    throw new Error(
-      `Invalid serialize JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function parseGroupPatterns(value: string): GroupingPattern[] {
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      throw new Error("group-patterns must be a JSON array");
-    }
-    return parsed as GroupingPattern[];
-  } catch (error) {
-    throw new Error(
-      `Invalid group-patterns JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function parseFormatOptions(value: string): SqlFormatOptions {
-  try {
-    return JSON.parse(value) as SqlFormatOptions;
-  } catch (error) {
-    throw new Error(
-      `Invalid format-options JSON: ${error instanceof Error ? error.message : String(error)}`,
+      `Invalid ${label} JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -93,14 +59,14 @@ export const declarativeExportCommand = buildCommand({
       filter: {
         kind: "parsed",
         brief: 'Filter DSL as inline JSON (e.g., \'{"schema":"public"}\')',
-        parse: parseFilterDSL,
+        parse: (v: string) => parseJsonFlag<FilterDSL>("filter", v),
         optional: true,
       },
       serialize: {
         kind: "parsed",
         brief:
           'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\')',
-        parse: parseSerializeDSL,
+        parse: (v: string) => parseJsonFlag<SerializeDSL>("serialize", v),
         optional: true,
       },
       "grouping-mode": {
@@ -113,7 +79,13 @@ export const declarativeExportCommand = buildCommand({
         kind: "parsed",
         brief:
           'JSON array of {pattern, name} objects (e.g., \'[{"pattern":"^auth","name":"auth"}]\')',
-        parse: parseGroupPatterns,
+        parse: (v: string) => {
+          const parsed = parseJsonFlag<GroupingPattern[]>("group-patterns", v);
+          if (!Array.isArray(parsed)) {
+            throw new Error("group-patterns must be a JSON array");
+          }
+          return parsed;
+        },
         optional: true,
       },
       "flat-schemas": {
@@ -127,7 +99,8 @@ export const declarativeExportCommand = buildCommand({
         kind: "parsed",
         brief:
           'SQL format options as inline JSON (e.g., \'{"keywordCase":"lower","maxWidth":180}\')',
-        parse: parseFormatOptions,
+        parse: (v: string) =>
+          parseJsonFlag<SqlFormatOptions>("format-options", v),
         optional: true,
       },
       force: {
@@ -265,6 +238,8 @@ After export, a tip is printed with the command to apply the schema to an empty 
     });
 
     const outputDir = path.resolve(flags.output);
+    const applyTip = (dir: string) =>
+      `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${dir} --target <database_url>\n`;
     const diff = await computeFileDiff(outputDir, output.files);
 
     this.process.stdout.write("\n");
@@ -294,11 +269,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
 
     if (flags["dry-run"]) {
       this.process.stdout.write(chalk.dim("\n(dry-run: no files written)\n"));
-      this.process.stdout.write(
-        chalk.cyan(
-          `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${outputDir} --target <database_url>\n`,
-        ),
-      );
+      this.process.stdout.write(chalk.cyan(applyTip(outputDir)));
       return;
     }
 
@@ -322,10 +293,6 @@ After export, a tip is printed with the command to apply the schema to an empty 
     this.process.stdout.write(
       chalk.green(`Wrote ${output.files.length} file(s) to ${outputDir}\n`),
     );
-    this.process.stdout.write(
-      chalk.cyan(
-        `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${outputDir} --target <database_url>\n`,
-      ),
-    );
+    this.process.stdout.write(chalk.cyan(applyTip(outputDir)));
   },
 });

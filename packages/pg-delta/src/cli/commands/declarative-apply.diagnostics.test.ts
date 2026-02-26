@@ -3,7 +3,7 @@ import type { Diagnostic } from "@supabase/pg-topo";
 import {
   buildDiagnosticDisplayItems,
   type DiagnosticDisplayEntry,
-} from "./declarative-apply.ts";
+} from "../utils/apply-display.ts";
 
 const unresolvedDiagnostic = (message: string): Diagnostic => ({
   code: "UNRESOLVED_DEPENDENCY",

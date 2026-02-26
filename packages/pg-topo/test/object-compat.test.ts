@@ -36,9 +36,9 @@ describe("signaturesCompatible", () => {
 
   test("exact arity match still works", () => {
     expect(signaturesCompatible("(int,text)", "(int,text)")).toBe(true);
-    expect(signaturesCompatible("(bigint,text,json)", "(bigint,text,json)")).toBe(
-      true,
-    );
+    expect(
+      signaturesCompatible("(bigint,text,json)", "(bigint,text,json)"),
+    ).toBe(true);
   });
 
   test("fewer required args matches provider with more params (default params)", () => {

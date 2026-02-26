@@ -149,9 +149,7 @@ describe("statement coverage", () => {
       (d) => d.code === "UNRESOLVED_DEPENDENCY",
     );
     const orderedSql = result.ordered.map((s) => s.sql.toLowerCase());
-    const fnIndex = orderedSql.findIndex((sql) =>
-      sql.includes("check_access"),
-    );
+    const fnIndex = orderedSql.findIndex((sql) => sql.includes("check_access"));
     const viewIndex = orderedSql.findIndex((sql) =>
       sql.includes("visible_items"),
     );

@@ -148,6 +148,8 @@ dev-debug.log
 # Editor directories and files
 .idea
 .vscode
+.cursor/
+.claude/
 *.suo
 *.ntvs*
 *.njsproj

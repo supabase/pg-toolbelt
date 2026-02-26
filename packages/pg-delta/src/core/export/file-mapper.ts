@@ -2,6 +2,7 @@
  * Map changes to declarative schema file paths.
  */
 
+import createDebug from "debug";
 import type { Change } from "../change.types.ts";
 import {
   getObjectName,
@@ -9,6 +10,8 @@ import {
   getParentInfo,
 } from "../plan/serialize.ts";
 import type { FileCategory, FilePath, Grouping } from "./types.ts";
+
+const debugExport = createDebug("pg-delta:export");
 
 // ============================================================================
 // Helpers
@@ -372,11 +375,22 @@ export function compilePatterns(
     if (typeof p.pattern === "string") {
       try {
         regex = new RegExp(p.pattern);
-      } catch {
+      } catch (e) {
+        debugExport(
+          "skipping invalid grouping regex %s: %s",
+          p.pattern,
+          e instanceof Error ? e.message : String(e),
+        );
         continue;
       }
     } else {
-      regex = p.pattern;
+      // Strip /g and /y flags — .test() mutates lastIndex with these flags,
+      // causing non-deterministic matching across repeated calls.
+      const flags = p.pattern.flags.replace(/[gy]/g, "");
+      regex =
+        flags !== p.pattern.flags
+          ? new RegExp(p.pattern.source, flags)
+          : p.pattern;
     }
     result.push({ regex, name: p.name });
   }

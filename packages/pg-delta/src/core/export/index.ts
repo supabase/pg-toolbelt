@@ -73,27 +73,16 @@ export function exportDeclarativeSchema(
           ...options?.formatOptions,
         };
 
-  // // Declarative export targets the final state; exclude drop operations.
-  // // Exception: default_privilege drops (REVOKEs) are kept because they define
-  // // the desired privilege state (e.g. revoking implicit PUBLIC EXECUTE on
-  // // functions).  Without them the applied schema would retain PostgreSQL's
-  // // implicit defaults, causing a diff on verification.
-  // // Note: filtering by integration and dependency cascading are done in createPlan,
-  // // so we only filter out drops here.
-  const declarativeChanges = sortedChanges;
-  // .filter(
-  //   (change) =>
-  //     change.operation !== "drop" || change.scope === "default_privilege",
-  // );
+  // Drop filtering and dependency cascading are handled upstream by createPlan.
 
   const { hash: sourceFingerprint, stableIds } = buildPlanScopeFingerprint(
     ctx.mainCatalog,
-    declarativeChanges,
+    sortedChanges,
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
   const mapper = createFileMapper(options?.grouping);
-  const groups = groupChangesByFile(declarativeChanges, mapper);
+  const groups = groupChangesByFile(sortedChanges, mapper);
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>
       serializeChange(change, integration),

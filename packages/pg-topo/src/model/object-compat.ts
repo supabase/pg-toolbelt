@@ -117,7 +117,9 @@ const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
 ]);
 
 const isPolymorphicProviderArg = (value: string): boolean =>
-  POLYMORPHIC_PROVIDER_TYPES.has(signatureArgBase(normalizeSignatureArg(value)));
+  POLYMORPHIC_PROVIDER_TYPES.has(
+    signatureArgBase(normalizeSignatureArg(value)),
+  );
 
 const signatureArgCompatible = (
   requiredArg: string,

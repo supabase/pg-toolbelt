@@ -8,7 +8,12 @@
 import type { ObjectRef } from "@supabase/pg-topo";
 import type { Pool } from "pg";
 
-type FunctionRow = { name: string; schema: string; kind: string; signature: string };
+type FunctionRow = {
+  name: string;
+  schema: string;
+  kind: string;
+  signature: string;
+};
 type TypeRow = { name: string; schema: string; typetype: string };
 type SchemaRow = { name: string };
 type RelationRow = { name: string; schema: string; relkind: string };
@@ -120,7 +125,12 @@ export async function extractCatalogProviders(
           ? "procedure"
           : "function";
     const sig = fn.signature.trim() ? `(${fn.signature})` : "()";
-    const ref: ObjectRef = { kind, name: fn.name, schema: fn.schema, signature: sig };
+    const ref: ObjectRef = {
+      kind,
+      name: fn.name,
+      schema: fn.schema,
+      signature: sig,
+    };
     addProvider(providers, ref, true);
   }
 

@@ -108,6 +108,29 @@ describe("compilePatterns", () => {
     const compiled = compilePatterns([{ pattern: re, name: "kubernetes" }]);
     expect(compiled[0].regex).toBe(re);
   });
+
+  test("strips /g flag to prevent stateful .test()", () => {
+    const patterns = [{ pattern: /^auth/g, name: "auth-group" }];
+    const compiled = compilePatterns(patterns);
+    const filePath: FilePath = {
+      path: "schemas/public/tables/auth_users.sql",
+      category: "tables",
+      metadata: {
+        objectType: "table",
+        schemaName: "public",
+        objectName: "auth_users",
+      },
+    };
+    const change = tableChange({ schema: "public", name: "auth_users" });
+
+    // Call multiple times — should always return the same result
+    const r1 = resolveGroupName(change, filePath, compiled, false);
+    const r2 = resolveGroupName(change, filePath, compiled, false);
+    const r3 = resolveGroupName(change, filePath, compiled, false);
+    expect(r1).toBe("auth-group");
+    expect(r2).toBe("auth-group");
+    expect(r3).toBe("auth-group");
+  });
 });
 
 // ============================================================================
