@@ -12,7 +12,6 @@
     "check-types": "bun run --filter '*' check-types",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "bun run --filter '*' knip",
-    "test": "bun run --filter '*' test",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
     "version": "changeset version"
