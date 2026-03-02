@@ -214,13 +214,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const parentFile = output.files.find((file) =>
           file.path.includes("tables/measurements.sql"),
         );
-        const partitionFile = output.files.find((file) =>
-          file.path.includes("tables/measurements_2024.sql"),
-        );
         expect(parentFile).toBeDefined();
-        expect(partitionFile).toBeDefined();
-        expect(partitionFile?.sql).toContain("PARTITION OF");
-        expect(partitionFile?.sql).toContain("test_schema.measurements");
+        // Partition should be grouped with the parent table
+        expect(parentFile?.sql).toMatchInlineSnapshot(`
+          "CREATE TABLE test_schema.measurements (
+            id   integer,
+            date date
+          ) PARTITION BY RANGE (date);
+
+          CREATE TABLE test_schema.measurements_2024 PARTITION OF test_schema.measurements FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');"
+        `);
       }),
     );
 

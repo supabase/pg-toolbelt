@@ -29,6 +29,7 @@ import {
   type PostgresVersion,
 } from "../constants.ts";
 import { containerManager } from "../container-manager.js";
+import { applyDeclarativeSchema } from "../../src/core/declarative-apply/index.ts";
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
@@ -271,16 +272,16 @@ export async function testDeclarativeExport(
   if (initialSetup) {
     await expect(
       mainSession.query([...sessionConfig, initialSetup].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
     await expect(
       branchSession.query([...sessionConfig, initialSetup].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
   }
 
   if (testSql) {
     await expect(
       branchSession.query([...sessionConfig, testSql].join(";\n\n")),
-    ).resolves.not.toThrow();
+    ).resolves.toBeDefined();
   }
 
   // Use createPlan to get the plan result, then export declarative schema
@@ -318,7 +319,7 @@ export async function testDeclarativeExport(
     if (initialSetup) {
       await expect(
         testPool.query([...sessionConfig, initialSetup].join(";\n\n")),
-      ).resolves.not.toThrow();
+      ).resolves.toBeDefined();
     }
 
     const hasRoutineChanges = sortedChanges.some(
@@ -328,21 +329,20 @@ export async function testDeclarativeExport(
     if (hasRoutineChanges) {
       await expect(
         testPool.query("SET check_function_bodies = false"),
-      ).resolves.not.toThrow();
+      ).resolves.toBeDefined();
     }
 
-    for (const file of output.files) {
-      if (!file.sql.trim()) {
-        continue;
-      }
-      try {
-        await testPool.query(file.sql);
-      } catch (error) {
-        throw new Error(
-          `Declarative export execution failed for ${file.path} (order ${file.order})`,
-          { cause: error },
-        );
-      }
+    // Use declarative-apply to sort the output files and apply them to the database
+    const applyResult = await applyDeclarativeSchema({
+      content: output.files.map((file) => ({
+        filePath: file.path,
+        sql: file.sql,
+      })),
+      pool: testPool,
+      disableCheckFunctionBodies: true,
+    });
+    if (applyResult.apply.status !== "success") {
+      throw new Error("Declarative apply failed", { cause: applyResult });
     }
 
     const finalCatalog = await extractCatalog(testPool);

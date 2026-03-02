@@ -80,9 +80,11 @@ export function withDbSupabaseIsolated(
       new SupabasePostgreSqlContainer(image).start(),
     ]);
     const main = createPool(containerMain.getConnectionUri(), {
+      max: 1,
       onError: suppressShutdownError,
     });
     const branch = createPool(containerBranch.getConnectionUri(), {
+      max: 1,
       onError: suppressShutdownError,
     });
 

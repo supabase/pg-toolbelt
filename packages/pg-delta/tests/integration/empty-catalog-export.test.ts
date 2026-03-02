@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`empty catalog export (pg${pgVersion})`, () => {
@@ -64,7 +64,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test(
       "single-database export captures all user-created objects (Pool fallback)",
-      withDb(pgVersion, async (db) => {
+      withDbIsolated(pgVersion, async (db) => {
         await db.branch.query(`
           CREATE SCHEMA app;
           CREATE TABLE app.config (key text PRIMARY KEY, value text);
@@ -85,13 +85,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(singleDbResult.plan.target.fingerprint).toBe(
           twoDbResult.plan.target.fingerprint,
         );
-
-        // All user-created objects from the two-DB export must appear
-        // in the single-DB export (the single-DB result may include extra
-        // statements for default objects like plpgsql or default privileges)
-        for (const stmt of twoDbResult.plan.statements) {
-          expect(singleDbResult.plan.statements).toContain(stmt);
-        }
+        expect(twoDbResult.plan.statements).toEqual(
+          singleDbResult.plan.statements,
+        );
       }),
     );
   });
