@@ -195,9 +195,5 @@ export async function applyDeclarativeSchema(
   }
 }
 
-// Re-export types for convenience
-export type {
-  ApplyResult,
-  RoundResult,
-  StatementError,
-} from "./round-apply.ts";
+// Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
+export type { ApplyResult, RoundResult } from "./round-apply.ts";

@@ -367,7 +367,8 @@ export interface CompiledPattern {
   name: string;
 }
 
-export interface CompilePatternsResult {
+/** Result of compilePatterns: valid compiled patterns plus warnings for skipped/invalid regexes. */
+interface CompilePatternsResult {
   compiled: CompiledPattern[];
   warnings: string[];
 }

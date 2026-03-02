@@ -6,5 +6,6 @@
   "ignoreFiles": ["tests/global-setup.ts", "scripts/**/*.ts"],
   "ignoreIssues": {
     "src/core/objects/**/*.model.ts": ["types"]
-  }
+  },
+  "ignoreDependencies": ["@supabase/pg-topo"]
 }

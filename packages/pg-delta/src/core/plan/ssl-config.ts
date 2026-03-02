@@ -1,10 +1,14 @@
 /**
  * SSL configuration parsing for PostgreSQL connection URLs.
+ *
+ * Supports sslmode and certificate paths (URL params or env). Used by plan,
+ * apply, and catalog-export when connecting to source/target databases.
  */
 
 import { readFile } from "node:fs/promises";
 
-export type SslConfig = {
+/** Parsed SSL options for the pg client plus URL with SSL params stripped (internal). */
+type SslConfig = {
   ssl?:
     | boolean
     | {

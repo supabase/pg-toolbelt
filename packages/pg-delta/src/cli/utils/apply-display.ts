@@ -2,6 +2,10 @@
  * Display utilities for the declarative-apply command.
  *
  * Pure formatting and location-resolution functions — no CLI framework dependency.
+ * Used to:
+ * - Map pg-topo diagnostics into display items (optionally grouped by message/code).
+ * - Resolve statement IDs to file paths and line/column for error output.
+ * - Format StatementErrors in a pgAdmin-style multi-line block.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -9,7 +13,10 @@ import path from "node:path";
 import type { Diagnostic } from "@supabase/pg-topo";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
 
-/** Convert 1-based character offset in SQL to 1-based line and column. */
+/**
+ * Convert a 1-based character offset in a string to 1-based line and column.
+ * Used when mapping PostgreSQL error positions (in SQL) to file locations.
+ */
 export function positionToLineColumn(
   sql: string,
   position: number,
@@ -28,8 +35,12 @@ export function positionToLineColumn(
   return { line: last, column: lastLineLen + 1 };
 }
 
-/** Parse statement id "filePath:statementIndex" into components. */
-export function parseStatementId(
+/**
+ * Parse a statement id in the form "filePath:statementIndex" into components.
+ * The last colon separates path from index (paths may contain colons).
+ * Returns null if the format is invalid.
+ */
+function parseStatementId(
   id: string,
 ): { filePath: string; statementIndex: number } | null {
   const lastColon = id.lastIndexOf(":");
@@ -40,13 +51,15 @@ export function parseStatementId(
   return { filePath, statementIndex: n };
 }
 
+/** Input to buildDiagnosticDisplayItems: a pg-topo diagnostic plus optional location and object key. */
 export type DiagnosticDisplayEntry = {
   diagnostic: Diagnostic;
   location?: string;
   requiredObjectKey?: string;
 };
 
-export type DiagnosticDisplayItem = {
+/** One display row for a diagnostic (or a group of same-code diagnostics with multiple locations). */
+type DiagnosticDisplayItem = {
   code: string;
   message: string;
   suggestedFix?: string;
@@ -54,6 +67,7 @@ export type DiagnosticDisplayItem = {
   locations: string[];
 };
 
+/** Extract requiredObjectKey from a pg-topo diagnostic if present and non-empty. */
 export const requiredObjectKeyFromDiagnostic = (
   diagnostic: Diagnostic,
 ): string | undefined => {
@@ -61,6 +75,7 @@ export const requiredObjectKeyFromDiagnostic = (
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
+/** Build a stable key for grouping diagnostics with the same code, message, and suggested fix. */
 const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
   [
     entry.diagnostic.code,
@@ -69,6 +84,10 @@ const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
     entry.requiredObjectKey ?? "",
   ].join("\u0000");
 
+/**
+ * Turn diagnostic entries into display items. If grouped is true, entries with
+ * the same code/message/suggestedFix are merged into one item with multiple locations.
+ */
 export const buildDiagnosticDisplayItems = (
   entries: DiagnosticDisplayEntry[],
   grouped: boolean,
@@ -105,7 +124,9 @@ export const buildDiagnosticDisplayItems = (
 };
 
 /**
- * Resolve the full path to a .sql file from schema path (dir or single file) and relative file path.
+ * Resolve the full path to a .sql file from the schema path (directory or single file)
+ * and a relative file path (e.g. from a statement id). If schemaPath is a file, its
+ * directory is used as the base.
  */
 export async function resolveSqlFilePath(
   schemaPath: string,
@@ -121,8 +142,8 @@ export async function resolveSqlFilePath(
 }
 
 /**
- * Find the 0-based start offset of statementSql in fileContent. Tries exact match, then trimmed.
- * Returns -1 if not found.
+ * Find the 0-based start offset of statementSql in fileContent.
+ * Tries exact match first, then trimmed match. Returns -1 if not found.
  */
 function findStatementStartInFile(
   fileContent: string,
@@ -138,7 +159,8 @@ function findStatementStartInFile(
 }
 
 /**
- * Format a StatementError in pgAdmin-style. Resolves the .sql file and shows line/column in the file.
+ * Format a StatementError in pgAdmin-style: ERROR, Detail, SQL state, optional
+ * Context, Hint, and Location (resolving the .sql file and line/column when possible).
  */
 export async function formatStatementError(
   err: StatementError,
