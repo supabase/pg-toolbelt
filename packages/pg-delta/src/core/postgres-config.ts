@@ -103,6 +103,8 @@ types.setTypeParser(1007, (val: string) => parseArray(val, parseIntElement)); //
 // @ts-expect-error - pg types expects TypeId but raw OID numbers work fine
 types.setTypeParser(1016, (val: string) => parseArray(val, parseIntElement)); // int8[]
 
+const DEFAULT_POOL_MAX = Number(process.env.PGDELTA_POOL_MAX) || 5;
+
 /**
  * Options for creating a Pool with event listeners.
  */
@@ -125,7 +127,7 @@ export function createPool(
   options?: CreatePoolOptions,
 ): Pool {
   const { onConnect, onError, onAcquire, onRemove, ...config } = options ?? {};
-  const pool = new Pool({ connectionString, ...config });
+  const pool = new Pool({ connectionString, max: DEFAULT_POOL_MAX, ...config });
 
   if (onConnect) pool.on("connect", onConnect);
   if (onError) pool.on("error", onError);

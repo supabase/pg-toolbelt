@@ -24,6 +24,11 @@ const proc = Bun.spawn({
   ],
   cwd: pkgRoot,
   stdio: ["inherit", "inherit", "inherit"],
+  env: {
+    ...process.env,
+    // Limit the number of pool connections to 1 to avoid overwhelming the alpine containers
+    PGDELTA_POOL_MAX: "1",
+  },
 });
 
 const exitCode = await proc.exited;
