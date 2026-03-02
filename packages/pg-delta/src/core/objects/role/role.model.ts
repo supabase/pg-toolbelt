@@ -18,6 +18,7 @@ const defaultPrivilegeSchema = z.object({
   privileges: z.array(
     z.object({ privilege: z.string(), grantable: z.boolean() }),
   ),
+  is_implicit: z.boolean(),
 });
 
 const rolePropsSchema = z.object({
@@ -95,15 +96,18 @@ export class Role extends BasePgModel {
       );
     });
 
-    const sortedDefaultPrivs = [...this.default_privileges].map((dp) => ({
-      ...dp,
-      privileges: [...dp.privileges].sort((a, b) => {
-        return (
-          a.privilege.localeCompare(b.privilege) ||
-          Number(a.grantable) - Number(b.grantable)
-        );
-      }),
-    }));
+    const sortedDefaultPrivs = [...this.default_privileges].map((dp) => {
+      const { is_implicit: _, ...rest } = dp;
+      return {
+        ...rest,
+        privileges: [...dp.privileges].sort((a, b) => {
+          return (
+            a.privilege.localeCompare(b.privilege) ||
+            Number(a.grantable) - Number(b.grantable)
+          );
+        }),
+      };
+    });
     sortedDefaultPrivs.sort((a, b) => {
       return (
         (a.in_schema ?? "").localeCompare(b.in_schema ?? "") ||
@@ -202,7 +206,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                                     THEN 'PUBLIC'
                                     ELSE s.grantee::regrole::text
                             END,
-                          'privileges', s.privileges
+                          'privileges', s.privileges,
+                          'is_implicit', s.is_implicit
                         )
                         ORDER BY s.defaclnamespace NULLS FIRST,
                                   s.defaclobjtype,
@@ -220,7 +225,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                         'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
-                    ) AS privileges
+                    ) AS privileges,
+                    false AS is_implicit
                   FROM pg_default_acl d
                   CROSS JOIN LATERAL aclexplode(COALESCE(d.defaclacl, ARRAY[]::aclitem[]))
                     AS x(grantor, grantee, privilege_type, is_grantable)
@@ -242,7 +248,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                         'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
-                    ) AS privileges
+                    ) AS privileges,
+                    true AS is_implicit
                   FROM (VALUES ('r'), ('S'), ('f'), ('T'), ('n')) AS v(t)
                   CROSS JOIN LATERAL aclexplode(acldefault(v.t::"char", r.oid))
                     AS x(grantor, grantee, privilege_type, is_grantable)
@@ -320,7 +327,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                                     THEN 'PUBLIC'
                                     ELSE s.grantee::regrole::text
                             END,
-                          'privileges', s.privileges
+                          'privileges', s.privileges,
+                          'is_implicit', s.is_implicit
                         )
                         ORDER BY s.defaclnamespace NULLS FIRST,
                                   s.defaclobjtype,
@@ -338,7 +346,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                         'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
-                    ) AS privileges
+                    ) AS privileges,
+                    false AS is_implicit
                   FROM pg_default_acl d
                   CROSS JOIN LATERAL aclexplode(COALESCE(d.defaclacl, ARRAY[]::aclitem[]))
                     AS x(grantor, grantee, privilege_type, is_grantable)
@@ -360,7 +369,8 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                         'grantable',  x.is_grantable
                       )
                       ORDER BY x.privilege_type, x.is_grantable
-                    ) AS privileges
+                    ) AS privileges,
+                    true AS is_implicit
                   FROM (VALUES ('r'), ('S'), ('f'), ('T'), ('n')) AS v(t)
                   CROSS JOIN LATERAL aclexplode(acldefault(v.t::"char", r.oid))
                     AS x(grantor, grantee, privilege_type, is_grantable)

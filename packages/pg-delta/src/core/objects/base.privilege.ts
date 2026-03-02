@@ -164,7 +164,7 @@ export function getObjectKindPrefix(objectKind: string): string {
     case "TYPE":
       return "ON TYPE";
     case "FOREIGN TABLE":
-      return "ON FOREIGN TABLE";
+      return "ON TABLE";
     default:
       return "ON";
   }

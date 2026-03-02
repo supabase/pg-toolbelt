@@ -67,6 +67,7 @@ export function diffRoles(
     }
     // DEFAULT PRIVILEGES: Grant default privileges immediately after role creation
     for (const defaultPriv of role.default_privileges) {
+      if (defaultPriv.is_implicit) continue;
       if (defaultPriv.privileges.length === 0) continue;
       const grantGroups = new Map<
         boolean,
