@@ -10,6 +10,7 @@ import { diffCatalogs } from "../../src/core/catalog.diff.ts";
 import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import { extractVersion } from "../../src/core/context.ts";
+import { applyDeclarativeSchema } from "../../src/core/declarative-apply/index.ts";
 import type { PgDepend } from "../../src/core/depend.ts";
 import {
   type ExportOptions,
@@ -29,7 +30,6 @@ import {
   type PostgresVersion,
 } from "../constants.ts";
 import { containerManager } from "../container-manager.js";
-import { applyDeclarativeSchema } from "../../src/core/declarative-apply/index.ts";
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
