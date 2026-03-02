@@ -164,6 +164,7 @@ export async function extractCompositeTypes(
           c.relowner::regrole::text           AS owner,
           obj_description(c.reltype, 'pg_type') AS comment,
           c.relacl                            AS relacl,    -- used by privileges LATERAL
+          c.relowner                          AS relowner,
           c.oid                                AS oid
         FROM pg_catalog.pg_class c
         LEFT JOIN extension_oids e ON c.reltype = e.objid
@@ -201,7 +202,7 @@ export async function extractCompositeTypes(
                 )
                 ORDER BY x.grantee, x.privilege_type
               ) AS privileges
-        FROM LATERAL aclexplode(ct.relacl) AS x(grantor, grantee, privilege_type, is_grantable)
+        FROM LATERAL aclexplode(COALESCE(ct.relacl, acldefault('T', ct.relowner))) AS x(grantor, grantee, privilege_type, is_grantable)
       ) priv ON TRUE
 
       -- columns as a per-row LATERAL subquery (so no GROUP BY needed)

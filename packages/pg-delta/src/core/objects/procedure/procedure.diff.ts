@@ -96,7 +96,7 @@ export function diffProcedures(
     // and shouldn't be compared. Note: we use the final owner (proc.owner), not the
     // current user, because ownership change happens before privilege diffing.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("procedure", creatorFilteredDefaults),
       desiredPrivileges,
       proc.owner,
     );

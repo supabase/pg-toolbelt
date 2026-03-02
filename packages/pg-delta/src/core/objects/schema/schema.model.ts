@@ -86,7 +86,7 @@ export async function extractSchemas(pool: Pool): Promise<Schema[]> {
             )
             order by x.grantee, x.privilege_type
           )
-          from lateral aclexplode(nspacl) as x(grantor, grantee, privilege_type, is_grantable)
+          from lateral aclexplode(COALESCE(nspacl, acldefault('n', nspowner))) as x(grantor, grantee, privilege_type, is_grantable)
         ), '[]'
       ) as privileges
     from

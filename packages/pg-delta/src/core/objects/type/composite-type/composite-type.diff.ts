@@ -106,7 +106,7 @@ export function diffCompositeTypes(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the composite type owner as the reference.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("composite_type", creatorFilteredDefaults),
       desiredPrivileges,
       ct.owner,
     );

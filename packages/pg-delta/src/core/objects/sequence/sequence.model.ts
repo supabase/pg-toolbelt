@@ -148,7 +148,7 @@ select
         )
         order by x.grantee, x.privilege_type
       )
-      from lateral aclexplode(c.relacl) as x(grantor, grantee, privilege_type, is_grantable)
+      from lateral aclexplode(COALESCE(c.relacl, acldefault('S', c.relowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
   ) as privileges,
   c.relowner::regrole::text as owner

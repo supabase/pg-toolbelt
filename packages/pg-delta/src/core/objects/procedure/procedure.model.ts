@@ -242,7 +242,7 @@ select
         )
         order by x.grantee, x.privilege_type
       )
-      from lateral aclexplode(p.proacl) as x(grantor, grantee, privilege_type, is_grantable)
+      from lateral aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
   ) as privileges
 from

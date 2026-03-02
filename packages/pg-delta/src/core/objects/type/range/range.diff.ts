@@ -87,7 +87,7 @@ export function diffRanges(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the range owner as the reference.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("range", creatorFilteredDefaults),
       desiredPrivileges,
       createdRange.owner,
     );

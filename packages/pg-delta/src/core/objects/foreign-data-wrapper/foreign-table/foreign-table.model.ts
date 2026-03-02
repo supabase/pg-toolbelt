@@ -196,7 +196,7 @@ export async function extractForeignTables(
             from (
               -- one row for object ACL + one row per column ACL
               select null::name as attname, ft.oid as relacl_oid, (
-                select c_rel.relacl from pg_class c_rel where c_rel.oid = ft.oid
+                select COALESCE(c_rel.relacl, acldefault('r', c_rel.relowner)) from pg_class c_rel where c_rel.oid = ft.oid
               ) as acl
               union all
               select a2.attname, ft.oid as relacl_oid, a2.attacl

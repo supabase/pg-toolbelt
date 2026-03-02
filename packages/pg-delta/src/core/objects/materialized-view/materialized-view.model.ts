@@ -221,7 +221,7 @@ select
           filter (where src.attname is not null) as cols
       from (
         -- one row for object ACL + one row per column ACL
-        select null::name as attname, c.relacl as acl
+        select null::name as attname, COALESCE(c.relacl, acldefault('r', c.relowner)) as acl
         union all
         select a2.attname, a2.attacl
         from pg_attribute a2

@@ -67,7 +67,7 @@ const SUPABASE_SYSTEM_ROLES = [
  * Then import and assign the JSON content to the emptyCatalog field below.
  */
 export const supabase: IntegrationDSL = {
-  // emptyCatalog: undefined -- populate by running catalog-export on a clean Supabase container
+  // TODO: emptyCatalog: undefined -- populate by running catalog-export on a clean Supabase container
   filter: {
     or: [
       {

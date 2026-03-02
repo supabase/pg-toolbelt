@@ -89,7 +89,7 @@ export function diffForeignTables(
       createdTable.privileges,
     );
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("foreign_table", creatorFilteredDefaults),
       desiredPrivileges,
       createdTable.owner,
     );

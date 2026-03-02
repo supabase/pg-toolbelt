@@ -89,7 +89,7 @@ export function diffEnums(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the enum owner as the reference.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("enum", creatorFilteredDefaults),
       desiredPrivileges,
       createdEnum.owner,
     );
@@ -185,7 +185,7 @@ export function diffEnums(
         branchEnum.privileges,
       );
       const privilegeResults = diffPrivileges(
-        creatorFilteredDefaults,
+        filterPublicBuiltInDefaults("enum", creatorFilteredDefaults),
         desiredPrivileges,
         branchEnum.owner,
       );

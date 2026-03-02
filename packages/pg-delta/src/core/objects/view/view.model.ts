@@ -244,7 +244,7 @@ select
       from (
         -- one row for object ACL + one row per column ACL
         select null::name as attname, v.oid as relacl_oid, (
-          select c_rel.relacl from pg_class c_rel where c_rel.oid = v.oid
+          select COALESCE(c_rel.relacl, acldefault('r', c_rel.relowner)) from pg_class c_rel where c_rel.oid = v.oid
         ) as acl
         union all
         select a2.attname, v.oid as relacl_oid, a2.attacl

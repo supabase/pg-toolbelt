@@ -113,7 +113,7 @@ export function diffDomains(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the domain owner as the reference.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("domain", creatorFilteredDefaults),
       desiredPrivileges,
       newDomain.owner,
     );

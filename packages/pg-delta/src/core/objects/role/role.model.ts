@@ -226,9 +226,7 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                     AS x(grantor, grantee, privilege_type, is_grantable)
                   WHERE d.defaclrole = r.oid
                   GROUP BY d.defaclnamespace, d.defaclobjtype, x.grantee
-
                   UNION ALL
-
                   -- Implicit defaults from acldefault() for objtypes without a
                   -- global pg_default_acl entry.  PostgreSQL applies these implicit
                   -- defaults (e.g. PUBLIC gets EXECUTE on functions) when no
@@ -346,9 +344,7 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
                     AS x(grantor, grantee, privilege_type, is_grantable)
                   WHERE d.defaclrole = r.oid
                   GROUP BY d.defaclnamespace, d.defaclobjtype, x.grantee
-
                   UNION ALL
-
                   -- Implicit defaults from acldefault() for objtypes without a
                   -- global pg_default_acl entry.  PostgreSQL applies these implicit
                   -- defaults (e.g. PUBLIC gets EXECUTE on functions) when no

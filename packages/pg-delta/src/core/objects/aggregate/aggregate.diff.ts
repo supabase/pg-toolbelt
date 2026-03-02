@@ -79,7 +79,7 @@ export function diffAggregates(
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the aggregate owner as the reference.
     const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
+      filterPublicBuiltInDefaults("aggregate", creatorFilteredDefaults),
       desiredPrivileges,
       aggregate.owner,
     );
