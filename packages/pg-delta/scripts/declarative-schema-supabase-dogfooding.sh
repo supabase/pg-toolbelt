@@ -1,13 +1,14 @@
 #!/bin/bash
 set -e
 
-CONTAINER_NAME="pgdelta-dogfooding"
-CONTAINER_PORT=6544
+CONTAINER_NAME="${CONTAINER_NAME:-pgdelta-dogfooding}"
+CONTAINER_PORT="${CONTAINER_PORT:-6544}"
 ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
-DB_NAME="postgres"
+DB_NAME="${DB_NAME:-postgres}"
 DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
 
 TARGET_URL="${TARGET_URL:-postgres://postgres:postgres@db.platform.orb.local:5432/postgres}"
+INIT_DB_DIR="${INIT_DB_DIR:?INIT_DB_DIR must be set (path to docker-entrypoint-initdb.d contents)}"
 OUTPUT_DIR="${OUTPUT_DIR:-./declarative-schemas}"
 BASELINE_SNAPSHOT="${BASELINE_SNAPSHOT:-./baseline-catalog.json}"
 FILTER_DSL="${FILTER_DSL:-$DEFAULT_FILTER}"
@@ -27,7 +28,7 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 docker run -d --name "$CONTAINER_NAME" \
   -e POSTGRES_PASSWORD=postgres \
   -p "${CONTAINER_PORT}:5432" \
-  -v /Users/avallete/Documents/Programming/Supa/platform/worker/db/mnt:/docker-entrypoint-initdb.d \
+  -v "${INIT_DB_DIR}:/docker-entrypoint-initdb.d" \
   platform-db
 
 echo "Waiting for platform-db to be ready..."

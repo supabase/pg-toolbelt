@@ -94,7 +94,7 @@ function ruleChange(opts: {
 
 describe("compilePatterns", () => {
   test("compiles string patterns to RegExp", () => {
-    const compiled = compilePatterns([
+    const { compiled } = compilePatterns([
       { pattern: "^project", name: "project" },
     ]);
     expect(compiled).toHaveLength(1);
@@ -105,13 +105,13 @@ describe("compilePatterns", () => {
 
   test("passes RegExp patterns through unchanged", () => {
     const re = /^kubernetes/;
-    const compiled = compilePatterns([{ pattern: re, name: "kubernetes" }]);
+    const { compiled } = compilePatterns([{ pattern: re, name: "kubernetes" }]);
     expect(compiled[0].regex).toBe(re);
   });
 
   test("strips /g flag to prevent stateful .test()", () => {
     const patterns = [{ pattern: /^auth/g, name: "auth-group" }];
-    const compiled = compilePatterns(patterns);
+    const { compiled } = compilePatterns(patterns);
     const filePath: FilePath = {
       path: "schemas/public/tables/auth_users.sql",
       category: "tables",
@@ -131,6 +131,17 @@ describe("compilePatterns", () => {
     expect(r2).toBe("auth-group");
     expect(r3).toBe("auth-group");
   });
+
+  test("reports warnings for invalid regex patterns", () => {
+    const { compiled, warnings } = compilePatterns([
+      { pattern: "[invalid(", name: "bad" },
+      { pattern: "^valid", name: "good" },
+    ]);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0].name).toBe("good");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("[invalid(");
+  });
 });
 
 // ============================================================================
@@ -147,7 +158,9 @@ describe("resolveGroupName", () => {
       metadata: { objectType: "role" },
     };
     const change = { objectType: "role" } as unknown as Change;
-    const patterns = compilePatterns([{ pattern: /role/, name: "role" }]);
+    const { compiled: patterns } = compilePatterns([
+      { pattern: /role/, name: "role" },
+    ]);
     expect(resolveGroupName(change, filePath, patterns, true)).toBeNull();
   });
 
@@ -201,7 +214,7 @@ describe("resolveGroupName", () => {
         parentName: "kubernetes_resource_events",
         parentSchema: "public",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /^kubernetes/, name: "kubernetes" },
       ]);
       expect(
@@ -222,7 +235,7 @@ describe("resolveGroupName", () => {
         parentName: "events",
         parentSchema: "public",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /^unrelated/, name: "unrelated" },
       ]);
       expect(
@@ -236,7 +249,7 @@ describe("resolveGroupName", () => {
   describe("regex patterns", () => {
     test("matches prefix-style regex", () => {
       const change = tableChange({ schema: "public", name: "project_claim" });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /^project/, name: "project" },
       ]);
       expect(
@@ -249,7 +262,7 @@ describe("resolveGroupName", () => {
         schema: "public",
         name: "get_organization_role",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /organization/, name: "organization" },
       ]);
       expect(
@@ -267,7 +280,7 @@ describe("resolveGroupName", () => {
         schema: "public",
         name: "access_tokens",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /tokens$/, name: "tokens" },
       ]);
       expect(
@@ -277,7 +290,9 @@ describe("resolveGroupName", () => {
 
     test("matches plurals with prefix regex (users matches /^user/)", () => {
       const change = tableChange({ schema: "public", name: "users" });
-      const patterns = compilePatterns([{ pattern: /^user/, name: "user" }]);
+      const { compiled: patterns } = compilePatterns([
+        { pattern: /^user/, name: "user" },
+      ]);
       expect(resolveGroupName(change, tableFP("users"), patterns, false)).toBe(
         "user",
       );
@@ -289,7 +304,7 @@ describe("resolveGroupName", () => {
         name: "organization_members",
       });
       // Both patterns match; first one wins.
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /^organization/, name: "org-prefix" },
         { pattern: /organization/, name: "org-contains" },
       ]);
@@ -308,7 +323,7 @@ describe("resolveGroupName", () => {
         schema: "public",
         name: "access_tokens",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: /^project/, name: "project" },
         { pattern: /tokens$/, name: "tokens" },
       ]);
@@ -322,7 +337,7 @@ describe("resolveGroupName", () => {
         schema: "public",
         name: "billing_invoices",
       });
-      const patterns = compilePatterns([
+      const { compiled: patterns } = compilePatterns([
         { pattern: "^billing", name: "billing" },
       ]);
       expect(

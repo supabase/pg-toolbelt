@@ -41,6 +41,8 @@ export interface ExportOptions {
    * Supports automatic partition detection and/or explicit prefix lists.
    */
   grouping?: Grouping;
+  /** Callback for non-fatal warnings (e.g. invalid grouping regex patterns). */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -81,7 +83,7 @@ export function exportDeclarativeSchema(
   );
   const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
 
-  const mapper = createFileMapper(options?.grouping);
+  const mapper = createFileMapper(options?.grouping, options?.onWarning);
   const groups = groupChangesByFile(sortedChanges, mapper);
   const files = groups.map((group, index) => {
     const statements = group.changes.map((change) =>

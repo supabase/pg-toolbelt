@@ -7,6 +7,7 @@ ADMIN_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/postgres"
 DB_NAME="${DB_NAME:-postgres}"
 DB_URL="postgres://postgres:postgres@localhost:${CONTAINER_PORT}/${DB_NAME}"
 TARGET_URL="${TARGET_URL:-postgres://postgres:postgres@db.platform.orb.local:5432/postgres}"
+INIT_DB_DIR="${INIT_DB_DIR:?INIT_DB_DIR must be set (path to docker-entrypoint-initdb.d contents)}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-./declarative-schemas}"
 MIGRATION_OUTPUT="${MIGRATION_OUTPUT:-./declarative-migration.sql}"
@@ -24,7 +25,7 @@ docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker run -d --name "$CONTAINER_NAME" \
   -e POSTGRES_PASSWORD=postgres \
   -p "${CONTAINER_PORT}:5432" \
-  -v /Users/avallete/Documents/Programming/Supa/platform/worker/db/mnt:/docker-entrypoint-initdb.d \
+  -v "${INIT_DB_DIR}:/docker-entrypoint-initdb.d" \
   platform-db >/dev/null
 
 echo "Waiting for platform-db to be ready..."
@@ -34,13 +35,13 @@ done
 # Give init scripts a moment to finish.
 sleep 2
 
-echo "[3/4] Applying declarative schema from '$OUTPUT_DIR' to fresh database..."
+echo "[2/4] Applying declarative schema from '$OUTPUT_DIR' to fresh database..."
 DEBUG="${DEBUG:-pg-delta:declarative-apply}" bun pgdelta declarative apply \
   --path "$OUTPUT_DIR" \
   --target "$DB_URL" \
   --no-validate-functions
 
-echo "[4/4] Generating migration SQL (current DB -> declarative target)..."
+echo "[3/4] Generating migration SQL (current DB -> declarative target)..."
 mkdir -p "$(dirname "$MIGRATION_OUTPUT")"
 PLAN_OPTS=(--source "$TARGET_URL" --target "$DB_URL")
 if [ -n "${INTEGRATION:-}" ]; then

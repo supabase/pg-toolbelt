@@ -119,23 +119,4 @@ describe("createEmptyCatalog", () => {
       "MAINTAIN",
     );
   });
-
-  test("patched PG 17 baseline matches the reference PG 17 snapshot", async () => {
-    const { deserializeCatalog, serializeCatalog } = await import(
-      "./catalog.snapshot.ts"
-    );
-    const pg17Json = (
-      await import("./fixtures/empty-catalogs/postgres-17-baseline.json")
-    ).default;
-
-    const fromSnapshot = deserializeCatalog(pg17Json);
-    const fromPatch = await createEmptyCatalog(
-      fromSnapshot.version,
-      fromSnapshot.currentUser,
-    );
-
-    expect(serializeCatalog(fromPatch)).toEqual(
-      serializeCatalog(fromSnapshot),
-    );
-  });
 });

@@ -6,6 +6,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
+import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
 import { exportDeclarativeSchema } from "../../core/export/index.ts";
 import type { Grouping, GroupingPattern } from "../../core/export/types.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
@@ -20,7 +21,6 @@ import {
   formatExportSummary,
 } from "../utils/export-display.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
-import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 
 function parseJsonFlag<T>(label: string, value: string): T {
@@ -258,6 +258,9 @@ After export, a tip is printed with the command to apply the schema to an empty 
         serializeFn !== undefined ? { serialize: serializeFn } : undefined,
       formatOptions: flags["format-options"] ?? undefined,
       grouping,
+      onWarning: (msg) => {
+        this.process.stderr.write(chalk.yellow(`Warning: ${msg}\n`));
+      },
     });
 
     const outputDir = path.resolve(flags.output);

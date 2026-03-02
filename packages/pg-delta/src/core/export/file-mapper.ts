@@ -36,7 +36,9 @@ function isRoleDefaultPrivilegeChange(
 function requireSchema(change: Change): string {
   const schema = getObjectSchema(change);
   if (!schema) {
-    throw new Error(`Expected schema for ${change.objectType} change`);
+    throw new Error(
+      `Expected schema for ${change.objectType} change '${getObjectName(change)}' (operation: ${change.operation})`,
+    );
   }
   return schema;
 }
@@ -304,7 +306,9 @@ export function getFilePath(change: Change): FilePath {
       const schema = requireSchema(change);
       const parent = getParentInfo(change);
       if (!parent) {
-        throw new Error("Expected parent for index change");
+        throw new Error(
+          `Expected parent for index '${getObjectName(change)}' in schema '${schema}'`,
+        );
       }
       const parentName = parent.name;
       const category =
@@ -325,7 +329,9 @@ export function getFilePath(change: Change): FilePath {
       const schema = requireSchema(change);
       const parent = getParentInfo(change);
       if (!parent) {
-        throw new Error(`Expected parent for ${change.objectType} change`);
+        throw new Error(
+          `Expected parent for ${change.objectType} '${getObjectName(change)}' in schema '${schema}'`,
+        );
       }
       const parentName = parent.name;
       const category =
@@ -361,26 +367,31 @@ export interface CompiledPattern {
   name: string;
 }
 
+export interface CompilePatternsResult {
+  compiled: CompiledPattern[];
+  warnings: string[];
+}
+
 /**
  * Compile user-facing `GroupingPattern[]` into `CompiledPattern[]`.
  * Strings are turned into `new RegExp(str)`. Invalid regex strings are skipped
- * (no throw), so the returned array may be shorter than the input.
+ * (no throw), so the returned `compiled` array may be shorter than the input.
+ * Any skipped patterns are reported in `warnings`.
  */
 export function compilePatterns(
   patterns: import("./types.ts").GroupingPattern[],
-): CompiledPattern[] {
-  const result: CompiledPattern[] = [];
+): CompilePatternsResult {
+  const compiled: CompiledPattern[] = [];
+  const warnings: string[] = [];
   for (const p of patterns) {
     let regex: RegExp;
     if (typeof p.pattern === "string") {
       try {
         regex = new RegExp(p.pattern);
       } catch (e) {
-        debugExport(
-          "skipping invalid grouping regex %s: %s",
-          p.pattern,
-          e instanceof Error ? e.message : String(e),
-        );
+        const msg = `Skipping invalid grouping regex '${p.pattern}': ${e instanceof Error ? e.message : String(e)}`;
+        debugExport(msg);
+        warnings.push(msg);
         continue;
       }
     } else {
@@ -392,9 +403,9 @@ export function compilePatterns(
           ? new RegExp(p.pattern.source, flags)
           : p.pattern;
     }
-    result.push({ regex, name: p.name });
+    compiled.push({ regex, name: p.name });
   }
-  return result;
+  return { compiled, warnings };
 }
 
 /**
@@ -406,14 +417,13 @@ export function compilePatterns(
  */
 export function createFileMapper(
   grouping?: Grouping,
+  onWarning?: (message: string) => void,
 ): (change: Change) => FilePath {
   if (!grouping) return getFilePath;
 
-  let compiled: CompiledPattern[];
-  try {
-    compiled = compilePatterns(grouping.groupPatterns ?? []);
-  } catch {
-    compiled = [];
+  const { compiled, warnings } = compilePatterns(grouping.groupPatterns ?? []);
+  for (const w of warnings) {
+    onWarning?.(w);
   }
   const autoPartitions = grouping.autoGroupPartitions !== false; // default true
   const flatSet = new Set(grouping.flatSchemas ?? []);

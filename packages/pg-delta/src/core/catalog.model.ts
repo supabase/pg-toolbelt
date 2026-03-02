@@ -220,6 +220,11 @@ async function getPg17Baseline(): Promise<Catalog> {
         const insertIdx = relPrivs.privileges.findIndex(
           (p) => p.privilege === "INSERT",
         );
+        if (insertIdx === -1) {
+          throw new Error(
+            "PG17 baseline patch failed: INSERT privilege not found in default relation privileges",
+          );
+        }
         relPrivs.privileges.splice(insertIdx + 1, 0, {
           privilege: "MAINTAIN",
           grantable: false,

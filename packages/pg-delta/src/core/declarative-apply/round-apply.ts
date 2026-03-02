@@ -107,8 +107,14 @@ const DEPENDENCY_ERROR_CODES = new Set([
 ]);
 
 /**
- * SQLSTATE codes / patterns that indicate an environment/capability limitation
- * rather than a real schema error. These statements are skipped (not retried).
+ * Detect errors caused by environment/capability limitations rather than
+ * schema bugs. These statements are skipped permanently (not retried).
+ *
+ * Strategy: SQLSTATE codes are the primary gate (fast, stable). For codes
+ * reused across unrelated error conditions (e.g. 42710 = "duplicate object"
+ * covers both roles and extensions), the error message is used as a secondary
+ * disambiguator. Messages are lowercased before matching to handle
+ * case-sensitivity differences across PG versions.
  */
 function isEnvironmentCapabilityError(
   code: string | undefined,
