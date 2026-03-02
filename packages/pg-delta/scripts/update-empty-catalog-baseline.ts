@@ -11,8 +11,8 @@ import {
   stringifyCatalogSnapshot,
 } from "../src/core/catalog.snapshot.ts";
 import { createPool, endPool } from "../src/core/postgres-config.ts";
-import { PostgresAlpineContainer } from "../tests/postgres-alpine.ts";
 import { POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG } from "../tests/constants.ts";
+import { PostgresAlpineContainer } from "../tests/postgres-alpine.ts";
 
 const PG_VERSION = 15;
 const OUTPUT_RELATIVE =
