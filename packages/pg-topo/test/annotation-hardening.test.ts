@@ -86,4 +86,67 @@ create function app.caller() returns void language sql as $$ select null $$;
     expect(ref?.signature).toBe("(int,uuid)");
     expect(result.diagnostics).toHaveLength(0);
   });
+
+  test("reports invalid phase value with suggested fix", () => {
+    const sql = `
+-- pg-topo:phase invalid_phase
+create schema app;
+`;
+    const result = parseAnnotations(sql);
+    const invalid = result.diagnostics.find((d) =>
+      d.message.includes("Invalid phase annotation"),
+    );
+    expect(invalid).toBeDefined();
+    expect(invalid?.suggestedFix).toContain("bootstrap");
+  });
+
+  test("parses valid depends_on with schema-qualified table names", () => {
+    const sql = `
+-- pg-topo:depends_on public.t1, app.t2
+create table public.t(id int);
+`;
+    const result = parseAnnotations(sql);
+    expect(result.annotations.dependsOn).toHaveLength(2);
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
+  test("reports unknown annotation directive", () => {
+    const sql = `
+-- pg-topo:unknown_directive value
+create schema app;
+`;
+    const result = parseAnnotations(sql);
+    const invalid = result.diagnostics.find((d) =>
+      d.message.includes("Unknown annotation directive"),
+    );
+    expect(invalid).toBeDefined();
+  });
+
+  test("reports invalid requires when object kind is unknown", () => {
+    const sql = `
+-- pg-topo:requires unknownkind:public.t
+select 1;
+`;
+    const result = parseAnnotations(sql);
+    const invalid = result.diagnostics.find(
+      (d) =>
+        d.message.includes("Unknown object kind") ||
+        d.message.includes("Invalid requires"),
+    );
+    expect(invalid).toBeDefined();
+  });
+
+  test("reports invalid requires when kind:value has no colon or missing object name", () => {
+    const sql = `
+-- pg-topo:requires table
+select 1;
+`;
+    const result = parseAnnotations(sql);
+    const invalid = result.diagnostics.find(
+      (d) =>
+        d.code === "INVALID_ANNOTATION" &&
+        (d.message.includes("Expected") || d.message.includes("Invalid")),
+    );
+    expect(invalid).toBeDefined();
+  });
 });

@@ -15,4 +15,32 @@ describe("parseSqlContent", () => {
     expect(/\s/.test(content[offset] ?? "")).toBe(false);
     expect(content.slice(offset).startsWith("create")).toBe(true);
   });
+
+  test("reports PARSE_ERROR and empty statements when SQL is invalid", async () => {
+    const content = "select * from invalid syntax {{{";
+    const result = await parseSqlContent(content, "bad.sql");
+    expect(result.statements).toHaveLength(0);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe("PARSE_ERROR");
+    expect(result.diagnostics[0]?.statementId).toEqual({
+      filePath: "bad.sql",
+      statementIndex: 0,
+    });
+  });
+
+  test("merges annotation diagnostics with statementId", async () => {
+    const content = `
+-- pg-topo:phase bootstrap
+-- pg-topo:phase privileges
+create schema app;
+`;
+    const result = await parseSqlContent(content, "annot.sql");
+    expect(result.statements).toHaveLength(1);
+    const invalidAnnotations = result.diagnostics.filter(
+      (d) => d.code === "INVALID_ANNOTATION",
+    );
+    expect(invalidAnnotations.length).toBeGreaterThan(0);
+    expect(invalidAnnotations[0]?.statementId?.filePath).toBe("annot.sql");
+    expect(invalidAnnotations[0]?.statementId?.statementIndex).toBe(0);
+  });
 });

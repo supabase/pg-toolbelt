@@ -191,6 +191,22 @@ describe("diagnostics", () => {
     expect(unresolved.length).toBeGreaterThan(0);
   });
 
+  test("multiple producers for same constraint add requires_constraint_key edges", async () => {
+    const result = await analyzeAndSort([
+      "create schema app;",
+      "create table app.t(id int primary key);",
+      "create table app.t(id int primary key, x int);",
+      "create table app.ref(id int references app.t(id));",
+    ]);
+    const duplicateTable = result.diagnostics.filter(
+      (d) => d.code === "DUPLICATE_PRODUCER",
+    );
+    expect(duplicateTable.length).toBeGreaterThan(0);
+    expect(
+      result.graph.edges.some((e) => e.reason === "requires_constraint_key"),
+    ).toBe(true);
+  });
+
   test("comment on trigger and policy resolve to existing producers", async () => {
     const sql = [
       "create schema auth;",
