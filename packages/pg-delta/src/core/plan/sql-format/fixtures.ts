@@ -1253,6 +1253,7 @@ const role = new Role({
       objtype: "r",
       grantee: "app_reader",
       privileges: [{ privilege: "SELECT", grantable: false }],
+      is_implicit: false,
     },
   ],
 });

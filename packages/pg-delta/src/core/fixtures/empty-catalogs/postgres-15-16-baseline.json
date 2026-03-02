@@ -1,5 +1,5 @@
 {
-  "version": 150017,
+  "version": 150014,
   "currentUser": "postgres",
   "aggregates": {},
   "collations": {},
@@ -51,7 +51,8 @@
               "privilege": "USAGE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -62,7 +63,8 @@
               "privilege": "USAGE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -73,7 +75,8 @@
               "privilege": "USAGE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -84,7 +87,8 @@
               "privilege": "EXECUTE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -95,7 +99,8 @@
               "privilege": "EXECUTE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -110,7 +115,8 @@
               "privilege": "USAGE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         },
         {
           "in_schema": null,
@@ -145,7 +151,8 @@
               "privilege": "UPDATE",
               "grantable": false
             }
-          ]
+          ],
+          "is_implicit": true
         }
       ]
     }

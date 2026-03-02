@@ -184,10 +184,12 @@ After export, a tip is printed with the command to apply the schema to an empty 
       verbose?: boolean;
     },
   ) {
-    const { compileFilterDSL } =
-      await import("../../core/integrations/filter/dsl.ts");
-    const { compileSerializeDSL } =
-      await import("../../core/integrations/serialize/dsl.ts");
+    const { compileFilterDSL } = await import(
+      "../../core/integrations/filter/dsl.ts"
+    );
+    const { compileSerializeDSL } = await import(
+      "../../core/integrations/serialize/dsl.ts"
+    );
 
     let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
     let serializeOption: SerializeDSL | ChangeSerializer | undefined =
