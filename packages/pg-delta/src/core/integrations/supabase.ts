@@ -58,7 +58,16 @@ const SUPABASE_SYSTEM_ROLES = [
   "supabase_superuser",
 ] as const;
 
+/**
+ * To generate the emptyCatalog snapshot, run catalog-export against a fresh
+ * supabase/postgres container:
+ *
+ *   pgdelta catalog-export --target postgres://postgres:postgres@localhost:54322/postgres --output supabase-baseline.json
+ *
+ * Then import and assign the JSON content to the emptyCatalog field below.
+ */
 export const supabase: IntegrationDSL = {
+  // emptyCatalog: undefined -- populate by running catalog-export on a clean Supabase container
   filter: {
     or: [
       {

@@ -5,8 +5,11 @@
 import type { Pool } from "pg";
 import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
-import type { Catalog } from "../catalog.model.ts";
-import { extractCatalog } from "../catalog.model.ts";
+import {
+  Catalog,
+  createEmptyCatalog,
+  extractCatalog,
+} from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
@@ -31,91 +34,94 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
 // ============================================================================
 
 /**
- * Create a migration plan by comparing two databases.
+ * Input for source/target: a postgres connection URL, an existing Pool, or
+ * an already-resolved Catalog (e.g. deserialized from a snapshot file).
+ */
+export type CatalogInput = string | Pool | Catalog;
+
+/**
+ * Create a migration plan by comparing two catalog states.
  *
- * @param fromUrl - Source database connection URL (current state)
- * @param toUrl - Target database connection URL (desired state)
+ * Each input can be:
+ * - A postgres connection URL (string) -- a pool is created and catalog extracted
+ * - An existing pg Pool -- catalog is extracted directly
+ * - A Catalog instance -- used as-is (e.g. from a deserialized snapshot)
+ *
+ * When `source` is `null`, a minimal empty catalog (`createEmptyCatalog`) is
+ * used as the baseline. For a more accurate baseline, pass a Catalog
+ * deserialized from a snapshot of `template1` or another reference database.
+ *
+ * @param source - Source catalog input (current state), or null for empty baseline
+ * @param target - Target catalog input (desired state)
  * @param options - Optional configuration
  * @returns A Plan if there are changes, null if databases are identical
  */
-type ConnectionInput = string | Pool;
-
 export async function createPlan(
-  source: ConnectionInput,
-  target: ConnectionInput,
+  source: CatalogInput | null,
+  target: CatalogInput,
   options: CreatePlanOptions = {},
 ): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> {
-  let sourcePool: Pool;
-  let targetPool: Pool;
-  let shouldCloseSource = false;
-  let shouldCloseTarget = false;
-
-  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
   const onError = (err: Error & { code?: string }) => {
     if (err.code !== "57P01") {
       console.error("Pool error:", err);
     }
   };
 
-  if (typeof source === "string") {
-    const sslConfig = await parseSslConfig(source, "source");
-    sourcePool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-      onError,
-      onConnect: async (client) => {
-        // Force fully qualified names in catalog queries
-        await client.query("SET search_path = ''");
-        if (options.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
-        }
-      },
-    });
-    shouldCloseSource = true;
-  } else {
-    sourcePool = source;
-  }
+  const resolvePool = async (
+    input: string | Pool,
+    label: "source" | "target",
+  ): Promise<{ pool: Pool; shouldClose: boolean }> => {
+    if (typeof input === "string") {
+      const sslConfig = await parseSslConfig(input, label);
+      return {
+        pool: createPool(sslConfig.cleanedUrl, {
+          ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+          onError,
+          onConnect: async (client) => {
+            await client.query("SET search_path = ''");
+            if (options.role) {
+              await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+            }
+          },
+        }),
+        shouldClose: true,
+      };
+    }
+    return { pool: input, shouldClose: false };
+  };
 
-  if (typeof target === "string") {
-    const sslConfig = await parseSslConfig(target, "target");
-    targetPool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-      onError,
-      onConnect: async (client) => {
-        // Force fully qualified names in catalog queries
-        await client.query("SET search_path = ''");
-        if (options.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
-        }
-      },
-    });
-    shouldCloseTarget = true;
-  } else {
-    targetPool = target;
-  }
+  /**
+   * Resolve a CatalogInput to a Catalog, tracking pools that need cleanup.
+   */
+  const resolveCatalog = async (
+    input: CatalogInput,
+    label: "source" | "target",
+    pools: Array<{ pool: Pool; shouldClose: boolean }>,
+  ): Promise<Catalog> => {
+    if (input instanceof Catalog) {
+      return input;
+    }
+    const resolved = await resolvePool(input, label);
+    pools.push(resolved);
+    return extractCatalog(resolved.pool);
+  };
 
-  const sourceExtraction = extractCatalog(sourcePool);
-  const targetExtraction = extractCatalog(targetPool);
+  const pools: Array<{ pool: Pool; shouldClose: boolean }> = [];
 
   try {
-    const [fromCatalog, toCatalog] = await Promise.all([
-      sourceExtraction,
-      targetExtraction,
-    ]);
+    const toCatalog = await resolveCatalog(target, "target", pools);
+
+    const fromCatalog =
+      source !== null
+        ? await resolveCatalog(source, "source", pools)
+        : await createEmptyCatalog(toCatalog.version, toCatalog.currentUser);
 
     return buildPlanForCatalogs(fromCatalog, toCatalog, options);
-  } catch (error) {
-    // When one extraction fails, the other may still have in-flight queries.
-    // Wait for both to settle before pool cleanup to prevent unhandled
-    // rejections from connections being terminated mid-flight.
-    await Promise.allSettled([sourceExtraction, targetExtraction]);
-    throw error;
   } finally {
-    const closers: Promise<unknown>[] = [];
-    if (shouldCloseSource) closers.push(endPool(sourcePool));
-    if (shouldCloseTarget) closers.push(endPool(targetPool));
-    if (closers.length) {
-      await Promise.all(closers);
-    }
+    const closers = pools
+      .filter((p) => p.shouldClose)
+      .map((p) => endPool(p.pool));
+    if (closers.length) await Promise.all(closers);
   }
 }
 

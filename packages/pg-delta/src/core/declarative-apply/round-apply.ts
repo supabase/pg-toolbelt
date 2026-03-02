@@ -167,6 +167,16 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
+  // Extension already exists
+  if (
+    statementClass === "CREATE_EXTENSION" &&
+    code === "42710" &&
+    message.includes("extension") &&
+    message.includes("already exists")
+  ) {
+    return true;
+  }
+
   // Sequence ownership constraint
   if (
     code === "55000" &&

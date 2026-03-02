@@ -4,6 +4,7 @@
  * Combines filter and serialization DSLs into a single serializable structure.
  */
 
+import type { CatalogSnapshot } from "../catalog.snapshot.ts";
 import type { FilterDSL } from "./filter/dsl.ts";
 import type { SerializeDSL } from "./serialize/dsl.ts";
 
@@ -21,4 +22,13 @@ export type IntegrationDSL = {
    * If not provided, changes are serialized with default options.
    */
   serialize?: SerializeDSL;
+  /**
+   * Baseline catalog snapshot for this integration.
+   *
+   * When `--source` is omitted, this snapshot is deserialized and used as the
+   * source catalog instead of `createEmptyCatalog`. This lets integrations
+   * define what "empty" means for their platform (e.g. Supabase ships with
+   * pre-existing schemas, extensions, and roles).
+   */
+  emptyCatalog?: CatalogSnapshot;
 };

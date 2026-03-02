@@ -20,6 +20,8 @@ import {
   formatExportSummary,
 } from "../utils/export-display.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
+import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
+import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 
 function parseJsonFlag<T>(label: string, value: string): T {
   try {
@@ -36,12 +38,15 @@ export const declarativeExportCommand = buildCommand({
     flags: {
       source: {
         kind: "parsed",
-        brief: "Source database connection URL (current state)",
+        brief:
+          "Source (current state): postgres URL or catalog snapshot file path. Omit to export all objects from target.",
         parse: String,
+        optional: true,
       },
       target: {
         kind: "parsed",
-        brief: "Target database connection URL (desired state / empty db)",
+        brief:
+          "Target (desired state): postgres URL or catalog snapshot file path",
         parse: String,
       },
       output: {
@@ -138,8 +143,12 @@ Export a declarative SQL schema by comparing two databases (source → target).
 Writes .sql files to the output directory, grouped by object type and optional
 grouping rules.
 
+When --source is omitted, all objects from the target database are exported
+(equivalent to diffing from an empty database).
+
 Flags:
-  source, target  - Database connection URLs (source = current, target = desired)
+  source         - Source database connection URL (optional; omit for full export)
+  target         - Target database connection URL (desired state)
   output         - Directory path for generated .sql files
   integration    - Integration name or path (e.g., supabase) for filter/serialize
   filter         - Filter DSL as JSON to include/exclude changes
@@ -159,7 +168,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
   async func(
     this: CommandContext,
     flags: {
-      source: string;
+      source?: string;
       target: string;
       output: string;
       integration?: string;
@@ -175,20 +184,20 @@ After export, a tip is printed with the command to apply the schema to an empty 
       verbose?: boolean;
     },
   ) {
-    const { compileFilterDSL } = await import(
-      "../../core/integrations/filter/dsl.ts"
-    );
-    const { compileSerializeDSL } = await import(
-      "../../core/integrations/serialize/dsl.ts"
-    );
+    const { compileFilterDSL } =
+      await import("../../core/integrations/filter/dsl.ts");
+    const { compileSerializeDSL } =
+      await import("../../core/integrations/serialize/dsl.ts");
 
     let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
     let serializeOption: SerializeDSL | ChangeSerializer | undefined =
       flags.serialize;
+    let integrationEmptyCatalog: CatalogSnapshot | undefined;
     if (flags.integration) {
       const integrationDSL = await loadIntegrationDSL(flags.integration);
       filterOption = filterOption ?? integrationDSL.filter;
       serializeOption = serializeOption ?? integrationDSL.serialize;
+      integrationEmptyCatalog = integrationDSL.emptyCatalog;
     }
 
     const filterFn =
@@ -198,7 +207,21 @@ After export, a tip is printed with the command to apply the schema to an empty 
         ? compileSerializeDSL(serializeOption)
         : undefined;
 
-    const planResult = await createPlan(flags.source, flags.target, {
+    const resolvedSource = flags.source
+      ? isPostgresUrl(flags.source)
+        ? flags.source
+        : await loadCatalogFromFile(flags.source)
+      : integrationEmptyCatalog
+        ? (await import("../../core/catalog.snapshot.ts")).deserializeCatalog(
+            integrationEmptyCatalog,
+          )
+        : null;
+
+    const resolvedTarget = isPostgresUrl(flags.target)
+      ? flags.target
+      : await loadCatalogFromFile(flags.target);
+
+    const planResult = await createPlan(resolvedSource, resolvedTarget, {
       filter: filterFn,
       serialize: serializeFn,
     });

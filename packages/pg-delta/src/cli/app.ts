@@ -1,5 +1,6 @@
 import { buildApplication, buildRouteMap } from "@stricli/core";
 import { applyCommand } from "./commands/apply.ts";
+import { catalogExportCommand } from "./commands/catalog-export.ts";
 import { declarativeApplyCommand } from "./commands/declarative-apply.ts";
 import { declarativeExportCommand } from "./commands/declarative-export.ts";
 import { planCommand } from "./commands/plan.ts";
@@ -28,6 +29,7 @@ const root = buildRouteMap({
     apply: applyCommand,
     sync: syncCommand,
     declarative: declarativeRouteMap,
+    "catalog-export": catalogExportCommand,
   },
   defaultCommand: "sync",
   docs: {
@@ -36,10 +38,11 @@ const root = buildRouteMap({
 pgdelta generates migration scripts by comparing two PostgreSQL databases.
 
 Commands:
-  plan        - Compute schema diff and preview changes
-  apply       - Apply a plan's migration script to a database
-  sync        - Plan and apply changes in one go
-  declarative - Declarative schema (apply | export)
+  plan           - Compute schema diff and preview changes
+  apply          - Apply a plan's migration script to a database
+  sync           - Plan and apply changes in one go
+  declarative    - Declarative schema (apply | export)
+  catalog-export - Export a database catalog as a snapshot JSON file
     `.trim(),
   },
 });
