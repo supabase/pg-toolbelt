@@ -121,6 +121,9 @@ export const parseSqlContent = async (
     const sql = await extractStatementSql(content, statement);
     const annotationResult = parseAnnotations(sql);
 
+    // Advance past leading whitespace so sourceOffset points to the first character
+    // of the statement (e.g. "CREATE"); statement IDs and diagnostics then refer to
+    // the real start of the statement for display and editor jump-to.
     let sourceOffset = statement.stmt_location ?? 0;
     while (
       sourceOffset < content.length &&

@@ -75,6 +75,8 @@ const indexOfCharOutsideQuotesAndParens = (
     }
 
     if (!inQuotes) {
+      // Check target before updating depth so targetChar "(" or ")" at depth 0 is returned, not consumed.
+      // Necessary for function annotations with signatures like "function:app.do_work(int,uuid)"
       if (depth === 0 && char === targetChar) {
         return index;
       }

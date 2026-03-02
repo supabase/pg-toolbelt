@@ -89,6 +89,8 @@ export const objectFromNameParts = (
     return null;
   }
 
+  // COMMENT ON TRIGGER/POLICY name parts are [schema?, relation, objectName]. Identity
+  // for trigger/policy is relation.objectName so dependency resolution matches CREATE.
   if ((kind === "trigger" || kind === "policy") && parts.length >= 2) {
     const objectName = parts.at(-1);
     const relationName = parts.at(-2);

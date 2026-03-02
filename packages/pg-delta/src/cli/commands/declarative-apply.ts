@@ -195,6 +195,7 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
           id.filePath &&
           !fileContentCache.has(id.filePath)
         ) {
+          // Try to resolve the exact file path of the statement to get the exact location of the error
           try {
             const fullPath = await resolveSqlFilePath(flags.path, id.filePath);
             const content = await readFile(fullPath, "utf-8");

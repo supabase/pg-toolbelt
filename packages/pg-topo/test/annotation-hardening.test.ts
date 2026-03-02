@@ -68,4 +68,22 @@ select 1;
     expect(first?.schema).toBe("App");
     expect(first?.name).toBe("Users");
   });
+
+  // Guards indexOfCharOutsideQuotesAndParens: we must check for the target char
+  // (e.g. "(") before updating paren depth, so that when targetChar is "(" we
+  // return its index at depth 0 instead of consuming it and never finding the signature.
+  test("parses requires/provides with function signature (finds first paren at depth 0)", () => {
+    const sql = `
+-- pg-topo:requires function:app.do_work(int,uuid)
+create function app.caller() returns void language sql as $$ select null $$;
+`;
+    const result = parseAnnotations(sql);
+    const ref = result.annotations.requires[0];
+
+    expect(ref?.kind).toBe("function");
+    expect(ref?.schema).toBe("app");
+    expect(ref?.name).toBe("do_work");
+    expect(ref?.signature).toBe("(int,uuid)");
+    expect(result.diagnostics).toHaveLength(0);
+  });
 });
