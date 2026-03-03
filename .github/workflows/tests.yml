@@ -101,7 +101,15 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run unit tests
         working-directory: packages/pg-delta
-        run: bun test --concurrent --timeout 15000 --coverage src/
+        run: bun test --concurrent --timeout 15000 --coverage --coverage-reporter=lcov src/
+      - name: Upload coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: packages/pg-delta/coverage/lcov.info
+          retention-days: 1
 
   pg-delta-integration:
     if: >-
@@ -126,6 +134,7 @@ jobs:
         working-directory: packages/pg-delta
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
+          BUN_COVERAGE: "1"
         run: |
           # List all integration test files deterministically
           ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
@@ -140,6 +149,14 @@ jobs:
           echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
           echo "$SHARD_FILES"
           echo "$SHARD_FILES" | xargs bun run test
+      - name: Upload coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration-pg${{ matrix.postgres_version }}-shard-${{ matrix.shard_index }}
+          path: packages/pg-delta/coverage/lcov.info
+          retention-days: 1
 
   pg-delta-integration-pg15-compat:
     if: always() && github.event.pull_request.draft == false
@@ -168,6 +185,51 @@ jobs:
             echo "Integration matrix status: ${{ needs.pg-delta-integration.result }}"
             exit 1
           fi
+
+  pg-delta-coverage:
+    if: always() && !cancelled()
+    continue-on-error: true
+    needs:
+      - pg-delta-unit
+      - pg-delta-integration
+    name: "pg-delta: Coverage report"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: false
+      - name: Install lcov
+        run: sudo apt-get install -y lcov
+      - name: Merge coverage reports
+        run: |
+          LCOV_FILES=""
+          for f in $(find . -name "lcov.info" -type f); do
+            LCOV_FILES="$LCOV_FILES --add-tracefile $f"
+          done
+          if [ -n "$LCOV_FILES" ]; then
+            lcov $LCOV_FILES --output-file merged-lcov.info --rc lcov_branch_coverage=1
+            echo "## Coverage Summary"
+            lcov --summary merged-lcov.info --rc lcov_branch_coverage=1
+          else
+            echo "No coverage files found"
+            exit 1
+          fi
+      - name: Generate HTML report
+        run: genhtml merged-lcov.info --output-directory coverage-html --rc lcov_branch_coverage=1
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-merged
+          path: merged-lcov.info
+          retention-days: 30
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage-html/
+          retention-days: 30
 
   pg-topo-tests:
     if: >-

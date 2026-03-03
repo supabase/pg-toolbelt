@@ -9,6 +9,11 @@ const pkgRoot = join(import.meta.dir, "..");
 const globalSetup = join(pkgRoot, "tests", "global-setup.ts");
 const args = process.argv.slice(2);
 
+const coverageArgs =
+  process.env.BUN_COVERAGE === "1"
+    ? ["--coverage", "--coverage-reporter=lcov"]
+    : [];
+
 const proc = Bun.spawn({
   cmd: [
     "bun",
@@ -20,6 +25,7 @@ const proc = Bun.spawn({
     "30000",
     "--max-concurrency",
     "4",
+    ...coverageArgs,
     ...args,
   ],
   cwd: pkgRoot,
