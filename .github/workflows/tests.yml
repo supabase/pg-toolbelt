@@ -195,6 +195,8 @@ jobs:
     name: "pg-delta: Coverage report"
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
       - name: Download all coverage artifacts
         uses: actions/download-artifact@v4
         with:
@@ -209,15 +211,16 @@ jobs:
             LCOV_FILES="$LCOV_FILES --add-tracefile $f"
           done
           if [ -n "$LCOV_FILES" ]; then
-            lcov $LCOV_FILES --output-file merged-lcov.info --rc lcov_branch_coverage=1
+            lcov $LCOV_FILES --output-file merged-lcov.info --rc branch_coverage=1
             echo "## Coverage Summary"
-            lcov --summary merged-lcov.info --rc lcov_branch_coverage=1
+            lcov --summary merged-lcov.info --rc branch_coverage=1
           else
             echo "No coverage files found"
             exit 1
           fi
       - name: Generate HTML report
-        run: genhtml merged-lcov.info --output-directory coverage-html --rc lcov_branch_coverage=1
+        working-directory: packages/pg-delta
+        run: genhtml ../../merged-lcov.info --output-directory ../../coverage-html --rc branch_coverage=1
       - name: Upload merged coverage
         uses: actions/upload-artifact@v4
         with:
