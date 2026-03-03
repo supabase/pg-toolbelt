@@ -155,7 +155,7 @@ describe("diagnostics", () => {
           kind: "function",
           schema: "public",
           name: "json_build_object",
-          signature: "(any)",
+          signature: "(VARIADIC any)",
         },
       ],
     });

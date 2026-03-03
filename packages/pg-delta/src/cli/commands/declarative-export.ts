@@ -16,6 +16,7 @@ import type { ChangeSerializer } from "../../core/integrations/serialize/seriali
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import {
+  assertSafePath,
   buildFileTree,
   computeFileDiff,
   formatExportSummary,
@@ -313,6 +314,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
     }
 
     for (const file of output.files) {
+      assertSafePath(file.path, outputDir);
       const filePath = path.join(outputDir, file.path);
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeFile(filePath, file.sql);

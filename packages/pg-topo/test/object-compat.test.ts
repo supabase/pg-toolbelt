@@ -92,3 +92,47 @@ describe("signaturesCompatible", () => {
     expect(signaturesCompatible("(unknown)", "(bigint,text,json)")).toBe(true);
   });
 });
+
+describe("signaturesCompatible with allowVariadicProviderTail", () => {
+  const opts = { allowVariadicProviderTail: true };
+
+  test("VARIADIC any matches any number of trailing args", () => {
+    expect(signaturesCompatible("(int,text)", "(VARIADIC any)", opts)).toBe(
+      true,
+    );
+    expect(
+      signaturesCompatible("(int,text,json)", "(VARIADIC any)", opts),
+    ).toBe(true);
+    expect(signaturesCompatible("(int)", "(VARIADIC any)", opts)).toBe(true);
+  });
+
+  test("fixed args + VARIADIC tail matches extra args", () => {
+    expect(
+      signaturesCompatible("(int,text,json)", "(int, VARIADIC any)", opts),
+    ).toBe(true);
+  });
+
+  test("fixed args + VARIADIC tail rejects mismatched fixed prefix", () => {
+    expect(
+      signaturesCompatible("(text,text,json)", "(int, VARIADIC any)", opts),
+    ).toBe(false);
+  });
+
+  test("fixed args + VARIADIC tail rejects too few required args", () => {
+    expect(signaturesCompatible("()", "(int, VARIADIC any)", opts)).toBe(false);
+  });
+
+  test("polymorphic last arg without VARIADIC does NOT enable variadic matching", () => {
+    // anyelement is polymorphic but NOT variadic — should not match 2 args
+    expect(signaturesCompatible("(int,text)", "(anyelement)", opts)).toBe(
+      false,
+    );
+  });
+
+  test("fixed-arity polymorphic function rejects extra args", () => {
+    // max(anyelement) takes exactly 1 arg
+    expect(signaturesCompatible("(int,text,json)", "(anyelement)", opts)).toBe(
+      false,
+    );
+  });
+});

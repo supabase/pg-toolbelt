@@ -11,6 +11,7 @@
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
 import { analyzeAndSort } from "@supabase/pg-topo";
 import type { Pool } from "pg";
+import { parseSslConfig } from "../plan/ssl-config.ts";
 import { createPool } from "../postgres-config.ts";
 import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
@@ -121,59 +122,63 @@ export async function applyDeclarativeSchema(
   if (providedPool != null) {
     pool = providedPool;
   } else if (targetUrl != null) {
-    pool = createPool(targetUrl);
+    const sslConfig = await parseSslConfig(targetUrl, "target");
+    pool = createPool(sslConfig.cleanedUrl, {
+      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+    });
   } else {
     throw new Error("Either targetUrl or pool must be provided");
   }
-  const externalProviders =
-    pool != null ? await extractCatalogProviders(pool) : [];
 
-  // Step 1: pg-topo analyze and sort (no file I/O; uses synthetic <input:i> paths)
-  const sqlContents = content.map((entry) => entry.sql);
-  const analyzeResult = await analyzeAndSort(sqlContents, {
-    externalProviders,
-  });
-
-  const { ordered, diagnostics } = analyzeResult;
-
-  // Step 2: Remap <input:i> to real file paths
-  const filePathMap = new Map<string, string>();
-  for (let i = 0; i < content.length; i += 1) {
-    filePathMap.set(`<input:${i}>`, content[i].filePath);
-  }
-
-  const remappedOrdered = ordered.map((node) => ({
-    ...node,
-    id: {
-      ...node.id,
-      filePath: filePathMap.get(node.id.filePath) ?? node.id.filePath,
-    },
-  }));
-
-  const remappedDiagnostics = diagnostics.map((d) => ({
-    ...d,
-    statementId: remapStatementId(d.statementId, filePathMap),
-  }));
-
-  if (ordered.length === 0) {
-    return {
-      apply: {
-        status: "success",
-        totalRounds: 0,
-        totalApplied: 0,
-        totalSkipped: 0,
-        rounds: [],
-      },
-      diagnostics: remappedDiagnostics,
-      totalStatements: 0,
-    };
-  }
-
-  // Step 3: Convert to statement entries and apply
-  const statements = toStatementEntries(remappedOrdered);
   const ownsPool = providedPool == null;
 
   try {
+    const externalProviders = await extractCatalogProviders(pool);
+
+    // Step 1: pg-topo analyze and sort (no file I/O; uses synthetic <input:i> paths)
+    const sqlContents = content.map((entry) => entry.sql);
+    const analyzeResult = await analyzeAndSort(sqlContents, {
+      externalProviders,
+    });
+
+    const { ordered, diagnostics } = analyzeResult;
+
+    // Step 2: Remap <input:i> to real file paths
+    const filePathMap = new Map<string, string>();
+    for (let i = 0; i < content.length; i += 1) {
+      filePathMap.set(`<input:${i}>`, content[i].filePath);
+    }
+
+    const remappedOrdered = ordered.map((node) => ({
+      ...node,
+      id: {
+        ...node.id,
+        filePath: filePathMap.get(node.id.filePath) ?? node.id.filePath,
+      },
+    }));
+
+    const remappedDiagnostics = diagnostics.map((d) => ({
+      ...d,
+      statementId: remapStatementId(d.statementId, filePathMap),
+    }));
+
+    if (ordered.length === 0) {
+      return {
+        apply: {
+          status: "success",
+          totalRounds: 0,
+          totalApplied: 0,
+          totalSkipped: 0,
+          rounds: [],
+        },
+        diagnostics: remappedDiagnostics,
+        totalStatements: 0,
+      };
+    }
+
+    // Step 3: Convert to statement entries and apply
+    const statements = toStatementEntries(remappedOrdered);
+
     const applyResult = await roundApply({
       pool,
       statements,

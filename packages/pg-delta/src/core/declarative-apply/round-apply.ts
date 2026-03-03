@@ -479,12 +479,12 @@ export async function roundApply(
 
 /**
  * Rewrite a CREATE FUNCTION/PROCEDURE statement to use OR REPLACE for
- * idempotent re-execution during validation. Handles leading line-comments
- * (pg-topo annotations) and avoids double-adding OR REPLACE.
+ * idempotent re-execution during validation. Handles leading line-comments,
+ * block comments (pg-topo annotations), and avoids double-adding OR REPLACE.
  */
 export function rewriteAsOrReplace(sql: string): string {
   return sql.replace(
-    /^((?:\s*--[^\n]*\n)*\s*CREATE\s+)(?!OR\s+REPLACE\b)(FUNCTION|PROCEDURE)/i,
+    /^((?:(?:\s*--[^\n]*\n)|(?:\s*\/\*[\s\S]*?\*\/\s*))*\s*CREATE\s+)(?!OR\s+REPLACE\b)(FUNCTION|PROCEDURE)/i,
     "$1OR REPLACE $2",
   );
 }

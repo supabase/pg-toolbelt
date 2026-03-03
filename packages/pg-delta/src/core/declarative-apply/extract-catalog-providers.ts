@@ -73,7 +73,11 @@ export async function extractCatalogProviders(
         n.nspname AS schema,
         p.prokind AS kind,
         COALESCE((
-          SELECT string_agg(format_type(t.oid, NULL), ',' ORDER BY ord)
+          SELECT string_agg(
+            CASE WHEN p.proargmodes IS NOT NULL AND p.proargmodes[ord] = 'v'
+                 THEN 'VARIADIC ' || format_type(t.oid, NULL)
+                 ELSE format_type(t.oid, NULL)
+            END, ',' ORDER BY ord)
           FROM unnest(p.proargtypes) WITH ORDINALITY AS t(oid, ord)
         ), '') AS signature
       FROM pg_proc p

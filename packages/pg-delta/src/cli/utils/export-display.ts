@@ -8,6 +8,27 @@ import chalk from "chalk";
 import type { FileEntry } from "../../core/export/types.ts";
 
 // ============================================================================
+// Path safety
+// ============================================================================
+
+/**
+ * Ensure a relative file path does not escape the output directory.
+ * Uses Node.js path.resolve + startsWith as the canonical traversal check.
+ */
+export function assertSafePath(filePath: string, outputDir: string): void {
+  const resolvedOutput = path.resolve(outputDir);
+  const resolvedFile = path.resolve(outputDir, filePath);
+  if (
+    resolvedFile !== resolvedOutput &&
+    !resolvedFile.startsWith(resolvedOutput + path.sep)
+  ) {
+    throw new Error(
+      `Export path traversal detected: '${filePath}' resolves outside output directory`,
+    );
+  }
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -131,14 +152,16 @@ export function buildFileTree(
 // ============================================================================
 
 /**
- * Recursively collect relative paths of all files under a directory.
+ * Recursively collect relative paths of managed (.sql) files under a directory.
+ * Non-SQL files (README, .gitkeep, etc.) are intentionally excluded so they
+ * are never flagged as "deleted" during diff.
  */
 async function collectExistingFiles(dir: string, base = ""): Promise<string[]> {
   const entries = await readdir(path.join(dir, base), { withFileTypes: true });
   const files: string[] = [];
   for (const e of entries) {
     const rel = base ? `${base}/${e.name}` : e.name;
-    if (e.isFile()) {
+    if (e.isFile() && e.name.endsWith(".sql")) {
       files.push(rel);
     } else if (e.isDirectory()) {
       files.push(...(await collectExistingFiles(dir, rel)));

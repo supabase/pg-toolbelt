@@ -470,4 +470,35 @@ describe("rewriteAsOrReplace", () => {
       ),
     ).toContain("OR REPLACE function");
   });
+
+  test("preserves leading block comments and adds OR REPLACE", () => {
+    const sql =
+      "/* some block comment */\nCREATE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    const result = rewriteAsOrReplace(sql);
+    expect(result).toContain("/* some block comment */");
+    expect(result).toContain("OR REPLACE FUNCTION");
+  });
+
+  test("handles mixed line and block comments before CREATE", () => {
+    const sql =
+      "-- line comment\n/* block */\nCREATE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    const result = rewriteAsOrReplace(sql);
+    expect(result).toContain("-- line comment");
+    expect(result).toContain("/* block */");
+    expect(result).toContain("OR REPLACE FUNCTION");
+  });
+
+  test("handles block comment before CREATE PROCEDURE", () => {
+    const sql =
+      "/* annotation */\nCREATE PROCEDURE bar() AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    const result = rewriteAsOrReplace(sql);
+    expect(result).toContain("/* annotation */");
+    expect(result).toContain("OR REPLACE PROCEDURE");
+  });
+
+  test("does not double-add OR REPLACE after block comment", () => {
+    const sql =
+      "/* comment */\nCREATE OR REPLACE FUNCTION foo() RETURNS void AS $$ BEGIN END; $$ LANGUAGE plpgsql;";
+    expect(rewriteAsOrReplace(sql)).toBe(sql);
+  });
 });

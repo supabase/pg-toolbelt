@@ -159,7 +159,10 @@ type SignatureCompatibilityOptions = {
 };
 
 const isVariadicProviderArg = (value: string): boolean =>
-  isPolymorphicProviderArg(value);
+  /^\s*variadic\s+/i.test(value);
+
+const stripVariadicPrefix = (value: string): string =>
+  value.replace(/^\s*variadic\s+/i, "").trim();
 
 export const signaturesCompatible = (
   requiredSignature?: string,
@@ -212,12 +215,13 @@ export const signaturesCompatible = (
     if (typeof variadicArg !== "string") {
       return false;
     }
+    const variadicBaseArg = stripVariadicPrefix(variadicArg);
     for (let index = fixedCount; index < requiredArgs.length; index += 1) {
       const requiredArg = requiredArgs[index];
       if (typeof requiredArg !== "string") {
         return false;
       }
-      if (!signatureArgCompatible(requiredArg, variadicArg)) {
+      if (!signatureArgCompatible(requiredArg, variadicBaseArg)) {
         return false;
       }
     }
