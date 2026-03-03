@@ -107,7 +107,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-unit
+          name: coverage-pg-delta-unit
           path: packages/pg-delta/coverage/lcov.info
           retention-days: 1
 
@@ -186,15 +186,16 @@ jobs:
             exit 1
           fi
 
-  pg-delta-coverage:
+  coverage:
     if: >-
       !cancelled() &&
-      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped')
+      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped' || needs.pg-topo-tests.result != 'skipped')
     continue-on-error: true
     needs:
       - pg-delta-unit
       - pg-delta-integration
-    name: "pg-delta: Coverage report"
+      - pg-topo-tests
+    name: "Coverage report"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -221,7 +222,7 @@ jobs:
             exit 1
           fi
       - name: Generate HTML report
-        run: genhtml merged-lcov.info --output-directory coverage-html --rc branch_coverage=1
+        run: genhtml merged-lcov.info --output-directory coverage-html --rc branch_coverage=1 --ignore-errors source
       - name: Upload merged coverage
         uses: actions/upload-artifact@v4
         with:
@@ -250,7 +251,17 @@ jobs:
         uses: ./.github/actions/setup
       - name: Run tests
         working-directory: packages/pg-topo
+        env:
+          BUN_COVERAGE: "1"
         run: bun run test
+      - name: Upload coverage
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pg-topo
+          path: packages/pg-topo/coverage/lcov.info
+          retention-days: 1
 
   release-preview:
     needs:
