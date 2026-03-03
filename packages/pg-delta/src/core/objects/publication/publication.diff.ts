@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterPublicationAddSchemas,
@@ -22,7 +23,7 @@ import type {
 } from "./publication.model.ts";
 
 export function diffPublications(
-  ctx: { currentUser: string },
+  ctx: Pick<ObjectDiffContext, "currentUser">,
   main: Record<string, Publication>,
   branch: Record<string, Publication>,
 ): PublicationChange[] {

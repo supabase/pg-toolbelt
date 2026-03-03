@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSubscriptionDisable,
@@ -35,7 +36,7 @@ const SETTABLE_OPTIONS: SubscriptionSettableOption[] = [
 ];
 
 export function diffSubscriptions(
-  ctx: { currentUser: string },
+  ctx: Pick<ObjectDiffContext, "currentUser">,
   main: Record<string, Subscription>,
   branch: Record<string, Subscription>,
 ): SubscriptionChange[] {

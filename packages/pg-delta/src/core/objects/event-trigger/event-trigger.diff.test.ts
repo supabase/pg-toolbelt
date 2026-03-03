@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import {
   AlterEventTriggerChangeOwner,
   AlterEventTriggerSetEnabled,
@@ -11,6 +12,10 @@ import { CreateEventTrigger } from "./changes/event-trigger.create.ts";
 import { DropEventTrigger } from "./changes/event-trigger.drop.ts";
 import { diffEventTriggers } from "./event-trigger.diff.ts";
 import { EventTrigger, type EventTriggerProps } from "./event-trigger.model.ts";
+
+const ctx: Pick<ObjectDiffContext, "currentUser"> = {
+  currentUser: "postgres",
+};
 
 const base: EventTriggerProps = {
   name: "ddl_logger",
@@ -28,7 +33,7 @@ describe.concurrent("event-trigger.diff", () => {
     const eventTrigger = new EventTrigger(base);
 
     const created = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       {},
       { [eventTrigger.stableId]: eventTrigger },
     );
@@ -36,7 +41,7 @@ describe.concurrent("event-trigger.diff", () => {
     expect(created[0]).toBeInstanceOf(CreateEventTrigger);
 
     const dropped = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [eventTrigger.stableId]: eventTrigger },
       {},
     );
@@ -52,7 +57,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -70,7 +75,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -87,7 +92,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const changes = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchEventTrigger.stableId]: branchEventTrigger },
     );
@@ -108,7 +113,7 @@ describe.concurrent("event-trigger.diff", () => {
     });
 
     const createCommentChanges = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [mainEventTrigger.stableId]: mainEventTrigger },
       { [branchWithComment.stableId]: branchWithComment },
     );
@@ -116,7 +121,7 @@ describe.concurrent("event-trigger.diff", () => {
     expect(createCommentChanges[0]).toBeInstanceOf(CreateCommentOnEventTrigger);
 
     const dropCommentChanges = diffEventTriggers(
-      { currentUser: "postgres" },
+      ctx,
       { [branchWithComment.stableId]: branchWithComment },
       { [branchWithoutComment.stableId]: branchWithoutComment },
     );

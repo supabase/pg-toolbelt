@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterEventTriggerChangeOwner,
@@ -22,7 +23,7 @@ import type { EventTrigger } from "./event-trigger.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffEventTriggers(
-  ctx: { currentUser: string },
+  ctx: Pick<ObjectDiffContext, "currentUser">,
   main: Record<string, EventTrigger>,
   branch: Record<string, EventTrigger>,
 ): EventTriggerChange[] {

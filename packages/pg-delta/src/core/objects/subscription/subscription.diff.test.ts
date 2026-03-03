@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import {
   AlterSubscriptionDisable,
   AlterSubscriptionEnable,
@@ -15,6 +16,10 @@ import { CreateSubscription } from "./changes/subscription.create.ts";
 import { DropSubscription } from "./changes/subscription.drop.ts";
 import { diffSubscriptions } from "./subscription.diff.ts";
 import { Subscription, type SubscriptionProps } from "./subscription.model.ts";
+
+const ctx: Pick<ObjectDiffContext, "currentUser"> = {
+  currentUser: "postgres",
+};
 
 const baseProps: SubscriptionProps = {
   name: "mysub",
@@ -42,7 +47,7 @@ describe.concurrent("subscription.diff", () => {
   test("create and drop subscription", () => {
     const subscription = new Subscription(baseProps);
     const created = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       {},
       { [subscription.stableId]: subscription },
     );
@@ -51,7 +56,7 @@ describe.concurrent("subscription.diff", () => {
     );
 
     const dropped = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [subscription.stableId]: subscription },
       {},
     );
@@ -68,7 +73,7 @@ describe.concurrent("subscription.diff", () => {
       conninfo: "host=replica port=5433 dbname=postgres",
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -87,7 +92,7 @@ describe.concurrent("subscription.diff", () => {
       publications: ["pub_a", "pub_b"],
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -105,7 +110,7 @@ describe.concurrent("subscription.diff", () => {
       enabled: false,
     });
     const disableChanges = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchDisabled.stableId]: branchDisabled },
     );
@@ -116,7 +121,7 @@ describe.concurrent("subscription.diff", () => {
     ).toBe(true);
 
     const enableChanges = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [branchDisabled.stableId]: branchDisabled },
       { [mainSubscription.stableId]: mainSubscription },
     );
@@ -141,7 +146,7 @@ describe.concurrent("subscription.diff", () => {
       slot_is_none: false,
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -163,7 +168,7 @@ describe.concurrent("subscription.diff", () => {
       replication_slot_created: false,
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -184,7 +189,7 @@ describe.concurrent("subscription.diff", () => {
       comment: "replication subscription",
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );
@@ -200,7 +205,7 @@ describe.concurrent("subscription.diff", () => {
       comment: null,
     });
     const dropCommentChanges = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [branchSubscription.stableId]: branchSubscription },
       { [removeCommentSubscription.stableId]: removeCommentSubscription },
     );
@@ -218,7 +223,7 @@ describe.concurrent("subscription.diff", () => {
       two_phase: true,
     });
     const changes = diffSubscriptions(
-      { currentUser: "postgres" },
+      ctx,
       { [mainSubscription.stableId]: mainSubscription },
       { [branchSubscription.stableId]: branchSubscription },
     );

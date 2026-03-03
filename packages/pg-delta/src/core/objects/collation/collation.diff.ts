@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterCollationChangeOwner,
@@ -22,7 +23,7 @@ import type { Collation } from "./collation.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffCollations(
-  ctx: { currentUser: string },
+  ctx: Pick<ObjectDiffContext, "currentUser">,
   main: Record<string, Collation>,
   branch: Record<string, Collation>,
 ): CollationChange[] {
