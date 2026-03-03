@@ -2,13 +2,14 @@
 
 PostgreSQL migrations made easy.
 
-Generate migration scripts by comparing two PostgreSQL databases. Automatically detects schema differences and creates safe, ordered migration scripts.
+Generate migration scripts by comparing two PostgreSQL databases. Automatically detects schema differences and creates safe, ordered migration scripts. Supports both imperative diff-based migrations and declarative file-based schema management.
 
 ## Features
 
 - 🔍 Compare databases and generate migration scripts automatically
 - 🔒 Safety-first: detects data-loss operations and requires explicit confirmation
 - 📋 Plan-based workflow: preview changes before applying, store plans for version control
+- 📁 Declarative schemas: export/apply schemas as version-controlled `.sql` files
 - 🎯 Integration DSL: filter and customize serialization with JSON-based rules
 - 🛠️ Developer-friendly: interactive CLI with tree-formatted change previews
 
@@ -28,7 +29,9 @@ npx @supabase/pg-delta --source <source> --target <target>
 
 ### CLI Usage
 
-The CLI provides three main commands:
+The CLI provides two paradigms: **imperative** (diff-based migrations) and **declarative** (file-based schemas).
+
+#### Imperative: diff-based migrations
 
 **Sync (default)** - Plan and apply changes in one go:
 
@@ -47,28 +50,6 @@ pg-delta plan \
   --output plan.json
 ```
 
-**Plan (SQL output with formatting)** - Opt-in post-formatting for SQL scripts:
-
-```bash
-pg-delta plan \
-  --source postgresql://user:pass@localhost:5432/source_db \
-  --target postgresql://user:pass@localhost:5432/target_db \
-  --format sql \
-  --sql-format \
-  --sql-format-options '{"keywordCase":"upper","maxWidth":100}'
-```
-
-Available SQL format options (JSON):
-- `keywordCase`: `upper` | `lower` | `preserve`
-- `indent`: number of spaces per level
-- `maxWidth`: line width for wrapping
-- `commaStyle`: `trailing` | `leading`
-- `alignColumns`: boolean
-- `alignKeyValues`: boolean
-- `preserveRoutineBodies`: boolean
-- `preserveViewBodies`: boolean
-- `preserveRuleBodies`: boolean
-
 **Apply** - Apply a previously created plan:
 
 ```bash
@@ -77,6 +58,38 @@ pg-delta apply \
   --source postgresql://user:pass@localhost:5432/source_db \
   --target postgresql://user:pass@localhost:5432/target_db
 ```
+
+#### Declarative: file-based schemas
+
+**Declarative export** - Export a database schema as `.sql` files:
+
+```bash
+pg-delta declarative export \
+  --target postgresql://user:pass@localhost:5432/mydb \
+  --output ./declarative-schemas/
+```
+
+**Declarative apply** - Apply `.sql` files to a database:
+
+```bash
+pg-delta declarative apply \
+  --path ./declarative-schemas/ \
+  --target postgresql://user:pass@localhost:5432/fresh_db
+```
+
+#### Utilities
+
+**Catalog export** - Snapshot a database catalog to JSON for offline diffing:
+
+```bash
+pg-delta catalog-export \
+  --target postgresql://user:pass@localhost:5432/mydb \
+  --output snapshot.json
+```
+
+The snapshot can be used as `--source` or `--target` for `plan` and `declarative export`, enabling offline diffs without a live database connection.
+
+See the [Workflow Guide](./docs/workflow.md) for end-to-end examples combining these commands.
 
 ### Using Integrations
 
@@ -128,6 +141,7 @@ if (planResult) {
 
 ## Documentation
 
+- [Workflow Guide](./docs/workflow.md) - Full flow documentation for all commands and end-to-end workflows
 - [CLI Reference](./docs/cli.md) - Complete CLI documentation with all commands and options
 - [API Reference](./docs/api.md) - Programmatic API documentation
 - [Integrations](./docs/integrations.md) - Using and creating integrations with the DSL system
@@ -160,6 +174,9 @@ See [Integrations Documentation](./docs/integrations.md) for complete details.
 - Compare database states and review differences
 - Automate migration creation in CI/CD pipelines
 - Maintain schema version control with plan files
+- Export and version-control schemas as declarative `.sql` files
+- Apply declarative schemas to fresh databases (provisioning, restore)
+- Snapshot databases for offline, reproducible diffs
 - Filter platform-specific changes (e.g., Supabase system schemas)
 
 ## Contributing
