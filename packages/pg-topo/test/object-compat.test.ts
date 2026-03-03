@@ -166,26 +166,23 @@ describe("signaturesCompatible with polymorphic provider types", () => {
     expect(signaturesCompatible("(int[],int)", "(anyarray,anyelement)")).toBe(
       true,
     );
-    expect(
-      signaturesCompatible("(int[],text)", "(anyarray,anyelement)"),
-    ).toBe(true);
+    expect(signaturesCompatible("(int[],text)", "(anyarray,anyelement)")).toBe(
+      true,
+    );
   });
 
   test("different polymorphic types each match any concrete", () => {
     expect(signaturesCompatible("(int,int[])", "(anyelement,anyarray)")).toBe(
       true,
     );
-    expect(
-      signaturesCompatible("(myenum,int[])", "(anyenum,anyarray)"),
-    ).toBe(true);
+    expect(signaturesCompatible("(myenum,int[])", "(anyenum,anyarray)")).toBe(
+      true,
+    );
   });
 
   test("anycompatible family behaves the same as any family", () => {
     expect(
-      signaturesCompatible(
-        "(int,text)",
-        "(anycompatible,anycompatible)",
-      ),
+      signaturesCompatible("(int,text)", "(anycompatible,anycompatible)"),
     ).toBe(true);
     expect(
       signaturesCompatible("(int,int[])", "(anycompatible,anycompatiblearray)"),
@@ -201,8 +198,8 @@ describe("signaturesCompatible with polymorphic provider types", () => {
 
   test("polymorphic check is on provider side only", () => {
     expect(signaturesCompatible("(anyelement)", "(int)")).toBe(false);
-    expect(
-      signaturesCompatible("(anyelement,anyelement)", "(int,text)"),
-    ).toBe(false);
+    expect(signaturesCompatible("(anyelement,anyelement)", "(int,text)")).toBe(
+      false,
+    );
   });
 });
