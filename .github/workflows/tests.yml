@@ -187,7 +187,9 @@ jobs:
           fi
 
   pg-delta-coverage:
-    if: always() && !cancelled()
+    if: >-
+      !cancelled() &&
+      (needs.pg-delta-unit.result != 'skipped' || needs.pg-delta-integration.result != 'skipped')
     continue-on-error: true
     needs:
       - pg-delta-unit
