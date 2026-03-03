@@ -4,14 +4,12 @@
 
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
-import { escapeIdentifier } from "pg";
 import { extractCatalog } from "../../core/catalog.model.ts";
 import {
   serializeCatalog,
   stringifyCatalogSnapshot,
 } from "../../core/catalog.snapshot.ts";
-import { parseSslConfig } from "../../core/plan/ssl-config.ts";
-import { createPool, endPool } from "../../core/postgres-config.ts";
+import { createManagedPool } from "../../core/postgres-config.ts";
 
 export const catalogExportCommand = buildCommand({
   parameters: {
@@ -60,20 +58,9 @@ Use cases:
       role?: string;
     },
   ) {
-    const sslConfig = await parseSslConfig(flags.target, "target");
-    const pool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-      onError: (err: Error & { code?: string }) => {
-        if (err.code !== "57P01") {
-          console.error("Pool error:", err);
-        }
-      },
-      onConnect: async (client) => {
-        await client.query("SET search_path = ''");
-        if (flags.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(flags.role)}`);
-        }
-      },
+    const { pool, close } = await createManagedPool(flags.target, {
+      role: flags.role,
+      label: "target",
     });
 
     try {
@@ -85,7 +72,7 @@ Use cases:
         `Catalog snapshot written to ${flags.output}\n`,
       );
     } finally {
-      await endPool(pool);
+      await close();
     }
   },
 });

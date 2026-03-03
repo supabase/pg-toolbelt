@@ -10,37 +10,32 @@ mock.module("./extract-catalog-providers.ts", () => ({
   },
 }));
 
-// Track the pool created internally via createPool so we can verify cleanup.
-let lastCreatedPool: Pool & { endCalled: boolean };
+// Track the pool created internally via createManagedPool so we can verify cleanup.
+let lastCreatedPool: Pool & { closeCalled: boolean };
 
 mock.module("../postgres-config.ts", () => ({
-  createPool: () => {
+  createManagedPool: async () => {
     lastCreatedPool = createMockPool();
-    return lastCreatedPool;
+    return {
+      pool: lastCreatedPool,
+      close: async () => {
+        lastCreatedPool.closeCalled = true;
+      },
+    };
   },
 }));
 
-// SSL config returns a pass-through to avoid file reads
-mock.module("../plan/ssl-config.ts", () => ({
-  parseSslConfig: async (url: string) => ({
-    cleanedUrl: url,
-    ssl: false,
-  }),
-}));
-
-function createMockPool(): Pool & { endCalled: boolean } {
+function createMockPool(): Pool & { closeCalled: boolean } {
   const pool = {
-    endCalled: false,
+    closeCalled: false,
     connect: async () => {
       throw new Error("should not connect");
     },
-    end: async () => {
-      pool.endCalled = true;
-    },
+    end: async () => {},
     query: async () => {
       throw new Error("should not query");
     },
-  } as unknown as Pool & { endCalled: boolean };
+  } as unknown as Pool & { closeCalled: boolean };
   return pool;
 }
 
@@ -55,7 +50,7 @@ describe("applyDeclarativeSchema", () => {
       }),
     ).rejects.toThrow("simulated catalog extraction failure");
 
-    expect(pool.endCalled).toBe(false);
+    expect(pool.closeCalled).toBe(false);
   });
 
   test("internally-created pool IS closed on early failure", async () => {
@@ -67,6 +62,6 @@ describe("applyDeclarativeSchema", () => {
     ).rejects.toThrow("simulated catalog extraction failure");
 
     expect(lastCreatedPool).toBeDefined();
-    expect(lastCreatedPool.endCalled).toBe(true);
+    expect(lastCreatedPool.closeCalled).toBe(true);
   });
 });

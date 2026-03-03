@@ -22,11 +22,10 @@ import {
   compileSerializeDSL,
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
-import { createPool, endPool } from "../postgres-config.ts";
+import { createManagedPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { PgDependRow } from "../sort/types.ts";
 import { classifyChangesRisk } from "./risk.ts";
-import { parseSslConfig } from "./ssl-config.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
 
 // ============================================================================
@@ -61,31 +60,16 @@ export async function createPlan(
   target: CatalogInput,
   options: CreatePlanOptions = {},
 ): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> {
-  const onError = (err: Error & { code?: string }) => {
-    if (err.code !== "57P01") {
-      console.error("Pool error:", err);
-    }
-  };
-
   const resolvePool = async (
     input: string | Pool,
     label: "source" | "target",
   ): Promise<{ pool: Pool; shouldClose: boolean }> => {
     if (typeof input === "string") {
-      const sslConfig = await parseSslConfig(input, label);
-      return {
-        pool: createPool(sslConfig.cleanedUrl, {
-          ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-          onError,
-          onConnect: async (client) => {
-            await client.query("SET search_path = ''");
-            if (options.role) {
-              await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
-            }
-          },
-        }),
-        shouldClose: true,
-      };
+      const managed = await createManagedPool(input, {
+        role: options.role,
+        label,
+      });
+      return { pool: managed.pool, shouldClose: true };
     }
     return { pool: input, shouldClose: false };
   };

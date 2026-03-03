@@ -3,13 +3,12 @@
  */
 
 import type { Pool } from "pg";
-import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
-import { createPool, endPool } from "../postgres-config.ts";
+import { createManagedPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
 
@@ -57,40 +56,23 @@ export async function applyPlan(
   let shouldCloseCurrent = false;
   let shouldCloseDesired = false;
 
-  // Suppress expected shutdown errors from idle pool connections (57P01 = admin_shutdown)
-  const onError = (err: Error & { code?: string }) => {
-    if (err.code !== "57P01") {
-      console.error("Pool error:", err);
-    }
-  };
-
   if (typeof source === "string") {
-    currentPool = createPool(source, {
-      onError,
-      onConnect: async (client) => {
-        // Force fully qualified names in catalog queries for fingerprint verification
-        await client.query("SET search_path = ''");
-        if (plan.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(plan.role)}`);
-        }
-      },
+    const managed = await createManagedPool(source, {
+      role: plan.role,
+      label: "source",
     });
+    currentPool = managed.pool;
     shouldCloseCurrent = true;
   } else {
     currentPool = source;
   }
 
   if (typeof target === "string") {
-    desiredPool = createPool(target, {
-      onError,
-      onConnect: async (client) => {
-        // Force fully qualified names in catalog queries for fingerprint verification
-        await client.query("SET search_path = ''");
-        if (plan.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(plan.role)}`);
-        }
-      },
+    const managed = await createManagedPool(target, {
+      role: plan.role,
+      label: "target",
     });
+    desiredPool = managed.pool;
     shouldCloseDesired = true;
   } else {
     desiredPool = target;

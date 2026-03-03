@@ -11,8 +11,7 @@
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
 import { analyzeAndSort } from "@supabase/pg-topo";
 import type { Pool } from "pg";
-import { parseSslConfig } from "../plan/ssl-config.ts";
-import { createPool } from "../postgres-config.ts";
+import { createManagedPool } from "../postgres-config.ts";
 import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
   type ApplyResult,
@@ -119,18 +118,16 @@ export async function applyDeclarativeSchema(
   }
 
   let pool: Pool;
+  let closePool: (() => Promise<void>) | undefined;
   if (providedPool != null) {
     pool = providedPool;
   } else if (targetUrl != null) {
-    const sslConfig = await parseSslConfig(targetUrl, "target");
-    pool = createPool(sslConfig.cleanedUrl, {
-      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-    });
+    const managed = await createManagedPool(targetUrl, { label: "target" });
+    pool = managed.pool;
+    closePool = managed.close;
   } else {
     throw new Error("Either targetUrl or pool must be provided");
   }
-
-  const ownsPool = providedPool == null;
 
   try {
     const externalProviders = await extractCatalogProviders(pool);
@@ -194,8 +191,8 @@ export async function applyDeclarativeSchema(
       totalStatements: remappedOrdered.length,
     };
   } finally {
-    if (ownsPool) {
-      await pool.end();
+    if (closePool) {
+      await closePool();
     }
   }
 }

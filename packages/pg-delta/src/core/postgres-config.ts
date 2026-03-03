@@ -3,7 +3,8 @@
  */
 
 import type { PoolClient, PoolConfig } from "pg";
-import { Pool, types } from "pg";
+import { escapeIdentifier, Pool, types } from "pg";
+import { parseSslConfig } from "./plan/ssl-config.ts";
 
 // ============================================================================
 // Array Parser
@@ -151,6 +152,35 @@ export function createPool(
  * inside each `client.end()` callback — ensuring all sockets are
  * truly closed before it resolves.
  */
+/**
+ * Create a pool from a connection URL with standard session setup:
+ * SSL parsing, search_path isolation, optional SET ROLE, and 57P01 suppression.
+ *
+ * Returns the pool and a `close` function that properly waits for all sockets
+ * to close (via {@link endPool}).
+ */
+export async function createManagedPool(
+  url: string,
+  options?: { role?: string; label?: "source" | "target" },
+): Promise<{ pool: Pool; close: () => Promise<void> }> {
+  const sslConfig = await parseSslConfig(url, options?.label ?? "target");
+  const pool = createPool(sslConfig.cleanedUrl, {
+    ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+    onError: (err: Error & { code?: string }) => {
+      if (err.code !== "57P01") {
+        console.error("Pool error:", err);
+      }
+    },
+    onConnect: async (client) => {
+      await client.query("SET search_path = ''");
+      if (options?.role) {
+        await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+      }
+    },
+  });
+  return { pool, close: () => endPool(pool) };
+}
+
 export function endPool(pool: Pool): Promise<void> {
   const clientCount = pool.totalCount;
 
