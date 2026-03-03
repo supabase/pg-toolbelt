@@ -5,8 +5,17 @@ import {
   AlterServerSetOptions,
   AlterServerSetVersion,
 } from "./changes/server.alter.ts";
+import {
+  CreateCommentOnServer,
+  DropCommentOnServer,
+} from "./changes/server.comment.ts";
 import { CreateServer } from "./changes/server.create.ts";
 import { DropServer } from "./changes/server.drop.ts";
+import {
+  GrantServerPrivileges,
+  RevokeGrantOptionServerPrivileges,
+  RevokeServerPrivileges,
+} from "./changes/server.privilege.ts";
 import { diffServers } from "./server.diff.ts";
 import { Server, type ServerProps } from "./server.model.ts";
 
@@ -163,5 +172,91 @@ describe.concurrent("server.diff", () => {
     // Type change should trigger drop + create
     expect(changes.some((c) => c instanceof DropServer)).toBe(true);
     expect(changes.some((c) => c instanceof CreateServer)).toBe(true);
+  });
+
+  test("created with privileges emits grant", () => {
+    const server = new Server({
+      name: "srv1",
+      owner: "o1",
+      foreign_data_wrapper: "fdw1",
+      type: null,
+      version: null,
+      options: null,
+      comment: null,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffServers(testContext, {}, { [server.stableId]: server });
+    expect(changes[0]).toBeInstanceOf(CreateServer);
+    expect(changes.some((c) => c instanceof GrantServerPrivileges)).toBe(true);
+  });
+
+  test("altered comment emits create/drop comment", () => {
+    const base: ServerProps = {
+      name: "srv1",
+      owner: "o1",
+      foreign_data_wrapper: "fdw1",
+      type: null,
+      version: null,
+      options: null,
+      comment: null,
+      privileges: [],
+    };
+    const main = new Server(base);
+    const withComment = new Server({ ...base, comment: "my server" });
+
+    const addComment = diffServers(
+      testContext,
+      { [main.stableId]: main },
+      { [withComment.stableId]: withComment },
+    );
+    expect(addComment[0]).toBeInstanceOf(CreateCommentOnServer);
+
+    const dropComment = diffServers(
+      testContext,
+      { [withComment.stableId]: withComment },
+      { [main.stableId]: main },
+    );
+    expect(dropComment[0]).toBeInstanceOf(DropCommentOnServer);
+  });
+
+  test("altered privileges emit grant, revoke, and revoke grant option", () => {
+    const base: ServerProps = {
+      name: "srv1",
+      owner: "o1",
+      foreign_data_wrapper: "fdw1",
+      type: null,
+      version: null,
+      options: null,
+      comment: null,
+      privileges: [],
+    };
+    const main = new Server({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: true },
+        { grantee: "role_removed", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const branch = new Server({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: true },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: false },
+        { grantee: "role_new", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffServers(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof GrantServerPrivileges)).toBe(true);
+    expect(changes.some((c) => c instanceof RevokeServerPrivileges)).toBe(true);
+    expect(
+      changes.some((c) => c instanceof RevokeGrantOptionServerPrivileges),
+    ).toBe(true);
   });
 });

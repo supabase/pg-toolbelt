@@ -6,8 +6,17 @@ import {
   AlterCompositeTypeChangeOwner,
   AlterCompositeTypeDropAttribute,
 } from "./changes/composite-type.alter.ts";
+import {
+  CreateCommentOnCompositeType,
+  DropCommentOnCompositeType,
+} from "./changes/composite-type.comment.ts";
 import { CreateCompositeType } from "./changes/composite-type.create.ts";
 import { DropCompositeType } from "./changes/composite-type.drop.ts";
+import {
+  GrantCompositeTypePrivileges,
+  RevokeCompositeTypePrivileges,
+  RevokeGrantOptionCompositeTypePrivileges,
+} from "./changes/composite-type.privilege.ts";
 import { diffCompositeTypes } from "./composite-type.diff.ts";
 import {
   CompositeType,
@@ -186,6 +195,75 @@ describe.concurrent("composite-type.diff", () => {
     );
     expect(
       changes.some((c) => c instanceof AlterCompositeTypeAlterAttributeType),
+    ).toBe(true);
+  });
+
+  test("created with privileges emits grant/revoke/revoke grant option", () => {
+    const ct = new CompositeType({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+        { grantee: "role_grant", privilege: "USAGE", grantable: true },
+      ],
+    });
+    const changes = diffCompositeTypes(testContext, {}, { [ct.stableId]: ct });
+    expect(changes[0]).toBeInstanceOf(CreateCompositeType);
+    expect(changes.some((c) => c instanceof GrantCompositeTypePrivileges)).toBe(
+      true,
+    );
+  });
+
+  test("altered comment emits create/drop comment", () => {
+    const main = new CompositeType(base);
+    const withComment = new CompositeType({ ...base, comment: "my type" });
+
+    const addComment = diffCompositeTypes(
+      testContext,
+      { [main.stableId]: main },
+      { [withComment.stableId]: withComment },
+    );
+    expect(addComment[0]).toBeInstanceOf(CreateCommentOnCompositeType);
+
+    const dropComment = diffCompositeTypes(
+      testContext,
+      { [withComment.stableId]: withComment },
+      { [main.stableId]: main },
+    );
+    expect(dropComment[0]).toBeInstanceOf(DropCommentOnCompositeType);
+  });
+
+  test("altered privileges emit grant, revoke, and revoke grant option", () => {
+    const main = new CompositeType({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: true },
+        { grantee: "role_removed", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const branch = new CompositeType({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: true },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: false },
+        { grantee: "role_new", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffCompositeTypes(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof GrantCompositeTypePrivileges)).toBe(
+      true,
+    );
+    expect(
+      changes.some((c) => c instanceof RevokeCompositeTypePrivileges),
+    ).toBe(true);
+    expect(
+      changes.some(
+        (c) => c instanceof RevokeGrantOptionCompositeTypePrivileges,
+      ),
     ).toBe(true);
   });
 });

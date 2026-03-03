@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,14 +46,6 @@ describe("assertSafePath", () => {
 // ============================================================================
 
 describe("computeFileDiff", () => {
-  let tmpDir: string;
-
-  afterEach(async () => {
-    if (tmpDir) {
-      await rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
   function makeFileEntry(relPath: string, sql = "-- content"): FileEntry {
     return {
       path: relPath,
@@ -65,45 +57,47 @@ describe("computeFileDiff", () => {
   }
 
   test("non-SQL files in output dir are not marked as deleted", async () => {
-    tmpDir = await mkdtemp(path.join(tmpdir(), "pgd-test-"));
+    const dir = await mkdtemp(path.join(tmpdir(), "pgd-export-test-"));
+    try {
+      await mkdir(path.join(dir, "schemas/public/tables"), { recursive: true });
+      await writeFile(
+        path.join(dir, "schemas/public/tables/users.sql"),
+        "-- users",
+      );
+      await writeFile(path.join(dir, "README.md"), "# readme");
+      await writeFile(path.join(dir, ".gitkeep"), "");
 
-    await mkdir(path.join(tmpDir, "schemas/public/tables"), {
-      recursive: true,
-    });
-    await writeFile(
-      path.join(tmpDir, "schemas/public/tables/users.sql"),
-      "-- users",
-    );
-    await writeFile(path.join(tmpDir, "README.md"), "# readme");
-    await writeFile(path.join(tmpDir, ".gitkeep"), "");
+      const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
+      const diff = await computeFileDiff(dir, newFiles);
 
-    const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
-    const diff = await computeFileDiff(tmpDir, newFiles);
-
-    expect(diff.deleted).not.toContain("README.md");
-    expect(diff.deleted).not.toContain(".gitkeep");
-    expect(diff.deleted).toHaveLength(0);
+      expect(diff.deleted).not.toContain("README.md");
+      expect(diff.deleted).not.toContain(".gitkeep");
+      expect(diff.deleted).toHaveLength(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("stale SQL files are still marked as deleted", async () => {
-    tmpDir = await mkdtemp(path.join(tmpdir(), "pgd-test-"));
+    const dir = await mkdtemp(path.join(tmpdir(), "pgd-export-test-"));
+    try {
+      await mkdir(path.join(dir, "schemas/public/tables"), { recursive: true });
+      await writeFile(
+        path.join(dir, "schemas/public/tables/users.sql"),
+        "-- users",
+      );
+      await writeFile(
+        path.join(dir, "schemas/public/tables/old_table.sql"),
+        "-- old",
+      );
 
-    await mkdir(path.join(tmpDir, "schemas/public/tables"), {
-      recursive: true,
-    });
-    await writeFile(
-      path.join(tmpDir, "schemas/public/tables/users.sql"),
-      "-- users",
-    );
-    await writeFile(
-      path.join(tmpDir, "schemas/public/tables/old_table.sql"),
-      "-- old",
-    );
+      const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
+      const diff = await computeFileDiff(dir, newFiles);
 
-    const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
-    const diff = await computeFileDiff(tmpDir, newFiles);
-
-    expect(diff.deleted).toContain("schemas/public/tables/old_table.sql");
-    expect(diff.deleted).toHaveLength(1);
+      expect(diff.deleted).toContain("schemas/public/tables/old_table.sql");
+      expect(diff.deleted).toHaveLength(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -5,4 +5,23 @@
 [test]
 preload = ["./tests/global-setup.ts"]
 timeout = 15000
-concurrentTestGlob = "tests/integration/*.test.ts"
+# concurrentTestGlob = "tests/integration/*.test.ts"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  # Test infrastructure (helpers, container management, roundtrip harness)
+  "tests/constants.ts",
+  "tests/container-manager.ts",
+  "tests/global-setup.ts",
+  "tests/integration/roundtrip.ts",
+  "tests/postgres-alpine.ts",
+  "tests/postgres-ssl.ts",
+  "tests/ssl-utils.ts",
+  "tests/supabase-postgres.ts",
+  "tests/utils.ts",
+  # Abstract base classes (0% funcs by design, no runtime logic)
+  "**/changes/*.base.ts",
+  # Debug-only visualization (gated behind DEBUG=pg-delta:graph)
+  "src/core/sort/debug-visualization.ts",
+  # Separate package leaking into report
+  "../pg-topo/**",
+]

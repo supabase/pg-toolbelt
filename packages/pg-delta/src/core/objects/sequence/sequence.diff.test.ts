@@ -5,8 +5,17 @@ import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./changes/sequence.alter.ts";
+import {
+  CreateCommentOnSequence,
+  DropCommentOnSequence,
+} from "./changes/sequence.comment.ts";
 import { CreateSequence } from "./changes/sequence.create.ts";
 import { DropSequence } from "./changes/sequence.drop.ts";
+import {
+  GrantSequencePrivileges,
+  RevokeGrantOptionSequencePrivileges,
+  RevokeSequencePrivileges,
+} from "./changes/sequence.privilege.ts";
 import { diffSequences } from "./sequence.diff.ts";
 import { Sequence, type SequenceProps } from "./sequence.model.ts";
 
@@ -137,5 +146,110 @@ describe.concurrent("sequence.diff", () => {
     // Should generate DROP SEQUENCE since table still exists
     expect(changes).toHaveLength(1);
     expect(changes[0]).toBeInstanceOf(DropSequence);
+  });
+
+  test("create with comment emits CreateCommentOnSequence", () => {
+    const s = new Sequence({ ...base, comment: "my seq" });
+    const changes = diffSequences(testContext, {}, { [s.stableId]: s });
+    expect(changes[0]).toBeInstanceOf(CreateSequence);
+    expect(changes.some((c) => c instanceof CreateCommentOnSequence)).toBe(
+      true,
+    );
+  });
+
+  test("create with owned-by emits AlterSequenceSetOwnedBy", () => {
+    const s = new Sequence({
+      ...base,
+      owned_by_schema: "public",
+      owned_by_table: "t",
+      owned_by_column: "id",
+    });
+    const changes = diffSequences(testContext, {}, { [s.stableId]: s });
+    expect(changes[0]).toBeInstanceOf(CreateSequence);
+    expect(changes.some((c) => c instanceof AlterSequenceSetOwnedBy)).toBe(
+      true,
+    );
+  });
+
+  test("create with privileges emits grant, revoke, and revoke grant option", () => {
+    const dpState = new DefaultPrivilegeState({});
+    dpState.applyGrant("postgres", "S", null, "role_revoke_me", [
+      { privilege: "USAGE", grantable: false },
+    ]);
+    dpState.applyGrant("postgres", "S", null, "role_downgrade", [
+      { privilege: "USAGE", grantable: true },
+    ]);
+    const ctx = { ...testContext, defaultPrivilegeState: dpState };
+    const s = new Sequence({
+      ...base,
+      privileges: [
+        { grantee: "role_grant_me", privilege: "USAGE", grantable: false },
+        { grantee: "role_downgrade", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffSequences(ctx, {}, { [s.stableId]: s });
+    expect(changes[0]).toBeInstanceOf(CreateSequence);
+    expect(changes.some((c) => c instanceof GrantSequencePrivileges)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof RevokeSequencePrivileges)).toBe(
+      true,
+    );
+    expect(
+      changes.some((c) => c instanceof RevokeGrantOptionSequencePrivileges),
+    ).toBe(true);
+  });
+
+  test("alter comment emits create and drop comment", () => {
+    const main = new Sequence(base);
+    const withComment = new Sequence({ ...base, comment: "my seq" });
+
+    const addComment = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [withComment.stableId]: withComment },
+    );
+    expect(addComment[0]).toBeInstanceOf(CreateCommentOnSequence);
+
+    const dropComment = diffSequences(
+      testContext,
+      { [withComment.stableId]: withComment },
+      { [main.stableId]: main },
+    );
+    expect(dropComment[0]).toBeInstanceOf(DropCommentOnSequence);
+  });
+
+  test("alter privileges emits grant, revoke, and revoke grant option", () => {
+    const main = new Sequence({
+      ...base,
+      privileges: [
+        { grantee: "role_a", privilege: "USAGE", grantable: false },
+        { grantee: "role_b", privilege: "USAGE", grantable: true },
+        { grantee: "role_removed", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const branch = new Sequence({
+      ...base,
+      privileges: [
+        { grantee: "role_a", privilege: "USAGE", grantable: true },
+        { grantee: "role_b", privilege: "USAGE", grantable: false },
+        { grantee: "role_new", privilege: "USAGE", grantable: false },
+      ],
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof GrantSequencePrivileges)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof RevokeSequencePrivileges)).toBe(
+      true,
+    );
+    expect(
+      changes.some((c) => c instanceof RevokeGrantOptionSequencePrivileges),
+    ).toBe(true);
   });
 });

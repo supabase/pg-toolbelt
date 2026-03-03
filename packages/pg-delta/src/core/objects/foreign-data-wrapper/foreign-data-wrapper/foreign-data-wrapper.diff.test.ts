@@ -4,8 +4,17 @@ import {
   AlterForeignDataWrapperChangeOwner,
   AlterForeignDataWrapperSetOptions,
 } from "./changes/foreign-data-wrapper.alter.ts";
+import {
+  CreateCommentOnForeignDataWrapper,
+  DropCommentOnForeignDataWrapper,
+} from "./changes/foreign-data-wrapper.comment.ts";
 import { CreateForeignDataWrapper } from "./changes/foreign-data-wrapper.create.ts";
 import { DropForeignDataWrapper } from "./changes/foreign-data-wrapper.drop.ts";
+import {
+  GrantForeignDataWrapperPrivileges,
+  RevokeForeignDataWrapperPrivileges,
+  RevokeGrantOptionForeignDataWrapperPrivileges,
+} from "./changes/foreign-data-wrapper.privilege.ts";
 import { diffForeignDataWrappers } from "./foreign-data-wrapper.diff.ts";
 import {
   ForeignDataWrapper,
@@ -175,5 +184,103 @@ describe.concurrent("foreign-data-wrapper.diff", () => {
     expect(changes.some((c) => c instanceof CreateForeignDataWrapper)).toBe(
       true,
     );
+  });
+
+  test("created with privileges emits grant", () => {
+    const fdw = new ForeignDataWrapper({
+      name: "fdw1",
+      owner: "o1",
+      handler: null,
+      validator: null,
+      options: null,
+      comment: null,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffForeignDataWrappers(
+      testContext,
+      {},
+      { [fdw.stableId]: fdw },
+    );
+    expect(changes[0]).toBeInstanceOf(CreateForeignDataWrapper);
+    expect(
+      changes.some((c) => c instanceof GrantForeignDataWrapperPrivileges),
+    ).toBe(true);
+  });
+
+  test("altered comment emits create/drop comment", () => {
+    const base: ForeignDataWrapperProps = {
+      name: "fdw1",
+      owner: "o1",
+      handler: null,
+      validator: null,
+      options: null,
+      comment: null,
+      privileges: [],
+    };
+    const main = new ForeignDataWrapper(base);
+    const withComment = new ForeignDataWrapper({
+      ...base,
+      comment: "my fdw",
+    });
+
+    const addComment = diffForeignDataWrappers(
+      testContext,
+      { [main.stableId]: main },
+      { [withComment.stableId]: withComment },
+    );
+    expect(addComment[0]).toBeInstanceOf(CreateCommentOnForeignDataWrapper);
+
+    const dropComment = diffForeignDataWrappers(
+      testContext,
+      { [withComment.stableId]: withComment },
+      { [main.stableId]: main },
+    );
+    expect(dropComment[0]).toBeInstanceOf(DropCommentOnForeignDataWrapper);
+  });
+
+  test("altered privileges emit grant, revoke, and revoke grant option", () => {
+    const base: ForeignDataWrapperProps = {
+      name: "fdw1",
+      owner: "o1",
+      handler: null,
+      validator: null,
+      options: null,
+      comment: null,
+      privileges: [],
+    };
+    const main = new ForeignDataWrapper({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: false },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: true },
+        { grantee: "role_removed", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const branch = new ForeignDataWrapper({
+      ...base,
+      privileges: [
+        { grantee: "role_usage", privilege: "USAGE", grantable: true },
+        { grantee: "role_with_option", privilege: "USAGE", grantable: false },
+        { grantee: "role_new", privilege: "USAGE", grantable: false },
+      ],
+    });
+    const changes = diffForeignDataWrappers(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((c) => c instanceof GrantForeignDataWrapperPrivileges),
+    ).toBe(true);
+    expect(
+      changes.some((c) => c instanceof RevokeForeignDataWrapperPrivileges),
+    ).toBe(true);
+    expect(
+      changes.some(
+        (c) => c instanceof RevokeGrantOptionForeignDataWrapperPrivileges,
+      ),
+    ).toBe(true);
   });
 });

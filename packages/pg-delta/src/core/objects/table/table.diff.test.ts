@@ -24,6 +24,11 @@ import {
 } from "./changes/table.alter.ts";
 import { CreateTable } from "./changes/table.create.ts";
 import { DropTable } from "./changes/table.drop.ts";
+import {
+  GrantTablePrivileges,
+  RevokeGrantOptionTablePrivileges,
+  RevokeTablePrivileges,
+} from "./changes/table.privilege.ts";
 import { diffTables } from "./table.diff.ts";
 import { Table, type TableProps } from "./table.model.ts";
 
@@ -707,5 +712,108 @@ describe.concurrent("table.diff", () => {
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),
     ).toBe(true);
+  });
+
+  test("created table with privileges emits grant changes", () => {
+    const t = new Table({
+      ...base,
+      privileges: [
+        { grantee: "role_sel", privilege: "SELECT", grantable: false },
+        { grantee: "role_ins", privilege: "INSERT", grantable: true },
+      ],
+    });
+    const changes = diffTables(testContext, {}, { [t.stableId]: t });
+    expect(changes[0]).toBeInstanceOf(CreateTable);
+    expect(changes.some((c) => c instanceof GrantTablePrivileges)).toBe(true);
+  });
+
+  test("created table with default privilege revoke grant option", () => {
+    const defaultPrivilegeState = new DefaultPrivilegeState({});
+    defaultPrivilegeState.applyGrant("postgres", "r", "public", "role_a", [
+      { privilege: "SELECT", grantable: true },
+    ]);
+    const ctx = {
+      ...testContext,
+      defaultPrivilegeState,
+    };
+    const t = new Table({
+      ...base,
+      owner: "postgres",
+      privileges: [
+        { grantee: "role_a", privilege: "SELECT", grantable: false },
+      ],
+    });
+    const changes = diffTables(ctx, {}, { [t.stableId]: t });
+    expect(changes[0]).toBeInstanceOf(CreateTable);
+    expect(
+      changes.some((c) => c instanceof RevokeGrantOptionTablePrivileges),
+    ).toBe(true);
+  });
+
+  test("altered table privileges emit grant, revoke, and revoke grant option", () => {
+    const main = new Table({
+      ...base,
+      privileges: [
+        { grantee: "role_sel", privilege: "SELECT", grantable: false },
+        { grantee: "role_with_option", privilege: "SELECT", grantable: true },
+        { grantee: "role_removed", privilege: "SELECT", grantable: false },
+      ],
+    });
+    const branch = new Table({
+      ...base,
+      privileges: [
+        { grantee: "role_sel", privilege: "SELECT", grantable: true },
+        { grantee: "role_with_option", privilege: "SELECT", grantable: false },
+        { grantee: "role_new", privilege: "SELECT", grantable: false },
+      ],
+    });
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof GrantTablePrivileges)).toBe(true);
+    expect(changes.some((c) => c instanceof RevokeTablePrivileges)).toBe(true);
+    expect(
+      changes.some((c) => c instanceof RevokeGrantOptionTablePrivileges),
+    ).toBe(true);
+  });
+
+  test("storage params: set when added from null", () => {
+    const main = new Table(base);
+    const branch = new Table({
+      ...base,
+      options: ["autovacuum_enabled=false"],
+    });
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetStorageParams)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableResetStorageParams)).toBe(
+      false,
+    );
+  });
+
+  test("storage params: reset when removed to null", () => {
+    const main = new Table({
+      ...base,
+      options: ["fillfactor=90"],
+    });
+    const branch = new Table(base);
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableResetStorageParams)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableSetStorageParams)).toBe(
+      false,
+    );
   });
 });
