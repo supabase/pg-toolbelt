@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
   CreateCommentOnLanguage,
@@ -33,13 +34,17 @@ const makeLanguage = (override: Partial<LanguageProps> = {}) =>
     privileges: override.privileges ?? [...base.privileges],
   });
 
+const ctx: Pick<ObjectDiffContext, "version"> = {
+  version: 170000,
+};
+
 describe.concurrent("language.diff", () => {
   test("create and drop", () => {
     const l = new Language(base);
-    const created = diffLanguages({ version: 170000 }, {}, { [l.stableId]: l });
+    const created = diffLanguages(ctx, {}, { [l.stableId]: l });
     expect(created[0]).toBeInstanceOf(CreateLanguage);
 
-    const dropped = diffLanguages({ version: 170000 }, { [l.stableId]: l }, {});
+    const dropped = diffLanguages(ctx, { [l.stableId]: l }, {});
     expect(dropped[0]).toBeInstanceOf(DropLanguage);
   });
 
@@ -47,7 +52,7 @@ describe.concurrent("language.diff", () => {
     const main = new Language(base);
     const branch = new Language({ ...base, owner: "o2" });
     const changes = diffLanguages(
-      { version: 170000 },
+      ctx,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -58,7 +63,7 @@ describe.concurrent("language.diff", () => {
     const main = new Language(base);
     const branch = new Language({ ...base, call_handler: "handler()" });
     const changes = diffLanguages(
-      { version: 170000 },
+      ctx,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
@@ -69,7 +74,7 @@ describe.concurrent("language.diff", () => {
 
   test("create with comment emits create comment change", () => {
     const l = makeLanguage({ comment: "my language" });
-    const changes = diffLanguages({ version: 170000 }, {}, { [l.stableId]: l });
+    const changes = diffLanguages(ctx, {}, { [l.stableId]: l });
     expect(changes[0]).toBeInstanceOf(CreateLanguage);
     expect(changes.some((c) => c instanceof CreateCommentOnLanguage)).toBe(
       true,
@@ -81,14 +86,14 @@ describe.concurrent("language.diff", () => {
     const withComment = makeLanguage({ comment: "lang comment" });
 
     const addComment = diffLanguages(
-      { version: 170000 },
+      ctx,
       { [main.stableId]: main },
       { [withComment.stableId]: withComment },
     );
     expect(addComment[0]).toBeInstanceOf(CreateCommentOnLanguage);
 
     const dropComment = diffLanguages(
-      { version: 170000 },
+      ctx,
       { [withComment.stableId]: withComment },
       { [main.stableId]: main },
     );
@@ -112,7 +117,7 @@ describe.concurrent("language.diff", () => {
     });
 
     const changes = diffLanguages(
-      { version: 170000 },
+      ctx,
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );

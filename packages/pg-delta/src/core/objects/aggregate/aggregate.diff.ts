@@ -1,11 +1,10 @@
-import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
-import type { Role } from "../role/role.model.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import type { Aggregate } from "./aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./changes/aggregate.alter.ts";
@@ -23,12 +22,10 @@ import {
 import type { AggregateChange } from "./changes/aggregate.types.ts";
 
 export function diffAggregates(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
   main: Record<string, Aggregate>,
   branch: Record<string, Aggregate>,
 ): AggregateChange[] {
@@ -84,49 +81,20 @@ export function diffAggregates(
       aggregate.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [, list] of grantGroups) {
-          changes.push(
-            new GrantAggregatePrivileges({
-              aggregate,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [, list] of revokeGroups) {
-          changes.push(
-            new RevokeAggregatePrivileges({
-              aggregate,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionAggregatePrivileges({
-            aggregate,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        aggregate,
+        aggregate,
+        "aggregate",
+        {
+          Grant: GrantAggregatePrivileges,
+          Revoke: RevokeAggregatePrivileges,
+          RevokeGrantOption: RevokeGrantOptionAggregatePrivileges,
+        },
+        ctx.version,
+      ) as AggregateChange[]),
+    );
   }
 
   for (const aggregateId of dropped) {
@@ -234,46 +202,20 @@ export function diffAggregates(
       branchAggregate.owner,
     );
 
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [, list] of grantGroups) {
-          changes.push(
-            new GrantAggregatePrivileges({
-              aggregate: branchAggregate,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [, list] of revokeGroups) {
-          changes.push(
-            new RevokeAggregatePrivileges({
-              aggregate: mainAggregate,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionAggregatePrivileges({
-            aggregate: mainAggregate,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        branchAggregate,
+        mainAggregate,
+        "aggregate",
+        {
+          Grant: GrantAggregatePrivileges,
+          Revoke: RevokeAggregatePrivileges,
+          RevokeGrantOption: RevokeGrantOptionAggregatePrivileges,
+        },
+        ctx.version,
+      ) as AggregateChange[]),
+    );
   }
 
   return changes;

@@ -1,5 +1,6 @@
 import z from "zod";
 import type { Change } from "../change.types.ts";
+import type { BaseChange } from "./base.change.ts";
 
 /**
  * Privilege properties that all privilege objects share.
@@ -116,7 +117,7 @@ function checkStillHasBase<T extends PrivilegeProps>(
 /**
  * Groups privileges by grantable flag for efficient SQL generation
  */
-export function groupPrivilegesByGrantable<T extends PrivilegeProps>(
+function groupPrivilegesByGrantable<T extends PrivilegeProps>(
   privileges: T[],
 ): Map<boolean, T[]> {
   const groups = new Map<boolean, T[]>();
@@ -133,7 +134,7 @@ export function groupPrivilegesByGrantable<T extends PrivilegeProps>(
 /**
  * Groups privileges by columns and grantable flag
  */
-export function groupPrivilegesByColumns<T extends PrivilegeProps>(
+function groupPrivilegesByColumns<T extends PrivilegeProps>(
   privileges: T[],
 ): Map<string, { columns?: string[]; byGrant: Map<boolean, Set<string>> }> {
   const groups = new Map<
@@ -270,4 +271,177 @@ export function diffPrivileges<T extends PrivilegeProps>(
   }
 
   return results;
+}
+
+// ==== Privilege Change Emission Helpers ====
+//
+// These helpers convert the output of `diffPrivileges` (per-grantee grant /
+// revoke / revoke-grant-option lists) into concrete Change instances so that
+// individual object diffs don't have to repeat the same iteration and grouping
+// logic.
+//
+// Callers pass a `PrivilegeChangeFactories` bag containing the three class
+// constructors (Grant, Revoke, RevokeGrantOption) for their object type.  The
+// helpers instantiate them with a common props shape: an object reference keyed
+// by `objectKey`, a `grantee`, `privileges` or `privilegeNames`, an optional
+// `version`, and (for column-level privileges) optional `columns`.
+
+/**
+ * Factory constructors for Grant / Revoke / RevokeGrantOption change classes.
+ * Every object type provides its own concrete classes.  The `any` props type
+ * is intentional: the helpers build props with a computed `[objectKey]` key
+ * whose name varies per object type, so no single concrete type can unify
+ * all call sites without an unsafe cast elsewhere.
+ */
+interface PrivilegeChangeFactories {
+  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
+  Grant: new (
+    props: any,
+  ) => BaseChange;
+  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
+  Revoke: new (
+    props: any,
+  ) => BaseChange;
+  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
+  RevokeGrantOption: new (
+    props: any,
+  ) => BaseChange;
+}
+
+/**
+ * Emit privilege changes for object-level privileges (schema, sequence,
+ * procedure, etc.).
+ *
+ * For each grantee in `privilegeResults` the function groups grants and revokes
+ * by the `grantable` flag and pushes one change per group.  Revoke-grant-option
+ * entries produce a single change carrying `privilegeNames`.
+ *
+ * `grantTarget` is the *branch* object (the desired state) while `revokeTarget`
+ * is the *main* object (the current state), so that GRANTs reference the
+ * newly-created/altered object and REVOKEs reference the existing one.
+ */
+export function emitObjectPrivilegeChanges(
+  privilegeResults: Map<string, PrivilegeDiffResult<PrivilegeProps>>,
+  grantTarget: unknown,
+  revokeTarget: unknown,
+  objectKey: string,
+  factories: PrivilegeChangeFactories,
+  version?: number,
+): BaseChange[] {
+  const changes: BaseChange[] = [];
+
+  for (const [grantee, result] of privilegeResults) {
+    for (const [, grants] of groupPrivilegesByGrantable(result.grants)) {
+      changes.push(
+        new factories.Grant({
+          [objectKey]: grantTarget,
+          privileges: grants,
+          grantee,
+          version,
+        }),
+      );
+    }
+    for (const [, revokes] of groupPrivilegesByGrantable(result.revokes)) {
+      changes.push(
+        new factories.Revoke({
+          [objectKey]: revokeTarget,
+          privileges: revokes,
+          grantee,
+          version,
+        }),
+      );
+    }
+    if (result.revokeGrantOption.length > 0) {
+      changes.push(
+        new factories.RevokeGrantOption({
+          [objectKey]: revokeTarget,
+          privilegeNames: result.revokeGrantOption,
+          grantee,
+          version,
+        }),
+      );
+    }
+  }
+
+  return changes;
+}
+
+/**
+ * Emit privilege changes for column-level privileges (table, view,
+ * materialized view).
+ *
+ * Like {@link emitObjectPrivilegeChanges} but groups by column set (via
+ * `groupPrivilegesByColumns`) instead of only by grantable.  For
+ * revoke-grant-option the column sets come from `sourcePrivileges` so that
+ * `REVOKE GRANT OPTION FOR` is emitted per column set that originally carried
+ * the privilege.
+ */
+export function emitColumnPrivilegeChanges(
+  privilegeResults: Map<string, PrivilegeDiffResult<PrivilegeProps>>,
+  grantTarget: unknown,
+  revokeTarget: unknown,
+  objectKey: string,
+  factories: PrivilegeChangeFactories,
+  sourcePrivileges: PrivilegeProps[],
+  version?: number,
+): BaseChange[] {
+  const changes: BaseChange[] = [];
+
+  for (const [grantee, result] of privilegeResults) {
+    for (const [, group] of groupPrivilegesByColumns(result.grants)) {
+      for (const [grantable, privSet] of group.byGrant) {
+        changes.push(
+          new factories.Grant({
+            [objectKey]: grantTarget,
+            privileges: [...privSet].map((p) => ({ privilege: p, grantable })),
+            grantee,
+            columns: group.columns,
+            version,
+          }),
+        );
+      }
+    }
+    for (const [, group] of groupPrivilegesByColumns(result.revokes)) {
+      const allPrivileges = new Set<string>();
+      for (const [, privSet] of group.byGrant) {
+        for (const priv of privSet) {
+          allPrivileges.add(priv);
+        }
+      }
+      changes.push(
+        new factories.Revoke({
+          [objectKey]: revokeTarget,
+          privileges: [...allPrivileges].map((p) => ({
+            privilege: p,
+            grantable: false,
+          })),
+          grantee,
+          columns: group.columns,
+          version,
+        }),
+      );
+    }
+    if (result.revokeGrantOption.length > 0) {
+      const sourcePrivsForGrantee = sourcePrivileges.filter(
+        (p) => p.grantee === grantee,
+      );
+      for (const [, group] of groupPrivilegesByColumns(
+        sourcePrivsForGrantee.filter((p) =>
+          result.revokeGrantOption.includes(p.privilege),
+        ),
+      )) {
+        changes.push(
+          new factories.RevokeGrantOption({
+            [objectKey]: revokeTarget,
+            privilegeNames: result.revokeGrantOption,
+            grantee,
+            columns: group.columns,
+            version,
+          }),
+        );
+      }
+    }
+  }
+
+  return changes;
 }

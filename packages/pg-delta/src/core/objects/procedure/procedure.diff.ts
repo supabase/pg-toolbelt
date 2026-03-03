@@ -1,11 +1,10 @@
-import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
-import type { Role } from "../role/role.model.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -39,12 +38,10 @@ import type { Procedure } from "./procedure.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffProcedures(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
   main: Record<string, Procedure>,
   branch: Record<string, Procedure>,
 ): ProcedureChange[] {
@@ -101,51 +98,20 @@ export function diffProcedures(
       proc.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantProcedurePrivileges({
-              procedure: proc,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeProcedurePrivileges({
-              procedure: proc,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionProcedurePrivileges({
-            procedure: proc,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        proc,
+        proc,
+        "procedure",
+        {
+          Grant: GrantProcedurePrivileges,
+          Revoke: RevokeProcedurePrivileges,
+          RevokeGrantOption: RevokeGrantOptionProcedurePrivileges,
+        },
+        ctx.version,
+      ) as ProcedureChange[]),
+    );
   }
 
   for (const procedureId of dropped) {
@@ -354,51 +320,20 @@ export function diffProcedures(
         branchProcedure.owner,
       );
 
-      for (const [grantee, result] of privilegeResults) {
-        // Generate grant changes
-        if (result.grants.length > 0) {
-          const grantGroups = groupPrivilegesByGrantable(result.grants);
-          for (const [grantable, list] of grantGroups) {
-            void grantable;
-            changes.push(
-              new GrantProcedurePrivileges({
-                procedure: branchProcedure,
-                grantee,
-                privileges: list,
-                version: ctx.version,
-              }),
-            );
-          }
-        }
-
-        // Generate revoke changes
-        if (result.revokes.length > 0) {
-          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-          for (const [grantable, list] of revokeGroups) {
-            void grantable;
-            changes.push(
-              new RevokeProcedurePrivileges({
-                procedure: mainProcedure,
-                grantee,
-                privileges: list,
-                version: ctx.version,
-              }),
-            );
-          }
-        }
-
-        // Generate revoke grant option changes
-        if (result.revokeGrantOption.length > 0) {
-          changes.push(
-            new RevokeGrantOptionProcedurePrivileges({
-              procedure: mainProcedure,
-              grantee,
-              privilegeNames: result.revokeGrantOption,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
+      changes.push(
+        ...(emitObjectPrivilegeChanges(
+          privilegeResults,
+          branchProcedure,
+          mainProcedure,
+          "procedure",
+          {
+            Grant: GrantProcedurePrivileges,
+            Revoke: RevokeProcedurePrivileges,
+            RevokeGrantOption: RevokeGrantOptionProcedurePrivileges,
+          },
+          ctx.version,
+        ) as ProcedureChange[]),
+      );
     }
   }
 

@@ -1,11 +1,10 @@
-import type { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
-import type { Role } from "../../role/role.model.ts";
+import type { ObjectDiffContext } from "../../diff-context.ts";
 import {
   AlterForeignTableAddColumn,
   AlterForeignTableAlterColumnDropDefault,
@@ -40,12 +39,10 @@ import type { ForeignTable } from "./foreign-table.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffForeignTables(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
   main: Record<string, ForeignTable>,
   branch: Record<string, ForeignTable>,
 ): ForeignTableChange[] {
@@ -94,51 +91,20 @@ export function diffForeignTables(
       createdTable.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantForeignTablePrivileges({
-              foreignTable: createdTable,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeForeignTablePrivileges({
-              foreignTable: createdTable,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionForeignTablePrivileges({
-            foreignTable: createdTable,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        createdTable,
+        createdTable,
+        "foreignTable",
+        {
+          Grant: GrantForeignTablePrivileges,
+          Revoke: RevokeForeignTablePrivileges,
+          RevokeGrantOption: RevokeGrantOptionForeignTablePrivileges,
+        },
+        ctx.version,
+      ) as ForeignTableChange[]),
+    );
   }
 
   for (const tableId of dropped) {
@@ -298,51 +264,20 @@ export function diffForeignTables(
       branchTable.owner,
     );
 
-    for (const [grantee, result] of privilegeResults) {
-      // Generate grant changes
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantForeignTablePrivileges({
-              foreignTable: branchTable,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeForeignTablePrivileges({
-              foreignTable: mainTable,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionForeignTablePrivileges({
-            foreignTable: mainTable,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        branchTable,
+        mainTable,
+        "foreignTable",
+        {
+          Grant: GrantForeignTablePrivileges,
+          Revoke: RevokeForeignTablePrivileges,
+          RevokeGrantOption: RevokeGrantOptionForeignTablePrivileges,
+        },
+        ctx.version,
+      ) as ForeignTableChange[]),
+    );
 
     // Note: Foreign table renaming would also use ALTER FOREIGN TABLE ... RENAME TO ...
     // But since our ForeignTable model uses 'name' as the identity field,

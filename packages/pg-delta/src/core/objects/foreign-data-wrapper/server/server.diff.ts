@@ -1,11 +1,10 @@
-import type { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
-import type { Role } from "../../role/role.model.ts";
+import type { ObjectDiffContext } from "../../diff-context.ts";
 import {
   AlterServerChangeOwner,
   AlterServerSetOptions,
@@ -34,12 +33,7 @@ import type { Server } from "./server.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffServers(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<ObjectDiffContext, "version" | "currentUser">,
   main: Record<string, Server>,
   branch: Record<string, Server>,
 ): ServerChange[] {
@@ -82,51 +76,20 @@ export function diffServers(
       createdServer.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantServerPrivileges({
-              server: createdServer,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeServerPrivileges({
-              server: createdServer,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionServerPrivileges({
-            server: createdServer,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        createdServer,
+        createdServer,
+        "server",
+        {
+          Grant: GrantServerPrivileges,
+          Revoke: RevokeServerPrivileges,
+          RevokeGrantOption: RevokeGrantOptionServerPrivileges,
+        },
+        ctx.version,
+      ) as ServerChange[]),
+    );
   }
 
   for (const serverId of dropped) {
@@ -205,51 +168,20 @@ export function diffServers(
       branchServer.owner,
     );
 
-    for (const [grantee, result] of privilegeResults) {
-      // Generate grant changes
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantServerPrivileges({
-              server: branchServer,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeServerPrivileges({
-              server: mainServer,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionServerPrivileges({
-            server: mainServer,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        branchServer,
+        mainServer,
+        "server",
+        {
+          Grant: GrantServerPrivileges,
+          Revoke: RevokeServerPrivileges,
+          RevokeGrantOption: RevokeGrantOptionServerPrivileges,
+        },
+        ctx.version,
+      ) as ServerChange[]),
+    );
 
     // Note: Server renaming would also use ALTER SERVER ... RENAME TO ...
     // But since our Server model uses 'name' as the identity field,

@@ -2,10 +2,10 @@ import type { Change } from "../../change.types.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../base.privilege-diff.ts";
-import type { Role } from "../role/role.model.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import { AlterLanguageChangeOwner } from "./changes/language.alter.ts";
 import {
@@ -30,7 +30,7 @@ import type { Language } from "./language.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffLanguages(
-  ctx: { version: number; mainRoles?: Record<string, Role> },
+  ctx: Pick<ObjectDiffContext, "version">,
   main: Record<string, Language>,
   branch: Record<string, Language>,
 ): Change[] {
@@ -123,51 +123,20 @@ export function diffLanguages(
         branchLanguage.owner,
       );
 
-      for (const [grantee, result] of privilegeResults) {
-        // Generate grant changes
-        if (result.grants.length > 0) {
-          const grantGroups = groupPrivilegesByGrantable(result.grants);
-          for (const [grantable, list] of grantGroups) {
-            void grantable;
-            changes.push(
-              new GrantLanguagePrivileges({
-                language: branchLanguage,
-                grantee,
-                privileges: list,
-                version: ctx.version,
-              }),
-            );
-          }
-        }
-
-        // Generate revoke changes
-        if (result.revokes.length > 0) {
-          const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-          for (const [grantable, list] of revokeGroups) {
-            void grantable;
-            changes.push(
-              new RevokeLanguagePrivileges({
-                language: mainLanguage,
-                grantee,
-                privileges: list,
-                version: ctx.version,
-              }),
-            );
-          }
-        }
-
-        // Generate revoke grant option changes
-        if (result.revokeGrantOption.length > 0) {
-          changes.push(
-            new RevokeGrantOptionLanguagePrivileges({
-              language: mainLanguage,
-              grantee,
-              privilegeNames: result.revokeGrantOption,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
+      changes.push(
+        ...(emitObjectPrivilegeChanges(
+          privilegeResults,
+          branchLanguage,
+          mainLanguage,
+          "language",
+          {
+            Grant: GrantLanguagePrivileges,
+            Revoke: RevokeLanguagePrivileges,
+            RevokeGrantOption: RevokeGrantOptionLanguagePrivileges,
+          },
+          ctx.version,
+        ) as Change[]),
+      );
     }
   }
 

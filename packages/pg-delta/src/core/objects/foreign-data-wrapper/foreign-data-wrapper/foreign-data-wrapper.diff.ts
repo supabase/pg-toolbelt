@@ -1,11 +1,10 @@
-import type { DefaultPrivilegeState } from "../../base.default-privileges.ts";
 import { diffObjects } from "../../base.diff.ts";
 import {
   diffPrivileges,
+  emitObjectPrivilegeChanges,
   filterPublicBuiltInDefaults,
-  groupPrivilegesByGrantable,
 } from "../../base.privilege-diff.ts";
-import type { Role } from "../../role/role.model.ts";
+import type { ObjectDiffContext } from "../../diff-context.ts";
 import {
   AlterForeignDataWrapperChangeOwner,
   AlterForeignDataWrapperSetOptions,
@@ -33,12 +32,7 @@ import type { ForeignDataWrapper } from "./foreign-data-wrapper.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffForeignDataWrappers(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<ObjectDiffContext, "version" | "currentUser">,
   main: Record<string, ForeignDataWrapper>,
   branch: Record<string, ForeignDataWrapper>,
 ): ForeignDataWrapperChange[] {
@@ -89,51 +83,20 @@ export function diffForeignDataWrappers(
       createdFdw.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantForeignDataWrapperPrivileges({
-              foreignDataWrapper: createdFdw,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeForeignDataWrapperPrivileges({
-              foreignDataWrapper: createdFdw,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionForeignDataWrapperPrivileges({
-            foreignDataWrapper: createdFdw,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        createdFdw,
+        createdFdw,
+        "foreignDataWrapper",
+        {
+          Grant: GrantForeignDataWrapperPrivileges,
+          Revoke: RevokeForeignDataWrapperPrivileges,
+          RevokeGrantOption: RevokeGrantOptionForeignDataWrapperPrivileges,
+        },
+        ctx.version,
+      ) as ForeignDataWrapperChange[]),
+    );
   }
 
   for (const fdwId of dropped) {
@@ -229,51 +192,20 @@ export function diffForeignDataWrappers(
       branchFdw.owner,
     );
 
-    for (const [grantee, result] of privilegeResults) {
-      // Generate grant changes
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantForeignDataWrapperPrivileges({
-              foreignDataWrapper: branchFdw,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeForeignDataWrapperPrivileges({
-              foreignDataWrapper: mainFdw,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionForeignDataWrapperPrivileges({
-            foreignDataWrapper: mainFdw,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        branchFdw,
+        mainFdw,
+        "foreignDataWrapper",
+        {
+          Grant: GrantForeignDataWrapperPrivileges,
+          Revoke: RevokeForeignDataWrapperPrivileges,
+          RevokeGrantOption: RevokeGrantOptionForeignDataWrapperPrivileges,
+        },
+        ctx.version,
+      ) as ForeignDataWrapperChange[]),
+    );
 
     // Note: FDW renaming would also use ALTER FOREIGN DATA WRAPPER ... RENAME TO ...
     // But since our ForeignDataWrapper model uses 'name' as the identity field,

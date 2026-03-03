@@ -1,10 +1,9 @@
-import type { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { diffObjects } from "../base.diff.ts";
 import {
   diffPrivileges,
-  groupPrivilegesByGrantable,
+  emitObjectPrivilegeChanges,
 } from "../base.privilege-diff.ts";
-import type { Role } from "../role/role.model.ts";
+import type { ObjectDiffContext } from "../diff-context.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import {
   CreateCommentOnSchema,
@@ -29,12 +28,10 @@ import type { Schema } from "./schema.model.ts";
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSchemas(
-  ctx: {
-    version: number;
-    currentUser: string;
-    defaultPrivilegeState: DefaultPrivilegeState;
-    mainRoles: Record<string, Role>;
-  },
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
   main: Record<string, Schema>,
   branch: Record<string, Schema>,
 ): SchemaChange[] {
@@ -73,51 +70,20 @@ export function diffSchemas(
       sc.owner,
     );
 
-    // Generate grant changes
-    for (const [grantee, result] of privilegeResults) {
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantSchemaPrivileges({
-              schema: sc,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeSchemaPrivileges({
-              schema: sc,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionSchemaPrivileges({
-            schema: sc,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        sc,
+        sc,
+        "schema",
+        {
+          Grant: GrantSchemaPrivileges,
+          Revoke: RevokeSchemaPrivileges,
+          RevokeGrantOption: RevokeGrantOptionSchemaPrivileges,
+        },
+        ctx.version,
+      ) as SchemaChange[]),
+    );
   }
 
   for (const schemaId of dropped) {
@@ -156,51 +122,20 @@ export function diffSchemas(
       branchSchema.owner,
     );
 
-    for (const [grantee, result] of privilegeResults) {
-      // Generate grant changes
-      if (result.grants.length > 0) {
-        const grantGroups = groupPrivilegesByGrantable(result.grants);
-        for (const [grantable, list] of grantGroups) {
-          void grantable;
-          changes.push(
-            new GrantSchemaPrivileges({
-              schema: branchSchema,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke changes
-      if (result.revokes.length > 0) {
-        const revokeGroups = groupPrivilegesByGrantable(result.revokes);
-        for (const [grantable, list] of revokeGroups) {
-          void grantable;
-          changes.push(
-            new RevokeSchemaPrivileges({
-              schema: mainSchema,
-              grantee,
-              privileges: list,
-              version: ctx.version,
-            }),
-          );
-        }
-      }
-
-      // Generate revoke grant option changes
-      if (result.revokeGrantOption.length > 0) {
-        changes.push(
-          new RevokeGrantOptionSchemaPrivileges({
-            schema: mainSchema,
-            grantee,
-            privilegeNames: result.revokeGrantOption,
-            version: ctx.version,
-          }),
-        );
-      }
-    }
+    changes.push(
+      ...(emitObjectPrivilegeChanges(
+        privilegeResults,
+        branchSchema,
+        mainSchema,
+        "schema",
+        {
+          Grant: GrantSchemaPrivileges,
+          Revoke: RevokeSchemaPrivileges,
+          RevokeGrantOption: RevokeGrantOptionSchemaPrivileges,
+        },
+        ctx.version,
+      ) as SchemaChange[]),
+    );
 
     // Note: Schema renaming would also use ALTER SCHEMA ... RENAME TO ...
     // But since our Schema model uses 'schema' as the identity field,
