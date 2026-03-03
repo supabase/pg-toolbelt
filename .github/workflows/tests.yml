@@ -222,7 +222,7 @@ jobs:
             exit 1
           fi
       - name: Generate HTML report
-        run: genhtml merged-lcov.info --output-directory coverage-html --rc branch_coverage=1 --ignore-errors source
+        run: genhtml merged-lcov.info --output-directory coverage-html --rc branch_coverage=1 --synthesize-missing
       - name: Upload merged coverage
         uses: actions/upload-artifact@v4
         with:
