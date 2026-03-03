@@ -200,23 +200,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
       - name: Download all coverage artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-*
           merge-multiple: false
       - name: Fix coverage paths
-        run: |
-          fix_lcov_paths() {
-            local pkg="$1"; shift
-            for f in "$@"; do
-              [ -f "$f" ] || continue
-              grep -q "packages/${pkg}/" "$f" && continue
-              sed -i "s|^\(SF:.*\)/src/|\1/packages/${pkg}/src/|" "$f"
-            done
-          }
-          fix_lcov_paths pg-delta coverage-pg-delta-*/lcov.info coverage-integration-*/lcov.info
-          fix_lcov_paths pg-topo coverage-pg-topo/lcov.info
+        run: bun scripts/fix-lcov-paths.ts
       - name: Install lcov
         run: sudo apt-get install -y lcov
       - name: Merge coverage reports
