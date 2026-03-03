@@ -979,13 +979,13 @@ describe("sql formatting snapshots", () => {
       COMMENT ON FOREIGN TABLE public.remote_users IS NULL;
 
       -- foreign_table.grant
-      GRANT SELECT ON FOREIGN TABLE public.remote_users TO app_reader;
+      GRANT SELECT ON TABLE public.remote_users TO app_reader;
 
       -- foreign_table.revoke
-      REVOKE SELECT ON FOREIGN TABLE public.remote_users FROM app_reader;
+      REVOKE SELECT ON TABLE public.remote_users FROM app_reader;
 
       -- foreign_table.revoke_grant_option
-      REVOKE GRANT OPTION FOR SELECT ON FOREIGN TABLE public.remote_users FROM app_reader;
+      REVOKE GRANT OPTION FOR SELECT ON TABLE public.remote_users FROM app_reader;
 
       -- server.create
       CREATE SERVER remote_server

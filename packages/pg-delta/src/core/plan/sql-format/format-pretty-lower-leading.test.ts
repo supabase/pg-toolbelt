@@ -990,13 +990,13 @@ describe("sql formatting snapshots", () => {
       comment on foreign table public.remote_users is null;
 
       -- foreign_table.grant
-      grant select on foreign table public.remote_users to app_reader;
+      grant select on table public.remote_users to app_reader;
 
       -- foreign_table.revoke
-      revoke select on foreign table public.remote_users from app_reader;
+      revoke select on table public.remote_users from app_reader;
 
       -- foreign_table.revoke_grant_option
-      revoke grant option for select on foreign table public.remote_users from app_reader;
+      revoke grant option for select on table public.remote_users from app_reader;
 
       -- server.create
       create server remote_server
