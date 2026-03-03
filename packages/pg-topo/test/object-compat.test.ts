@@ -136,3 +136,73 @@ describe("signaturesCompatible with allowVariadicProviderTail", () => {
     );
   });
 });
+
+// pg-topo is a DDL ordering tool, not a type checker. Polymorphic provider args
+// are intentionally permissive: any concrete type satisfies any polymorphic
+// position. PostgreSQL's requirement that repeated polymorphic occurrences unify
+// to a single concrete type is deliberately NOT enforced here because:
+//   1. Ordering dependencies are valid regardless of type unification correctness
+//   2. Proper unification requires understanding cross-family relationships
+//      (anyelement ↔ anyarray, anyrange, etc.) which is beyond scope
+//   3. Call-site signatures are mostly "unknown" so this path is rarely exercised
+describe("signaturesCompatible with polymorphic provider types", () => {
+  test("single polymorphic arg matches any concrete type", () => {
+    expect(signaturesCompatible("(int)", "(anyelement)")).toBe(true);
+    expect(signaturesCompatible("(text)", "(anyelement)")).toBe(true);
+    expect(signaturesCompatible("(uuid)", "(anycompatible)")).toBe(true);
+    expect(signaturesCompatible("(int)", "(anynonarray)")).toBe(true);
+  });
+
+  test("repeated polymorphic arg matches different concrete types (intentionally permissive for DDL ordering)", () => {
+    expect(signaturesCompatible("(int,text)", "(anyelement,anyelement)")).toBe(
+      true,
+    );
+    expect(signaturesCompatible("(int,int)", "(anyelement,anyelement)")).toBe(
+      true,
+    );
+  });
+
+  test("mixed polymorphic families match (intentionally permissive)", () => {
+    expect(signaturesCompatible("(int[],int)", "(anyarray,anyelement)")).toBe(
+      true,
+    );
+    expect(
+      signaturesCompatible("(int[],text)", "(anyarray,anyelement)"),
+    ).toBe(true);
+  });
+
+  test("different polymorphic types each match any concrete", () => {
+    expect(signaturesCompatible("(int,int[])", "(anyelement,anyarray)")).toBe(
+      true,
+    );
+    expect(
+      signaturesCompatible("(myenum,int[])", "(anyenum,anyarray)"),
+    ).toBe(true);
+  });
+
+  test("anycompatible family behaves the same as any family", () => {
+    expect(
+      signaturesCompatible(
+        "(int,text)",
+        "(anycompatible,anycompatible)",
+      ),
+    ).toBe(true);
+    expect(
+      signaturesCompatible("(int,int[])", "(anycompatible,anycompatiblearray)"),
+    ).toBe(true);
+  });
+
+  test("arity is still enforced with polymorphic args", () => {
+    expect(signaturesCompatible("(int,text)", "(anyelement)")).toBe(false);
+    expect(
+      signaturesCompatible("(int,text,json)", "(anyelement,anyarray)"),
+    ).toBe(false);
+  });
+
+  test("polymorphic check is on provider side only", () => {
+    expect(signaturesCompatible("(anyelement)", "(int)")).toBe(false);
+    expect(
+      signaturesCompatible("(anyelement,anyelement)", "(int,text)"),
+    ).toBe(false);
+  });
+});
