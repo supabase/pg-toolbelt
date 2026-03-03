@@ -294,16 +294,16 @@ export function diffPrivileges<T extends PrivilegeProps>(
  * all call sites without an unsafe cast elsewhere.
  */
 interface PrivilegeChangeFactories {
-  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
   Grant: new (
+    // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
     props: any,
   ) => BaseChange;
-  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
   Revoke: new (
+    // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
     props: any,
   ) => BaseChange;
-  // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
   RevokeGrantOption: new (
+    // biome-ignore lint/suspicious/noExplicitAny: factory accepts heterogeneous prop bags keyed by object type
     props: any,
   ) => BaseChange;
 }
