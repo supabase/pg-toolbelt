@@ -156,6 +156,25 @@ function getMainStableId(change: Change): string | null {
     return null;
   }
 
+  // For default_privilege operations: group by role + schema combination (before CREATE so we group and use tiebreaker)
+  if (change.scope === "default_privilege") {
+    if (change.requires.length > 0) {
+      let grantingRole: string | null = null;
+      let schemaId: string | null = null;
+      for (const id of change.requires) {
+        if (id.startsWith("role:")) {
+          grantingRole = id;
+        } else if (id.startsWith("schema:")) {
+          schemaId = id;
+        }
+      }
+      if (schemaId && grantingRole) {
+        return `${grantingRole}:${schemaId}`;
+      }
+      return grantingRole ?? null;
+    }
+  }
+
   // For CREATE operations: check if creating a constraint (sub-entity of table)
   if (change.operation === "create" && change.creates.length > 0) {
     // Iterate through creates to find the first non-metadata stable ID
@@ -193,31 +212,6 @@ function getMainStableId(change: Change): string | null {
     }
     // Fallback: if all drops are metadata, use first
     return change.drops[0] ?? null;
-  }
-
-  // For default_privilege operations: group by role + schema combination
-  // This groups all "FOR ROLE X IN SCHEMA Y" statements together
-  if (change.scope === "default_privilege") {
-    if (change.requires.length > 0) {
-      // Iterate through requires to find role and schema
-      let grantingRole: string | null = null;
-      let schemaId: string | null = null;
-
-      for (const id of change.requires) {
-        if (id.startsWith("role:")) {
-          grantingRole = id;
-        } else if (id.startsWith("schema:")) {
-          schemaId = id;
-        }
-      }
-
-      if (schemaId && grantingRole) {
-        // Create composite key: "role:postgres:schema:public"
-        return `${grantingRole}:${schemaId}`;
-      }
-      // If no schema, just group by role
-      return grantingRole ?? null;
-    }
   }
 
   // For ALTER operations: check if creating/dropping a constraint
@@ -580,6 +574,19 @@ function sortPhase(changes: Change[], phase: Phase): Change[] {
     const operationOrderB = operationOrder[operationB] ?? 999;
     if (operationOrderA !== operationOrderB) {
       return operationOrderA - operationOrderB;
+    }
+
+    // 6b. For default_privilege: deterministic tiebreaker by objtype then grantee (canonical order for objtype)
+    if (scopeA === "default_privilege" && scopeB === "default_privilege") {
+      const defPrivA = changeA as { objtype: string; grantee: string };
+      const defPrivB = changeB as { objtype: string; grantee: string };
+      const objtypeOrder = (code: string) =>
+        ({ n: 0, r: 1, S: 2, f: 3, T: 4 })[code] ?? 99;
+      const objtypeCompare =
+        objtypeOrder(defPrivA.objtype) - objtypeOrder(defPrivB.objtype);
+      if (objtypeCompare !== 0) return objtypeCompare;
+      const granteeCompare = defPrivA.grantee.localeCompare(defPrivB.grantee);
+      if (granteeCompare !== 0) return granteeCompare;
     }
 
     // 7. Preserve original order (stability)

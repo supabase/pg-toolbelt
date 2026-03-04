@@ -13,6 +13,8 @@ function mockChange(
     schema: string | null;
     className: string;
     inSchema: string | null;
+    objtype: string;
+    grantee: string;
     eventTrigger: { function_schema: string };
   }>,
 ): Change {
@@ -26,6 +28,8 @@ function mockChange(
     schema = "public",
     className = "MockChange",
     inSchema,
+    objtype,
+    grantee,
     eventTrigger,
   } = overrides;
 
@@ -50,6 +54,12 @@ function mockChange(
 
   if (inSchema !== undefined) {
     change.inSchema = inSchema;
+  }
+  if (objtype !== undefined) {
+    change.objtype = objtype;
+  }
+  if (grantee !== undefined) {
+    change.grantee = grantee;
   }
   if (eventTrigger !== undefined) {
     change.eventTrigger = eventTrigger;
@@ -308,6 +318,54 @@ describe("logicalSort", () => {
       expect(result.indexOf(defPriv)).toBeGreaterThan(
         result.indexOf(schemaCreate),
       );
+    });
+
+    test("default_privilege orders deterministically by objtype then grantee", () => {
+      const baseRequires = ["role:postgres", "schema:public"];
+      const defPrivTablesAnon = mockChange({
+        scope: "default_privilege",
+        operation: "create",
+        creates: ["defacl:postgres:r:schema:public:grantee:anon"],
+        requires: baseRequires,
+        inSchema: "public",
+        objtype: "r",
+        grantee: "anon",
+      });
+      const defPrivTablesAuthenticated = mockChange({
+        scope: "default_privilege",
+        operation: "create",
+        creates: ["defacl:postgres:r:schema:public:grantee:authenticated"],
+        requires: baseRequires,
+        inSchema: "public",
+        objtype: "r",
+        grantee: "authenticated",
+      });
+      const defPrivSequencesAnon = mockChange({
+        scope: "default_privilege",
+        operation: "create",
+        creates: ["defacl:postgres:S:schema:public:grantee:anon"],
+        requires: baseRequires,
+        inSchema: "public",
+        objtype: "S",
+        grantee: "anon",
+      });
+      const input = [
+        defPrivTablesAuthenticated,
+        defPrivSequencesAnon,
+        defPrivTablesAnon,
+      ];
+      const result = logicalSort(input);
+      expect(result).toHaveLength(3);
+      // Result ordered by canonical objtype (n,r,S,f,T) then grantee: r before S, anon before authenticated within r
+      const getKey = (c: Change) =>
+        `${(c as { objtype: string }).objtype}:${(c as { grantee: string }).grantee}`;
+      expect(getKey(result[0])).toBe("r:anon");
+      expect(getKey(result[1])).toBe("r:authenticated");
+      expect(getKey(result[2])).toBe("S:anon");
+      // Determinism: shuffling input must yield the same order
+      const shuffled = [...input].sort(() => Math.random() - 0.5);
+      const result2 = logicalSort(shuffled);
+      expect(result2.map(getKey)).toEqual(result.map(getKey));
     });
   });
 });
