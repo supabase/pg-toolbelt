@@ -1,4 +1,8 @@
-import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
+import {
+  isUserDefinedTypeSchema,
+  parseTypeString,
+  stableId,
+} from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { CreateDomainChange } from "./domain.base.ts";
 
@@ -75,7 +79,9 @@ export class CreateDomain extends CreateDomainChange {
 
     // Base type (use formatted string for type+typmod and add schema if needed)
     let baseType = this.domain.base_type_str as string;
+    const alreadyQualified = parseTypeString(baseType);
     if (
+      !alreadyQualified &&
       this.domain.base_type_schema &&
       this.domain.base_type_schema !== "pg_catalog"
     ) {

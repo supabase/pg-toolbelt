@@ -1,6 +1,7 @@
 import {
   isUserDefinedTypeSchema,
   parseProcedureReference,
+  parseTypeString,
   stableId,
 } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
@@ -103,9 +104,12 @@ export class CreateRange extends CreateRangeChange {
 
     const opts: string[] = [];
 
-    // Required subtype
+    // Required subtype (format_type may already return schema-qualified name)
+    const alreadyQualified = parseTypeString(this.range.subtype_str);
     const subtypeQualified =
-      this.range.subtype_schema && this.range.subtype_schema !== "pg_catalog"
+      !alreadyQualified &&
+      this.range.subtype_schema &&
+      this.range.subtype_schema !== "pg_catalog"
         ? `${this.range.subtype_schema}.${this.range.subtype_str}`
         : this.range.subtype_str;
     opts.push(`SUBTYPE = ${subtypeQualified}`);

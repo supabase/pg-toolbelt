@@ -62,4 +62,28 @@ describe("domain", () => {
       `CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL CHECK (VALUE <> '')`,
     );
   });
+
+  test("create with already schema-qualified base type (format_type)", () => {
+    const domain = new Domain({
+      schema: "app",
+      name: "email_address",
+      base_type: "citext",
+      base_type_schema: "extensions",
+      base_type_str: "extensions.citext",
+      not_null: false,
+      type_modifier: null,
+      array_dimensions: null,
+      collation: null,
+      default_bin: null,
+      default_value: null,
+      owner: "test",
+      comment: null,
+      constraints: [],
+      privileges: [],
+    });
+    const change = new CreateDomain({ domain });
+    expect(change.serialize()).toBe(
+      "CREATE DOMAIN app.email_address AS extensions.citext",
+    );
+  });
 });
