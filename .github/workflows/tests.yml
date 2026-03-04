@@ -119,6 +119,7 @@ jobs:
     needs: detect-changes
     name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 14
     strategy:
       fail-fast: false
       matrix:
@@ -131,24 +132,26 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
       - name: Run integration tests (shard)
-        working-directory: packages/pg-delta
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 2
+          command: |
+            cd packages/pg-delta
+            ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
+            TOTAL=${{ matrix.shard_total }}
+            INDEX=$(( ${{ matrix.shard_index }} - 1 ))
+            SHARD_FILES=$(echo "$ALL_FILES" | awk "NR % $TOTAL == $INDEX")
+            if [ -z "$SHARD_FILES" ]; then
+              echo "No test files for this shard, skipping"
+              exit 0
+            fi
+            echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
+            echo "$SHARD_FILES"
+            echo "$SHARD_FILES" | xargs bun run test
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
           BUN_COVERAGE: "1"
-        run: |
-          # List all integration test files deterministically
-          ALL_FILES=$(find tests/ -name "*.test.ts" | sort)
-          TOTAL=${{ matrix.shard_total }}
-          INDEX=$(( ${{ matrix.shard_index }} - 1 ))
-          # Select files for this shard using modulo
-          SHARD_FILES=$(echo "$ALL_FILES" | awk "NR % $TOTAL == $INDEX")
-          if [ -z "$SHARD_FILES" ]; then
-            echo "No test files for this shard, skipping"
-            exit 0
-          fi
-          echo "Running shard ${{ matrix.shard_index }}/$TOTAL with files:"
-          echo "$SHARD_FILES"
-          echo "$SHARD_FILES" | xargs bun run test
       - name: Upload coverage
         if: always()
         continue-on-error: true

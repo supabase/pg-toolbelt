@@ -105,6 +105,8 @@ types.setTypeParser(1007, (val: string) => parseArray(val, parseIntElement)); //
 types.setTypeParser(1016, (val: string) => parseArray(val, parseIntElement)); // int8[]
 
 const DEFAULT_POOL_MAX = Number(process.env.PGDELTA_POOL_MAX) || 5;
+const DEFAULT_CONNECTION_TIMEOUT_MS =
+  Number(process.env.PGDELTA_CONNECTION_TIMEOUT_MS) || 3_000;
 
 /**
  * Options for creating a Pool with event listeners.
@@ -128,7 +130,12 @@ export function createPool(
   options?: CreatePoolOptions,
 ): Pool {
   const { onConnect, onError, onAcquire, onRemove, ...config } = options ?? {};
-  const pool = new Pool({ connectionString, max: DEFAULT_POOL_MAX, ...config });
+  const pool = new Pool({
+    connectionString,
+    max: DEFAULT_POOL_MAX,
+    connectionTimeoutMillis: DEFAULT_CONNECTION_TIMEOUT_MS,
+    ...config,
+  });
 
   if (onConnect) pool.on("connect", onConnect);
   if (onError) pool.on("error", onError);
