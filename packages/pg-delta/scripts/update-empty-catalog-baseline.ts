@@ -46,7 +46,6 @@ const container = await new PostgresAlpineContainer(image).start();
 try {
   const uri = container.getConnectionUri();
   const pool = createPool(uri, {
-    max: 1,
     onError: (err: Error & { code?: string }) => {
       if (err.code !== "57P01") console.error("Pool error:", err);
     },

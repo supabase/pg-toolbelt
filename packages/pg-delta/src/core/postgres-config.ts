@@ -107,6 +107,8 @@ types.setTypeParser(1016, (val: string) => parseArray(val, parseIntElement)); //
 const DEFAULT_POOL_MAX = Number(process.env.PGDELTA_POOL_MAX) || 5;
 const DEFAULT_CONNECTION_TIMEOUT_MS =
   Number(process.env.PGDELTA_CONNECTION_TIMEOUT_MS) || 3_000;
+const DEFAULT_CONNECT_TIMEOUT_MS =
+  Number(process.env.PGDELTA_CONNECT_TIMEOUT_MS) || 2_500;
 
 /**
  * Options for creating a Pool with event listeners.
@@ -185,6 +187,34 @@ export async function createManagedPool(
       }
     },
   });
+
+  // Eagerly validate connectivity so SSL/auth failures surface immediately
+  // instead of hanging on the first real query. node-pg's connectionTimeoutMillis
+  // is not reliably enforced under Bun when SSL negotiation hangs.
+  const label = options?.label ?? "target";
+  const timeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
+  try {
+    const client = await Promise.race([
+      pool.connect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
+                  `The server may require SSL, use an invalid certificate, or be unreachable.`,
+              ),
+            ),
+          timeoutMs,
+        ),
+      ),
+    ]);
+    client.release();
+  } catch (err) {
+    await pool.end().catch(() => {});
+    throw err;
+  }
+
   return { pool, close: () => endPool(pool) };
 }
 

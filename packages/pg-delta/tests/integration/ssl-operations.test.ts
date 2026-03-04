@@ -112,15 +112,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           const targetUrl = `${container.getConnectionUri()}?sslmode=require`; // Target needs SSL too
 
           // Should throw - server requires SSL but client doesn't use it
-          // Add timeout to prevent hanging
-          await expect(
-            Promise.race([
-              createPlan(sourceUrl, targetUrl),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout")), 5000),
-              ),
-            ]),
-          ).rejects.toThrow();
+          await expect(createPlan(sourceUrl, targetUrl)).rejects.toThrow();
         } finally {
           await container.stop();
           await certificates.cleanup();
@@ -258,14 +250,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           // This SHOULD throw - the CA doesn't match the server's certificate
           // If it passes, it means CA verification is NOT happening (current bug)
-          await expect(
-            Promise.race([
-              createPlan(sourceUrl, targetUrl),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout")), 5000),
-              ),
-            ]),
-          ).rejects.toThrow();
+          await expect(createPlan(sourceUrl, targetUrl)).rejects.toThrow();
         } finally {
           await container.stop();
           await serverCerts.cleanup();
@@ -304,14 +289,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           const targetUrl = `${container.getConnectionUri()}?sslmode=verify-full&sslrootcert=${certificates.caCert}`;
 
           // This SHOULD throw because verify-full requires hostname match
-          await expect(
-            Promise.race([
-              createPlan(sourceUrl, targetUrl),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Timeout")), 5000),
-              ),
-            ]),
-          ).rejects.toThrow();
+          await expect(createPlan(sourceUrl, targetUrl)).rejects.toThrow();
         } finally {
           await container.stop();
           await certificates.cleanup();
