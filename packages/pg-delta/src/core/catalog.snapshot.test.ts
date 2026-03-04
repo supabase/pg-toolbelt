@@ -6,6 +6,9 @@ import {
   stringifyCatalogSnapshot,
 } from "./catalog.snapshot.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
+import { Procedure } from "./objects/procedure/procedure.model.ts";
+import { RlsPolicy } from "./objects/rls-policy/rls-policy.model.ts";
+import { Role } from "./objects/role/role.model.ts";
 import { Schema } from "./objects/schema/schema.model.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import { Table } from "./objects/table/table.model.ts";
@@ -314,5 +317,148 @@ describe("catalog snapshot serde", () => {
     const result = await createPlan(null, target);
     expect(result).not.toBeNull();
     expect(result?.plan.statements.length).toBeGreaterThan(0);
+  });
+
+  test("createPlan with filter DSL without cascade keeps dependents of excluded changes", async () => {
+    const { createPlan } = await import("./plan/create.ts");
+
+    const authSchema = new Schema({
+      name: "auth",
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    });
+    const publicSchema = new Schema({
+      name: "public",
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    });
+    const postgresRole = new Role({
+      name: "postgres",
+      is_superuser: true,
+      can_inherit: true,
+      can_create_roles: true,
+      can_create_databases: true,
+      can_login: true,
+      can_replicate: true,
+      connection_limit: null,
+      can_bypass_rls: true,
+      config: null,
+      comment: null,
+      members: [],
+      default_privileges: [],
+    });
+    const authUidProc = new Procedure({
+      schema: "auth",
+      name: "uid",
+      kind: "f",
+      return_type: "uuid",
+      return_type_schema: "pg_catalog",
+      language: "sql",
+      security_definer: false,
+      volatility: "s",
+      parallel_safety: "s",
+      is_strict: true,
+      leakproof: false,
+      returns_set: false,
+      argument_count: 0,
+      argument_default_count: 0,
+      argument_names: null,
+      argument_types: null,
+      all_argument_types: null,
+      argument_modes: null,
+      argument_defaults: null,
+      source_code: null,
+      definition: "CREATE FUNCTION auth.uid() RETURNS uuid ...",
+      binary_path: null,
+      sql_body: null,
+      config: null,
+      owner: "postgres",
+      execution_cost: 0,
+      result_rows: 0,
+      comment: null,
+      privileges: [],
+    });
+    const accountsTable = new Table({
+      schema: "public",
+      name: "accounts",
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+      columns: [],
+      constraints: [],
+      persistence: "p",
+      row_security: true,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      parent_schema: null,
+      parent_name: null,
+    });
+    const accountsPolicy = new RlsPolicy({
+      schema: "public",
+      name: "accounts_select_policy",
+      table_name: "accounts",
+      command: "r",
+      permissive: true,
+      roles: ["authenticated"],
+      using_expression: "auth.uid() = user_id",
+      with_check_expression: null,
+      owner: "postgres",
+      comment: null,
+    });
+
+    const target = new Catalog({
+      ...emptyCatalogProps(),
+      roles: { [postgresRole.stableId]: postgresRole },
+      schemas: {
+        [authSchema.stableId]: authSchema,
+        [publicSchema.stableId]: publicSchema,
+      },
+      procedures: { [authUidProc.stableId]: authUidProc },
+      tables: { [accountsTable.stableId]: accountsTable },
+      rlsPolicies: { [accountsPolicy.stableId]: accountsPolicy },
+      indexableObjects: { [accountsTable.stableId]: accountsTable },
+      depends: [
+        {
+          dependent_stable_id: accountsPolicy.stableId,
+          referenced_stable_id: authUidProc.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+
+    // Filter out auth schema (no cascade): procedure is excluded but policy stays
+    const resultNoCascade = await createPlan(null, target, {
+      filter: { not: { schema: ["auth"] } },
+    });
+    expect(resultNoCascade).not.toBeNull();
+    if (resultNoCascade) {
+      const policyChangesNoCascade = resultNoCascade.sortedChanges.filter(
+        (c) => c.objectType === "rls_policy",
+      );
+      expect(policyChangesNoCascade.length).toBe(1);
+    }
+
+    // Filter out auth schema with cascade: true: policy is also excluded (depends on auth.uid())
+    const resultCascade = await createPlan(null, target, {
+      filter: { not: { schema: ["auth"] }, cascade: true },
+    });
+    expect(resultCascade).not.toBeNull();
+    if (resultCascade) {
+      const policyChangesCascade = resultCascade.sortedChanges.filter(
+        (c) => c.objectType === "rls_policy",
+      );
+      expect(policyChangesCascade.length).toBe(0);
+    }
   });
 });

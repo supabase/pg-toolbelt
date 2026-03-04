@@ -165,8 +165,11 @@ function buildPlanForCatalogs(
 
   // Cascade dependency exclusions: when a change is excluded by the filter,
   // also exclude changes that depend on it (via requires or pg_depend).
-  // This is a fixpoint loop bounded by the total number of changes.
-  if (filterFn && filteredChanges.length < changes.length) {
+  // DSL filters: cascade only if explicitly opted in (cascade: true). Function filters: cascade by default.
+  const shouldCascade = isFilterDSL
+    ? (filterDSL as Record<string, unknown>)?.cascade === true
+    : true;
+  if (filterFn && filteredChanges.length < changes.length && shouldCascade) {
     filteredChanges = cascadeExclusions(
       filteredChanges,
       changes,

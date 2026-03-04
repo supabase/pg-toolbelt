@@ -56,6 +56,11 @@ type SpecialProperties = {
 type PropertyPattern = CoreProperties &
   ExtractedProperties &
   SpecialProperties & {
+    /**
+     * When true, exclusions from this filter cascade to dependents (requires/pg_depend).
+     * Default false for DSL filters (opt-in).
+     */
+    cascade?: boolean;
     // Composition operators are NOT allowed in property patterns
     and?: never;
     or?: never;
@@ -69,6 +74,7 @@ type PropertyPattern = CoreProperties &
 type CompositionPattern =
   | ({
       and: FilterPattern[];
+      cascade?: boolean;
       or?: never;
       not?: never;
     } & {
@@ -80,6 +86,7 @@ type CompositionPattern =
     })
   | ({
       or: FilterPattern[];
+      cascade?: boolean;
       and?: never;
       not?: never;
     } & {
@@ -91,6 +98,7 @@ type CompositionPattern =
     })
   | ({
       not: FilterPattern;
+      cascade?: boolean;
       and?: never;
       or?: never;
     } & {
@@ -180,7 +188,7 @@ export function evaluatePattern(
 
   // Match extracted properties
   for (const [key, value] of Object.entries(pattern)) {
-    // Skip composition operators, core properties, and special properties
+    // Skip composition operators, core properties, special properties, and cascade
     if (
       [
         "and",
@@ -190,6 +198,7 @@ export function evaluatePattern(
         "operation",
         "scope",
         "requiresMatching",
+        "cascade",
       ].includes(key)
     ) {
       continue;

@@ -10,6 +10,7 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
+import { setCommandExitCode } from "../exit-code.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay } from "../utils.ts";
@@ -210,6 +211,6 @@ json/sql outputs are available for artifacts or piping.
     }
 
     // Exit code 2 indicates changes were detected
-    process.exitCode = 2;
+    setCommandExitCode(2);
   },
 });

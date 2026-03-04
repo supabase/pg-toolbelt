@@ -174,6 +174,27 @@ describe("evaluatePattern", () => {
         ),
       ).toBe(true);
     });
+
+    test("cascade property is ignored and does not affect match", () => {
+      expect(
+        evaluatePattern(
+          { type: "table", cascade: true },
+          tableCreate,
+        ),
+      ).toBe(true);
+      expect(
+        evaluatePattern(
+          { type: "table", cascade: false },
+          tableCreate,
+        ),
+      ).toBe(true);
+      expect(
+        evaluatePattern(
+          { not: { schema: "auth" }, cascade: true },
+          tableCreate,
+        ),
+      ).toBe(true);
+    });
   });
 });
 
