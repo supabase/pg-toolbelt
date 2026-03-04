@@ -900,9 +900,21 @@ const extractDependencyRefs = (
       const nameParts = extractNameParts(createDomain?.domainname);
       const domainRef = objectFromNameParts("domain", nameParts);
       const typeRef = typeFromTypeNameNode(createDomain?.typeName);
+      const requires: ObjectRef[] = typeRef ? [typeRef] : [];
+
+      const constraints = Array.isArray(createDomain?.constraints)
+        ? createDomain.constraints
+        : [];
+      for (const constraintItem of constraints) {
+        const constraint = asRecord(asRecord(constraintItem)?.Constraint);
+        if (constraint?.raw_expr) {
+          addExpressionDependencies(constraint.raw_expr, requires);
+        }
+      }
+
       return {
         provides: domainRef ? [domainRef] : [],
-        requires: typeRef ? [typeRef] : [],
+        requires,
       };
     }
     case "CREATE_SEQUENCE": {

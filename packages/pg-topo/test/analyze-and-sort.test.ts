@@ -68,6 +68,30 @@ describe("analyzeAndSort", () => {
     expect(firstIds).toEqual(secondIds);
   });
 
+  test("orders domain with CHECK function call after the referenced function", async () => {
+    const result = await analyzeAndSort([
+      "create domain app.semver as app.semver_struct check (app.is_valid(VALUE));",
+      "create type app.semver_struct as (major smallint, minor smallint, patch smallint);",
+      "create function app.is_valid(app.semver_struct) returns boolean language sql immutable as $$ select ($1).major is not null $$;",
+      "create schema app;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_SCHEMA",
+      "CREATE_TYPE",
+      "CREATE_FUNCTION",
+      "CREATE_DOMAIN",
+    ]);
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
+      ),
+    ).toHaveLength(0);
+  });
+
   test("statement ids include sourceOffset when parser provides location", async () => {
     const result = await analyzeAndSort([
       "create table public.t1(id int);",
