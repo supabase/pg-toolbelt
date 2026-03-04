@@ -164,3 +164,9 @@ dev-debug.log
 
 # Declarative schemas
 declarative-schemas/
+
+
+# ===================
+# tldr ignore patterns
+# ===================
+.tldr/
