@@ -2,6 +2,12 @@ import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
 
+/** Build schema.name(args) for ALTER statements so overloaded functions are unambiguous. */
+function procedureSignature(procedure: Procedure): string {
+  const args = procedure.argument_types?.join(", ") ?? "";
+  return `${procedure.schema}.${procedure.name}(${args})`;
+}
+
 /**
  * Alter a procedure.
  *
@@ -60,7 +66,7 @@ export class AlterProcedureChangeOwner extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       "OWNER TO",
       this.owner,
     ].join(" ");
@@ -94,7 +100,7 @@ export class AlterProcedureSetSecurity extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       security,
     ].join(" ");
   }
@@ -140,7 +146,7 @@ export class AlterProcedureSetConfig extends AlterProcedureChange {
     const head = [
       "ALTER",
       this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
     ].join(" ");
     if (this.action === "reset_all") return `${head} RESET ALL`;
     if (this.action === "reset") return `${head} RESET ${this.key}`;
@@ -180,7 +186,7 @@ export class AlterProcedureSetVolatility extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       volMap[this.volatility],
     ].join(" ");
   }
@@ -210,7 +216,7 @@ export class AlterProcedureSetStrictness extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       strictness,
     ].join(" ");
   }
@@ -240,7 +246,7 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       leak,
     ].join(" ");
   }
@@ -274,7 +280,7 @@ export class AlterProcedureSetParallel extends AlterProcedureChange {
     return [
       "ALTER",
       objectType,
-      `${this.procedure.schema}.${this.procedure.name}`,
+      procedureSignature(this.procedure),
       parallelMap[this.parallelSafety],
     ].join(" ");
   }

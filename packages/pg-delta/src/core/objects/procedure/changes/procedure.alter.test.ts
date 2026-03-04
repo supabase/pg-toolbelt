@@ -55,7 +55,7 @@ describe.concurrent("procedure", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure OWNER TO new_owner",
+        "ALTER PROCEDURE public.test_procedure() OWNER TO new_owner",
       );
     });
 
@@ -102,7 +102,48 @@ describe.concurrent("procedure", () => {
       });
 
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function OWNER TO new_owner",
+        "ALTER FUNCTION public.test_function() OWNER TO new_owner",
+      );
+    });
+
+    test("change owner with argument types (overloaded function)", () => {
+      const procedure = new Procedure({
+        schema: "public",
+        name: "my_func",
+        kind: "f",
+        return_type: "void",
+        return_type_schema: "pg_catalog",
+        language: "plpgsql",
+        security_definer: false,
+        volatility: "v",
+        parallel_safety: "u",
+        is_strict: false,
+        leakproof: false,
+        returns_set: false,
+        argument_count: 2,
+        argument_default_count: 0,
+        argument_names: ["a", "b"],
+        argument_types: ["integer", "text"],
+        all_argument_types: ["integer", "text"],
+        argument_modes: null,
+        argument_defaults: null,
+        source_code: null,
+        binary_path: null,
+        sql_body: null,
+        definition: "CREATE FUNCTION public.my_func(integer, text) ...",
+        config: null,
+        execution_cost: 0,
+        result_rows: 0,
+        comment: null,
+        privileges: [],
+        owner: "old_owner",
+      });
+      const change = new AlterProcedureChangeOwner({
+        procedure,
+        owner: "postgres",
+      });
+      expect(change.serialize()).toBe(
+        "ALTER FUNCTION public.my_func(integer, text) OWNER TO postgres",
       );
     });
 
@@ -144,7 +185,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SECURITY DEFINER",
+        "ALTER FUNCTION public.test_function() SECURITY DEFINER",
       );
     });
 
@@ -186,7 +227,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SECURITY INVOKER",
+        "ALTER FUNCTION public.test_function() SECURITY INVOKER",
       );
     });
 
@@ -244,13 +285,13 @@ describe.concurrent("procedure", () => {
         value: "64MB",
       });
       expect(change1.serialize()).toBe(
-        "ALTER FUNCTION public.test_function RESET search_path",
+        "ALTER FUNCTION public.test_function() RESET search_path",
       );
       expect(change2.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SET search_path TO pg_temp",
+        "ALTER FUNCTION public.test_function() SET search_path TO pg_temp",
       );
       expect(change3.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SET work_mem TO '64MB'",
+        "ALTER FUNCTION public.test_function() SET work_mem TO '64MB'",
       );
     });
 
@@ -294,7 +335,7 @@ describe.concurrent("procedure", () => {
         value: "public",
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function SET search_path TO public",
+        "ALTER FUNCTION public.test_function() SET search_path TO public",
       );
     });
 
@@ -336,7 +377,7 @@ describe.concurrent("procedure", () => {
         volatility: "i",
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function IMMUTABLE",
+        "ALTER FUNCTION public.test_function() IMMUTABLE",
       );
     });
 
@@ -378,7 +419,7 @@ describe.concurrent("procedure", () => {
         isStrict: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function STRICT",
+        "ALTER FUNCTION public.test_function() STRICT",
       );
     });
 
@@ -420,7 +461,7 @@ describe.concurrent("procedure", () => {
         isStrict: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function CALLED ON NULL INPUT",
+        "ALTER FUNCTION public.test_function() CALLED ON NULL INPUT",
       );
     });
 
@@ -462,7 +503,7 @@ describe.concurrent("procedure", () => {
         leakproof: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function LEAKPROOF",
+        "ALTER FUNCTION public.test_function() LEAKPROOF",
       );
     });
 
@@ -504,7 +545,7 @@ describe.concurrent("procedure", () => {
         leakproof: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function NOT LEAKPROOF",
+        "ALTER FUNCTION public.test_function() NOT LEAKPROOF",
       );
     });
 
@@ -546,7 +587,7 @@ describe.concurrent("procedure", () => {
         parallelSafety: "r",
       });
       expect(change.serialize()).toBe(
-        "ALTER FUNCTION public.test_function PARALLEL RESTRICTED",
+        "ALTER FUNCTION public.test_function() PARALLEL RESTRICTED",
       );
     });
 
@@ -589,7 +630,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure SECURITY DEFINER",
+        "ALTER PROCEDURE public.test_procedure() SECURITY DEFINER",
       );
     });
 
@@ -631,7 +672,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure SECURITY INVOKER",
+        "ALTER PROCEDURE public.test_procedure() SECURITY INVOKER",
       );
     });
 
@@ -686,13 +727,13 @@ describe.concurrent("procedure", () => {
         value: "64MB",
       });
       expect(change1.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure RESET search_path",
+        "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
       expect(change2.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure SET search_path TO pg_temp",
+        "ALTER PROCEDURE public.test_procedure() SET search_path TO pg_temp",
       );
       expect(change3.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure SET work_mem TO '64MB'",
+        "ALTER PROCEDURE public.test_procedure() SET work_mem TO '64MB'",
       );
     });
 
@@ -743,10 +784,10 @@ describe.concurrent("procedure", () => {
         key: "work_mem",
       });
       expect(change1.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure RESET search_path",
+        "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
       expect(change2.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure RESET work_mem",
+        "ALTER PROCEDURE public.test_procedure() RESET work_mem",
       );
     });
 
@@ -788,7 +829,7 @@ describe.concurrent("procedure", () => {
         volatility: "s",
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure STABLE",
+        "ALTER PROCEDURE public.test_procedure() STABLE",
       );
     });
 
@@ -830,7 +871,7 @@ describe.concurrent("procedure", () => {
         isStrict: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure STRICT",
+        "ALTER PROCEDURE public.test_procedure() STRICT",
       );
     });
 
@@ -872,7 +913,7 @@ describe.concurrent("procedure", () => {
         isStrict: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure CALLED ON NULL INPUT",
+        "ALTER PROCEDURE public.test_procedure() CALLED ON NULL INPUT",
       );
     });
 
@@ -914,7 +955,7 @@ describe.concurrent("procedure", () => {
         leakproof: true,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure LEAKPROOF",
+        "ALTER PROCEDURE public.test_procedure() LEAKPROOF",
       );
     });
 
@@ -956,7 +997,7 @@ describe.concurrent("procedure", () => {
         leakproof: false,
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure NOT LEAKPROOF",
+        "ALTER PROCEDURE public.test_procedure() NOT LEAKPROOF",
       );
     });
 
@@ -998,7 +1039,7 @@ describe.concurrent("procedure", () => {
         parallelSafety: "s",
       });
       expect(change.serialize()).toBe(
-        "ALTER PROCEDURE public.test_procedure PARALLEL SAFE",
+        "ALTER PROCEDURE public.test_procedure() PARALLEL SAFE",
       );
     });
   });

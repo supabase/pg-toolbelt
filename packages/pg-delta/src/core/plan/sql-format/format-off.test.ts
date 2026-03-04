@@ -403,25 +403,25 @@ describe("sql formatting snapshots", () => {
       DROP FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(IN "p_schema_name_for_analytics" text, IN "p_table_name_for_metrics" text, IN "p_limit_count_default" integer);
 
       -- function.alter.change_owner
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name OWNER TO new_admin;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) OWNER TO new_admin;
 
       -- function.alter.set_security
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name SECURITY INVOKER;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) SECURITY INVOKER;
 
       -- function.alter.set_config
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name SET work_mem TO '256MB';
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) SET work_mem TO '256MB';
 
       -- function.alter.set_volatility
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name IMMUTABLE;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) IMMUTABLE;
 
       -- function.alter.set_strictness
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name CALLED ON NULL INPUT;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) CALLED ON NULL INPUT;
 
       -- function.alter.set_leakproof
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name LEAKPROOF;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) LEAKPROOF;
 
       -- function.alter.set_parallel
-      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name PARALLEL RESTRICTED;
+      ALTER FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) PARALLEL RESTRICTED;
 
       -- function.comment
       COMMENT ON FUNCTION public.calculate_metrics_for_analytics_dashboard_with_extended_name(text,text,integer) IS 'Calculate metrics for a given table';

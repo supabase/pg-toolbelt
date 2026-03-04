@@ -520,29 +520,39 @@ describe("sql formatting snapshots", () => {
           in "p_table_name_for_metrics" text, in "p_limit_count_default" integer);
 
       -- function.alter.change_owner
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name owner to
-          new_admin;
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) owner
+          to new_admin;
 
       -- function.alter.set_security
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name security invoker;
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer)
+          security invoker;
 
       -- function.alter.set_config
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer)
           set work_mem to '256MB';
 
       -- function.alter.set_volatility
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name immutable;
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer)
+          immutable;
 
       -- function.alter.set_strictness
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name called
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer) called
           on null input;
 
       -- function.alter.set_leakproof
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name leakproof;
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer)
+          leakproof;
 
       -- function.alter.set_parallel
-      alter function public.calculate_metrics_for_analytics_dashboard_with_extended_name parallel
-          restricted;
+      alter function
+          public.calculate_metrics_for_analytics_dashboard_with_extended_name(text, text, integer)
+          parallel restricted;
 
       -- function.comment
       comment on function
