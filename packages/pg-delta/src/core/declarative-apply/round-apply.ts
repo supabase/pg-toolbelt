@@ -468,6 +468,10 @@ export async function roundApply(
   } finally {
     if (disableCheckFunctionBodies) {
       try {
+        // Restore check_function_bodies for the connection being returned to the pool.
+        // validateFunctionBodies uses SET LOCAL inside a rolled-back transaction so it
+        // never changes the session-level value, but the SET at the start of rounds still
+        // needs to be undone here.
         await client.query("SET check_function_bodies = on");
       } catch {
         // Best-effort restore; connection is being released anyway
@@ -492,6 +496,14 @@ export function rewriteAsOrReplace(sql: string): string {
 /**
  * Re-run CREATE FUNCTION/PROCEDURE statements with check_function_bodies = on
  * using CREATE OR REPLACE to validate function bodies after all objects exist.
+ *
+ * Runs entirely inside a transaction that is always rolled back, so:
+ * - SET LOCAL search_path and check_function_bodies are transaction-scoped and
+ *   never leak to the caller's session.
+ * - The CREATE OR REPLACE changes are undone, leaving the DB exactly as it was
+ *   after the main apply rounds.
+ * - SAVEPOINTs around each statement prevent an aborted-transaction error from
+ *   blocking validation of the remaining functions.
  */
 async function validateFunctionBodies(
   client: PoolClient,
@@ -499,25 +511,51 @@ async function validateFunctionBodies(
 ): Promise<StatementError[]> {
   const errors: StatementError[] = [];
 
-  await client.query("SET check_function_bodies = on");
-
-  for (const stmt of functions) {
-    const replaceSql = rewriteAsOrReplace(stmt.sql);
-
-    try {
-      await client.query(replaceSql);
-    } catch (err) {
-      const pgErr = err as PgError;
-      errors.push({
-        statement: stmt,
-        code: pgErr.code ?? "",
-        message: pgErr.message ?? "Unknown validation error",
-        isDependencyError: false,
-        position: parsePgPosition(pgErr.position),
-        detail: pgErr.detail,
-        hint: pgErr.hint,
-      });
+  await client.query("BEGIN");
+  try {
+    // Auto-detect all user schemas so unqualified names in function bodies
+    // resolve correctly, regardless of the session's default search_path.
+    const { rows } = await client.query<{ schemas: string | null }>(`
+      SELECT string_agg(quote_ident(nspname), ', ' ORDER BY nspname) AS schemas
+      FROM pg_namespace
+      WHERE nspname NOT LIKE 'pg_%'
+        AND nspname <> 'information_schema'
+    `);
+    const detectedSchemas = rows[0]?.schemas;
+    if (detectedSchemas) {
+      debugApply("validation search_path: %s, pg_catalog", detectedSchemas);
+      await client.query(
+        `SET LOCAL search_path = ${detectedSchemas}, pg_catalog`,
+      );
     }
+
+    await client.query("SET LOCAL check_function_bodies = on");
+
+    for (const stmt of functions) {
+      const replaceSql = rewriteAsOrReplace(stmt.sql);
+
+      await client.query("SAVEPOINT validate_fn");
+      try {
+        await client.query(replaceSql);
+        await client.query("RELEASE SAVEPOINT validate_fn");
+      } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT validate_fn");
+        const pgErr = err as PgError;
+        errors.push({
+          statement: stmt,
+          code: pgErr.code ?? "",
+          message: pgErr.message ?? "Unknown validation error",
+          isDependencyError: false,
+          position: parsePgPosition(pgErr.position),
+          detail: pgErr.detail,
+          hint: pgErr.hint,
+        });
+      }
+    }
+  } finally {
+    // Always roll back: undoes all CREATE OR REPLACE changes and reverts the
+    // SET LOCAL search_path / check_function_bodies so nothing leaks.
+    await client.query("ROLLBACK");
   }
 
   return errors;
