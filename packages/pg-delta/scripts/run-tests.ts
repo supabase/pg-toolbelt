@@ -33,7 +33,7 @@ const proc = Bun.spawn({
   env: {
     ...process.env,
     // Limit the number of pool connections to 1 to avoid overwhelming the alpine containers
-    PGDELTA_POOL_MAX: "1",
+    // PGDELTA_POOL_MAX: "1",
   },
 });
 
