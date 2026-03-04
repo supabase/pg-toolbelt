@@ -243,12 +243,9 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
   serialize(): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const leak = this.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      leak,
-    ].join(" ");
+    return ["ALTER", objectType, procedureSignature(this.procedure), leak].join(
+      " ",
+    );
   }
 }
 
