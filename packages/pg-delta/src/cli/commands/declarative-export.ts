@@ -185,9 +185,6 @@ After export, a tip is printed with the command to apply the schema to an empty 
       verbose?: boolean;
     },
   ) {
-    const { compileFilterDSL } = await import(
-      "../../core/integrations/filter/dsl.ts"
-    );
     const { compileSerializeDSL } = await import(
       "../../core/integrations/serialize/dsl.ts"
     );
@@ -203,13 +200,6 @@ After export, a tip is printed with the command to apply the schema to an empty 
       integrationEmptyCatalog = integrationDSL.emptyCatalog;
     }
 
-    const filterFn =
-      filterOption !== undefined ? compileFilterDSL(filterOption) : undefined;
-    const serializeFn =
-      serializeOption !== undefined
-        ? compileSerializeDSL(serializeOption)
-        : undefined;
-
     const resolvedSource = flags.source
       ? isPostgresUrl(flags.source)
         ? flags.source
@@ -224,9 +214,16 @@ After export, a tip is printed with the command to apply the schema to an empty 
       ? flags.target
       : await loadCatalogFromFile(flags.target);
 
+    // Pass raw DSL to createPlan (not pre-compiled functions).
+    // createPlan compiles them internally and uses the DSL type to correctly
+    // determine cascade behavior: DSL filters disable cascading by default
+    // (unless cascade:true is set), preventing unintended exclusion of
+    // changes that depend on filtered objects (e.g. RLS policies that
+    // reference auth.uid() when the auth schema is filtered out).
     const planResult = await createPlan(resolvedSource, resolvedTarget, {
-      filter: filterFn,
-      serialize: serializeFn,
+      filter: filterOption,
+      serialize: serializeOption,
+      skipDefaultPrivilegeSubtraction: true,
     });
 
     if (!planResult) {
@@ -255,6 +252,11 @@ After export, a tip is printed with the command to apply the schema to an empty 
             : undefined,
       };
     }
+
+    const serializeFn =
+      serializeOption !== undefined
+        ? compileSerializeDSL(serializeOption)
+        : undefined;
 
     const output = exportDeclarativeSchema(planResult, {
       integration:

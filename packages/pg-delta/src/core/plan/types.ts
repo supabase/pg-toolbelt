@@ -162,4 +162,10 @@ export interface CreatePlanOptions {
   serialize?: SerializeDSL | ChangeSerializer;
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
+  /**
+   * When true, don't subtract privileges covered by ALTER DEFAULT PRIVILEGES
+   * from explicit GRANTs during diffing. Use this for declarative export where
+   * the output must be self-contained and not rely on statement execution order.
+   */
+  skipDefaultPrivilegeSubtraction?: boolean;
 }

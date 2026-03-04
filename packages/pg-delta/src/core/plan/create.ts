@@ -119,6 +119,7 @@ function buildPlanForCatalogs(
 ): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
   const changes = diffCatalogs(fromCatalog, toCatalog, {
     role: options.role,
+    skipDefaultPrivilegeSubtraction: options.skipDefaultPrivilegeSubtraction,
   });
 
   const filterOption = options.filter;

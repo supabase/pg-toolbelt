@@ -12,4 +12,5 @@ export interface ObjectDiffContext {
   currentUser: string;
   defaultPrivilegeState: DefaultPrivilegeState;
   mainRoles: Record<string, Role>;
+  skipDefaultPrivilegeSubtraction?: boolean;
 }

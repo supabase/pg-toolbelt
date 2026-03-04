@@ -85,7 +85,7 @@ function getPrivilegeTargetStableId(change: PrivilegeChange): string {
 export function diffCatalogs(
   main: Catalog,
   branch: Catalog,
-  options?: { role?: string },
+  options?: { role?: string; skipDefaultPrivilegeSubtraction?: boolean },
 ) {
   const changes: Change[] = [];
 
@@ -101,24 +101,33 @@ export function diffCatalogs(
   // This represents what defaults will be in effect after all ALTER DEFAULT PRIVILEGES
   // Since ALTER DEFAULT PRIVILEGES runs before CREATE (via constraint spec),
   // all created objects will use these final defaults.
-  const defaultPrivilegeState = new DefaultPrivilegeState(main.roles);
-  for (const change of roleChanges) {
-    if (change instanceof GrantRoleDefaultPrivileges) {
-      defaultPrivilegeState.applyGrant(
-        change.role.name,
-        change.objtype,
-        change.inSchema,
-        change.grantee,
-        change.privileges,
-      );
-    } else if (change instanceof RevokeRoleDefaultPrivileges) {
-      defaultPrivilegeState.applyRevoke(
-        change.role.name,
-        change.objtype,
-        change.inSchema,
-        change.grantee,
-        change.privileges,
-      );
+  //
+  // When skipDefaultPrivilegeSubtraction is true, we use an empty state so that
+  // getEffectiveDefaults always returns [] -- no privileges are subtracted and
+  // every GRANT is emitted explicitly.  This is needed for declarative export
+  // where the output must be self-contained regardless of statement execution order.
+  const defaultPrivilegeState = options?.skipDefaultPrivilegeSubtraction
+    ? new DefaultPrivilegeState({})
+    : new DefaultPrivilegeState(main.roles);
+  if (!options?.skipDefaultPrivilegeSubtraction) {
+    for (const change of roleChanges) {
+      if (change instanceof GrantRoleDefaultPrivileges) {
+        defaultPrivilegeState.applyGrant(
+          change.role.name,
+          change.objtype,
+          change.inSchema,
+          change.grantee,
+          change.privileges,
+        );
+      } else if (change instanceof RevokeRoleDefaultPrivileges) {
+        defaultPrivilegeState.applyRevoke(
+          change.role.name,
+          change.objtype,
+          change.inSchema,
+          change.grantee,
+          change.privileges,
+        );
+      }
     }
   }
 
@@ -133,6 +142,7 @@ export function diffCatalogs(
     currentUser: effectiveUser,
     defaultPrivilegeState,
     mainRoles: main.roles,
+    skipDefaultPrivilegeSubtraction: options?.skipDefaultPrivilegeSubtraction,
   };
 
   // Step 4: Diff all other objects with default privileges context
