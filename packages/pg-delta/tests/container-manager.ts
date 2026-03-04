@@ -94,7 +94,6 @@ class ContainerManager {
       // hangs under Bun.
       const adminPool = createPool(container.getConnectionUri(), {
         onError: suppressShutdownError,
-        max: 1,
       });
       this.adminPools.set(version, adminPool);
 
@@ -165,11 +164,11 @@ class ContainerManager {
     // Use onError to suppress expected shutdown errors from idle connections
     const poolMain = createPool(
       container.getConnectionUriForDatabase(dbNameMain),
-      { max: 1, onError: suppressShutdownError },
+      { onError: suppressShutdownError },
     );
     const poolBranch = createPool(
       container.getConnectionUriForDatabase(dbNameBranch),
-      { max: 1, onError: suppressShutdownError },
+      { onError: suppressShutdownError },
     );
 
     const cleanup = async () => {
@@ -183,7 +182,7 @@ class ContainerManager {
             // Connect to the database to drop subscriptions
             const dbPool = createPool(
               container.getConnectionUriForDatabase(dbName),
-              { max: 1, onError: suppressShutdownError },
+              { onError: suppressShutdownError },
             );
             try {
               const subsResult = await dbPool.query(
@@ -232,11 +231,9 @@ class ContainerManager {
     ]);
 
     const poolMain = createPool(containerMain.getConnectionUri(), {
-      max: 1,
       onError: suppressShutdownError,
     });
     const poolBranch = createPool(containerBranch.getConnectionUri(), {
-      max: 1,
       onError: suppressShutdownError,
     });
 
