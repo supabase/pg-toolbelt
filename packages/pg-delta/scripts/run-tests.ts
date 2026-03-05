@@ -35,8 +35,8 @@ const proc = Bun.spawn({
     // Limit the number of pool connections to 1 to avoid overwhelming the alpine containers
     // on local dev
     PGDELTA_POOL_MAX: "1",
-    PGDELTA_CONNECTION_TIMEOUT_MS: "500",
-    PGDELTA_CONNECT_TIMEOUT_MS: "500",
+    PGDELTA_CONNECTION_TIMEOUT_MS: "2000",
+    PGDELTA_CONNECT_TIMEOUT_MS: "2000",
     ...process.env,
   },
 });
