@@ -8,8 +8,8 @@
  *   bun test --preload @supabase/bun-istanbul-coverage/preload
  */
 import { join } from "node:path";
-import { globToRegex, readNycConfig } from "./config.ts";
-import { setupCoverage } from "./index.ts";
+import { globToRegex, readNycConfig } from "./config.js";
+import { setupCoverage } from "./index.js";
 
 const cwd = process.cwd();
 const result = readNycConfig(cwd);
