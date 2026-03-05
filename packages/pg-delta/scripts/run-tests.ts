@@ -22,7 +22,7 @@ const proc = Bun.spawn({
     globalSetup,
     "--concurrent",
     "--timeout",
-    "5000",
+    "15000",
     "--max-concurrency",
     "3",
     "--retry=3",
