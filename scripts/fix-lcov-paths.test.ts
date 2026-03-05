@@ -313,16 +313,31 @@ describe("fixLcovContent", () => {
     expect(content).toContain("SF:packages/pg-delta/src/core/catalog.diff.ts");
   });
 
-  test("rewrites absolute paths", () => {
+  test("rewrites absolute paths to relative", () => {
     const input = lcovRecord("/repo/src/core/catalog.diff.ts");
     const { content, fixed } = fixLcovContent(input, "/repo", "pg-delta");
     expect(fixed).toBe(1);
     expect(content).toContain(
-      "SF:/repo/packages/pg-delta/src/core/catalog.diff.ts",
+      "SF:packages/pg-delta/src/core/catalog.diff.ts",
     );
   });
 
-  test("skips paths already containing package segment", () => {
+  test("normalizes absolute path with package segment to relative", () => {
+    const input = lcovRecord(
+      "/home/runner/work/pg-toolbelt/pg-toolbelt/packages/pg-delta/src/core/catalog.diff.ts",
+    );
+    const { content, fixed } = fixLcovContent(
+      input,
+      "/home/runner/work/pg-toolbelt/pg-toolbelt",
+      "pg-delta",
+    );
+    expect(fixed).toBe(1);
+    expect(content).toContain(
+      "SF:packages/pg-delta/src/core/catalog.diff.ts",
+    );
+  });
+
+  test("skips paths already containing package segment (relative)", () => {
     const input = lcovRecord("packages/pg-delta/src/index.ts");
     const { fixed } = fixLcovContent(input, "/repo", "pg-delta");
     expect(fixed).toBe(0);

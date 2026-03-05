@@ -212,8 +212,27 @@ jobs:
           merge-multiple: false
       - name: Fix coverage paths
         run: bun scripts/fix-lcov-paths.ts
+      - name: Verify coverage artifacts
+        run: |
+          echo "=== lcov files found ==="
+          find . -name "lcov.info" -type f -exec sh -c 'echo "  {} ($(wc -l < "{}") lines)"' \;
+          echo ""
+          echo "=== Sample SF: paths (first 5 per file) ==="
+          find . -name "lcov.info" -type f -exec sh -c 'echo "--- {}:"; grep "^SF:" "$1" | head -5' _ {} \;
+          echo ""
+          ABSOLUTE_PATHS=$(find . -name "lcov.info" -type f -exec grep "^SF:/" {} \;)
+          if [ -n "$ABSOLUTE_PATHS" ]; then
+            echo "ERROR: Found absolute SF: paths after fix-lcov-paths (should all be relative):"
+            echo "$ABSOLUTE_PATHS" | head -10
+            exit 1
+          fi
+          echo "All SF: paths are relative"
       - name: Install lcov
-        run: sudo apt-get install -y lcov
+        run: |
+          LCOV_VERSION="2.4"
+          curl -fsSL "https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz" | tar xz
+          sudo make -C "lcov-${LCOV_VERSION}" install
+          genhtml --version
       - name: Merge coverage reports
         run: |
           find . -name "lcov.info" -type f -exec cat {} + > merged-lcov.info
@@ -224,7 +243,7 @@ jobs:
       - name: Generate HTML report
         run: |
           genhtml merged-lcov.info --output-directory coverage-html \
-            --rc branch_coverage=1 --prefix ${{ github.workspace }} 2>&1 | tee /tmp/genhtml-output.txt
+            --rc branch_coverage=1 --no-prefix 2>&1 | tee /tmp/genhtml-output.txt
           echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
           tail -5 /tmp/genhtml-output.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Upload merged coverage

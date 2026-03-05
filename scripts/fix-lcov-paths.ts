@@ -159,11 +159,12 @@ export function stripLcovRecords(
 }
 
 /**
- * Rewrites SF: lines in lcov content to insert packages/{pkg}/.
- * Handles both absolute paths (CI) and relative paths (local).
+ * Rewrites SF: lines in lcov content so every path is a relative path
+ * starting with packages/{pkg}/. Handles absolute paths (CI), relative
+ * paths missing the prefix (local), and already-correct paths.
  * Pure string operation -- no filesystem checks.
  *
- * Idempotent: paths already containing packages/{pkg}/ are left unchanged.
+ * All output paths are relative: packages/{pkg}/src/...
  */
 export function fixLcovContent(
   content: string,
@@ -181,14 +182,20 @@ export function fixLcovContent(
     total++;
     const sfPath = line.slice(3);
 
-    if (sfPath.includes(`/${pkgSegment}`) || sfPath.startsWith(pkgSegment)) {
+    if (sfPath.startsWith(pkgSegment)) {
       return line;
+    }
+
+    if (sfPath.includes(`/${pkgSegment}`)) {
+      const idx = sfPath.indexOf(`/${pkgSegment}`);
+      fixed++;
+      return `SF:${sfPath.slice(idx + 1)}`;
     }
 
     if (sfPath.startsWith(absPrefix)) {
       const relativePath = sfPath.slice(absPrefix.length);
       fixed++;
-      return `SF:${absPrefix}${pkgSegment}${relativePath}`;
+      return `SF:${pkgSegment}${relativePath}`;
     }
 
     if (!sfPath.startsWith("/")) {

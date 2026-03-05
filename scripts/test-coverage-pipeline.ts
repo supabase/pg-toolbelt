@@ -25,6 +25,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+const EXPECTED_LCOV_VERSION = "2.4";
+
 const repoRoot = resolve(import.meta.dir, "..");
 const scriptPath = join(repoRoot, "scripts", "fix-lcov-paths.ts");
 
@@ -194,6 +196,18 @@ try {
     fail("genhtml not installed. Install with: brew install lcov");
   }
 
+  {
+    const { stdout } = await run(["genhtml", "--version"]);
+    const versionMatch = stdout.match(/LCOV version (\d+\.\d+)/);
+    const localVersion = versionMatch?.[1] ?? "unknown";
+    if (localVersion !== EXPECTED_LCOV_VERSION) {
+      console.warn(
+        `\n  WARNING: local genhtml version ${localVersion} differs from CI (${EXPECTED_LCOV_VERSION}).` +
+          "\n  Coverage output may differ. Install matching version: brew install lcov\n",
+      );
+    }
+  }
+
   log("Step 6: Generating HTML report with genhtml");
   const htmlDir = join(tempDir, "coverage-html");
   const result = await run([
@@ -203,8 +217,7 @@ try {
     htmlDir,
     "--rc",
     "branch_coverage=1",
-    "--prefix",
-    repoRoot,
+    "--no-prefix",
   ]);
   if (result.exitCode !== 0) {
     console.error(result.stdout);
