@@ -113,6 +113,7 @@ jobs:
           name: coverage-pg-delta-unit
           path: packages/pg-delta/.nyc_output/
           retention-days: 1
+          include-hidden-files: true
 
   pg-delta-integration:
     if: >-
@@ -164,6 +165,7 @@ jobs:
           name: coverage-integration-pg${{ matrix.postgres_version }}-shard-${{ matrix.shard_index }}
           path: packages/pg-delta/.nyc_output/
           retention-days: 1
+          include-hidden-files: true
 
   pg-delta-integration-pg15-compat:
     if: always() && github.event.pull_request.draft == false
@@ -234,6 +236,7 @@ jobs:
           name: coverage-report
           path: .coverage-artifacts/
           retention-days: 30
+          include-hidden-files: true
 
   pg-topo-tests:
     if: >-
@@ -262,6 +265,7 @@ jobs:
           name: coverage-pg-topo
           path: packages/pg-topo/.nyc_output/
           retention-days: 1
+          include-hidden-files: true
 
   release-preview:
     needs:
