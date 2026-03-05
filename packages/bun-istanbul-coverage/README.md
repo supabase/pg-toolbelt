@@ -105,6 +105,8 @@ Bun.spawn({
 
 Each CI job runs tests with the preload and uploads `.nyc_output/` as an artifact. A final job downloads all artifacts into a single `.nyc_output/` and runs `nyc report`.
 
+**Important:** `actions/upload-artifact@v4` defaults to `include-hidden-files: false`. Because `.nyc_output` starts with a dot, the action will skip it and report "No files were found" unless you set `include-hidden-files: true`.
+
 ```yaml
 # In each test job:
 - name: Run tests
@@ -117,6 +119,7 @@ Each CI job runs tests with the preload and uploads `.nyc_output/` as an artifac
   with:
     name: coverage-${{ matrix.name }}
     path: .nyc_output/
+    include-hidden-files: true   # required: .nyc_output is a hidden directory
 
 # In the coverage job:
 - name: Download all coverage
