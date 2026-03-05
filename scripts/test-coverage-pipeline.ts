@@ -14,14 +14,7 @@
  *   - genhtml must be installed (brew install lcov)
  */
 import { existsSync } from "node:fs";
-import {
-  cp,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -106,7 +99,7 @@ for (const pkg of PACKAGES) {
 if (available.length === 0) {
   fail(
     "No coverage data found. Run tests first:\n" +
-      "  cd packages/pg-delta && bun test --coverage --coverage-reporter=lcov src/\n" +
+      "  cd packages/pg-delta && BUN_COVERAGE=1 bun run test\n" +
       "  cd packages/pg-topo && BUN_COVERAGE=1 bun run test",
   );
 }
@@ -181,14 +174,21 @@ try {
     fail("Test infrastructure file(s) not stripped");
   }
 
-  // Step 5: Concatenate all fixed lcov files (genhtml handles dedup)
+  // Step 5: Merge coverage with baseline strategy (unit + pg-topo as baseline)
   log("Step 5: Merging coverage files");
   const mergedPath = join(tempDir, "merged-lcov.info");
-  const allContents = await Promise.all(
-    allLcovFiles.map((f) => readFile(f, "utf-8")),
-  );
-  await writeFile(mergedPath, allContents.join("\n"));
-  console.log(`Concatenated ${allLcovFiles.length} lcov files`);
+  {
+    const mergeScript = join(repoRoot, "scripts", "merge-lcov.ts");
+    const { exitCode, stdout, stderr } = await run(
+      ["bun", mergeScript, tempDir, "-o", mergedPath],
+      { cwd: repoRoot },
+    );
+    console.log(stdout);
+    if (stderr) console.error(stderr);
+    if (exitCode !== 0) {
+      fail("merge-lcov.ts exited with non-zero");
+    }
+  }
 
   // Step 6: genhtml
   const hasGenhtml = await commandExists("genhtml");

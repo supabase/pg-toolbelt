@@ -1,7 +1,8 @@
 /**
  * Fixes Bun's lcov output where SF: paths are missing the packages/{pkg}/
- * segment, and strips records that should be excluded from coverage
- * (cross-package leaks, test files, infrastructure files).
+ * segment, strips records that should be excluded from coverage, and
+ * removes DA (line data) entries for non-executable lines (blanks, comments)
+ * so coverage percentage reflects only executable code.
  *
  * Bun ignores [test] settings in bunfig.toml (oven-sh/bun#17664), so
  * coverageSkipTestFiles and coveragePathIgnorePatterns don't take effect.
@@ -111,6 +112,102 @@ export function shouldStripPath(sfPath: string, pkg: string): boolean {
 }
 
 /**
+ * Returns the set of 1-based line numbers that are executable (not blank,
+ * not comment-only). Used to drop DA entries for comments/blanks so they
+ * are not counted as uncovered.
+ */
+export function getExecutableLineNumbers(source: string): Set<number> {
+  const lines = source.split(/\r?\n/);
+  const executable = new Set<number>();
+  let inBlockComment = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNum = i + 1;
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (inBlockComment) {
+      if (line.includes("*/")) inBlockComment = false;
+      continue;
+    }
+    if (trimmed === "") continue;
+    if (trimmed.startsWith("//")) continue;
+    if (trimmed.startsWith("/*")) {
+      if (!trimmed.includes("*/")) inBlockComment = true;
+      continue;
+    }
+
+    executable.add(lineNum);
+  }
+
+  return executable;
+}
+
+/**
+ * Removes DA:line,count lines for line numbers that are non-executable
+ * (blank or comment) in the source file, so coverage only counts executable lines.
+ * Requires repoRoot so SF paths (packages/pkg/...) can be resolved to disk.
+ */
+export async function stripNonExecutableDaLines(
+  content: string,
+  repoRoot: string,
+  _pkg: string,
+): Promise<{ content: string; removed: number }> {
+  const lines = content.split("\n");
+  const out: string[] = [];
+  let removed = 0;
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.startsWith("SF:")) {
+      out.push(line);
+      i++;
+      continue;
+    }
+
+    const sfPath = line.slice(3);
+    const absPath = join(repoRoot, sfPath);
+    out.push(line);
+    i++;
+
+    let executable: Set<number> | null = null;
+    if (existsSync(absPath)) {
+      try {
+        const source = await readFile(absPath, "utf-8");
+        executable = getExecutableLineNumbers(source);
+      } catch {
+        // keep all DA lines if we can't read the file
+      }
+    }
+
+    while (i < lines.length && lines[i] !== "end_of_record") {
+      const l = lines[i];
+      if (l.startsWith("DA:")) {
+        const rest = l.slice(3);
+        const comma = rest.indexOf(",");
+        if (comma !== -1) {
+          const lineNum = Number.parseInt(rest.slice(0, comma), 10);
+          if (!Number.isNaN(lineNum) && executable && !executable.has(lineNum)) {
+            removed++;
+            i++;
+            continue;
+          }
+        }
+      }
+      out.push(l);
+      i++;
+    }
+    if (i < lines.length && lines[i] === "end_of_record") {
+      out.push(lines[i]);
+      i++;
+    }
+  }
+
+  return { content: out.join("\n"), removed };
+}
+
+/**
  * Strips entire lcov records (SF: through end_of_record) for paths that
  * should be excluded from coverage. Must be called BEFORE fixLcovContent
  * so we never try to rewrite paths that will be removed.
@@ -211,12 +308,13 @@ export function fixLcovContent(
 
 if (import.meta.main) {
   const dir = resolve(process.argv[2] || ".");
+  const repoRoot = dir.endsWith(".coverage-artifacts") ? resolve(dir, "..") : dir;
   const entries = await readdir(dir, { withFileTypes: true });
   let totalFixed = 0;
   let totalPaths = 0;
   let fileCount = 0;
-
   let totalStripped = 0;
+  let totalDaRemoved = 0;
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -232,18 +330,25 @@ if (import.meta.main) {
       stripped,
       total: recordTotal,
     } = stripLcovRecords(raw, pkg);
-    const { content, fixed, total } = fixLcovContent(cleaned, dir, pkg);
+    const { content: pathFixed, fixed, total } = fixLcovContent(cleaned, dir, pkg);
+    const { content, removed: daRemoved } = await stripNonExecutableDaLines(
+      pathFixed,
+      repoRoot,
+      pkg,
+    );
     fileCount++;
     totalFixed += fixed;
     totalPaths += total;
     totalStripped += stripped;
+    totalDaRemoved += daRemoved;
 
-    if (fixed > 0 || stripped > 0) {
+    if (fixed > 0 || stripped > 0 || daRemoved > 0) {
       await writeFile(lcovPath, content);
       const parts: string[] = [];
       if (fixed > 0) parts.push(`fixed ${fixed}/${total} source paths`);
       if (stripped > 0)
         parts.push(`stripped ${stripped}/${recordTotal} records`);
+      if (daRemoved > 0) parts.push(`removed ${daRemoved} non-executable DA lines`);
       console.log(
         `${basename(entry.name)}/lcov.info: ${parts.join(", ")} (-> packages/${pkg}/)`,
       );
@@ -257,6 +362,7 @@ if (import.meta.main) {
       `fixed ${totalFixed}/${totalPaths} source paths`,
       `stripped ${totalStripped} records`,
     ];
+    if (totalDaRemoved > 0) parts.push(`removed ${totalDaRemoved} non-executable DA lines`);
     console.log(`Done: ${parts.join(", ")} across ${fileCount} files`);
   }
 }

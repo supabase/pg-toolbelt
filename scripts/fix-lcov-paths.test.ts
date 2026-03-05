@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   COVERAGE_IGNORE,
   fixLcovContent,
+  getExecutableLineNumbers,
   globToRegex,
   packageForArtifact,
   shouldStripPath,
   stripLcovRecords,
+  stripNonExecutableDaLines,
 } from "./fix-lcov-paths.ts";
 
 function lcovRecord(sfPath: string): string {
@@ -337,6 +339,68 @@ describe("fixLcovContent", () => {
     const input = lcovRecord("packages/pg-delta/src/index.ts");
     const { fixed } = fixLcovContent(input, "/repo", "pg-delta");
     expect(fixed).toBe(0);
+  });
+});
+
+describe("getExecutableLineNumbers", () => {
+  test("treats blank lines as non-executable", () => {
+    const source = "const a = 1;\n\nconst b = 2;\n";
+    const exec = getExecutableLineNumbers(source);
+    expect(exec.has(1)).toBe(true);
+    expect(exec.has(2)).toBe(false);
+    expect(exec.has(3)).toBe(true);
+    expect(exec.has(4)).toBe(false);
+  });
+
+  test("treats // line comments as non-executable", () => {
+    const source = "// comment\nconst a = 1;\n  // trailing\n";
+    const exec = getExecutableLineNumbers(source);
+    expect(exec.has(1)).toBe(false);
+    expect(exec.has(2)).toBe(true);
+    expect(exec.has(3)).toBe(false);
+  });
+
+  test("treats block comments as non-executable", () => {
+    const source = "/* start\n  block\n  end */\nconst a = 1;\n";
+    const exec = getExecutableLineNumbers(source);
+    expect(exec.has(1)).toBe(false);
+    expect(exec.has(2)).toBe(false);
+    expect(exec.has(3)).toBe(false);
+    expect(exec.has(4)).toBe(true);
+  });
+
+  test("single-line block comment is non-executable", () => {
+    const source = "/* one line */\nconst a = 1;\n";
+    const exec = getExecutableLineNumbers(source);
+    expect(exec.has(1)).toBe(false);
+    expect(exec.has(2)).toBe(true);
+  });
+});
+
+describe("stripNonExecutableDaLines", () => {
+  test("removes DA lines for non-executable lines when source exists", async () => {
+    const lcov = [
+      "SF:packages/pg-delta/src/fake.ts",
+      "DA:1,1",
+      "DA:2,0",
+      "DA:3,1",
+      "end_of_record",
+    ].join("\n");
+    const source = "const a = 1;\n// comment\nconst b = 2;\n";
+    const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const tmp = await mkdtemp(join(import.meta.dir, "strip-da-"));
+    try {
+      await mkdir(join(tmp, "packages", "pg-delta", "src"), { recursive: true });
+      await writeFile(join(tmp, "packages", "pg-delta", "src", "fake.ts"), source, "utf-8");
+      const { content, removed } = await stripNonExecutableDaLines(lcov, tmp, "pg-delta");
+      expect(removed).toBe(1);
+      expect(content).toContain("DA:1,1");
+      expect(content).not.toContain("DA:2,0");
+      expect(content).toContain("DA:3,1");
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });
 

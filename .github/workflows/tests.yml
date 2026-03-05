@@ -235,12 +235,7 @@ jobs:
           sudo make -C "lcov-${LCOV_VERSION}" install
           genhtml --version
       - name: Merge coverage reports
-        run: |
-          find . -name "lcov.info" -type f -exec cat {} + > merged-lcov.info
-          if [ ! -s merged-lcov.info ]; then
-            echo "No coverage files found"
-            exit 1
-          fi
+        run: bun scripts/merge-lcov.ts -o merged-lcov.info
       - name: Generate HTML report
         run: |
           genhtml merged-lcov.info --output-directory coverage-html \

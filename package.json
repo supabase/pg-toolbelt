@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "bun run --filter '*' build",
+    "coverage": "bun scripts/coverage.ts",
     "check-types": "bun run --filter '*' check-types",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "bun run --filter '*' knip",

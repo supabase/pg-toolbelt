@@ -574,6 +574,110 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `,
         });
       }),
+
+      // Test with a table, with a two columns, and a trigger that use the two in it's WHEN clause
+      // Then one of the table column is dropped or when a column is added, what happen to the trigger ?
+      // Eg: a trigger like so:
+      // CREATE OR REPLACE FUNCTION post_activity_func()
+      //     RETURNS TRIGGER
+      // AS
+      // $$
+      // BEGIN
+      //     IF TG_OP = 'UPDATE' AND (NOT NEW.draft OR (NOT OLD.draft AND NEW.draft)) -- (publish) OR (publish to draft)
+      //     THEN
+      //         INSERT INTO post_activity (
+      //            id, context, creation_date, data, last_published_date, draft, growth, internet_link, title,
+      //            todo, votes_average, brand_id, category_id, country_id, localisation_id, outcome_id, user_id,
+      //            ability_id, strategy_id, opportunity_id, created_by, created_date, last_modified_by,
+      //            last_modified_date, operation
+      //         ) VALUES (OLD.*, 'UPDATE') ON CONFLICT ON CONSTRAINT post_activity_pkey DO NOTHING;
+
+      //         RETURN NEW;
+      //     ELSIF TG_OP = 'DELETE' THEN
+      //         INSERT INTO post_activity (
+      //             id, context, creation_date, data, last_published_date, draft, growth, internet_link, title,
+      //             todo, votes_average, brand_id, category_id, country_id, localisation_id, outcome_id, user_id,
+      //             ability_id, strategy_id, opportunity_id, created_by, created_date, last_modified_by,
+      //             last_modified_date, operation
+      //         ) VALUES (OLD.*, 'DELETE') ON CONFLICT ON CONSTRAINT post_activity_pkey DO NOTHING;
+      //         RETURN OLD;
+      //     ELSIF TG_OP = 'UPDATE' THEN
+      //         RETURN NEW;
+      //     END IF;
+      // END;
+      // $$
+      // LANGUAGE plpgsql;
+      // Then table is altered in the diff with something like this:
+      // alter table post_activity add removed boolean default false;
+      // If the trigger ins't updated to this, it will cause an error (probably):
+      // CREATE OR REPLACE FUNCTION post_activity_func()
+      //     RETURNS TRIGGER
+      // AS
+      // $$
+      // BEGIN
+      //     IF TG_OP = 'UPDATE' AND (NOT NEW.draft OR (NOT OLD.draft AND NEW.draft)) -- (publish) OR (publish to draft)
+      //     THEN
+      //         INSERT INTO post_activity (
+      //            id, context, creation_date, data, last_published_date, draft, growth, internet_link, title,
+      //            todo, votes_average, brand_id, category_id, country_id, localisation_id, outcome_id, user_id,
+      //            ability_id, strategy_id, opportunity_id, created_by, created_date, last_modified_by,
+      //            last_modified_date, removed, operation
+      //         ) VALUES (OLD.*, 'UPDATE') ON CONFLICT ON CONSTRAINT post_activity_pkey DO NOTHING;
+
+      //         RETURN NEW;
+      //     ELSIF TG_OP = 'DELETE' THEN
+      //         INSERT INTO post_activity (
+      //             id, context, creation_date, data, last_published_date, draft, growth, internet_link, title,
+      //             todo, votes_average, brand_id, category_id, country_id, localisation_id, outcome_id, user_id,
+      //             ability_id, strategy_id, opportunity_id, created_by, created_date, last_modified_by,
+      //             last_modified_date, removed, operation
+      //         ) VALUES (OLD.*, 'DELETE') ON CONFLICT ON CONSTRAINT post_activity_pkey DO NOTHING;
+      //         RETURN OLD;
+      //     ELSIF TG_OP = 'UPDATE' THEN
+      //         RETURN NEW;
+      //     END IF;
+      // END;
+      // $$
+      // LANGUAGE plpgsql;
+
+      // Another test case, with tables with depending view that would cause an error if we use a `CREATE OR REPLACE` on the view rather than a DROP + CREATE:
+      //       When a table gains a new column and a dependent view uses SELECT t.*, pgschema emits CREATE OR REPLACE VIEW which fails because PostgreSQL cannot rename existing view columns.
+
+      // Reproduction
+      // Given:
+
+      // CREATE TABLE item (
+      //   id uuid PRIMARY KEY,
+      //   title text,
+      //   status text
+      // );
+
+      // CREATE VIEW item_extended AS
+      //   SELECT i.*, c.name AS category_name
+      //   FROM item i JOIN category c ON ...;
+      // Now add a column to the table:
+
+      // -- In desired state SQL:
+      // CREATE TABLE item (
+      //   id uuid PRIMARY KEY,
+      //   title text,
+      //   status text,
+      //   new_col text   -- added
+      // );
+      // pgschema detects item_extended needs updating (because i.* now includes new_col) and emits:
+
+      // CREATE OR REPLACE VIEW item_extended AS
+      //   SELECT i.*, c.name AS category_name FROM ...;
+      // This fails with:
+
+      // ERROR: cannot change name of view column "category_name" to "new_col" (SQLSTATE 42P16)
+      // The i.* expansion now includes new_col before category_name, shifting column positions. PostgreSQL's CREATE OR REPLACE VIEW does not allow renaming existing columns.
+
+      // Expected behavior
+      // When a view's column set changes (not just the query body), pgschema should DROP VIEW + CREATE VIEW instead of CREATE OR REPLACE VIEW. This may require cascading drops for dependent views, which should be recreated afterward.
+
+      // Impact
+      // This blocks routine schema changes (adding columns to core tables) from being applied automatically. Any table referenced by views using SELECT * is affected.
     );
   });
 }
