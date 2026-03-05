@@ -20,6 +20,7 @@ const proc = Bun.spawn({
   cmd: [
     "bun",
     "test",
+    ...coverageArgs,
     "--preload",
     globalSetup,
     "--timeout",
@@ -27,7 +28,6 @@ const proc = Bun.spawn({
     "--concurrent",
     "--max-concurrency",
     "8",
-    ...coverageArgs,
     ...args,
   ],
   cwd: pkgRoot,

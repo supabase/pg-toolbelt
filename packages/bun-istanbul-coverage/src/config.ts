@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface NycConfig {
   include?: string[];
@@ -9,23 +9,35 @@ export interface NycConfig {
   reporter?: string[];
 }
 
+export interface NycConfigResult {
+  config: NycConfig;
+  /** Directory where the config file was found (for anchoring glob patterns). */
+  configDir: string;
+}
+
 const NYC_CONFIG_FILES = [".nycrc.json", ".nycrc", ".nycrc.yml"] as const;
 
 /**
- * Reads nyc configuration from the first config file found in `rootDir`.
+ * Walks up from `startDir` looking for a nyc config file.
  * Only JSON formats are supported (`.nycrc.json`, `.nycrc`).
- * Returns `null` if no config file exists.
+ * Returns `null` if no config file exists anywhere up the tree.
  */
-export function readNycConfig(rootDir: string): NycConfig | null {
-  for (const filename of NYC_CONFIG_FILES) {
-    const filepath = join(rootDir, filename);
-    if (!existsSync(filepath)) continue;
-    try {
-      const raw = readFileSync(filepath, "utf-8");
-      return JSON.parse(raw) as NycConfig;
-    } catch {
-      return null;
+export function readNycConfig(startDir: string): NycConfigResult | null {
+  let dir = startDir;
+  while (true) {
+    for (const filename of NYC_CONFIG_FILES) {
+      const filepath = join(dir, filename);
+      if (!existsSync(filepath)) continue;
+      try {
+        const raw = readFileSync(filepath, "utf-8");
+        return { config: JSON.parse(raw) as NycConfig, configDir: dir };
+      } catch {
+        return null;
+      }
     }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
   return null;
 }

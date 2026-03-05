@@ -29,8 +29,11 @@ export interface CoverageOptions {
 
 /**
  * Registers a Bun plugin that instruments TypeScript source files with
- * Istanbul coverage counters, and an `afterAll` hook that writes the
+ * Istanbul coverage counters, and multiple lifecycle hooks that write the
  * accumulated `__coverage__` object to disk as JSON.
+ *
+ * Uses afterAll, process "exit", and process "beforeExit" as belt-and-
+ * suspenders — whichever fires first writes coverage; the rest are no-ops.
  *
  * Must be called from a preload script (`bun test --preload`).
  */
@@ -41,6 +44,10 @@ export function setupCoverage(options: CoverageOptions = {}): void {
     outputDir = process.env.NYC_OUTPUT_DIR ||
       join(process.cwd(), ".nyc_output"),
   } = options;
+
+  console.error(
+    `[istanbul-coverage] activating — outputDir=${outputDir}, include=${include.length} patterns, exclude=${exclude.length} patterns`,
+  );
 
   const instrumenter = createInstrumenter({
     compact: false,
@@ -73,13 +80,26 @@ export function setupCoverage(options: CoverageOptions = {}): void {
 
   mkdirSync(outputDir, { recursive: true });
 
-  afterAll(() => {
+  let written = false;
+
+  function writeCoverage(hook: string) {
+    if (written) return;
     const coverage = (globalThis as Record<string, unknown>).__coverage__;
-    if (coverage) {
-      writeFileSync(
-        join(outputDir, `coverage-${process.pid}.json`),
-        JSON.stringify(coverage),
+    if (!coverage) {
+      console.error(
+        `[istanbul-coverage] ${hook} fired but __coverage__ is empty — no files were instrumented`,
       );
+      return;
     }
-  });
+    written = true;
+    const outFile = join(outputDir, `coverage-${process.pid}.json`);
+    writeFileSync(outFile, JSON.stringify(coverage));
+    console.error(
+      `[istanbul-coverage] wrote coverage via ${hook} → ${outFile}`,
+    );
+  }
+
+  afterAll(() => writeCoverage("afterAll"));
+  process.on("exit", () => writeCoverage("process.exit"));
+  process.on("beforeExit", () => writeCoverage("process.beforeExit"));
 }
