@@ -1,0 +1,7 @@
+{
+  "include": ["packages/pg-delta/src/**/*.ts", "packages/pg-topo/src/**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.base.ts", "**/debug-visualization.ts"],
+  "report-dir": ".coverage-artifacts",
+  "temp-dir": ".nyc_output",
+  "reporter": ["lcov", "text", "html"]
+}

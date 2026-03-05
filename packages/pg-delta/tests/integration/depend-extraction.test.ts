@@ -46,8 +46,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           catalog.depends.map((d) => d.referenced_stable_id),
         );
 
-        expect(dependentIds.has("view:dep_schema.vw") || referencedIds.has("view:dep_schema.vw")).toBe(true);
-        expect(dependentIds.has("table:dep_schema.tab") || referencedIds.has("table:dep_schema.tab")).toBe(true);
+        expect(
+          dependentIds.has("view:dep_schema.vw") ||
+            referencedIds.has("view:dep_schema.vw"),
+        ).toBe(true);
+        expect(
+          dependentIds.has("table:dep_schema.tab") ||
+            referencedIds.has("table:dep_schema.tab"),
+        ).toBe(true);
 
         const aclOrDefaclOrMembership = catalog.depends.filter(
           (d) =>

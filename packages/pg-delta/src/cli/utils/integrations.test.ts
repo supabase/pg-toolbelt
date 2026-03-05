@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import { loadIntegrationDSL } from "./integrations.ts";
 
 describe("loadIntegrationDSL", () => {

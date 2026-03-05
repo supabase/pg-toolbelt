@@ -51,10 +51,7 @@ describe("discoverSqlFiles", () => {
     const dir = await harness.createSqlFixture({
       "a.sql": "create schema a;",
     });
-    const result = await discoverSqlFiles([
-      "/nonexistent/missing/root",
-      dir,
-    ]);
+    const result = await discoverSqlFiles(["/nonexistent/missing/root", dir]);
     expect(result.missingRoots).toHaveLength(1);
     expect(result.missingRoots[0]).toContain("nonexistent");
     expect(result.files.length).toBeGreaterThanOrEqual(1);
