@@ -4,16 +4,17 @@
  * package directory or from the monorepo root (e.g. via `bun run --filter '*' test`).
  */
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const pkgRoot = join(import.meta.dir, "..");
 const globalSetup = join(pkgRoot, "tests", "global-setup.ts");
 const args = process.argv.slice(2);
 
-const repoRoot = join(import.meta.dir, "..", "..", "..");
+const coveragePreload = fileURLToPath(
+  import.meta.resolve("@supabase/bun-istanbul-coverage/preload"),
+);
 const coverageArgs =
-  process.env.BUN_COVERAGE === "1"
-    ? ["--preload", join(repoRoot, "scripts", "istanbul-preload.ts")]
-    : [];
+  process.env.BUN_COVERAGE === "1" ? ["--preload", coveragePreload] : [];
 
 const proc = Bun.spawn({
   cmd: [

@@ -103,6 +103,7 @@ jobs:
         working-directory: packages/pg-delta
         env:
           BUN_COVERAGE: "1"
+          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-delta/.nyc_output
         run: bun run test:unit
       - name: Upload coverage
         if: always()
@@ -154,6 +155,7 @@ jobs:
         env:
           PGDELTA_TEST_POSTGRES_VERSIONS: ${{ matrix.postgres_version }}
           BUN_COVERAGE: "1"
+          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-delta/.nyc_output
       - name: Upload coverage
         if: always()
         continue-on-error: true
@@ -215,10 +217,18 @@ jobs:
           merge-multiple: true
       - name: Generate coverage report
         run: |
-          npx nyc report 2>&1 | tee /tmp/nyc-output.txt
-          echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
-          tail -5 /tmp/nyc-output.txt >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -d .nyc_output ] || [ -z "$(ls -A .nyc_output 2>/dev/null)" ]; then
+            echo "No coverage artifacts found, skipping report"
+            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "No coverage data was uploaded." >> "$GITHUB_STEP_SUMMARY"
+          else
+            npx nyc report 2>&1 | tee /tmp/nyc-output.txt
+            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+            tail -5 /tmp/nyc-output.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload coverage reports
+        if: hashFiles('.coverage-artifacts/**') != ''
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -242,6 +252,7 @@ jobs:
         working-directory: packages/pg-topo
         env:
           BUN_COVERAGE: "1"
+          NYC_OUTPUT_DIR: ${{ github.workspace }}/packages/pg-topo/.nyc_output
         run: bun run test
       - name: Upload coverage
         if: always()
