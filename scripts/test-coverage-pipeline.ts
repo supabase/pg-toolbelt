@@ -1,19 +1,27 @@
 /**
- * End-to-end validation of the coverage pipeline.
+ * Local coverage report generator that mirrors what CI does.
  *
- * Reproduces what CI does: runs real tests with --coverage, simulates the
- * artifact directory layout, runs fix-lcov-paths.ts, merges with lcov, and
- * runs genhtml. Validates that the full pipeline works with actual coverage
- * data.
+ * Collects existing coverage/lcov.info from each package, runs
+ * fix-lcov-paths.ts to normalize paths and strip exclusions,
+ * concatenates the results, and generates an HTML report with genhtml.
  *
  * Usage: bun scripts/test-coverage-pipeline.ts
  *
  * Prerequisites:
- *   - bun install (dependencies must be installed)
- *   - lcov + genhtml for full validation (skipped gracefully if missing)
+ *   - Run tests with coverage first for each package you want included:
+ *       cd packages/pg-delta && bun test --coverage --coverage-reporter=lcov src/
+ *       cd packages/pg-topo && BUN_COVERAGE=1 bun run test
+ *   - genhtml must be installed (brew install lcov)
  */
 import { existsSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -56,32 +64,49 @@ async function commandExists(cmd: string): Promise<boolean> {
   }
 }
 
-// Step 1: Run pg-delta unit tests with coverage (fast, no Docker)
-log("Step 1: Running pg-delta unit tests with coverage");
-const pgDeltaCoverageDir = join(repoRoot, "packages", "pg-delta", "coverage");
-{
-  const { exitCode, stderr } = await run(
-    [
-      "bun",
-      "test",
-      "--coverage",
-      "--coverage-reporter=lcov",
-      "--concurrent",
-      "--timeout",
-      "15000",
-      "src/",
-    ],
-    { cwd: join(repoRoot, "packages", "pg-delta") },
+async function findLcovFiles(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...(await findLcovFiles(full)));
+    } else if (entry.name === "lcov.info") {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+const PACKAGES = [
+  { name: "pg-delta", artifactDir: "coverage-pg-delta-unit" },
+  { name: "pg-topo", artifactDir: "coverage-pg-topo" },
+] as const;
+
+// Step 1: Check for existing coverage data
+log("Step 1: Checking for existing coverage data");
+const available: { name: string; artifactDir: string; lcovPath: string }[] = [];
+for (const pkg of PACKAGES) {
+  const lcovPath = join(
+    repoRoot,
+    "packages",
+    pkg.name,
+    "coverage",
+    "lcov.info",
   );
-  if (exitCode !== 0) {
-    console.error(stderr);
-    fail("pg-delta unit tests failed");
+  if (existsSync(lcovPath)) {
+    available.push({ ...pkg, lcovPath });
+    console.log(`  ${pkg.name}: found`);
+  } else {
+    console.warn(`  ${pkg.name}: NOT FOUND (run tests with coverage first)`);
   }
-  const lcovPath = join(pgDeltaCoverageDir, "lcov.info");
-  if (!existsSync(lcovPath)) {
-    fail(`Expected ${lcovPath} to exist after test run`);
-  }
-  console.log("pg-delta unit tests passed, lcov.info generated");
+}
+if (available.length === 0) {
+  fail(
+    "No coverage data found. Run tests first:\n" +
+      "  cd packages/pg-delta && bun test --coverage --coverage-reporter=lcov src/\n" +
+      "  cd packages/pg-topo && BUN_COVERAGE=1 bun run test",
+  );
 }
 
 // Step 2: Create temp dir simulating CI artifact layout
@@ -90,22 +115,12 @@ const tempDir = await mkdtemp(join(tmpdir(), "coverage-pipeline-"));
 console.log(`Temp dir: ${tempDir}`);
 
 try {
-  const artifactDir = join(tempDir, "coverage-pg-delta-unit");
-  await Bun.write(join(artifactDir, "lcov.info"), "");
-  await cp(
-    join(pgDeltaCoverageDir, "lcov.info"),
-    join(artifactDir, "lcov.info"),
-  );
-  console.log("Created coverage-pg-delta-unit/lcov.info");
-
-  // Show a sample of the raw SF: lines before fixing
-  const rawContent = await readFile(join(artifactDir, "lcov.info"), "utf-8");
-  const sampleSF = rawContent
-    .split("\n")
-    .filter((l) => l.startsWith("SF:"))
-    .slice(0, 3);
-  console.log("Sample SF: lines before fix:");
-  for (const line of sampleSF) console.log(`  ${line}`);
+  for (const pkg of available) {
+    const artifactDir = join(tempDir, pkg.artifactDir);
+    await Bun.write(join(artifactDir, "lcov.info"), "");
+    await cp(pkg.lcovPath, join(artifactDir, "lcov.info"));
+    console.log(`  Created ${pkg.artifactDir}/lcov.info`);
+  }
 
   // Step 3: Run fix-lcov-paths.ts
   log("Step 3: Running fix-lcov-paths.ts");
@@ -117,99 +132,104 @@ try {
     console.log(stdout);
     if (stderr) console.error(stderr);
     if (exitCode !== 0) {
-      fail(`fix-lcov-paths.ts exited with code ${exitCode}`);
+      fail("fix-lcov-paths.ts exited with non-zero");
     }
   }
 
-  // Step 4: Verify the fix
+  // Step 4: Verify the fix across all artifacts
   log("Step 4: Verifying fixed lcov paths");
-  const fixedContent = await readFile(join(artifactDir, "lcov.info"), "utf-8");
-  const sfLines = fixedContent.split("\n").filter((l) => l.startsWith("SF:"));
-  const totalSF = sfLines.length;
-  const withPackagePrefix = sfLines.filter((l) =>
+  const allLcovFiles = await findLcovFiles(tempDir);
+  const allSfLines: string[] = [];
+  for (const lcovFile of allLcovFiles) {
+    const content = await readFile(lcovFile, "utf-8");
+    const lines = content.split("\n").filter((l) => l.startsWith("SF:"));
+    allSfLines.push(...lines);
+  }
+
+  const totalSF = allSfLines.length;
+  const withDeltaPrefix = allSfLines.filter((l) =>
     l.includes("packages/pg-delta/"),
   );
-  const existingOnDisk = sfLines.filter((l) => existsSync(l.slice(3)));
+  const withTopoPrefix = allSfLines.filter((l) =>
+    l.includes("packages/pg-topo/"),
+  );
+  const crossPkgLeaks = allSfLines.filter((l) => l.includes("../"));
+  const testFiles = allSfLines.filter((l) => l.endsWith(".test.ts"));
+  const testInfra = allSfLines.filter(
+    (l) => l.includes("/test/") || l.includes("/tests/"),
+  );
 
   console.log(`Total SF: lines: ${totalSF}`);
-  console.log(
-    `With packages/pg-delta/ prefix: ${withPackagePrefix.length}/${totalSF}`,
+  console.log(`  packages/pg-delta/: ${withDeltaPrefix.length}`);
+  console.log(`  packages/pg-topo/: ${withTopoPrefix.length}`);
+  console.log(`Cross-package leaks: ${crossPkgLeaks.length}`);
+  console.log(`Test files (*.test.ts): ${testFiles.length}`);
+  console.log(`Test infrastructure: ${testInfra.length}`);
+
+  if (crossPkgLeaks.length > 0) {
+    for (const l of crossPkgLeaks) console.error(`  leak: ${l}`);
+    fail("Cross-package leak(s) not stripped");
+  }
+  if (testFiles.length > 0) {
+    for (const l of testFiles.slice(0, 5)) console.error(`  test: ${l}`);
+    fail("Test file(s) not stripped");
+  }
+  if (testInfra.length > 0) {
+    for (const l of testInfra.slice(0, 5)) console.error(`  infra: ${l}`);
+    fail("Test infrastructure file(s) not stripped");
+  }
+
+  // Step 5: Concatenate all fixed lcov files (genhtml handles dedup)
+  log("Step 5: Merging coverage files");
+  const mergedPath = join(tempDir, "merged-lcov.info");
+  const allContents = await Promise.all(
+    allLcovFiles.map((f) => readFile(f, "utf-8")),
   );
-  console.log(
-    `Resolve to real files on disk: ${existingOnDisk.length}/${totalSF}`,
-  );
+  await writeFile(mergedPath, allContents.join("\n"));
+  console.log(`Concatenated ${allLcovFiles.length} lcov files`);
 
-  console.log("\nSample SF: lines after fix:");
-  for (const line of sfLines.slice(0, 3)) console.log(`  ${line}`);
-
-  if (withPackagePrefix.length === 0) {
-    fail("No SF: lines were rewritten -- fix-lcov-paths.ts did not work");
-  }
-  if (existingOnDisk.length === 0) {
-    fail("No fixed SF: paths resolve to actual files on disk");
-  }
-  if (existingOnDisk.length < totalSF) {
-    const missing = sfLines.filter((l) => !existsSync(l.slice(3)));
-    console.warn(`\nWARN: ${missing.length} paths don't resolve to files:`);
-    for (const m of missing.slice(0, 5)) console.warn(`  ${m.slice(3)}`);
+  // Step 6: genhtml
+  const hasGenhtml = await commandExists("genhtml");
+  if (!hasGenhtml) {
+    fail("genhtml not installed. Install with: brew install lcov");
   }
 
-  // Step 5: lcov merge (if available)
-  const hasLcov = await commandExists("lcov");
-  if (hasLcov) {
-    log("Step 5: Merging coverage with lcov");
-    const mergedPath = join(tempDir, "merged-lcov.info");
-    const { exitCode, stderr } = await run([
-      "lcov",
-      "--add-tracefile",
-      join(artifactDir, "lcov.info"),
-      "--output-file",
-      mergedPath,
-      "--rc",
-      "branch_coverage=1",
-    ]);
-    if (exitCode !== 0) {
-      console.error(stderr);
-      fail("lcov merge failed");
-    }
-    console.log("lcov merge succeeded");
-
-    // Step 6: genhtml (if available)
-    const hasGenhtml = await commandExists("genhtml");
-    if (hasGenhtml) {
-      log("Step 6: Generating HTML report with genhtml");
-      const htmlDir = join(tempDir, "coverage-html");
-      const result = await run([
-        "genhtml",
-        mergedPath,
-        "--output-directory",
-        htmlDir,
-        "--rc",
-        "branch_coverage=1",
-      ]);
-      if (result.exitCode !== 0) {
-        console.error(result.stderr);
-        fail("genhtml failed");
-      }
-      console.log("genhtml succeeded");
-      console.log(`HTML report: ${htmlDir}/index.html`);
-    } else {
-      log("Step 6: SKIPPED (genhtml not installed)");
-      console.log("Install lcov to run this step: brew install lcov");
-    }
-  } else {
-    log("Step 5-6: SKIPPED (lcov not installed)");
-    console.log("Install lcov to run these steps: brew install lcov");
+  log("Step 6: Generating HTML report with genhtml");
+  const htmlDir = join(tempDir, "coverage-html");
+  const result = await run([
+    "genhtml",
+    mergedPath,
+    "--output-directory",
+    htmlDir,
+    "--rc",
+    "branch_coverage=1",
+    "--prefix",
+    repoRoot,
+  ]);
+  if (result.exitCode !== 0) {
+    console.error(result.stdout);
+    console.error(result.stderr);
+    fail("genhtml failed");
   }
+  console.log(result.stdout);
+
+  const outDir = join(repoRoot, "coverage-html");
+  await rm(outDir, { recursive: true, force: true });
+  await cp(htmlDir, outDir, { recursive: true });
+
+  // Extract what CI puts into GITHUB_STEP_SUMMARY
+  const summaryLines = result.stdout.trimEnd().split("\n").slice(-5).join("\n");
+  log("GITHUB_STEP_SUMMARY preview");
+  console.log("## Coverage Summary");
+  console.log(summaryLines);
 
   log("RESULT");
-  console.log("Coverage pipeline validation PASSED");
-  console.log(`  ${withPackagePrefix.length}/${totalSF} SF: paths rewritten`);
-  console.log(
-    `  ${existingOnDisk.length}/${totalSF} paths resolve to files on disk`,
-  );
-  if (hasLcov) console.log("  lcov merge: OK");
-  if (hasLcov && (await commandExists("genhtml"))) console.log("  genhtml: OK");
+  console.log("Coverage report generated successfully");
+  console.log(`  pg-delta: ${withDeltaPrefix.length} source files`);
+  console.log(`  pg-topo: ${withTopoPrefix.length} source files`);
+  console.log(`  Total: ${totalSF} source files`);
+  console.log("\nHTML report saved to coverage-html/");
+  console.log("  Open with: open coverage-html/index.html");
 } finally {
   await rm(tempDir, { recursive: true, force: true });
 }

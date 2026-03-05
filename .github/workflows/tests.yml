@@ -216,20 +216,17 @@ jobs:
         run: sudo apt-get install -y lcov
       - name: Merge coverage reports
         run: |
-          LCOV_FILES=""
-          for f in $(find . -name "lcov.info" -type f); do
-            LCOV_FILES="$LCOV_FILES --add-tracefile $f"
-          done
-          if [ -n "$LCOV_FILES" ]; then
-            lcov $LCOV_FILES --output-file merged-lcov.info --rc branch_coverage=1
-            echo "## Coverage Summary" | tee -a "$GITHUB_STEP_SUMMARY"
-            lcov --summary merged-lcov.info --rc branch_coverage=1 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
-          else
+          find . -name "lcov.info" -type f -exec cat {} + > merged-lcov.info
+          if [ ! -s merged-lcov.info ]; then
             echo "No coverage files found"
             exit 1
           fi
       - name: Generate HTML report
-        run: genhtml merged-lcov.info --output-directory coverage-html --rc branch_coverage=1
+        run: |
+          genhtml merged-lcov.info --output-directory coverage-html \
+            --rc branch_coverage=1 --prefix ${{ github.workspace }} 2>&1 | tee /tmp/genhtml-output.txt
+          echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+          tail -5 /tmp/genhtml-output.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Upload merged coverage
         uses: actions/upload-artifact@v4
         with:
