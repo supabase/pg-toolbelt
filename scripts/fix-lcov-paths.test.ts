@@ -317,9 +317,7 @@ describe("fixLcovContent", () => {
     const input = lcovRecord("/repo/src/core/catalog.diff.ts");
     const { content, fixed } = fixLcovContent(input, "/repo", "pg-delta");
     expect(fixed).toBe(1);
-    expect(content).toContain(
-      "SF:packages/pg-delta/src/core/catalog.diff.ts",
-    );
+    expect(content).toContain("SF:packages/pg-delta/src/core/catalog.diff.ts");
   });
 
   test("normalizes absolute path with package segment to relative", () => {
@@ -332,9 +330,7 @@ describe("fixLcovContent", () => {
       "pg-delta",
     );
     expect(fixed).toBe(1);
-    expect(content).toContain(
-      "SF:packages/pg-delta/src/core/catalog.diff.ts",
-    );
+    expect(content).toContain("SF:packages/pg-delta/src/core/catalog.diff.ts");
   });
 
   test("skips paths already containing package segment (relative)", () => {
