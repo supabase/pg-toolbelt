@@ -229,6 +229,7 @@ jobs:
           echo "All SF: paths are relative"
       - name: Install lcov
         run: |
+          sudo apt-get install -y libdatetime-perl libdatetime-format-dateparse-perl
           LCOV_VERSION="2.4"
           curl -fsSL "https://github.com/linux-test-project/lcov/releases/download/v${LCOV_VERSION}/lcov-${LCOV_VERSION}.tar.gz" | tar xz
           sudo make -C "lcov-${LCOV_VERSION}" install
