@@ -91,6 +91,32 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
 Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packages/pg-topo/test/`.
 
+## Changesets
+
+All code changes that affect package behavior must include a changeset. Use the changeset CLI to generate one:
+
+```bash
+bunx changeset
+```
+
+This will prompt you to select affected packages and describe the change. Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
+
+## Conventional Commits
+
+All PR titles and commit messages **must** follow the [Conventional Commits](https://www.conventionalcommits.org/) convention:
+
+```
+<type>(<scope>): <description>
+
+# Examples
+feat(pg-delta): add support for materialized views
+fix(pg-topo): correct cycle detection in dependency graph
+chore: update biome config
+docs(pg-delta): improve README examples
+```
+
+Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
+
 ## CI
 
 - GitHub Actions with `dorny/paths-filter` detects which packages changed
