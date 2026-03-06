@@ -43,9 +43,17 @@ function addProvider(
 
 /**
  * Query the target database for all catalog objects that can be dependencies.
- * Returns ObjectRefs that pg-topo can use as external providers. Objects in
- * pg_catalog/information_schema are registered under both their real schema
- * and "public" so they match how the parser resolves unqualified references.
+ * Returns ObjectRefs that pg-topo can use as external providers so it does
+ * not flag false UNRESOLVED_DEPENDENCY diagnostics (e.g. now(), text, public).
+ *
+ * This is intentionally separate from {@link extractCatalog} in catalog.model.ts:
+ * - extractCatalog is for schema diffing and excludes system objects (filters
+ *   out pg_catalog, information_schema, extension-owned). It also does not
+ *   extract languages. We need the opposite here: all objects that might be
+ *   referenced by SQL, including built-in functions, types, and schemas.
+ * - Objects in pg_catalog/information_schema are registered under both their
+ *   real schema and "public" (via addProvider's alsoUnderPublic) so
+ *   unqualified references in SQL resolve the same way the parser does.
  */
 export async function extractCatalogProviders(
   pool: Pool,
