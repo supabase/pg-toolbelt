@@ -250,6 +250,11 @@ jobs:
                 ];
                 process.stdout.write(lines.join('\n') + '\n');
               " >> "$GITHUB_STEP_SUMMARY"
+            else
+              {
+                echo "## Coverage Summary"
+                echo "Coverage artifacts were downloaded, but coverage-summary.json was not generated."
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
       - name: Upload coverage reports
