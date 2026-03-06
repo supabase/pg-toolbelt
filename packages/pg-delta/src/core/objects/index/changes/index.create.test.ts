@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("index", () => {
   test("create", async () => {

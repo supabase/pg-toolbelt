@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Extension, type ExtensionProps } from "../extension.model.ts";
 import {
   AlterExtensionSetSchema,
   AlterExtensionUpdateVersion,
 } from "./extension.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("extension", () => {
   describe("alter", () => {

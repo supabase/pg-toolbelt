@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Collation } from "../collation.model.ts";
 import { CreateCollation } from "./collation.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("collation", () => {
   test("create minimal", async () => {

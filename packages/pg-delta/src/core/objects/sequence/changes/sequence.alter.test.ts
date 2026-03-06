@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Sequence, type SequenceProps } from "../sequence.model.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./sequence.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("sequence", () => {
   describe("alter", () => {

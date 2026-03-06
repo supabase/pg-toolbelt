@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Index, type IndexProps } from "../index.model.ts";
 import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
 } from "./index.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("index", () => {
   describe("alter", () => {

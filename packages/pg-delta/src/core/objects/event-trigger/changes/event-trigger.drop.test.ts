@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import { DropEventTrigger } from "./event-trigger.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("event trigger drop change", () => {
   test("serialize drop event trigger", async () => {

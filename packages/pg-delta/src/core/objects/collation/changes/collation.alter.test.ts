@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Collation } from "../collation.model.ts";
 import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
 } from "./collation.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("collation", () => {
   describe("alter", () => {

@@ -275,7 +275,7 @@ export class CreateAggregate extends CreateAggregateChange {
 
     if (this.aggregate.parallel_safety !== "u") {
       clauses.push(
-        `PARALLEL ${formatParallel(this.aggregate.parallel_safety)}`,
+        `PARALLEL = ${formatParallel(this.aggregate.parallel_safety)}`,
       );
     }
 

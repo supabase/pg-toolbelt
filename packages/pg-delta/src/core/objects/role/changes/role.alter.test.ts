@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role, type RoleProps } from "../role.model.ts";
 import { AlterRoleSetOptions } from "./role.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("role", () => {
   describe("alter", () => {

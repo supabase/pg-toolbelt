@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   ForeignTable,
   type ForeignTableProps,
@@ -14,7 +15,6 @@ import {
   AlterForeignTableDropColumn,
   AlterForeignTableSetOptions,
 } from "./foreign-table.alter.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("foreign-table", () => {
   describe("alter", () => {

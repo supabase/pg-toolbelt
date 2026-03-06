@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Rule } from "../rule.model.ts";
 import { DropRule } from "./rule.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type RuleProps = ConstructorParameters<typeof Rule>[0];
 

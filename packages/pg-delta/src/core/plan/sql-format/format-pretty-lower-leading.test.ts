@@ -750,7 +750,7 @@ describe("sql formatting snapshots", () => {
           , stype       = anycompatiblearray
           , combinefunc = array_cat
           , initcond    = '{}'
-          , parallel safe
+          , parallel    = SAFE
           , strict
       );
 

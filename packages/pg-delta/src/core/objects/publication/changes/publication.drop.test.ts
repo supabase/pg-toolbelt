@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Publication } from "../publication.model.ts";
 import { DropPublication } from "./publication.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type PublicationProps = ConstructorParameters<typeof Publication>[0];
 

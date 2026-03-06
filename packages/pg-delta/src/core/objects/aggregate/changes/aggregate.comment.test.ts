@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import {
   CreateCommentOnAggregate,
   DropCommentOnAggregate,
 } from "./aggregate.comment.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 

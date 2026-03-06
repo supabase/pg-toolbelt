@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Extension } from "../extension.model.ts";
 import { CreateExtension } from "./extension.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("extension", () => {
   test("create", async () => {

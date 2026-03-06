@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Schema } from "../schema.model.ts";
 import { DropSchema } from "./schema.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("schema", () => {
   test("drop", async () => {

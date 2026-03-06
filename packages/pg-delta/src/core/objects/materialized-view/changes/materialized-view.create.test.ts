@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedView } from "./materialized-view.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("materialized-view", () => {
   test("create minimal", async () => {

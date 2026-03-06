@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import { CreateAggregate } from "./aggregate.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -61,6 +61,7 @@ describe("aggregate.create", () => {
     const change = new CreateAggregate({ aggregate });
 
     expect(change.creates).toEqual([aggregate.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toMatchInlineSnapshot(
       `"CREATE AGGREGATE public.agg_sum(integer) (SFUNC = pg_catalog.int4pl, STYPE = integer)"`,
     );
@@ -95,8 +96,9 @@ describe("aggregate.create", () => {
 
     const change = new CreateAggregate({ aggregate, orReplace: true });
 
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toMatchInlineSnapshot(
-      `"CREATE OR REPLACE AGGREGATE public.agg_full(integer) (SFUNC = public.sum_int8, STYPE = bigint, SSPACE = 8, FINALFUNC = public.finalize, FINALFUNC_EXTRA, FINALFUNC_MODIFY = READ_WRITE, COMBINEFUNC = public.combine, SERIALFUNC = public.serialize_state, DESERIALFUNC = public.deserialize_state, INITCOND = '0', MSFUNC = public.msum, MINVFUNC = public.minv, MSTYPE = pg_catalog.bigint, MSSPACE = 16, MFINALFUNC = public.mfinal, MFINALFUNC_EXTRA, MFINALFUNC_MODIFY = SHAREABLE, MINITCOND = '0', SORTOP = OPERATOR(pg_catalog.<), PARALLEL SAFE, STRICT, HYPOTHETICAL)"`,
+      `"CREATE OR REPLACE AGGREGATE public.agg_full(integer) (SFUNC = public.sum_int8, STYPE = bigint, SSPACE = 8, FINALFUNC = public.finalize, FINALFUNC_EXTRA, FINALFUNC_MODIFY = READ_WRITE, COMBINEFUNC = public.combine, SERIALFUNC = public.serialize_state, DESERIALFUNC = public.deserialize_state, INITCOND = '0', MSFUNC = public.msum, MINVFUNC = public.minv, MSTYPE = pg_catalog.bigint, MSSPACE = 16, MFINALFUNC = public.mfinal, MFINALFUNC_EXTRA, MFINALFUNC_MODIFY = SHAREABLE, MINITCOND = '0', SORTOP = OPERATOR(pg_catalog.<), PARALLEL = SAFE, STRICT, HYPOTHETICAL)"`,
     );
   });
 });

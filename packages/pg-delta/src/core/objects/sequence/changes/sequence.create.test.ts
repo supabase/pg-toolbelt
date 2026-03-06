@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Sequence } from "../sequence.model.ts";
 import { CreateSequence } from "./sequence.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("sequence", () => {
   test("create minimal (all defaults elided)", async () => {

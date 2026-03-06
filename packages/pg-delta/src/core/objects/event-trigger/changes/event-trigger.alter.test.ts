@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import {
   AlterEventTriggerChangeOwner,
   AlterEventTriggerSetEnabled,
 } from "./event-trigger.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("event trigger alter change", () => {
   const baseEventTrigger = new EventTrigger({

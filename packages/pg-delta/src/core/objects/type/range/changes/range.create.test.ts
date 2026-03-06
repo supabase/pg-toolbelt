@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Range } from "../range.model.ts";
 import { CreateRange } from "./range.create.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("range", () => {
   test("create minimal", async () => {

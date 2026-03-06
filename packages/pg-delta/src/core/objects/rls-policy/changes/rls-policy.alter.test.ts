@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { diffRlsPolicies } from "../rls-policy.diff.ts";
 import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
 import {
@@ -8,7 +9,6 @@ import {
 } from "./rls-policy.alter.ts";
 import { CreateRlsPolicy } from "./rls-policy.create.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("rls-policy", () => {
   describe("alter", () => {

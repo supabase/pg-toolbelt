@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTable } from "./foreign-table.create.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("foreign-table", () => {
   test("create basic", async () => {

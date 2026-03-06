@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Enum } from "../enum.model.ts";
 import { DropEnum } from "./enum.drop.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("enum", () => {
   test("drop", async () => {

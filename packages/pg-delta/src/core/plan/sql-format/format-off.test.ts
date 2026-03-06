@@ -560,7 +560,7 @@ describe("sql formatting snapshots", () => {
       REVOKE GRANT OPTION FOR SELECT ON analytics.daily_stats FROM app_reader;
 
       -- aggregate.create
-      CREATE AGGREGATE public.array_cat_agg(anycompatiblearray) (SFUNC = array_cat, STYPE = anycompatiblearray, COMBINEFUNC = array_cat, INITCOND = '{}', PARALLEL SAFE, STRICT);
+      CREATE AGGREGATE public.array_cat_agg(anycompatiblearray) (SFUNC = array_cat, STYPE = anycompatiblearray, COMBINEFUNC = array_cat, INITCOND = '{}', PARALLEL = SAFE, STRICT);
 
       -- aggregate.drop
       DROP AGGREGATE public.array_cat_agg(anycompatiblearray);

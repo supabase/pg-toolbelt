@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("rls-policy", () => {
   test("drop", async () => {

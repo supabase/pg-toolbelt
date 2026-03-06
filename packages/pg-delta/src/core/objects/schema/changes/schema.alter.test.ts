@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Schema, type SchemaProps } from "../schema.model.ts";
 import { AlterSchemaChangeOwner } from "./schema.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("schema", () => {
   describe("alter", () => {

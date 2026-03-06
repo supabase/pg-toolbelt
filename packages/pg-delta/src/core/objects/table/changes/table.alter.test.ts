@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { Table, type TableProps } from "../table.model.ts";
 import {
@@ -25,7 +26,6 @@ import {
   AlterTableSetUnlogged,
   AlterTableValidateConstraint,
 } from "./table.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("table", () => {
   describe("alter", () => {

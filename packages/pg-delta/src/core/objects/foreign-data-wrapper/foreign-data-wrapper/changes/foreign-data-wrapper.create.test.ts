@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { CreateForeignDataWrapper } from "./foreign-data-wrapper.create.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("foreign-data-wrapper", () => {
   test("create basic", async () => {

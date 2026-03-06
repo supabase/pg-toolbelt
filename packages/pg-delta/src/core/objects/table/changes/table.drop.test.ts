@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Table, type TableProps } from "../table.model.ts";
 import { DropTable } from "./table.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 const base: TableProps = {
   schema: "public",

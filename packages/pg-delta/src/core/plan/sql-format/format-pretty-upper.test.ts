@@ -737,7 +737,7 @@ describe("sql formatting snapshots", () => {
         STYPE       = anycompatiblearray,
         COMBINEFUNC = array_cat,
         INITCOND    = '{}',
-        PARALLEL SAFE,
+        PARALLEL    = SAFE,
         STRICT
       );
 

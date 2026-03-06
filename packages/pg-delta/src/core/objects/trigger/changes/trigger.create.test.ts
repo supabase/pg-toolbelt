@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger } from "../trigger.model.ts";
 import { CreateTrigger } from "./trigger.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("trigger", () => {
   test("create", async () => {

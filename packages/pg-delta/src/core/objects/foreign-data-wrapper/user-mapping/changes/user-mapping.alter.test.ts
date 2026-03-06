@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { UserMapping, type UserMappingProps } from "../user-mapping.model.ts";
 import { AlterUserMappingSetOptions } from "./user-mapping.alter.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("user-mapping", () => {
   describe("alter", () => {

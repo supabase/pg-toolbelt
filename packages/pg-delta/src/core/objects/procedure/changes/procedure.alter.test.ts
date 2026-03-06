@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Procedure, type ProcedureProps } from "../procedure.model.ts";
 import {
   AlterProcedureChangeOwner,
@@ -9,7 +10,6 @@ import {
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
 } from "./procedure.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("procedure", () => {
   describe("alter", () => {

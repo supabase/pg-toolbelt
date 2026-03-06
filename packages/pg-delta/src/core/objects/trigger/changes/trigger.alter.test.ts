@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
 import { ReplaceTrigger } from "./trigger.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("trigger", () => {
   describe("alter", () => {

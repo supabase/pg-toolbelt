@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import { DropAggregate } from "./aggregate.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 

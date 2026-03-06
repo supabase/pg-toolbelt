@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Procedure } from "../procedure.model.ts";
 import { CreateProcedure } from "./procedure.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("procedure", () => {
   test("create", async () => {

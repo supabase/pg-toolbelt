@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("role", () => {
   test("create minimal (omit defaults)", async () => {

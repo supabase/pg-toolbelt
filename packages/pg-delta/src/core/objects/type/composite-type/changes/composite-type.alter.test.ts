@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   CompositeType,
   type CompositeTypeProps,
@@ -9,7 +10,6 @@ import {
   AlterCompositeTypeChangeOwner,
   AlterCompositeTypeDropAttribute,
 } from "./composite-type.alter.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("composite-type", () => {
   describe("alter", () => {

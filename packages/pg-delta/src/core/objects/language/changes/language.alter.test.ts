@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language, type LanguageProps } from "../language.model.ts";
 import { AlterLanguageChangeOwner } from "./language.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("language", () => {
   describe("alter", () => {

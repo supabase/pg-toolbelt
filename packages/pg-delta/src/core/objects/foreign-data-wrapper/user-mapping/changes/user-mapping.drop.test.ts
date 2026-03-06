@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { UserMapping } from "../user-mapping.model.ts";
 import { DropUserMapping } from "./user-mapping.drop.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("user-mapping", () => {
   test("drop", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeType } from "./composite-type.create.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("composite-type", () => {
   test("create", async () => {

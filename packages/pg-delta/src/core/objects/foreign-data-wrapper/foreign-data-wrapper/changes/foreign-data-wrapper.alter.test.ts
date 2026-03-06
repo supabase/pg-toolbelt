@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   ForeignDataWrapper,
   type ForeignDataWrapperProps,
@@ -7,7 +8,6 @@ import {
   AlterForeignDataWrapperChangeOwner,
   AlterForeignDataWrapperSetOptions,
 } from "./foreign-data-wrapper.alter.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("foreign-data-wrapper", () => {
   describe("alter", () => {

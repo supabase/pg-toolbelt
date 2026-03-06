@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
 import { ReplaceRule, SetRuleEnabledState } from "./rule.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type RuleProps = ConstructorParameters<typeof Rule>[0];
 

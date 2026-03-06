@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import {
   MaterializedView,
   type MaterializedViewProps,
@@ -7,7 +8,6 @@ import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
 } from "./materialized-view.alter.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("materialized-view", () => {
   describe("alter", () => {

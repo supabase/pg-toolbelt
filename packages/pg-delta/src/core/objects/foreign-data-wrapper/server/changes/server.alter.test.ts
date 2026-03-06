@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server, type ServerProps } from "../server.model.ts";
 import {
   AlterServerChangeOwner,
   AlterServerSetOptions,
   AlterServerSetVersion,
 } from "./server.alter.ts";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("server", () => {
   describe("alter", () => {

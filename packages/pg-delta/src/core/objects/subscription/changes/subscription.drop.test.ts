@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Subscription } from "../subscription.model.ts";
 import { DropSubscription } from "./subscription.drop.ts";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type SubscriptionProps = ConstructorParameters<typeof Subscription>[0];
 
