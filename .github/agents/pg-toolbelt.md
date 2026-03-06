@@ -14,6 +14,8 @@ description: Specific agent to work on pg-toolbelt issues
 
 Bun-based monorepo containing PostgreSQL tooling packages.
 
+> **Note:** `AGENTS.md`, `CLAUDE.md`, and `.github/agents/pg-toolbelt.md` are all symlinks pointing to the same file. Always edit only one of them — changes will automatically reflect in all three.
+
 ## Packages
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema diff and migration tool. Compares two live databases and generates DDL migration scripts.
@@ -159,3 +161,15 @@ All code changes must be covered by tests:
 - Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
 - Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
 - Follow existing test patterns in the codebase
+
+### Snapshot Assertions
+
+Prefer `toMatchInlineSnapshot` over `toBe` or `toEqual` when asserting SQL output in integration tests. Inline snapshots make the expected SQL immediately visible in the test file, improving readability and making regressions obvious at a glance.
+
+```typescript
+expect(result.sql).toMatchInlineSnapshot(`
+  "ALTER TABLE foo ADD COLUMN bar integer;"
+`);
+```
+
+Run tests once to auto-generate the snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.
