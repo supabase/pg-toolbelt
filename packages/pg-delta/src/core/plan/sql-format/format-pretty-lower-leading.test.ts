@@ -403,9 +403,6 @@ describe("sql formatting snapshots", () => {
       alter publication pub_custom
           set (publish = 'insert, update, delete, truncate', publish_via_partition_root = false);
 
-      -- publication.alter.set_all_tables
-      alter publication pub_custom set for all tables;
-
       -- publication.alter.set_list
       alter publication pub_custom
           set table
@@ -632,18 +629,16 @@ describe("sql formatting snapshots", () => {
       drop policy allow_select_own on public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- policy.alter.set_roles
-      alter policy public.allow_select_own
+      alter policy allow_select_own
           on public.table_with_very_long_name_for_formatting_and_wrapping_test to authenticated, anon;
 
       -- policy.alter.set_using
-      alter policy public.allow_select_own
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test
+      alter policy allow_select_own on public.table_with_very_long_name_for_formatting_and_wrapping_test
           using (auth.uid() = user_id AND status = 'active');
 
       -- policy.alter.set_with_check
-      alter policy public.allow_select_own
-          on public.table_with_very_long_name_for_formatting_and_wrapping_test with
-          check (auth.uid() = user_id);
+      alter policy allow_select_own on public.table_with_very_long_name_for_formatting_and_wrapping_test
+          with check (auth.uid() = user_id);
 
       -- policy.comment
       comment on policy allow_select_own

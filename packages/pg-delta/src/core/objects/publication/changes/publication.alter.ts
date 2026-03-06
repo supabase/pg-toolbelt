@@ -49,24 +49,6 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
   }
 }
 
-export class AlterPublicationSetForAllTables extends AlterPublicationChange {
-  public readonly publication: Publication;
-  public readonly scope = "object" as const;
-
-  constructor(props: { publication: Publication }) {
-    super();
-    this.publication = props.publication;
-  }
-
-  get requires() {
-    return [this.publication.stableId];
-  }
-
-  serialize(): string {
-    return `ALTER PUBLICATION ${this.publication.name} SET FOR ALL TABLES`;
-  }
-}
-
 export class AlterPublicationSetList extends AlterPublicationChange {
   public readonly publication: Publication;
   public readonly scope = "object" as const;

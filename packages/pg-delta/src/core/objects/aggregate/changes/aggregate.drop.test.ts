@@ -77,6 +77,6 @@ describe("aggregate.drop", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP AGGREGATE public.agg_no_args()");
+    expect(change.serialize()).toBe("DROP AGGREGATE public.agg_no_args(*)");
   });
 });

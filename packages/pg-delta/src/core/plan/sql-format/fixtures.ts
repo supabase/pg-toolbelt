@@ -213,7 +213,6 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetList,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
@@ -1909,10 +1908,6 @@ const changeCases: ChangeCase[] = [
       setPublish: true,
       setPublishViaPartitionRoot: true,
     }),
-  },
-  {
-    label: "publication.alter.set_all_tables",
-    change: new AlterPublicationSetForAllTables({ publication }),
   },
   {
     label: "publication.alter.set_list",

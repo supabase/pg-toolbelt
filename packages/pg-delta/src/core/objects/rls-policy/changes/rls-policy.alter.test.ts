@@ -37,7 +37,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table TO role1, role2",
+        "ALTER POLICY test_policy ON public.test_table TO role1, role2",
       );
     });
 
@@ -66,7 +66,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table TO PUBLIC",
+        "ALTER POLICY test_policy ON public.test_table TO PUBLIC",
       );
     });
 
@@ -173,7 +173,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table USING (new_expr)",
+        "ALTER POLICY test_policy ON public.test_table USING (new_expr)",
       );
     });
 
@@ -202,7 +202,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table USING (true)",
+        "ALTER POLICY test_policy ON public.test_table USING (true)",
       );
     });
 
@@ -231,7 +231,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table WITH CHECK (new_check)",
+        "ALTER POLICY test_policy ON public.test_table WITH CHECK (new_check)",
       );
     });
 
@@ -260,7 +260,7 @@ describe.concurrent("rls-policy", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER POLICY public.test_policy ON public.test_table WITH CHECK (true)",
+        "ALTER POLICY test_policy ON public.test_table WITH CHECK (true)",
       );
     });
   });

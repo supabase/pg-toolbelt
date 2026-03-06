@@ -7,7 +7,6 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetList,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
@@ -64,20 +63,6 @@ describe("publication.alter", () => {
     await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_options SET (publish = 'insert, update', publish_via_partition_root = true)",
-    );
-  });
-
-  test("set for all tables serializes and requires publication", async () => {
-    const publication = makePublication({
-      name: "pub_all",
-      all_tables: false,
-    });
-    const change = new AlterPublicationSetForAllTables({ publication });
-
-    expect(change.requires).toEqual([publication.stableId]);
-    await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
-      "ALTER PUBLICATION pub_all SET FOR ALL TABLES",
     );
   });
 
