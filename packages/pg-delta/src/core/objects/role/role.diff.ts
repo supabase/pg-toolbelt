@@ -52,15 +52,55 @@ export function diffRoles(
       changes.push(new CreateCommentOnRole({ role }));
     }
     // MEMBERSHIPS: Grant memberships immediately after role creation
+    // Deduplicate by member: when multiple grantors exist for the same member,
+    // merge options (admin/inherit/set) using logical OR.
+    const membershipByMember = new Map<
+      string,
+      {
+        member: string;
+        grantor: string;
+        admin_option: boolean;
+        inherit_option: boolean | null;
+        set_option: boolean | null;
+        allGrantors: string[];
+      }
+    >();
     for (const membership of role.members) {
+      const existing = membershipByMember.get(membership.member);
+      if (existing) {
+        existing.admin_option =
+          existing.admin_option || membership.admin_option;
+        existing.inherit_option =
+          existing.inherit_option || (membership.inherit_option ?? null);
+        existing.set_option =
+          existing.set_option || (membership.set_option ?? null);
+        existing.allGrantors.push(membership.grantor);
+      } else {
+        membershipByMember.set(membership.member, {
+          member: membership.member,
+          grantor: membership.grantor,
+          admin_option: membership.admin_option,
+          inherit_option: membership.inherit_option ?? null,
+          set_option: membership.set_option ?? null,
+          allGrantors: [membership.grantor],
+        });
+      }
+    }
+    for (const [, membership] of membershipByMember) {
+      // Skip memberships where the member is the grantor (auto-created by
+      // CREATE ROLE — re-granting them, especially WITH ADMIN OPTION, fails
+      // with "ADMIN option cannot be granted back to your own grantor").
+      if (membership.allGrantors.every((g) => g === membership.member)) {
+        continue;
+      }
       changes.push(
         new GrantRoleMembership({
           role,
           member: membership.member,
           options: {
             admin: membership.admin_option,
-            inherit: membership.inherit_option ?? null,
-            set: membership.set_option ?? null,
+            inherit: membership.inherit_option,
+            set: membership.set_option,
           },
         }),
       );
@@ -209,20 +249,29 @@ export function diffRoles(
     }
 
     // MEMBERSHIPS
-    const mainMembers = new Map(mainRole.members.map((m) => [m.member, m]));
-    const branchMembers = new Map(branchRole.members.map((m) => [m.member, m]));
+    // Deduplicate by member: pg_auth_members can have multiple rows per member
+    // (different grantors).  Merge options with logical OR so a single change
+    // captures the effective privileges.
+    const mainMembers = deduplicateMembers(mainRole.members);
+    const branchMembers = deduplicateMembers(branchRole.members);
 
     // Find new members to grant
     for (const [member, membership] of branchMembers) {
       if (!mainMembers.has(member)) {
+        // Skip memberships where the member is the grantor (auto-created by
+        // CREATE ROLE — re-granting them fails with "ADMIN option cannot be
+        // granted back to your own grantor").
+        if (membership.allGrantors.every((g) => g === membership.member)) {
+          continue;
+        }
         changes.push(
           new GrantRoleMembership({
             role: branchRole,
             member: membership.member,
             options: {
               admin: membership.admin_option,
-              inherit: membership.inherit_option ?? null,
-              set: membership.set_option ?? null,
+              inherit: membership.inherit_option,
+              set: membership.set_option,
             },
           }),
         );
@@ -281,6 +330,15 @@ export function diffRoles(
           );
         }
         if (toGrant.admin || toGrant.inherit || toGrant.set) {
+          // Skip granting options back to the grantor (same restriction as
+          // for newly created roles).
+          if (
+            branchMembership.allGrantors.every(
+              (g) => g === branchMembership.member,
+            )
+          ) {
+            continue;
+          }
           changes.push(
             new GrantRoleMembership({
               role: branchRole,
@@ -477,4 +535,55 @@ export function diffRoles(
   }
 
   return changes;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type DeduplicatedMembership = {
+  member: string;
+  admin_option: boolean;
+  inherit_option: boolean | null;
+  set_option: boolean | null;
+  allGrantors: string[];
+};
+
+/**
+ * Deduplicate role memberships by member name.
+ *
+ * PostgreSQL 16+ can store multiple pg_auth_members rows for the same
+ * (roleid, member) pair when different grantors are involved.  This helper
+ * merges them into a single entry per member, combining options with
+ * logical OR so the effective privilege level is preserved.
+ */
+function deduplicateMembers(
+  members: ReadonlyArray<{
+    member: string;
+    grantor: string;
+    admin_option: boolean;
+    inherit_option?: boolean | null;
+    set_option?: boolean | null;
+  }>,
+): Map<string, DeduplicatedMembership> {
+  const result = new Map<string, DeduplicatedMembership>();
+  for (const m of members) {
+    const existing = result.get(m.member);
+    if (existing) {
+      existing.admin_option = existing.admin_option || m.admin_option;
+      existing.inherit_option =
+        existing.inherit_option || (m.inherit_option ?? null);
+      existing.set_option = existing.set_option || (m.set_option ?? null);
+      existing.allGrantors.push(m.grantor);
+    } else {
+      result.set(m.member, {
+        member: m.member,
+        admin_option: m.admin_option,
+        inherit_option: m.inherit_option ?? null,
+        set_option: m.set_option ?? null,
+        allGrantors: [m.grantor],
+      });
+    }
+  }
+  return result;
 }
