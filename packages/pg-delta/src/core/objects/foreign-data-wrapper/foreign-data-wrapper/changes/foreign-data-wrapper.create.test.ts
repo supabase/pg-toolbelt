@@ -27,7 +27,7 @@ describe("foreign-data-wrapper", () => {
     const fdw = new ForeignDataWrapper({
       name: "test_fdw",
       owner: "test",
-      handler: "public.handler_func()",
+      handler: "public.handler_func",
       validator: null,
       options: null,
       comment: null,
@@ -39,7 +39,7 @@ describe("foreign-data-wrapper", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func() NO VALIDATOR",
+      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func NO VALIDATOR",
     );
   });
 
@@ -48,7 +48,7 @@ describe("foreign-data-wrapper", () => {
       name: "test_fdw",
       owner: "test",
       handler: null,
-      validator: "public.validator_func()",
+      validator: "public.validator_func",
       options: null,
       comment: null,
       privileges: [],
@@ -59,7 +59,7 @@ describe("foreign-data-wrapper", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE FOREIGN DATA WRAPPER test_fdw NO HANDLER VALIDATOR public.validator_func()",
+      "CREATE FOREIGN DATA WRAPPER test_fdw NO HANDLER VALIDATOR public.validator_func",
     );
   });
 
@@ -67,8 +67,8 @@ describe("foreign-data-wrapper", () => {
     const fdw = new ForeignDataWrapper({
       name: "test_fdw",
       owner: "test",
-      handler: "public.handler_func()",
-      validator: "public.validator_func()",
+      handler: "public.handler_func",
+      validator: "public.validator_func",
       options: null,
       comment: null,
       privileges: [],
@@ -79,7 +79,7 @@ describe("foreign-data-wrapper", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func() VALIDATOR public.validator_func()",
+      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func VALIDATOR public.validator_func",
     );
   });
 
@@ -107,8 +107,8 @@ describe("foreign-data-wrapper", () => {
     const fdw = new ForeignDataWrapper({
       name: "test_fdw",
       owner: "test",
-      handler: "public.handler_func()",
-      validator: "public.validator_func()",
+      handler: "public.handler_func",
+      validator: "public.validator_func",
       options: ["host", "localhost", "port", "5432"],
       comment: null,
       privileges: [],
@@ -119,7 +119,27 @@ describe("foreign-data-wrapper", () => {
     });
 
     expect(change.serialize()).toBe(
-      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func() VALIDATOR public.validator_func() OPTIONS (host 'localhost', port '5432')",
+      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func VALIDATOR public.validator_func OPTIONS (host 'localhost', port '5432')",
+    );
+  });
+
+  test("create with schema-qualified handler (no function args in output)", () => {
+    const fdw = new ForeignDataWrapper({
+      name: "test_fdw",
+      owner: "test",
+      handler: "extensions.iceberg_fdw_handler",
+      validator: "extensions.iceberg_fdw_validator",
+      options: null,
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateForeignDataWrapper({
+      foreignDataWrapper: fdw,
+    });
+
+    expect(change.serialize()).toBe(
+      "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER extensions.iceberg_fdw_handler VALIDATOR extensions.iceberg_fdw_validator",
     );
   });
 });
