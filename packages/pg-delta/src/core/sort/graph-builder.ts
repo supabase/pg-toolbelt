@@ -87,7 +87,19 @@ export function convertExplicitRequirementsToConstraints(
 
     if (requiredIds.size === 0) continue;
 
+    // Collect dropped IDs for this change so we can skip requirements
+    // for stableIds that this change also drops.  A change that drops a
+    // stableId should not depend on another change that creates the same
+    // stableId, because the entity already exists in the source database.
+    // This prevents false ordering constraints such as Grant → Revoke
+    // when both operate on the same ACL stableId.
+    const droppedIds = new Set<string>(phaseChanges[consumerIndex].drops);
+
     for (const requiredId of requiredIds) {
+      if (droppedIds.has(requiredId)) {
+        continue;
+      }
+
       const producerIndexes =
         graphData.changeIndexesByCreatedId.get(requiredId);
       if (!producerIndexes || producerIndexes.size === 0) continue;

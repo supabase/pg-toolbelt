@@ -394,5 +394,26 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "table-level privileges replaced by column-level privileges (revoke before grant ordering)",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.t_priv(a int, b int, c int);
+          CREATE ROLE r_priv;
+          GRANT INSERT, UPDATE ON TABLE test_schema.t_priv TO r_priv;
+        `,
+          testSql: dedent`
+          REVOKE INSERT, UPDATE ON TABLE test_schema.t_priv FROM r_priv;
+          GRANT INSERT (a, b) ON TABLE test_schema.t_priv TO r_priv;
+          GRANT UPDATE (b) ON TABLE test_schema.t_priv TO r_priv;
+        `,
+        });
+      }),
+    );
   });
 }
