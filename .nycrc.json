@@ -3,5 +3,5 @@
   "exclude": ["**/*.test.ts", "**/*.base.ts", "**/debug-visualization.ts"],
   "report-dir": ".coverage-artifacts",
   "temp-dir": ".nyc_output",
-  "reporter": ["lcov", "text", "html"]
+  "reporter": ["lcov", "text", "html", "json-summary"]
 }

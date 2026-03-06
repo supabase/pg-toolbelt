@@ -221,12 +221,36 @@ jobs:
         run: |
           if [ ! -d .nyc_output ] || [ -z "$(ls -A .nyc_output 2>/dev/null)" ]; then
             echo "No coverage artifacts found, skipping report"
-            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "No coverage data was uploaded." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## Coverage Summary"
+              echo "No coverage data was uploaded."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            npx nyc report 2>&1 | tee /tmp/nyc-output.txt
-            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
-            tail -5 /tmp/nyc-output.txt >> "$GITHUB_STEP_SUMMARY"
+            npx nyc report
+            SUMMARY=".coverage-artifacts/coverage-summary.json"
+            if [ -f "$SUMMARY" ]; then
+              bun -e "
+                const data = JSON.parse(require('fs').readFileSync('$SUMMARY', 'utf8')).total;
+                const fmt = (m) => {
+                  const pct = m.pct.toFixed(1);
+                  const icon = m.pct >= 80 ? '🟢' : m.pct >= 60 ? '🟡' : '🔴';
+                  return \`\${icon} \${pct}%\`;
+                };
+                const row = (label, m) =>
+                  \`| \${label} | \${fmt(m)} | \${m.covered} / \${m.total} |\`;
+                const lines = [
+                  '## Coverage Summary',
+                  '',
+                  '| Metric | Coverage | Covered / Total |',
+                  '|--------|:--------:|----------------:|',
+                  row('Statements', data.statements),
+                  row('Branches',   data.branches),
+                  row('Functions',  data.functions),
+                  row('Lines',      data.lines),
+                ];
+                process.stdout.write(lines.join('\n') + '\n');
+              " >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
       - name: Upload coverage reports
         if: hashFiles('.coverage-artifacts/**') != ''
