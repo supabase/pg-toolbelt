@@ -43,6 +43,120 @@ describe.concurrent("role.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterRoleSetOptions);
   });
 
+  test("no duplicate membership grants when members have multiple grantors", () => {
+    // In PG 16+, pg_auth_members can have multiple rows for the same
+    // (roleid, member) pair with different grantors. The Role constructor
+    // should deduplicate these so diffRoles doesn't emit duplicate changes.
+    const parentRole = new Role({
+      ...base,
+      name: "postgres",
+      members: [
+        {
+          member: "cli_login_postgres",
+          grantor: "postgres",
+          admin_option: false,
+          inherit_option: false,
+          set_option: false,
+        },
+        {
+          member: "cli_login_postgres",
+          grantor: "supabase_admin",
+          admin_option: false,
+          inherit_option: false,
+          set_option: false,
+        },
+      ],
+    });
+
+    // After deduplication, should have only one member entry
+    expect(parentRole.members).toHaveLength(1);
+    expect(parentRole.members[0].member).toBe("cli_login_postgres");
+
+    // When diffing, the created role should emit only one GRANT
+    const changes = diffRoles(
+      { version: 170000 },
+      {},
+      { [parentRole.stableId]: parentRole },
+    );
+    const grantChanges = changes.filter(
+      (c) => c instanceof GrantRoleMembership,
+    );
+    expect(grantChanges).toHaveLength(1);
+  });
+
+  test("duplicate members are merged with most permissive options", () => {
+    const role = new Role({
+      ...base,
+      name: "test_role",
+      members: [
+        {
+          member: "member1",
+          grantor: "grantor_a",
+          admin_option: false,
+          inherit_option: false,
+          set_option: true,
+        },
+        {
+          member: "member1",
+          grantor: "grantor_b",
+          admin_option: true,
+          inherit_option: false,
+          set_option: false,
+        },
+      ],
+    });
+
+    expect(role.members).toHaveLength(1);
+    expect(role.members[0].admin_option).toBe(true);
+    expect(role.members[0].set_option).toBe(true);
+  });
+
+  test("no false alter when both sides have duplicate members from different grantors", () => {
+    // Both main and branch have the same membership but from different
+    // grantors. After deduplication the roles should be equal, producing
+    // no changes.
+    const main = new Role({
+      ...base,
+      name: "parent",
+      members: [
+        {
+          member: "child",
+          grantor: "postgres",
+          admin_option: false,
+          inherit_option: false,
+          set_option: false,
+        },
+        {
+          member: "child",
+          grantor: "supabase_admin",
+          admin_option: false,
+          inherit_option: false,
+          set_option: false,
+        },
+      ],
+    });
+    const branch = new Role({
+      ...base,
+      name: "parent",
+      members: [
+        {
+          member: "child",
+          grantor: "another_admin",
+          admin_option: false,
+          inherit_option: false,
+          set_option: false,
+        },
+      ],
+    });
+
+    const changes = diffRoles(
+      { version: 170000 },
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(0);
+  });
+
   test("create role skips self-granted membership (member === grantor)", () => {
     // Simulates the auto-created membership when postgres creates a role:
     // PostgreSQL automatically makes the creator a member with grantor=self.
@@ -94,74 +208,8 @@ describe.concurrent("role.diff", () => {
     expect(changes[1]).toBeInstanceOf(GrantRoleMembership);
   });
 
-  test("create role deduplicates memberships from multiple grantors", () => {
-    // PG 16+ can have multiple pg_auth_members rows for the same member
-    // with different grantors.
-    const role = new Role({
-      ...base,
-      name: "developer",
-      members: [
-        {
-          member: "app_user",
-          grantor: "postgres",
-          admin_option: false,
-          inherit_option: true,
-          set_option: true,
-        },
-        {
-          member: "app_user",
-          grantor: "supabase_admin",
-          admin_option: true,
-          inherit_option: true,
-          set_option: true,
-        },
-      ],
-    });
-    const changes = diffRoles(
-      { version: 170000 },
-      {},
-      { [role.stableId]: role },
-    );
-    // Should have CreateRole + exactly ONE GrantRoleMembership with admin=true
-    expect(changes).toHaveLength(2);
-    expect(changes[0]).toBeInstanceOf(CreateRole);
-    const grant = changes[1] as GrantRoleMembership;
-    expect(grant).toBeInstanceOf(GrantRoleMembership);
-    expect(grant.options.admin).toBe(true);
-  });
-
-  test("create role skips self-granted membership even with multiple grantors all being the member", () => {
-    const role = new Role({
-      ...base,
-      name: "developer",
-      members: [
-        {
-          member: "postgres",
-          grantor: "postgres",
-          admin_option: false,
-          inherit_option: true,
-          set_option: true,
-        },
-        {
-          member: "postgres",
-          grantor: "postgres",
-          admin_option: true,
-          inherit_option: true,
-          set_option: true,
-        },
-      ],
-    });
-    const changes = diffRoles(
-      { version: 170000 },
-      {},
-      { [role.stableId]: role },
-    );
-    // All grantors are the member itself, should skip
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toBeInstanceOf(CreateRole);
-  });
-
   test("create role keeps mixed-grantor membership where not all grantors equal member", () => {
+    // Model dedup should prefer the non-self grantor, so diff keeps the membership
     const role = new Role({
       ...base,
       name: "developer",
@@ -187,7 +235,7 @@ describe.concurrent("role.diff", () => {
       {},
       { [role.stableId]: role },
     );
-    // One grantor is different from member, so the membership should be kept
+    // One grantor is different from member, dedup prefers it → membership kept
     expect(changes).toHaveLength(2);
     expect(changes[0]).toBeInstanceOf(CreateRole);
     expect(changes[1]).toBeInstanceOf(GrantRoleMembership);

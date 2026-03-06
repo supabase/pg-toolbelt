@@ -71,7 +71,7 @@ export class Role extends BasePgModel {
     this.can_bypass_rls = props.can_bypass_rls;
     this.config = props.config;
     this.comment = props.comment;
-    this.members = props.members;
+    this.members = deduplicateMembers(props.members);
     this.default_privileges = props.default_privileges;
   }
 
@@ -131,6 +131,45 @@ export class Role extends BasePgModel {
       default_privileges: sortedDefaultPrivs,
     };
   }
+}
+
+/**
+ * Deduplicate members by member name.
+ *
+ * In PostgreSQL 16+, `pg_auth_members` can have multiple rows for the same
+ * (roleid, member) pair with different grantors. Merge them into a single
+ * entry per member, combining options with OR so the most permissive wins.
+ *
+ * When merging, prefer a non-self grantor (grantor !== member) so that
+ * downstream code can detect true self-grants (auto-created by CREATE ROLE)
+ * by checking `grantor === member`.
+ */
+function deduplicateMembers(
+  members: RoleProps["members"],
+): RoleProps["members"] {
+  const map = new Map<string, RoleProps["members"][number]>();
+  for (const m of members) {
+    const existing = map.get(m.member);
+    if (existing) {
+      // admin_option is always boolean (non-nullable in schema)
+      existing.admin_option = existing.admin_option || m.admin_option;
+      // inherit_option and set_option are nullish (only available in PG 16+)
+      if (m.inherit_option != null) {
+        existing.inherit_option =
+          (existing.inherit_option ?? false) || m.inherit_option;
+      }
+      if (m.set_option != null) {
+        existing.set_option = (existing.set_option ?? false) || m.set_option;
+      }
+      // Prefer a non-self grantor so diff can detect true self-grants
+      if (existing.grantor === existing.member && m.grantor !== m.member) {
+        existing.grantor = m.grantor;
+      }
+    } else {
+      map.set(m.member, { ...m });
+    }
+  }
+  return [...map.values()];
 }
 
 export async function extractRoles(pool: Pool): Promise<Role[]> {
