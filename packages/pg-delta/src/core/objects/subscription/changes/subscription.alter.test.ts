@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Subscription } from "../subscription.model.ts";
 import {
@@ -44,18 +45,20 @@ const makeSubscription = (override: Partial<SubscriptionProps> = {}) =>
   });
 
 describe("subscription.alter", () => {
-  test("set connection serializes conninfo literal", () => {
+  test("set connection serializes conninfo literal", async () => {
     const subscription = makeSubscription({
       conninfo: "dbname=postgres host=replica",
     });
     const change = new AlterSubscriptionSetConnection({ subscription });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "ALTER SUBSCRIPTION sub_base CONNECTION 'dbname=postgres host=replica'",
     );
   });
 
-  test("set publication preserves ordering and refresh hint when disabled", () => {
+  test("set publication preserves ordering and refresh hint when disabled", async () => {
     const enabledSubscription = makeSubscription({
       publications: ["pub_a", "pub_b"],
       enabled: true,
@@ -63,6 +66,8 @@ describe("subscription.alter", () => {
     const enabledChange = new AlterSubscriptionSetPublication({
       subscription: enabledSubscription,
     });
+
+    await assertValidSql(enabledChange.serialize());
 
     expect(enabledChange.serialize()).toBe(
       "ALTER SUBSCRIPTION sub_base SET PUBLICATION pub_a, pub_b",
@@ -76,12 +81,14 @@ describe("subscription.alter", () => {
       subscription: disabledSubscription,
     });
 
+    await assertValidSql(disabledChange.serialize());
+
     expect(disabledChange.serialize()).toBe(
       "ALTER SUBSCRIPTION sub_base SET PUBLICATION pub_a, pub_b WITH (refresh = false)",
     );
   });
 
-  test("toggle enablement serializes ENABLE and DISABLE statements", () => {
+  test("toggle enablement serializes ENABLE and DISABLE statements", async () => {
     const subscription = makeSubscription();
 
     expect(new AlterSubscriptionEnable({ subscription }).serialize()).toBe(
@@ -92,7 +99,7 @@ describe("subscription.alter", () => {
     );
   });
 
-  test("set options delegates to option formatter", () => {
+  test("set options delegates to option formatter", async () => {
     const subscription = makeSubscription({
       slot_name: "custom_slot",
       slot_is_none: false,
@@ -104,12 +111,14 @@ describe("subscription.alter", () => {
       options: ["slot_name", "disable_on_error", "origin"],
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "ALTER SUBSCRIPTION sub_base SET (slot_name = 'custom_slot', disable_on_error = true, origin = 'none')",
     );
   });
 
-  test("set owner tracks role dependency", () => {
+  test("set owner tracks role dependency", async () => {
     const subscription = makeSubscription();
     const change = new AlterSubscriptionSetOwner({
       subscription,
@@ -117,6 +126,7 @@ describe("subscription.alter", () => {
     });
 
     expect(change.requires).toEqual([stableId.role("new_owner")]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER SUBSCRIPTION sub_base OWNER TO new_owner",
     );

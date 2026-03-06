@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Table, type TableProps } from "../table.model.ts";
 import { DropTable } from "./table.drop.ts";
 
@@ -26,9 +27,10 @@ const base: TableProps = {
 };
 
 describe.concurrent("table.drop", () => {
-  test("drop table basic", () => {
+  test("drop table basic", async () => {
     const t = new Table(base);
     const change = new DropTable({ table: t });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("DROP TABLE public.t");
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server, type ServerProps } from "../server.model.ts";
 import {
   AlterServerChangeOwner,
@@ -8,7 +9,7 @@ import {
 
 describe.concurrent("server", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "old_owner",
@@ -25,12 +26,14 @@ describe.concurrent("server", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER SERVER test_server OWNER TO new_owner",
       );
     });
 
-    test("set version", () => {
+    test("set version", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -47,10 +50,12 @@ describe.concurrent("server", () => {
         version: "2.0",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe("ALTER SERVER test_server VERSION '2.0'");
     });
 
-    test("set version to null", () => {
+    test("set version to null", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -67,10 +72,12 @@ describe.concurrent("server", () => {
         version: null,
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe("ALTER SERVER test_server VERSION ''");
     });
 
-    test("set options ADD", () => {
+    test("set options ADD", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -90,12 +97,14 @@ describe.concurrent("server", () => {
         ],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER SERVER test_server OPTIONS (ADD host 'localhost', ADD port '5432')",
       );
     });
 
-    test("set options SET", () => {
+    test("set options SET", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -112,12 +121,14 @@ describe.concurrent("server", () => {
         options: [{ action: "SET", option: "host", value: "newhost" }],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER SERVER test_server OPTIONS (SET host 'newhost')",
       );
     });
 
-    test("set options DROP", () => {
+    test("set options DROP", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -134,12 +145,14 @@ describe.concurrent("server", () => {
         options: [{ action: "DROP", option: "host" }],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER SERVER test_server OPTIONS (DROP host)",
       );
     });
 
-    test("set options mixed ADD/SET/DROP", () => {
+    test("set options mixed ADD/SET/DROP", async () => {
       const props: ServerProps = {
         name: "test_server",
         owner: "test",
@@ -159,6 +172,8 @@ describe.concurrent("server", () => {
           { action: "DROP", option: "old_option" },
         ],
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",

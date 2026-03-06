@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
 import { ReplaceTrigger } from "./trigger.alter.ts";
 
 describe.concurrent("trigger", () => {
   describe("alter", () => {
-    test("replace trigger", () => {
+    test("replace trigger", async () => {
       const props: Omit<TriggerProps, "enabled"> = {
         schema: "public",
         name: "test_trigger",
@@ -14,7 +15,7 @@ describe.concurrent("trigger", () => {
         function_name: "test_function",
         trigger_type: 1 << 4, // UPDATE (1<<4) = 16, AFTER is default (0), STATEMENT is default (0)
         is_internal: false,
-        deferrable: true,
+        deferrable: false,
         initially_deferred: false,
         argument_count: 0,
         column_numbers: null,
@@ -29,7 +30,7 @@ describe.concurrent("trigger", () => {
         is_on_partitioned_table: false,
         owner: "test",
         definition:
-          "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
+          "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table EXECUTE FUNCTION public.test_function()",
         comment: null,
       };
       const branch = new Trigger({
@@ -39,8 +40,10 @@ describe.concurrent("trigger", () => {
 
       const change = new ReplaceTrigger({ trigger: branch });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
-        "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",
+        "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table EXECUTE FUNCTION public.test_function()",
       );
     });
   });

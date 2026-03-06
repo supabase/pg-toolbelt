@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language } from "../language.model.ts";
 import { CreateLanguage } from "./language.create.ts";
 
 describe("language", () => {
-  test("create", () => {
+  test("create", async () => {
     const language = new Language({
       name: "plpgsql",
       is_trusted: true,
@@ -19,6 +20,8 @@ describe("language", () => {
     const change = new CreateLanguage({
       language,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE TRUSTED LANGUAGE plpgsql HANDLER plpgsql_call_handler INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator",

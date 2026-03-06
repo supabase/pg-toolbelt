@@ -5,7 +5,6 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
 } from "./changes/publication.alter.ts";
@@ -120,11 +119,12 @@ describe.concurrent("publication.diff", () => {
       { [mainPublication.stableId]: mainPublication },
       { [branchPublication.stableId]: branchPublication },
     );
-    expect(
-      changes.some(
-        (change) => change instanceof AlterPublicationSetForAllTables,
-      ),
-    ).toBe(true);
+    expect(changes.some((change) => change instanceof DropPublication)).toBe(
+      true,
+    );
+    expect(changes.some((change) => change instanceof CreatePublication)).toBe(
+      true,
+    );
   });
 
   test("switch from FOR ALL TABLES to explicit list", () => {

@@ -3,7 +3,6 @@ import type {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetList,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
@@ -17,7 +16,6 @@ export type PublicationChange =
   | AlterPublicationAddTables
   | AlterPublicationDropSchemas
   | AlterPublicationDropTables
-  | AlterPublicationSetForAllTables
   | AlterPublicationSetList
   | AlterPublicationSetOptions
   | AlterPublicationSetOwner

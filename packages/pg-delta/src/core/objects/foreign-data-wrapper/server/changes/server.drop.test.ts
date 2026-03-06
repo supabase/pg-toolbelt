@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server } from "../server.model.ts";
 import { DropServer } from "./server.drop.ts";
 
 describe("server", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const server = new Server({
       name: "test_server",
       owner: "test",
@@ -18,6 +19,8 @@ describe("server", () => {
     const change = new DropServer({
       server,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP SERVER test_server");
   });

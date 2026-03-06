@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger } from "../trigger.model.ts";
 import { CreateTrigger } from "./trigger.create.ts";
 
 describe("trigger", () => {
-  test("create", () => {
+  test("create", async () => {
     const trigger = new Trigger({
       schema: "public",
       name: "test_trigger",
@@ -36,6 +37,8 @@ describe("trigger", () => {
     const change = new CreateTrigger({
       trigger,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE TRIGGER test_trigger BEFORE INSERT ON public.test_table FOR EACH ROW EXECUTE FUNCTION public.test_function()",

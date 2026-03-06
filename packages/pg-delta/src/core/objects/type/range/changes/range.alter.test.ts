@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Range, type RangeProps } from "../range.model.ts";
 import { AlterRangeChangeOwner } from "./range.alter.ts";
 
 describe.concurrent("range", () => {
-  test("change owner", () => {
+  test("change owner", async () => {
     const base: RangeProps = {
       schema: "public",
       name: "ts_custom",
@@ -22,6 +23,7 @@ describe.concurrent("range", () => {
     };
     const main = new Range(base);
     const change = new AlterRangeChangeOwner({ range: main, owner: "o2" });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("ALTER TYPE public.ts_custom OWNER TO o2");
   });
 });

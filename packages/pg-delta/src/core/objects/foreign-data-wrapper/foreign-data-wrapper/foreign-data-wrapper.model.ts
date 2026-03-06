@@ -93,11 +93,11 @@ export async function extractForeignDataWrappers(
         fdw.fdwowner::regrole::text as owner,
         case
           when fdw.fdwhandler = 0 then null
-          else p_handler.pronamespace::regnamespace::text || '.' || quote_ident(p_handler.proname) || '(' || pg_get_function_identity_arguments(fdw.fdwhandler) || ')'
+          else p_handler.pronamespace::regnamespace::text || '.' || quote_ident(p_handler.proname)
         end as handler,
         case
           when fdw.fdwvalidator = 0 then null
-          else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname) || '(' || pg_get_function_identity_arguments(fdw.fdwvalidator) || ')'
+          else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname)
         end as validator,
         coalesce(fdw.fdwoptions, array[]::text[]) as options,
         obj_description(fdw.oid, 'pg_foreign_data_wrapper') as comment,

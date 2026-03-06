@@ -26,7 +26,7 @@ export class DropAggregate extends DropAggregateChange {
   serialize(): string {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const withArgs = signature.length > 0 ? `(${signature})` : "()";
+    const withArgs = signature.length > 0 ? `(${signature})` : "(*)";
     return `DROP AGGREGATE ${qualifiedName}${withArgs}`;
   }
 }

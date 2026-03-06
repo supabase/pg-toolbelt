@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Index } from "../index.model.ts";
 import { DropIndex } from "./index.drop.ts";
 
 describe("index", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const index = new Index({
       schema: "public",
       table_name: "test_table",
@@ -38,6 +39,8 @@ describe("index", () => {
     const change = new DropIndex({
       index,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP INDEX public.test_index");
   });
