@@ -70,10 +70,14 @@ export function diffRoles(
       if (existing) {
         existing.admin_option =
           existing.admin_option || membership.admin_option;
-        existing.inherit_option =
-          existing.inherit_option || (membership.inherit_option ?? null);
-        existing.set_option =
-          existing.set_option || (membership.set_option ?? null);
+        existing.inherit_option = mergeNullableBool(
+          existing.inherit_option,
+          membership.inherit_option ?? null,
+        );
+        existing.set_option = mergeNullableBool(
+          existing.set_option,
+          membership.set_option ?? null,
+        );
         existing.allGrantors.push(membership.grantor);
       } else {
         membershipByMember.set(membership.member, {
@@ -571,9 +575,14 @@ function deduplicateMembers(
     const existing = result.get(m.member);
     if (existing) {
       existing.admin_option = existing.admin_option || m.admin_option;
-      existing.inherit_option =
-        existing.inherit_option || (m.inherit_option ?? null);
-      existing.set_option = existing.set_option || (m.set_option ?? null);
+      existing.inherit_option = mergeNullableBool(
+        existing.inherit_option,
+        m.inherit_option ?? null,
+      );
+      existing.set_option = mergeNullableBool(
+        existing.set_option,
+        m.set_option ?? null,
+      );
       existing.allGrantors.push(m.grantor);
     } else {
       result.set(m.member, {
@@ -586,4 +595,17 @@ function deduplicateMembers(
     }
   }
   return result;
+}
+
+/**
+ * Merge two nullable boolean values with logical OR semantics.
+ * Returns `true` if either value is `true`, otherwise returns the first
+ * non-null value (preserving `false` over `null`).
+ */
+function mergeNullableBool(
+  a: boolean | null,
+  b: boolean | null,
+): boolean | null {
+  if (a === true || b === true) return true;
+  return a ?? b;
 }
