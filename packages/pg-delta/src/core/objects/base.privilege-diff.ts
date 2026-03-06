@@ -331,16 +331,6 @@ export function emitObjectPrivilegeChanges(
   const changes: BaseChange[] = [];
 
   for (const [grantee, result] of privilegeResults) {
-    for (const [, grants] of groupPrivilegesByGrantable(result.grants)) {
-      changes.push(
-        new factories.Grant({
-          [objectKey]: grantTarget,
-          privileges: grants,
-          grantee,
-          version,
-        }),
-      );
-    }
     for (const [, revokes] of groupPrivilegesByGrantable(result.revokes)) {
       changes.push(
         new factories.Revoke({
@@ -356,6 +346,16 @@ export function emitObjectPrivilegeChanges(
         new factories.RevokeGrantOption({
           [objectKey]: revokeTarget,
           privilegeNames: result.revokeGrantOption,
+          grantee,
+          version,
+        }),
+      );
+    }
+    for (const [, grants] of groupPrivilegesByGrantable(result.grants)) {
+      changes.push(
+        new factories.Grant({
+          [objectKey]: grantTarget,
+          privileges: grants,
           grantee,
           version,
         }),
@@ -388,19 +388,6 @@ export function emitColumnPrivilegeChanges(
   const changes: BaseChange[] = [];
 
   for (const [grantee, result] of privilegeResults) {
-    for (const [, group] of groupPrivilegesByColumns(result.grants)) {
-      for (const [grantable, privSet] of group.byGrant) {
-        changes.push(
-          new factories.Grant({
-            [objectKey]: grantTarget,
-            privileges: [...privSet].map((p) => ({ privilege: p, grantable })),
-            grantee,
-            columns: group.columns,
-            version,
-          }),
-        );
-      }
-    }
     for (const [, group] of groupPrivilegesByColumns(result.revokes)) {
       const allPrivileges = new Set<string>();
       for (const [, privSet] of group.byGrant) {
@@ -434,6 +421,19 @@ export function emitColumnPrivilegeChanges(
           new factories.RevokeGrantOption({
             [objectKey]: revokeTarget,
             privilegeNames: result.revokeGrantOption,
+            grantee,
+            columns: group.columns,
+            version,
+          }),
+        );
+      }
+    }
+    for (const [, group] of groupPrivilegesByColumns(result.grants)) {
+      for (const [grantable, privSet] of group.byGrant) {
+        changes.push(
+          new factories.Grant({
+            [objectKey]: grantTarget,
+            privileges: [...privSet].map((p) => ({ privilege: p, grantable })),
             grantee,
             columns: group.columns,
             version,

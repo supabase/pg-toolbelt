@@ -779,6 +779,55 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
   });
 
+  test("altered table privileges emit revokes before grants", () => {
+    const main = new Table({
+      ...base,
+      privileges: [
+        { grantee: "authenticated", privilege: "INSERT", grantable: false },
+        { grantee: "authenticated", privilege: "UPDATE", grantable: false },
+      ],
+    });
+    const branch = new Table({
+      ...base,
+      privileges: [
+        {
+          grantee: "authenticated",
+          privilege: "INSERT",
+          grantable: false,
+          columns: ["org_id", "name"],
+        },
+        {
+          grantee: "authenticated",
+          privilege: "UPDATE",
+          grantable: false,
+          columns: ["name"],
+        },
+      ],
+    });
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const privilegeChanges = changes.filter(
+      (c) =>
+        c instanceof GrantTablePrivileges ||
+        c instanceof RevokeTablePrivileges ||
+        c instanceof RevokeGrantOptionTablePrivileges,
+    );
+    expect(privilegeChanges.length).toBeGreaterThan(1);
+
+    const firstRevokeIndex = privilegeChanges.findIndex(
+      (c) => c instanceof RevokeTablePrivileges,
+    );
+    const firstGrantIndex = privilegeChanges.findIndex(
+      (c) => c instanceof GrantTablePrivileges,
+    );
+    expect(firstRevokeIndex).not.toBe(-1);
+    expect(firstGrantIndex).not.toBe(-1);
+    expect(firstRevokeIndex).toBeLessThan(firstGrantIndex);
+  });
+
   test("storage params: set when added from null", () => {
     const main = new Table(base);
     const branch = new Table({
