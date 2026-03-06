@@ -95,13 +95,15 @@ Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packag
 
 ## Changesets
 
-All code changes that affect package behavior must include a changeset. Use the changeset CLI to generate one:
+All code changes that affect package behavior must include a changeset. **When making a fix, feat, or any user-facing change (patch/minor/major), add a changeset** — do not merge or consider the work complete without one.
+
+Use the changeset CLI to generate one:
 
 ```bash
 bunx changeset
 ```
 
-This will prompt you to select affected packages and describe the change. Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
+This will prompt you to select affected packages and choose the version bump type (`patch` for fixes, `minor` for new features, `major` for breaking changes). Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
 
 ## Conventional Commits
 
@@ -137,6 +139,10 @@ Before making any code changes, present a plan describing:
 - What tests will be added or updated
 
 Wait for user approval before implementing.
+
+### Changesets for fix/feat/major/minor
+
+When implementing a **fix**, **feat**, or any change that affects package behavior (patch/minor/major), add a changeset before considering the work complete. Run `bunx changeset`, select the affected package(s), pick the appropriate bump type, and commit the generated `.changeset/*.md` file with your changes.
 
 ### Testing Discipline
 
