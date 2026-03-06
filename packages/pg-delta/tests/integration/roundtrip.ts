@@ -35,36 +35,47 @@ const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
 
 interface RoundtripTestOptions {
+  /** Pool for the main (source) database. */
   mainSession: Pool;
+  /** Pool for the branch (target) database. */
   branchSession: Pool;
+  /** Optional test name for identification. */
   name?: string;
+  /** SQL run on both databases before applying testSql to establish baseline schema. */
   initialSetup?: string;
+  /** SQL run on branch only; diff is generated from main to this state. */
   testSql?: string;
+  /** Human-readable description of the test. */
   description?: string;
-  // Forcing the changes order to be deterministic.
+  /** Comparator to force a deterministic order of changes; when set, random sort is skipped. */
   sortChangesCallback?: (a: Change, b: Change) => number;
-  // List of terms that must appear in the generated SQL.
-  // If not provided, we expect the generated SQL to match the testSql.
-  // When defined, random sorting of changes is skipped to ensure deterministic order.
+  /**
+   * Terms that must appear in the generated SQL, or "same-as-test-sql" to match testSql.
+   * When defined, random sorting of changes is skipped to ensure deterministic order.
+   */
   expectedSqlTerms?: string[] | "same-as-test-sql";
-  // List of dependencies that must be present in main catalog.
+  /** Dependencies that must be present in the main catalog after the roundtrip. */
   expectedMainDependencies?: PgDepend[];
-  // List of dependencies that must be present in branch catalog.
+  /** Dependencies that must be present in the branch catalog. */
   expectedBranchDependencies?: PgDepend[];
-  // List of stable_ids in the order they should appear in the generated changes.
-  // This validates dependency resolution ordering.
+  /** Changes in the order they should appear in the generated migration; validates dependency ordering. */
   expectedOperationOrder?: Change[];
-  // Integration to use for filtering and serialization
+  /** Integration used for filtering and SQL serialization (e.g. supabase). */
   integration?: Integration;
 }
 
 export interface DeclarativeExportTestOptions {
+  /** Pool for the main (source) database. */
   mainSession: Pool;
+  /** Pool for the branch (target) database. */
   branchSession: Pool;
+  /** SQL run on both databases before applying testSql to establish baseline schema. */
   initialSetup?: string;
+  /** SQL run on branch only; declarative export is run from this state. */
   testSql?: string;
+  /** Integration used for filtering and SQL serialization (e.g. supabase). */
   integration?: Integration;
-  /** Additional export options */
+  /** Additional options for declarative export (integration is set separately). */
   exportOptions?: Omit<ExportOptions, "integration">;
 }
 
