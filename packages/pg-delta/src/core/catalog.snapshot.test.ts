@@ -462,3 +462,9 @@ describe("catalog snapshot serde", () => {
     }
   });
 });
+
+describe("noop-test to retrigger the coverage", () => {
+  test("noop-test", async () => {
+    expect(true).toBe(true);
+  });
+});
