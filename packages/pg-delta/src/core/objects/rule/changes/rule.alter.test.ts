@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
 import { ReplaceRule, SetRuleEnabledState } from "./rule.alter.ts";
@@ -28,7 +29,7 @@ const makeRule = (override: Partial<RuleProps> = {}) =>
   });
 
 describe("rule.alter", () => {
-  test("replace rule serializes using create or replace and tracks dependencies", () => {
+  test("replace rule serializes using create or replace and tracks dependencies", async () => {
     const rule = makeRule({ columns: ["id", "amount"] });
     const change = new ReplaceRule({ rule });
 
@@ -39,12 +40,13 @@ describe("rule.alter", () => {
         stableId.column(rule.schema, rule.table_name, column),
       ),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'CREATE OR REPLACE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
     );
   });
 
-  test("set rule enabled state serializes appropriate clause", () => {
+  test("set rule enabled state serializes appropriate clause", async () => {
     const rule = makeRule({ columns: ["id", "amount"] });
     const change = new SetRuleEnabledState({ rule, enabled: "D" });
 
@@ -55,12 +57,13 @@ describe("rule.alter", () => {
         stableId.column(rule.schema, rule.table_name, column),
       ),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'ALTER TABLE public."my_table" DISABLE RULE "my_rule"',
     );
   });
 
-  test("set rule enabled state defaults to rule value and supports views", () => {
+  test("set rule enabled state defaults to rule value and supports views", async () => {
     const rule = makeRule({
       table_name: '"my_view"',
       relation_kind: "v",
@@ -71,6 +74,7 @@ describe("rule.alter", () => {
     const change = new SetRuleEnabledState({ rule });
 
     expect(change.requires).toEqual([rule.stableId, rule.relationStableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'ALTER TABLE public."my_view" ENABLE REPLICA RULE "my_rule"',
     );

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
 import { CreateRule } from "./rule.create.ts";
@@ -28,7 +29,7 @@ const makeRule = (override: Partial<RuleProps> = {}) =>
   });
 
 describe("rule.create", () => {
-  test("serialize rule definition and track dependencies", () => {
+  test("serialize rule definition and track dependencies", async () => {
     const rule = makeRule();
     const change = new CreateRule({ rule });
 
@@ -39,18 +40,21 @@ describe("rule.create", () => {
         stableId.column(rule.schema, rule.table_name, column),
       ),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'CREATE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
     );
   });
 
-  test("serialize rule definition with or replace override", () => {
+  test("serialize rule definition with or replace override", async () => {
     const rule = makeRule({
       definition:
         '  CREATE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING  ',
     });
 
     const change = new CreateRule({ rule, orReplace: true });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       'CREATE OR REPLACE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Collation } from "../collation.model.ts";
 import { DropCollation } from "./collation.drop.ts";
 
 describe("collation", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const collation = new Collation({
       schema: "public",
       name: "test",
@@ -22,6 +23,8 @@ describe("collation", () => {
     const change = new DropCollation({
       collation,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP COLLATION public.test");
   });

@@ -314,9 +314,6 @@ describe("sql formatting snapshots", () => {
       -- publication.alter.set_options
       ALTER PUBLICATION pub_custom SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = false);
 
-      -- publication.alter.set_all_tables
-      ALTER PUBLICATION pub_custom SET FOR ALL TABLES;
-
       -- publication.alter.set_list
       ALTER PUBLICATION pub_custom SET TABLE public.articles_with_a_very_long_name_very_very_long_name_that_will_go_above_the_wrapping_limit (id, title) WHERE (published = true), TABLE public.comments_a_little_smaller_name_than_the_previous_one, TABLES IN SCHEMA analytics;
 
@@ -475,13 +472,13 @@ describe("sql formatting snapshots", () => {
       DROP POLICY allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test;
 
       -- policy.alter.set_roles
-      ALTER POLICY public.allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test TO authenticated, anon;
+      ALTER POLICY allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test TO authenticated, anon;
 
       -- policy.alter.set_using
-      ALTER POLICY public.allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test USING (auth.uid() = user_id AND status = 'active');
+      ALTER POLICY allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test USING (auth.uid() = user_id AND status = 'active');
 
       -- policy.alter.set_with_check
-      ALTER POLICY public.allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test WITH CHECK (auth.uid() = user_id);
+      ALTER POLICY allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test WITH CHECK (auth.uid() = user_id);
 
       -- policy.comment
       COMMENT ON POLICY allow_select_own ON public.table_with_very_long_name_for_formatting_and_wrapping_test IS 'rls policy comment';
@@ -563,7 +560,7 @@ describe("sql formatting snapshots", () => {
       REVOKE GRANT OPTION FOR SELECT ON analytics.daily_stats FROM app_reader;
 
       -- aggregate.create
-      CREATE AGGREGATE public.array_cat_agg(anycompatiblearray) (SFUNC = array_cat, STYPE = anycompatiblearray, COMBINEFUNC = array_cat, INITCOND = '{}', PARALLEL SAFE, STRICT);
+      CREATE AGGREGATE public.array_cat_agg(anycompatiblearray) (SFUNC = array_cat, STYPE = anycompatiblearray, COMBINEFUNC = array_cat, INITCOND = '{}', PARALLEL = SAFE, STRICT);
 
       -- aggregate.drop
       DROP AGGREGATE public.array_cat_agg(anycompatiblearray);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import {
   AlterEventTriggerChangeOwner,
@@ -17,31 +18,37 @@ describe("event trigger alter change", () => {
     comment: null,
   });
 
-  test("serialize owner change", () => {
+  test("serialize owner change", async () => {
     const change = new AlterEventTriggerChangeOwner({
       eventTrigger: baseEventTrigger,
       owner: "new_owner",
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "ALTER EVENT TRIGGER ddl_logger OWNER TO new_owner",
     );
   });
 
-  test("serialize disable", () => {
+  test("serialize disable", async () => {
     const change = new AlterEventTriggerSetEnabled({
       eventTrigger: baseEventTrigger,
       enabled: "D",
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe("ALTER EVENT TRIGGER ddl_logger DISABLE");
   });
 
-  test("serialize enable always", () => {
+  test("serialize enable always", async () => {
     const change = new AlterEventTriggerSetEnabled({
       eventTrigger: baseEventTrigger,
       enabled: "A",
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "ALTER EVENT TRIGGER ddl_logger ENABLE ALWAYS",

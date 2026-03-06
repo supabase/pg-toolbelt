@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Subscription } from "../subscription.model.ts";
 import { DropSubscription } from "./subscription.drop.ts";
 
@@ -36,11 +37,12 @@ const makeSubscription = (override: Partial<SubscriptionProps> = {}) =>
   });
 
 describe("subscription.drop", () => {
-  test("serialize drop subscription", () => {
+  test("serialize drop subscription", async () => {
     const subscription = makeSubscription();
     const change = new DropSubscription({ subscription });
 
     expect(change.drops).toEqual([subscription.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("DROP SUBSCRIPTION sub_base");
   });
 });

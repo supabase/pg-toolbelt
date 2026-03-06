@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Publication } from "../publication.model.ts";
 import {
@@ -39,7 +40,7 @@ const makePublication = (override: Partial<PublicationProps> = {}) =>
   });
 
 describe("publication.comment", () => {
-  test("create comment serializes and tracks dependencies", () => {
+  test("create comment serializes and tracks dependencies", async () => {
     const publication = makePublication({
       comment: "publication's overview",
     });
@@ -47,12 +48,13 @@ describe("publication.comment", () => {
 
     expect(change.creates).toEqual([stableId.comment(publication.stableId)]);
     expect(change.requires).toEqual([publication.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON PUBLICATION pub_comment IS 'publication''s overview'",
     );
   });
 
-  test("drop comment serializes and tracks dependencies", () => {
+  test("drop comment serializes and tracks dependencies", async () => {
     const publication = makePublication({
       comment: "some comment",
     });
@@ -63,6 +65,7 @@ describe("publication.comment", () => {
       stableId.comment(publication.stableId),
       publication.stableId,
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON PUBLICATION pub_comment IS NULL",
     );

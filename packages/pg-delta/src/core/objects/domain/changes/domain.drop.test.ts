@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Domain } from "../domain.model.ts";
 import { DropDomain } from "./domain.drop.ts";
 
 describe("domain", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const domain = new Domain({
       schema: "public",
       name: "test_domain",
@@ -24,6 +25,8 @@ describe("domain", () => {
     const change = new DropDomain({
       domain,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP DOMAIN public.test_domain");
   });

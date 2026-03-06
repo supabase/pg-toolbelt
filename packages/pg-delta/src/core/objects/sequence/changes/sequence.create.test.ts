@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Sequence } from "../sequence.model.ts";
 import { CreateSequence } from "./sequence.create.ts";
 
 describe("sequence", () => {
-  test("create minimal (all defaults elided)", () => {
+  test("create minimal (all defaults elided)", async () => {
     const sequence = new Sequence({
       schema: "public",
       name: "s_min",
@@ -24,10 +25,11 @@ describe("sequence", () => {
     });
 
     const change = new CreateSequence({ sequence });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("CREATE SEQUENCE public.s_min");
   });
 
-  test("create", () => {
+  test("create", async () => {
     const sequence = new Sequence({
       schema: "public",
       name: "test_sequence",
@@ -51,12 +53,14 @@ describe("sequence", () => {
       sequence,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE SEQUENCE public.test_sequence AS integer",
     );
   });
 
-  test("create with all options", () => {
+  test("create with all options", async () => {
     const sequence = new Sequence({
       schema: "public",
       name: "s_all",
@@ -77,6 +81,7 @@ describe("sequence", () => {
     });
 
     const change = new CreateSequence({ sequence });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE SEQUENCE public.s_all AS integer INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
     );

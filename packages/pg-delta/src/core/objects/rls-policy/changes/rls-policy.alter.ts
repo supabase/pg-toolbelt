@@ -47,7 +47,7 @@ export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
 
     return [
       "ALTER POLICY",
-      `${this.policy.schema}.${this.policy.name}`,
+      this.policy.name,
       "ON",
       `${this.policy.schema}.${this.policy.table_name}`,
       "TO",
@@ -78,7 +78,7 @@ export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
     const expr = this.usingExpression ?? "true";
     return [
       "ALTER POLICY",
-      `${this.policy.schema}.${this.policy.name}`,
+      this.policy.name,
       "ON",
       `${this.policy.schema}.${this.policy.table_name}`,
       "USING",
@@ -112,7 +112,7 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
     const expr = this.withCheckExpression ?? "true";
     return [
       "ALTER POLICY",
-      `${this.policy.schema}.${this.policy.name}`,
+      this.policy.name,
       "ON",
       `${this.policy.schema}.${this.policy.table_name}`,
       "WITH CHECK",

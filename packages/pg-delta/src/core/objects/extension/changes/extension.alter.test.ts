@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Extension, type ExtensionProps } from "../extension.model.ts";
 import {
   AlterExtensionSetSchema,
@@ -7,7 +8,7 @@ import {
 
 describe.concurrent("extension", () => {
   describe("alter", () => {
-    test("update version", () => {
+    test("update version", async () => {
       const props: Omit<ExtensionProps, "version"> = {
         name: "test_extension",
         schema: "public",
@@ -26,12 +27,14 @@ describe.concurrent("extension", () => {
         version: "2.0",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER EXTENSION test_extension UPDATE TO '2.0'",
       );
     });
 
-    test("set schema", () => {
+    test("set schema", async () => {
       const props: Omit<ExtensionProps, "schema"> = {
         name: "test_extension",
         relocatable: true,
@@ -49,6 +52,8 @@ describe.concurrent("extension", () => {
         extension,
         schema: "extensions",
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER EXTENSION test_extension SET SCHEMA extensions",

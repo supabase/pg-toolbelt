@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTable } from "./foreign-table.create.ts";
 
 describe("foreign-table", () => {
-  test("create basic", () => {
+  test("create basic", async () => {
     const foreignTable = new ForeignTable({
       schema: "public",
       name: "test_table",
@@ -37,13 +38,15 @@ describe("foreign-table", () => {
     const change = new CreateForeignTable({
       foreignTable,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer) SERVER test_server",
     );
   });
 
-  test("create with multiple columns", () => {
+  test("create with multiple columns", async () => {
     const foreignTable = new ForeignTable({
       schema: "public",
       name: "test_table",
@@ -96,12 +99,14 @@ describe("foreign-table", () => {
       foreignTable,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer, name text) SERVER test_server",
     );
   });
 
-  test("create with options", () => {
+  test("create with options", async () => {
     const foreignTable = new ForeignTable({
       schema: "public",
       name: "test_table",
@@ -136,12 +141,14 @@ describe("foreign-table", () => {
       foreignTable,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer) SERVER test_server OPTIONS (schema_name 'remote_schema', table_name 'remote_table')",
     );
   });
 
-  test("create with all properties", () => {
+  test("create with all properties", async () => {
     const foreignTable = new ForeignTable({
       schema: "public",
       name: "test_table",
@@ -193,6 +200,8 @@ describe("foreign-table", () => {
     const change = new CreateForeignTable({
       foreignTable,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer, name text) SERVER test_server OPTIONS (schema_name 'remote_schema', table_name 'remote_table')",
