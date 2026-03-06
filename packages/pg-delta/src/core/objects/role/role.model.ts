@@ -147,7 +147,9 @@ function deduplicateMembers(
   for (const m of members) {
     const existing = map.get(m.member);
     if (existing) {
+      // admin_option is always boolean (non-nullable in schema)
       existing.admin_option = existing.admin_option || m.admin_option;
+      // inherit_option and set_option are nullish (only available in PG 16+)
       if (m.inherit_option != null) {
         existing.inherit_option =
           (existing.inherit_option ?? false) || m.inherit_option;
