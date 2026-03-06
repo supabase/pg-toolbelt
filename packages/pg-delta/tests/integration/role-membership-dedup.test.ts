@@ -105,14 +105,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
           // Plan should have no changes for the parent_role -> child_role
           // membership because both sides have the same effective membership
-          // after deduplication
+          // after deduplication. The plan may be null (no changes at all) or
+          // non-null with unrelated changes — either way, there should be no
+          // GRANT/REVOKE for parent_role TO/FROM child_role.
           const result = await createPlan(db.main, db.branch);
-          if (result !== null) {
-            const parentChildGrants = result.plan.statements.filter(
-              (s) => s.includes("parent_role") && s.includes("child_role"),
-            );
-            expect(parentChildGrants).toHaveLength(0);
-          }
+          const parentChildGrants = (result?.plan.statements ?? []).filter(
+            (s) => s.includes("parent_role") && s.includes("child_role"),
+          );
+          expect(parentChildGrants).toHaveLength(0);
         }),
       );
     }
