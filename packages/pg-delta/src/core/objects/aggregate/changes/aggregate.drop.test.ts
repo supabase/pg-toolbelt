@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Aggregate } from "../aggregate.model.ts";
 import { DropAggregate } from "./aggregate.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -55,16 +56,17 @@ const makeAggregate = (override: Partial<AggregateProps> = {}) =>
   });
 
 describe("aggregate.drop", () => {
-  test("serialize drop for aggregate with arguments", () => {
+  test("serialize drop for aggregate with arguments", async () => {
     const aggregate = makeAggregate();
     const change = new DropAggregate({ aggregate });
 
     expect(change.drops).toEqual([aggregate.stableId]);
     expect(change.requires).toEqual([aggregate.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("DROP AGGREGATE public.agg_sum(integer)");
   });
 
-  test("serialize drop for aggregate without arguments", () => {
+  test("serialize drop for aggregate without arguments", async () => {
     const aggregate = makeAggregate({
       name: "agg_no_args",
       identity_arguments: "",
@@ -72,6 +74,8 @@ describe("aggregate.drop", () => {
       argument_types: [],
     });
     const change = new DropAggregate({ aggregate });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP AGGREGATE public.agg_no_args()");
   });

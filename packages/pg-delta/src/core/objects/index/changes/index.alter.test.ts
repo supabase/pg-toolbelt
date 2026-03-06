@@ -5,10 +5,11 @@ import {
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
 } from "./index.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("index", () => {
   describe("alter", () => {
-    test("set storage params", () => {
+    test("set storage params", async () => {
       const props: Omit<IndexProps, "storage_params"> = {
         schema: "public",
         table_name: "test_table",
@@ -50,12 +51,14 @@ describe.concurrent("index", () => {
         keysToReset: [],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER INDEX public.test_index SET (fillfactor=90)",
       );
     });
 
-    test("reset and set storage params", () => {
+    test("reset and set storage params", async () => {
       const props: Omit<IndexProps, "storage_params"> = {
         schema: "public",
         table_name: "test_table",
@@ -97,6 +100,8 @@ describe.concurrent("index", () => {
         keysToReset: ["fastupdate"],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         [
           "ALTER INDEX public.test_index RESET (fastupdate)",
@@ -105,7 +110,7 @@ describe.concurrent("index", () => {
       );
     });
 
-    test("set statistics", () => {
+    test("set statistics", async () => {
       const props: Omit<IndexProps, "statistics_target"> = {
         schema: "public",
         table_name: "test_table",
@@ -146,12 +151,14 @@ describe.concurrent("index", () => {
         columnTargets: [{ columnNumber: 1, statistics: 100 }],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER INDEX public.test_index ALTER COLUMN 1 SET STATISTICS 100",
       );
     });
 
-    test("set tablespace", () => {
+    test("set tablespace", async () => {
       const props: Omit<IndexProps, "tablespace"> = {
         schema: "public",
         table_name: "test_table",
@@ -191,6 +198,8 @@ describe.concurrent("index", () => {
         index,
         tablespace: "fast_space",
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER INDEX public.test_index SET TABLESPACE fast_space",

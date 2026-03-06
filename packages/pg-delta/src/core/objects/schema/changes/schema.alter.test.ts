@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Schema, type SchemaProps } from "../schema.model.ts";
 import { AlterSchemaChangeOwner } from "./schema.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("schema", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<SchemaProps, "owner"> = {
         name: "test_schema",
         comment: null,
@@ -19,6 +20,8 @@ describe.concurrent("schema", () => {
         schema: schemaObj,
         owner: "new_owner",
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER SCHEMA test_schema OWNER TO new_owner",

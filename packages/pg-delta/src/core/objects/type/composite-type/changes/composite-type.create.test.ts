@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeType } from "./composite-type.create.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("composite-type", () => {
-  test("create", () => {
+  test("create", async () => {
     const compositeType = new CompositeType({
       schema: "public",
       name: "test_type",
@@ -47,12 +48,14 @@ describe("composite-type", () => {
       compositeType,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE TYPE public.test_type AS (id integer)",
     );
   });
 
-  test("create with collate", () => {
+  test("create with collate", async () => {
     const compositeType = new CompositeType({
       schema: "public",
       name: "test_type",
@@ -93,6 +96,8 @@ describe("composite-type", () => {
     });
 
     const change = new CreateCompositeType({ compositeType });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       'CREATE TYPE public.test_type AS (name text COLLATE "en_US")',

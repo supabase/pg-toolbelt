@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Rule } from "../rule.model.ts";
 import { DropRule } from "./rule.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type RuleProps = ConstructorParameters<typeof Rule>[0];
 
@@ -27,12 +28,13 @@ const makeRule = (override: Partial<RuleProps> = {}) =>
   });
 
 describe("rule.drop", () => {
-  test("serialize rule drop and track dependencies", () => {
+  test("serialize rule drop and track dependencies", async () => {
     const rule = makeRule();
     const change = new DropRule({ rule });
 
     expect(change.drops).toEqual([rule.stableId]);
     expect(change.requires).toEqual([rule.stableId, rule.relationStableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe('DROP RULE "my_rule" ON public."my_table"');
   });
 });

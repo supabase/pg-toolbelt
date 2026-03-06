@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Aggregate } from "../aggregate.model.ts";
 import { CreateAggregate } from "./aggregate.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -55,7 +56,7 @@ const makeAggregate = (override: Partial<AggregateProps> = {}) =>
   });
 
 describe("aggregate.create", () => {
-  test("serialize minimal aggregate", () => {
+  test("serialize minimal aggregate", async () => {
     const aggregate = makeAggregate();
     const change = new CreateAggregate({ aggregate });
 
@@ -65,7 +66,7 @@ describe("aggregate.create", () => {
     );
   });
 
-  test("serialize aggregate with optional clauses and or replace", () => {
+  test("serialize aggregate with optional clauses and or replace", async () => {
     const aggregate = makeAggregate({
       name: "agg_full",
       transition_function: "public.sum_int8(bigint,bigint)",

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { stableId } from "../../utils.ts";
 import { Subscription } from "../subscription.model.ts";
 import { CreateSubscription } from "./subscription.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type SubscriptionProps = ConstructorParameters<typeof Subscription>[0];
 
@@ -37,18 +38,19 @@ const makeSubscription = (override: Partial<SubscriptionProps> = {}) =>
   });
 
 describe("subscription.create", () => {
-  test("serialize minimal subscription", () => {
+  test("serialize minimal subscription", async () => {
     const subscription = makeSubscription();
     const change = new CreateSubscription({ subscription });
 
     expect(change.creates).toEqual([subscription.stableId]);
     expect(change.requires).toEqual([stableId.role(subscription.owner)]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE SUBSCRIPTION sub_base CONNECTION 'host=example dbname=postgres' PUBLICATION pub_base",
     );
   });
 
-  test("serialize subscription with extended options", () => {
+  test("serialize subscription with extended options", async () => {
     const subscription = makeSubscription({
       enabled: false,
       binary: true,
@@ -70,6 +72,7 @@ describe("subscription.create", () => {
     const change = new CreateSubscription({ subscription });
 
     expect(change.requires).toEqual([stableId.role(subscription.owner)]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE SUBSCRIPTION sub_base CONNECTION 'dbname=postgres application_name=sub_base' PUBLICATION pub_a, pub_b WITH (enabled = false, slot_name = 'custom_slot', binary = true, streaming = 'parallel', synchronous_commit = 'local', two_phase = true, disable_on_error = true, password_required = false, run_as_owner = true, origin = 'none', failover = true, create_slot = false, connect = false)",
     );

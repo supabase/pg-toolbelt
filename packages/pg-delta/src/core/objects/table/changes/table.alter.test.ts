@@ -25,10 +25,11 @@ import {
   AlterTableSetUnlogged,
   AlterTableValidateConstraint,
 } from "./table.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("table", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<TableProps, "owner"> = {
         schema: "public",
         name: "test_table",
@@ -57,12 +58,14 @@ describe.concurrent("table", () => {
 
       const change = new AlterTableChangeOwner({ table, owner: "new_owner" });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table OWNER TO new_owner",
       );
     });
 
-    test("set unlogged", () => {
+    test("set unlogged", async () => {
       const props: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -86,12 +89,13 @@ describe.concurrent("table", () => {
       const table = new Table({ ...props, owner: "o1", options: null });
 
       const change = new AlterTableSetUnlogged({ table });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET UNLOGGED",
       );
     });
 
-    test("set logged", () => {
+    test("set logged", async () => {
       const props: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -115,12 +119,13 @@ describe.concurrent("table", () => {
       const table = new Table({ ...props, owner: "o1", options: null });
 
       const change = new AlterTableSetLogged({ table });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET LOGGED",
       );
     });
 
-    test("enable/disable row level security", () => {
+    test("enable/disable row level security", async () => {
       const base: Omit<TableProps, "owner" | "options" | "row_security"> = {
         schema: "public",
         name: "test_table",
@@ -148,6 +153,7 @@ describe.concurrent("table", () => {
           row_security: false,
         }),
       });
+      await assertValidSql(enable.serialize());
       expect(enable.serialize()).toBe(
         "ALTER TABLE public.test_table ENABLE ROW LEVEL SECURITY",
       );
@@ -159,12 +165,13 @@ describe.concurrent("table", () => {
           row_security: true,
         }),
       });
+      await assertValidSql(disable.serialize());
       expect(disable.serialize()).toBe(
         "ALTER TABLE public.test_table DISABLE ROW LEVEL SECURITY",
       );
     });
 
-    test("force/no force row level security", () => {
+    test("force/no force row level security", async () => {
       const base: Omit<TableProps, "owner" | "options" | "force_row_security"> =
         {
           schema: "public",
@@ -193,6 +200,7 @@ describe.concurrent("table", () => {
           force_row_security: false,
         }),
       });
+      await assertValidSql(force.serialize());
       expect(force.serialize()).toBe(
         "ALTER TABLE public.test_table FORCE ROW LEVEL SECURITY",
       );
@@ -204,12 +212,13 @@ describe.concurrent("table", () => {
           force_row_security: true,
         }),
       });
+      await assertValidSql(noforce.serialize());
       expect(noforce.serialize()).toBe(
         "ALTER TABLE public.test_table NO FORCE ROW LEVEL SECURITY",
       );
     });
 
-    test("set storage params", () => {
+    test("set storage params", async () => {
       const base: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -234,12 +243,13 @@ describe.concurrent("table", () => {
         table: new Table({ ...base, owner: "o1", options: null }),
         options: ["fillfactor=90"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table SET (fillfactor=90)",
       );
     });
 
-    test("reset storage params", () => {
+    test("reset storage params", async () => {
       const base: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -269,12 +279,13 @@ describe.concurrent("table", () => {
         table,
         params: ["fillfactor", "autovacuum_enabled"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table RESET (fillfactor, autovacuum_enabled)",
       );
     });
 
-    test("replica identity default/nothing/full", () => {
+    test("replica identity default/nothing/full", async () => {
       const baseProps: Omit<
         TableProps,
         "owner" | "options" | "replica_identity"
@@ -329,7 +340,7 @@ describe.concurrent("table", () => {
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
     });
 
-    test("replica identity DEFAULT and INDEX fallback", () => {
+    test("replica identity DEFAULT and INDEX fallback", async () => {
       const baseProps: Omit<
         TableProps,
         "owner" | "options" | "replica_identity"
@@ -385,7 +396,7 @@ describe.concurrent("table", () => {
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
     });
 
-    test("columns add/drop/alter", () => {
+    test("columns add/drop/alter", async () => {
       const tableProps: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -440,6 +451,7 @@ describe.concurrent("table", () => {
         table: withCols,
         column: colInt,
       });
+      await assertValidSql(changeAdd.serialize());
       expect(changeAdd.serialize()).toBe(
         "ALTER TABLE public.test_table ADD COLUMN a integer",
       );
@@ -454,6 +466,7 @@ describe.concurrent("table", () => {
         table: dropFrom,
         column: colText,
       });
+      await assertValidSql(changeDrop.serialize());
       expect(changeDrop.serialize()).toBe(
         "ALTER TABLE public.test_table DROP COLUMN b",
       );
@@ -462,6 +475,7 @@ describe.concurrent("table", () => {
         table: withCols,
         column: colText,
       });
+      await assertValidSql(changeType.serialize());
       expect(changeType.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN b TYPE text",
       );
@@ -470,6 +484,7 @@ describe.concurrent("table", () => {
         table: withCols,
         column: { ...colInt, default: "0" },
       });
+      await assertValidSql(changeSetDefault.serialize());
       expect(changeSetDefault.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT 0",
       );
@@ -478,6 +493,7 @@ describe.concurrent("table", () => {
         table: withCols,
         column: { ...colInt, default: null },
       });
+      await assertValidSql(changeDropDefault.serialize());
       expect(changeDropDefault.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a DROP DEFAULT",
       );
@@ -486,6 +502,7 @@ describe.concurrent("table", () => {
         table: withCols,
         column: { ...colInt, not_null: true },
       });
+      await assertValidSql(changeSetNotNull.serialize());
       expect(changeSetNotNull.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET NOT NULL",
       );
@@ -494,12 +511,13 @@ describe.concurrent("table", () => {
         table: withCols,
         column: { ...colInt, not_null: false },
       });
+      await assertValidSql(changeDropNotNull.serialize());
       expect(changeDropNotNull.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a DROP NOT NULL",
       );
     });
 
-    test("add column with collation, default and not null", () => {
+    test("add column with collation, default and not null", async () => {
       const tableProps: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -540,12 +558,13 @@ describe.concurrent("table", () => {
         comment: null,
       };
       const change = new AlterTableAddColumn({ table: withCols, column: col });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table ADD COLUMN a integer COLLATE mycoll DEFAULT 0 NOT NULL",
       );
     });
 
-    test("alter column type with collation", () => {
+    test("alter column type with collation", async () => {
       const tableProps: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -589,12 +608,13 @@ describe.concurrent("table", () => {
         table: withCols,
         column: col,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll",
       );
     });
 
-    test("set default NULL fallback", () => {
+    test("set default NULL fallback", async () => {
       const tableProps: Omit<TableProps, "owner" | "options"> = {
         schema: "public",
         name: "test_table",
@@ -638,12 +658,13 @@ describe.concurrent("table", () => {
         table: withCols,
         column: col,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT NULL",
       );
     });
 
-    test("constraints add/drop/validate and flavors", () => {
+    test("constraints add/drop/validate and flavors", async () => {
       const t = new Table({
         schema: "public",
         name: "test_table",
@@ -736,7 +757,7 @@ describe.concurrent("table", () => {
       ).toBe("ALTER TABLE public.test_table VALIDATE CONSTRAINT pk_t");
     });
 
-    test("attach/detach partition", () => {
+    test("attach/detach partition", async () => {
       const table = new Table({
         schema: "public",
         name: "events",
@@ -807,6 +828,7 @@ describe.concurrent("table", () => {
         table,
         partition: part2025,
       });
+      await assertValidSql(attach.serialize());
       expect(attach.serialize()).toBe(
         "ALTER TABLE public.events ATTACH PARTITION public.events_2025 FOR VALUES FROM ('2025-01-01 00:00:00') TO ('2026-01-01 00:00:00')",
       );
@@ -815,6 +837,7 @@ describe.concurrent("table", () => {
         table,
         partition: part2025,
       });
+      await assertValidSql(detach.serialize());
       expect(detach.serialize()).toBe(
         "ALTER TABLE public.events DETACH PARTITION public.events_2025",
       );

@@ -4,10 +4,11 @@ import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./sequence.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("sequence", () => {
   describe("alter", () => {
-    test("set owned by table column", () => {
+    test("set owned by table column", async () => {
       const props: Omit<
         SequenceProps,
         "owned_by_schema" | "owned_by_table" | "owned_by_column"
@@ -38,12 +39,14 @@ describe.concurrent("sequence", () => {
         ownedBy: { schema: "public", table: "t", column: "id" },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER SEQUENCE public.test_sequence OWNED BY public.t.id",
       );
     });
 
-    test("owned by none", () => {
+    test("owned by none", async () => {
       const sequence = new Sequence({
         schema: "public",
         name: "s",
@@ -63,14 +66,15 @@ describe.concurrent("sequence", () => {
         owner: "test",
       });
       const change = new AlterSequenceSetOwnedBy({ sequence, ownedBy: null });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER SEQUENCE public.s OWNED BY NONE");
     });
 
-    test("drop + create sequence (handled in diff)", () => {
+    test("drop + create sequence (handled in diff)", async () => {
       expect(1).toBe(1);
     });
 
-    test("alter options: increment, min/max, start, cache, cycle", () => {
+    test("alter options: increment, min/max, start, cache, cycle", async () => {
       const sequence = new Sequence({
         schema: "public",
         name: "s",
@@ -105,12 +109,13 @@ describe.concurrent("sequence", () => {
           "CYCLE",
         ],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
       );
     });
 
-    test("alter options: reset to defaults uses NO MINVALUE/NO MAXVALUE", () => {
+    test("alter options: reset to defaults uses NO MINVALUE/NO MAXVALUE", async () => {
       const sequence = new Sequence({
         schema: "public",
         name: "s",
@@ -143,6 +148,7 @@ describe.concurrent("sequence", () => {
           "NO CYCLE",
         ],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 1 NO MINVALUE NO MAXVALUE START WITH 1 CACHE 1 NO CYCLE",
       );

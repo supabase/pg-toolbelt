@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { View } from "../view.model.ts";
 import { CreateView } from "./view.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("view", () => {
-  test("create", () => {
+  test("create", async () => {
     const view = new View({
       schema: "public",
       name: "test_view",
@@ -29,12 +30,14 @@ describe("view", () => {
       view,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE VIEW public.test_view AS SELECT * FROM test_table",
     );
   });
 
-  test("create with options", () => {
+  test("create with options", async () => {
     const view = new View({
       schema: "public",
       name: "test_view",
@@ -57,6 +60,8 @@ describe("view", () => {
     });
 
     const change = new CreateView({ view });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE VIEW public.test_view WITH (security_barrier=true, check_option=local) AS SELECT * FROM test_table",

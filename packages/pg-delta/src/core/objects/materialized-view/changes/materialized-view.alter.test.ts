@@ -7,10 +7,11 @@ import {
   AlterMaterializedViewChangeOwner,
   AlterMaterializedViewSetStorageParams,
 } from "./materialized-view.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("materialized-view", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<MaterializedViewProps, "owner"> = {
         schema: "public",
         name: "test_mv",
@@ -40,12 +41,14 @@ describe.concurrent("materialized-view", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER MATERIALIZED VIEW public.test_mv OWNER TO new_owner",
       );
     });
 
-    test("set storage params", () => {
+    test("set storage params", async () => {
       const props: Omit<MaterializedViewProps, "options"> = {
         schema: "public",
         name: "test_mv",
@@ -76,12 +79,14 @@ describe.concurrent("materialized-view", () => {
         keysToReset: [],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER MATERIALIZED VIEW public.test_mv SET (fillfactor=90)",
       );
     });
 
-    test("reset and set storage params", () => {
+    test("reset and set storage params", async () => {
       const props: Omit<MaterializedViewProps, "options"> = {
         schema: "public",
         name: "test_mv",
@@ -111,6 +116,8 @@ describe.concurrent("materialized-view", () => {
         paramsToSet: ["fillfactor=90", "user_catalog_table=true"],
         keysToReset: ["autovacuum_enabled"],
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         [

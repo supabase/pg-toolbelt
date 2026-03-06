@@ -5,6 +5,7 @@ import {
   CreateCommentOnSubscription,
   DropCommentOnSubscription,
 } from "./subscription.comment.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type SubscriptionProps = ConstructorParameters<typeof Subscription>[0];
 
@@ -40,7 +41,7 @@ const makeSubscription = (override: Partial<SubscriptionProps> = {}) =>
   });
 
 describe("subscription.comment", () => {
-  test("create comment serializes and declares dependencies", () => {
+  test("create comment serializes and declares dependencies", async () => {
     const subscription = makeSubscription({
       comment: "subscription's metadata",
     });
@@ -48,12 +49,13 @@ describe("subscription.comment", () => {
 
     expect(change.creates).toEqual([stableId.comment(subscription.stableId)]);
     expect(change.requires).toEqual([subscription.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON SUBSCRIPTION sub_base IS 'subscription''s metadata'",
     );
   });
 
-  test("drop comment serializes and tracks drops", () => {
+  test("drop comment serializes and tracks drops", async () => {
     const subscription = makeSubscription({ comment: "not used" });
     const change = new DropCommentOnSubscription({ subscription });
 
@@ -62,6 +64,7 @@ describe("subscription.comment", () => {
       stableId.comment(subscription.stableId),
       subscription.stableId,
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("COMMENT ON SUBSCRIPTION sub_base IS NULL");
   });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { EventTrigger } from "../event-trigger.model.ts";
 import { DropEventTrigger } from "./event-trigger.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("event trigger drop change", () => {
-  test("serialize drop event trigger", () => {
+  test("serialize drop event trigger", async () => {
     const eventTrigger = new EventTrigger({
       name: "ddl_logger",
       event: "ddl_command_start",
@@ -16,6 +17,8 @@ describe("event trigger drop change", () => {
     });
 
     const change = new DropEventTrigger({ eventTrigger });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP EVENT TRIGGER ddl_logger");
   });

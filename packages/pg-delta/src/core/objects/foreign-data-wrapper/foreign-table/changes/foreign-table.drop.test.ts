@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { DropForeignTable } from "./foreign-table.drop.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("foreign-table", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const foreignTable = new ForeignTable({
       schema: "public",
       name: "test_table",
@@ -37,6 +38,8 @@ describe("foreign-table", () => {
     const change = new DropForeignTable({
       foreignTable,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP FOREIGN TABLE public.test_table");
   });

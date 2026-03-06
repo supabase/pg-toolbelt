@@ -8,10 +8,11 @@ import {
 } from "./rls-policy.alter.ts";
 import { CreateRlsPolicy } from "./rls-policy.create.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("rls-policy", () => {
   describe("alter", () => {
-    test("change roles", () => {
+    test("change roles", async () => {
       const props: Omit<RlsPolicyProps, "roles"> = {
         schema: "public",
         name: "test_policy",
@@ -33,12 +34,14 @@ describe.concurrent("rls-policy", () => {
         roles: ["role1", "role2"],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table TO role1, role2",
       );
     });
 
-    test("change roles to PUBLIC (default)", () => {
+    test("change roles to PUBLIC (default)", async () => {
       const props: Omit<RlsPolicyProps, "roles"> = {
         schema: "public",
         name: "test_policy",
@@ -60,12 +63,14 @@ describe.concurrent("rls-policy", () => {
         roles: ["public"],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table TO PUBLIC",
       );
     });
 
-    test("drop + create rls policy when command changes", () => {
+    test("drop + create rls policy when command changes", async () => {
       const props: Omit<RlsPolicyProps, "command"> = {
         schema: "public",
         name: "test_policy",
@@ -94,15 +99,17 @@ describe.concurrent("rls-policy", () => {
       expect(changes).toHaveLength(2);
       expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
       expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
+      await assertValidSql(changes[0].serialize());
       expect(changes[0].serialize()).toBe(
         "DROP POLICY test_policy ON public.test_table",
       );
+      await assertValidSql(changes[1].serialize());
       expect(changes[1].serialize()).toBe(
         "CREATE POLICY test_policy ON public.test_table FOR UPDATE USING (user_id = current_user_id())",
       );
     });
 
-    test("drop + create rls policy when permissive changes", () => {
+    test("drop + create rls policy when permissive changes", async () => {
       const props: Omit<RlsPolicyProps, "permissive"> = {
         schema: "public",
         name: "test_policy",
@@ -131,15 +138,17 @@ describe.concurrent("rls-policy", () => {
       expect(changes).toHaveLength(2);
       expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
       expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
+      await assertValidSql(changes[0].serialize());
       expect(changes[0].serialize()).toBe(
         "DROP POLICY test_policy ON public.test_table",
       );
+      await assertValidSql(changes[1].serialize());
       expect(changes[1].serialize()).toBe(
         "CREATE POLICY test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
       );
     });
 
-    test("alter using expression", () => {
+    test("alter using expression", async () => {
       const props: Omit<RlsPolicyProps, "using_expression"> = {
         schema: "public",
         name: "test_policy",
@@ -161,12 +170,14 @@ describe.concurrent("rls-policy", () => {
         usingExpression: "new_expr",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table USING (new_expr)",
       );
     });
 
-    test("clear using expression -> USING (true)", () => {
+    test("clear using expression -> USING (true)", async () => {
       const props: Omit<RlsPolicyProps, "using_expression"> = {
         schema: "public",
         name: "test_policy",
@@ -188,12 +199,14 @@ describe.concurrent("rls-policy", () => {
         usingExpression: null,
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table USING (true)",
       );
     });
 
-    test("alter with check expression", () => {
+    test("alter with check expression", async () => {
       const props: Omit<RlsPolicyProps, "with_check_expression"> = {
         schema: "public",
         name: "test_policy",
@@ -215,12 +228,14 @@ describe.concurrent("rls-policy", () => {
         withCheckExpression: "new_check",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table WITH CHECK (new_check)",
       );
     });
 
-    test("clear with check expression -> WITH CHECK (true)", () => {
+    test("clear with check expression -> WITH CHECK (true)", async () => {
       const props: Omit<RlsPolicyProps, "with_check_expression"> = {
         schema: "public",
         name: "test_policy",
@@ -241,6 +256,8 @@ describe.concurrent("rls-policy", () => {
         policy,
         withCheckExpression: null,
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER POLICY public.test_policy ON public.test_table WITH CHECK (true)",

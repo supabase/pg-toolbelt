@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { CompositeType } from "../composite-type.model.ts";
 import { DropCompositeType } from "./composite-type.drop.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("composite-type", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const compositeType = new CompositeType({
       schema: "public",
       name: "test_type",
@@ -27,6 +28,8 @@ describe("composite-type", () => {
     const change = new DropCompositeType({
       compositeType,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP TYPE public.test_type");
   });

@@ -9,10 +9,11 @@ import {
   AlterCompositeTypeChangeOwner,
   AlterCompositeTypeDropAttribute,
 } from "./composite-type.alter.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("composite-type", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<CompositeTypeProps, "owner"> = {
         schema: "public",
         name: "test_type",
@@ -40,13 +41,15 @@ describe.concurrent("composite-type", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER TYPE public.test_type OWNER TO new_owner",
       );
     });
   });
 
-  test("add attribute", () => {
+  test("add attribute", async () => {
     const base = {
       schema: "public",
       name: "ct",
@@ -93,12 +96,13 @@ describe.concurrent("composite-type", () => {
       compositeType: branch,
       attribute: branch.columns[0],
     });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER TYPE public.ct ADD ATTRIBUTE a text",
     );
   });
 
-  test("drop attribute", () => {
+  test("drop attribute", async () => {
     const base = {
       schema: "public",
       name: "ct",
@@ -145,10 +149,11 @@ describe.concurrent("composite-type", () => {
       compositeType: main,
       attribute: main.columns[0],
     });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("ALTER TYPE public.ct DROP ATTRIBUTE a");
   });
 
-  test("alter attribute type and collation", () => {
+  test("alter attribute type and collation", async () => {
     const base = {
       schema: "public",
       name: "ct",
@@ -195,6 +200,7 @@ describe.concurrent("composite-type", () => {
       compositeType: branch,
       attribute: branch.columns[0],
     });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'ALTER TYPE public.ct ALTER ATTRIBUTE a TYPE text COLLATE "en_US"',
     );

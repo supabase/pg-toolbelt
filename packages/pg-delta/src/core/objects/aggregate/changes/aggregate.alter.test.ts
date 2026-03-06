@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Aggregate } from "../aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./aggregate.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -49,7 +50,7 @@ const base: AggregateProps = {
 };
 
 describe("aggregate.alter", () => {
-  test("serialize owner change", () => {
+  test("serialize owner change", async () => {
     const aggregate = new Aggregate(base);
     const change = new AlterAggregateChangeOwner({
       aggregate,
@@ -57,6 +58,7 @@ describe("aggregate.alter", () => {
     });
 
     expect(change.requires).toEqual([aggregate.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER AGGREGATE public.agg_sum(integer) OWNER TO owner2",
     );

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Procedure } from "../procedure.model.ts";
 import { DropProcedure } from "./procedure.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("procedure", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const procedure = new Procedure({
       schema: "public",
       name: "test_procedure",
@@ -41,10 +42,12 @@ describe("procedure", () => {
       procedure,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe("DROP PROCEDURE public.test_procedure()");
   });
 
-  test("drop function", () => {
+  test("drop function", async () => {
     const fn = new Procedure({
       schema: "public",
       name: "test_function",
@@ -79,6 +82,8 @@ describe("procedure", () => {
     });
 
     const change = new DropProcedure({ procedure: fn });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP FUNCTION public.test_function()");
   });

@@ -9,10 +9,11 @@ import {
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
 } from "./procedure.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("procedure", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<ProcedureProps, "owner"> = {
         schema: "public",
         name: "test_procedure",
@@ -54,12 +55,14 @@ describe.concurrent("procedure", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() OWNER TO new_owner",
       );
     });
 
-    test("change owner (function)", () => {
+    test("change owner (function)", async () => {
       const props: Omit<ProcedureProps, "owner"> = {
         schema: "public",
         name: "test_function",
@@ -101,12 +104,14 @@ describe.concurrent("procedure", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() OWNER TO new_owner",
       );
     });
 
-    test("change owner with argument types (overloaded function)", () => {
+    test("change owner with argument types (overloaded function)", async () => {
       const procedure = new Procedure({
         schema: "public",
         name: "my_func",
@@ -142,12 +147,13 @@ describe.concurrent("procedure", () => {
         procedure,
         owner: "postgres",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.my_func(integer, text) OWNER TO postgres",
       );
     });
 
-    test("set security definer", () => {
+    test("set security definer", async () => {
       const props: Omit<ProcedureProps, "security_definer"> = {
         schema: "public",
         name: "test_function",
@@ -184,12 +190,13 @@ describe.concurrent("procedure", () => {
         procedure,
         securityDefiner: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() SECURITY DEFINER",
       );
     });
 
-    test("unset security definer (invoker)", () => {
+    test("unset security definer (invoker)", async () => {
       const props: Omit<ProcedureProps, "security_definer"> = {
         schema: "public",
         name: "test_function",
@@ -226,12 +233,13 @@ describe.concurrent("procedure", () => {
         procedure,
         securityDefiner: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() SECURITY INVOKER",
       );
     });
 
-    test("set and reset config", () => {
+    test("set and reset config", async () => {
       const base: Omit<ProcedureProps, "config"> = {
         schema: "public",
         name: "test_function",
@@ -284,18 +292,21 @@ describe.concurrent("procedure", () => {
         key: "work_mem",
         value: "64MB",
       });
+      await assertValidSql(change1.serialize());
       expect(change1.serialize()).toBe(
         "ALTER FUNCTION public.test_function() RESET search_path",
       );
+      await assertValidSql(change2.serialize());
       expect(change2.serialize()).toBe(
         "ALTER FUNCTION public.test_function() SET search_path TO pg_temp",
       );
+      await assertValidSql(change3.serialize());
       expect(change3.serialize()).toBe(
         "ALTER FUNCTION public.test_function() SET work_mem TO '64MB'",
       );
     });
 
-    test("set config from null (function)", () => {
+    test("set config from null (function)", async () => {
       const base: Omit<ProcedureProps, "config"> = {
         schema: "public",
         name: "test_function",
@@ -334,12 +345,13 @@ describe.concurrent("procedure", () => {
         key: "search_path",
         value: "public",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() SET search_path TO public",
       );
     });
 
-    test("set volatility", () => {
+    test("set volatility", async () => {
       const base: Omit<ProcedureProps, "volatility"> = {
         schema: "public",
         name: "test_function",
@@ -376,12 +388,13 @@ describe.concurrent("procedure", () => {
         procedure,
         volatility: "i",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() IMMUTABLE",
       );
     });
 
-    test("set strictness", () => {
+    test("set strictness", async () => {
       const base: Omit<ProcedureProps, "is_strict"> = {
         schema: "public",
         name: "test_function",
@@ -418,12 +431,13 @@ describe.concurrent("procedure", () => {
         procedure,
         isStrict: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() STRICT",
       );
     });
 
-    test("unset strictness (called on null input)", () => {
+    test("unset strictness (called on null input)", async () => {
       const base: Omit<ProcedureProps, "is_strict"> = {
         schema: "public",
         name: "test_function",
@@ -460,12 +474,13 @@ describe.concurrent("procedure", () => {
         procedure,
         isStrict: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() CALLED ON NULL INPUT",
       );
     });
 
-    test("set leakproof", () => {
+    test("set leakproof", async () => {
       const base: Omit<ProcedureProps, "leakproof"> = {
         schema: "public",
         name: "test_function",
@@ -502,12 +517,13 @@ describe.concurrent("procedure", () => {
         procedure,
         leakproof: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() LEAKPROOF",
       );
     });
 
-    test("unset leakproof", () => {
+    test("unset leakproof", async () => {
       const base: Omit<ProcedureProps, "leakproof"> = {
         schema: "public",
         name: "test_function",
@@ -544,12 +560,13 @@ describe.concurrent("procedure", () => {
         procedure,
         leakproof: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() NOT LEAKPROOF",
       );
     });
 
-    test("set parallel safety", () => {
+    test("set parallel safety", async () => {
       const base: Omit<ProcedureProps, "parallel_safety"> = {
         schema: "public",
         name: "test_function",
@@ -586,13 +603,14 @@ describe.concurrent("procedure", () => {
         procedure,
         parallelSafety: "r",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER FUNCTION public.test_function() PARALLEL RESTRICTED",
       );
     });
 
     // PROCEDURE variants
-    test("procedure: set security definer", () => {
+    test("procedure: set security definer", async () => {
       const base: Omit<ProcedureProps, "security_definer"> = {
         schema: "public",
         name: "test_procedure",
@@ -629,12 +647,13 @@ describe.concurrent("procedure", () => {
         procedure,
         securityDefiner: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() SECURITY DEFINER",
       );
     });
 
-    test("procedure: unset security definer (invoker)", () => {
+    test("procedure: unset security definer (invoker)", async () => {
       const base: Omit<ProcedureProps, "security_definer"> = {
         schema: "public",
         name: "test_procedure",
@@ -671,12 +690,13 @@ describe.concurrent("procedure", () => {
         procedure,
         securityDefiner: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() SECURITY INVOKER",
       );
     });
 
-    test("procedure: set and reset config", () => {
+    test("procedure: set and reset config", async () => {
       const base: Omit<ProcedureProps, "config"> = {
         schema: "public",
         name: "test_procedure",
@@ -726,18 +746,21 @@ describe.concurrent("procedure", () => {
         key: "work_mem",
         value: "64MB",
       });
+      await assertValidSql(change1.serialize());
       expect(change1.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
+      await assertValidSql(change2.serialize());
       expect(change2.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() SET search_path TO pg_temp",
       );
+      await assertValidSql(change3.serialize());
       expect(change3.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() SET work_mem TO '64MB'",
       );
     });
 
-    test("procedure: reset all config (to null)", () => {
+    test("procedure: reset all config (to null)", async () => {
       const base: Omit<ProcedureProps, "config"> = {
         schema: "public",
         name: "test_procedure",
@@ -783,15 +806,17 @@ describe.concurrent("procedure", () => {
         action: "reset",
         key: "work_mem",
       });
+      await assertValidSql(change1.serialize());
       expect(change1.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
+      await assertValidSql(change2.serialize());
       expect(change2.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET work_mem",
       );
     });
 
-    test("procedure: set volatility", () => {
+    test("procedure: set volatility", async () => {
       const base: Omit<ProcedureProps, "volatility"> = {
         schema: "public",
         name: "test_procedure",
@@ -828,12 +853,13 @@ describe.concurrent("procedure", () => {
         procedure,
         volatility: "s",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() STABLE",
       );
     });
 
-    test("procedure: set strictness", () => {
+    test("procedure: set strictness", async () => {
       const base: Omit<ProcedureProps, "is_strict"> = {
         schema: "public",
         name: "test_procedure",
@@ -870,12 +896,13 @@ describe.concurrent("procedure", () => {
         procedure,
         isStrict: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() STRICT",
       );
     });
 
-    test("procedure: unset strictness (called on null input)", () => {
+    test("procedure: unset strictness (called on null input)", async () => {
       const base: Omit<ProcedureProps, "is_strict"> = {
         schema: "public",
         name: "test_procedure",
@@ -912,12 +939,13 @@ describe.concurrent("procedure", () => {
         procedure,
         isStrict: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() CALLED ON NULL INPUT",
       );
     });
 
-    test("procedure: set leakproof", () => {
+    test("procedure: set leakproof", async () => {
       const base: Omit<ProcedureProps, "leakproof"> = {
         schema: "public",
         name: "test_procedure",
@@ -954,12 +982,13 @@ describe.concurrent("procedure", () => {
         procedure,
         leakproof: true,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() LEAKPROOF",
       );
     });
 
-    test("procedure: unset leakproof", () => {
+    test("procedure: unset leakproof", async () => {
       const base: Omit<ProcedureProps, "leakproof"> = {
         schema: "public",
         name: "test_procedure",
@@ -996,12 +1025,13 @@ describe.concurrent("procedure", () => {
         procedure,
         leakproof: false,
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() NOT LEAKPROOF",
       );
     });
 
-    test("procedure: set parallel safety", () => {
+    test("procedure: set parallel safety", async () => {
       const base: Omit<ProcedureProps, "parallel_safety"> = {
         schema: "public",
         name: "test_procedure",
@@ -1038,6 +1068,7 @@ describe.concurrent("procedure", () => {
         procedure,
         parallelSafety: "s",
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER PROCEDURE public.test_procedure() PARALLEL SAFE",
       );

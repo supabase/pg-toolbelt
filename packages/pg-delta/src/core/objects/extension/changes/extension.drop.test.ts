@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Extension } from "../extension.model.ts";
 import { DropExtension } from "./extension.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("extension", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const extension = new Extension({
       name: "test_extension",
       schema: "public",
@@ -17,6 +18,8 @@ describe("extension", () => {
     const change = new DropExtension({
       extension,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP EXTENSION test_extension");
   });

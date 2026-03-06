@@ -5,10 +5,11 @@ import {
   AlterViewResetOptions,
   AlterViewSetOptions,
 } from "./view.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("view", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<ViewProps, "owner"> = {
         schema: "public",
         name: "test_view",
@@ -39,13 +40,15 @@ describe.concurrent("view", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER VIEW public.test_view OWNER TO new_owner",
       );
     });
   });
 
-  test("set options", () => {
+  test("set options", async () => {
     const props: Omit<ViewProps, "options"> = {
       schema: "public",
       name: "test_view",
@@ -72,12 +75,13 @@ describe.concurrent("view", () => {
       view: main,
       options: ["security_barrier=false"],
     });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER VIEW public.test_view SET (security_barrier=false)",
     );
   });
 
-  test("reset options", () => {
+  test("reset options", async () => {
     const view = new View({
       schema: "public",
       name: "test_view",
@@ -103,6 +107,7 @@ describe.concurrent("view", () => {
       view,
       params: ["check_option"],
     });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER VIEW public.test_view RESET (check_option)",
     );

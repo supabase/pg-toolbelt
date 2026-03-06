@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Role } from "../role.model.ts";
 import { DropRole } from "./role.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("role", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const role = new Role({
       name: "test_role",
       is_superuser: false,
@@ -23,6 +24,8 @@ describe("role", () => {
     const change = new DropRole({
       role,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP ROLE test_role");
   });

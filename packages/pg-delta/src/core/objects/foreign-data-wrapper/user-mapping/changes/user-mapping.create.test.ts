@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { UserMapping } from "../user-mapping.model.ts";
 import { CreateUserMapping } from "./user-mapping.create.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("user-mapping", () => {
-  test("create basic", () => {
+  test("create basic", async () => {
     const userMapping = new UserMapping({
       user: "test_user",
       server: "test_server",
@@ -14,12 +15,14 @@ describe("user-mapping", () => {
       userMapping,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE USER MAPPING FOR test_user SERVER test_server",
     );
   });
 
-  test("create with PUBLIC user", () => {
+  test("create with PUBLIC user", async () => {
     const userMapping = new UserMapping({
       user: "PUBLIC",
       server: "test_server",
@@ -30,12 +33,14 @@ describe("user-mapping", () => {
       userMapping,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE USER MAPPING FOR PUBLIC SERVER test_server",
     );
   });
 
-  test("create with CURRENT_USER", () => {
+  test("create with CURRENT_USER", async () => {
     const userMapping = new UserMapping({
       user: "CURRENT_USER",
       server: "test_server",
@@ -46,12 +51,14 @@ describe("user-mapping", () => {
       userMapping,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE USER MAPPING FOR CURRENT_USER SERVER test_server",
     );
   });
 
-  test("create with options", () => {
+  test("create with options", async () => {
     const userMapping = new UserMapping({
       user: "test_user",
       server: "test_server",
@@ -62,12 +69,14 @@ describe("user-mapping", () => {
       userMapping,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user 'remote_user', password 'secret')",
     );
   });
 
-  test("create with all properties", () => {
+  test("create with all properties", async () => {
     const userMapping = new UserMapping({
       user: "PUBLIC",
       server: "test_server",
@@ -77,6 +86,8 @@ describe("user-mapping", () => {
     const change = new CreateUserMapping({
       userMapping,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user 'remote_user', password 'secret')",

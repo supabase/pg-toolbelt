@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Range } from "../range.model.ts";
 import { DropRange } from "./range.drop.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("range", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const r = new Range({
       schema: "public",
       name: "tsrange_custom",
@@ -21,6 +22,7 @@ describe("range", () => {
       privileges: [],
     });
     const change = new DropRange({ range: r });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("DROP TYPE public.tsrange_custom");
   });
 });

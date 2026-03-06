@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Publication } from "../publication.model.ts";
 import { DropPublication } from "./publication.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type PublicationProps = ConstructorParameters<typeof Publication>[0];
 
@@ -35,12 +36,13 @@ const makePublication = (override: Partial<PublicationProps> = {}) =>
   });
 
 describe("publication.drop", () => {
-  test("serialize drop statement and track dependencies", () => {
+  test("serialize drop statement and track dependencies", async () => {
     const publication = makePublication();
     const change = new DropPublication({ publication });
 
     expect(change.drops).toEqual([publication.stableId]);
     expect(change.requires).toEqual([publication.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe("DROP PUBLICATION pub_drop_me");
   });
 });

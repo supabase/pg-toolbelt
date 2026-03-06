@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("role", () => {
-  test("create minimal (omit defaults)", () => {
+  test("create minimal (omit defaults)", async () => {
     const role = new Role({
       name: "test_role",
       is_superuser: false,
@@ -24,10 +25,12 @@ describe("role", () => {
       role,
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe("CREATE ROLE test_role WITH LOGIN");
   });
 
-  test("create with all options (non-defaults only)", () => {
+  test("create with all options (non-defaults only)", async () => {
     const role = new Role({
       name: "r_all",
       is_superuser: true,
@@ -45,6 +48,7 @@ describe("role", () => {
     });
 
     const change = new CreateRole({ role });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
     );

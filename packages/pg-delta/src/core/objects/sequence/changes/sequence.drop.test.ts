@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Sequence } from "../sequence.model.ts";
 import { DropSequence } from "./sequence.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("sequence", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const sequence = new Sequence({
       schema: "public",
       name: "test_sequence",
@@ -26,6 +27,8 @@ describe("sequence", () => {
     const change = new DropSequence({
       sequence,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP SEQUENCE public.test_sequence");
   });

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Enum } from "../enum.model.ts";
 import { CreateEnum } from "./enum.create.ts";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 
 describe("enum", () => {
-  test("create", () => {
+  test("create", async () => {
     const enumType = new Enum({
       schema: "public",
       name: "test_enum",
@@ -20,6 +21,8 @@ describe("enum", () => {
     const change = new CreateEnum({
       enum: enumType,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",

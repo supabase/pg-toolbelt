@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Domain } from "../domain.model.ts";
 import { CreateDomain } from "./domain.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("domain", () => {
-  test("create minimal", () => {
+  test("create minimal", async () => {
     const domain = new Domain({
       schema: "public",
       name: "test_domain",
@@ -24,12 +25,14 @@ describe("domain", () => {
 
     const change = new CreateDomain({ domain });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE DOMAIN public.test_domain AS integer",
     );
   });
 
-  test("create with all options", () => {
+  test("create with all options", async () => {
     const domain = new Domain({
       schema: "public",
       name: "test_domain_all",
@@ -58,12 +61,14 @@ describe("domain", () => {
 
     const change = new CreateDomain({ domain });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       `CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL CHECK (VALUE <> '')`,
     );
   });
 
-  test("create with already schema-qualified base type (format_type)", () => {
+  test("create with already schema-qualified base type (format_type)", async () => {
     const domain = new Domain({
       schema: "app",
       name: "email_address",
@@ -82,6 +87,7 @@ describe("domain", () => {
       privileges: [],
     });
     const change = new CreateDomain({ domain });
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE DOMAIN app.email_address AS extensions.citext",
     );

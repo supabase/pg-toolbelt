@@ -4,10 +4,11 @@ import {
   AlterCollationChangeOwner,
   AlterCollationRefreshVersion,
 } from "./collation.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("collation", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const collation = new Collation({
         schema: "public",
         name: "test",
@@ -28,12 +29,14 @@ describe.concurrent("collation", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER COLLATION public.test OWNER TO new_owner",
       );
     });
 
-    test("refresh version", () => {
+    test("refresh version", async () => {
       const collation = new Collation({
         schema: "public",
         name: "test",
@@ -52,6 +55,8 @@ describe.concurrent("collation", () => {
       const change = new AlterCollationRefreshVersion({
         collation,
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER COLLATION public.test REFRESH VERSION",

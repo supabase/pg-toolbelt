@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { stableId } from "../../utils.ts";
 import { Publication } from "../publication.model.ts";
 import { CreatePublication } from "./publication.create.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type PublicationProps = ConstructorParameters<typeof Publication>[0];
 
@@ -36,18 +37,19 @@ const makePublication = (override: Partial<PublicationProps> = {}) =>
   });
 
 describe("publication.create", () => {
-  test("serialize publication for all tables", () => {
+  test("serialize publication for all tables", async () => {
     const publication = makePublication();
     const change = new CreatePublication({ publication });
 
     expect(change.creates).toEqual([publication.stableId]);
     expect(change.requires).toEqual([stableId.role(publication.owner)]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE PUBLICATION pub_all_tables FOR ALL TABLES",
     );
   });
 
-  test("serialize publication with explicit objects and options", () => {
+  test("serialize publication with explicit objects and options", async () => {
     const publication = makePublication({
       name: "pub_custom",
       all_tables: false,
@@ -80,6 +82,7 @@ describe("publication.create", () => {
       stableId.column("public", "authors", "name"),
       stableId.schema("analytics"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "CREATE PUBLICATION pub_custom FOR TABLE public.articles WHERE (id > 1), TABLE public.authors (id, name), TABLES IN SCHEMA analytics WITH (publish = 'insert, update', publish_via_partition_root = true)",
     );

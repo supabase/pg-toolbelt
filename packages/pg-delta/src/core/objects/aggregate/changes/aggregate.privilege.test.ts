@@ -6,6 +6,7 @@ import {
   RevokeAggregatePrivileges,
   RevokeGrantOptionAggregatePrivileges,
 } from "./aggregate.privilege.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -54,7 +55,7 @@ const base: AggregateProps = {
 };
 
 describe("aggregate.privilege", () => {
-  test("grant privileges without grant option", () => {
+  test("grant privileges without grant option", async () => {
     const aggregate = new Aggregate(base);
     const change = new GrantAggregatePrivileges({
       aggregate,
@@ -70,12 +71,13 @@ describe("aggregate.privilege", () => {
       aggregate.stableId,
       stableId.role("role_exec"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "GRANT ALL ON FUNCTION public.agg_sum(integer) TO role_exec",
     );
   });
 
-  test("grant privileges with grant option", () => {
+  test("grant privileges with grant option", async () => {
     const aggregate = new Aggregate(base);
     const change = new GrantAggregatePrivileges({
       aggregate,
@@ -83,12 +85,14 @@ describe("aggregate.privilege", () => {
       privileges: [{ privilege: "EXECUTE", grantable: true }],
     });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "GRANT ALL ON FUNCTION public.agg_sum(integer) TO role_exec WITH GRANT OPTION",
     );
   });
 
-  test("revoke privileges and grant option", () => {
+  test("revoke privileges and grant option", async () => {
     const aggregate = new Aggregate(base);
     const revoke = new RevokeAggregatePrivileges({
       aggregate,
@@ -105,6 +109,7 @@ describe("aggregate.privilege", () => {
       aggregate.stableId,
       stableId.role("role_old"),
     ]);
+    await assertValidSql(revoke.serialize());
     expect(revoke.serialize()).toBe(
       "REVOKE ALL ON FUNCTION public.agg_sum(integer) FROM role_old",
     );
@@ -123,6 +128,7 @@ describe("aggregate.privilege", () => {
       aggregate.stableId,
       stableId.role("role_with_option"),
     ]);
+    await assertValidSql(revokeGrantOption.serialize());
     expect(revokeGrantOption.serialize()).toBe(
       "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.agg_sum(integer) FROM role_with_option",
     );

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Trigger } from "../trigger.model.ts";
 import { DropTrigger } from "./trigger.drop.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe("trigger", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const trigger = new Trigger({
       schema: "public",
       name: "test_trigger",
@@ -36,6 +37,8 @@ describe("trigger", () => {
     const change = new DropTrigger({
       trigger,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "DROP TRIGGER test_trigger ON public.test_table",

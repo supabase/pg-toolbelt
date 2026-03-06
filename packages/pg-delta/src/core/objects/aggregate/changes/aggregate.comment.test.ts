@@ -5,6 +5,7 @@ import {
   CreateCommentOnAggregate,
   DropCommentOnAggregate,
 } from "./aggregate.comment.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 type AggregateProps = ConstructorParameters<typeof Aggregate>[0];
 
@@ -59,18 +60,19 @@ const makeAggregate = (override: Partial<AggregateProps> = {}) =>
   });
 
 describe("aggregate.comment", () => {
-  test("create comment serializes and tracks dependencies", () => {
+  test("create comment serializes and tracks dependencies", async () => {
     const aggregate = makeAggregate({ comment: "aggregate's total" });
     const change = new CreateCommentOnAggregate({ aggregate });
 
     expect(change.creates).toEqual([stableId.comment(aggregate.stableId)]);
     expect(change.requires).toEqual([aggregate.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON AGGREGATE public.agg_sum(integer) IS 'aggregate''s total'",
     );
   });
 
-  test("drop comment serializes and tracks dependencies", () => {
+  test("drop comment serializes and tracks dependencies", async () => {
     const aggregate = makeAggregate({ comment: "some comment" });
     const change = new DropCommentOnAggregate({ aggregate });
 
@@ -79,6 +81,7 @@ describe("aggregate.comment", () => {
       stableId.comment(aggregate.stableId),
       aggregate.stableId,
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON AGGREGATE public.agg_sum(integer) IS NULL",
     );

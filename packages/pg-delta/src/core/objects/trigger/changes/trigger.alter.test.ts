@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
 import { ReplaceTrigger } from "./trigger.alter.ts";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 
 describe.concurrent("trigger", () => {
   describe("alter", () => {
-    test("replace trigger", () => {
+    test("replace trigger", async () => {
       const props: Omit<TriggerProps, "enabled"> = {
         schema: "public",
         name: "test_trigger",
@@ -38,6 +39,8 @@ describe.concurrent("trigger", () => {
       });
 
       const change = new ReplaceTrigger({ trigger: branch });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table DEFERRABLE EXECUTE FUNCTION public.test_function()",

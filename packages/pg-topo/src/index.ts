@@ -1,5 +1,6 @@
 export { analyzeAndSort } from "./analyze-and-sort.ts";
 export { analyzeAndSortFromFiles } from "./from-files.ts";
+export { validateSqlSyntax } from "./validate-sql.ts";
 
 export type {
   AnalyzeOptions,
