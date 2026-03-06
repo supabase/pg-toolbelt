@@ -161,7 +161,10 @@ function deduplicateMembers(
       if (m.set_option != null) {
         existing.set_option = (existing.set_option ?? false) || m.set_option;
       }
-      // Prefer a non-self grantor so diff can detect true self-grants
+      // Prefer a non-self grantor so diff can detect true self-grants.
+      // Once a non-self grantor is chosen the value is kept (the specific
+      // non-self grantor doesn't matter — only the self vs non-self
+      // distinction is used downstream).
       if (existing.grantor === existing.member && m.grantor !== m.member) {
         existing.grantor = m.grantor;
       }

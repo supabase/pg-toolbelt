@@ -18,6 +18,12 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbIsolated } from "../utils.ts";
 
+/** Join plan statements into a runnable SQL script. */
+function buildScript(statements: string[]): string {
+  const joined = statements.join(";\n");
+  return joined.endsWith(";") ? joined : `${joined};`;
+}
+
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`role membership dedup (pg${pgVersion})`, () => {
     // PG 16+ supports multiple grantors for the same role-member pair
@@ -137,18 +143,19 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
         const statements = result!.plan.statements;
 
         // Should contain CREATE ROLE but NOT any GRANT to postgres
         expect(statements).toContain("CREATE ROLE developer");
-        const grantToPostgres = statements.filter(
-          (s) => s.includes("GRANT developer TO postgres"),
+        const grantToPostgres = statements.filter((s) =>
+          s.includes("GRANT developer TO postgres"),
         );
         expect(grantToPostgres).toHaveLength(0);
 
         // Verify the plan can actually be applied without errors
         // (this is the core of the bug: the SQL must run as postgres)
-        const script = `${statements.join(";\n")};`;
+        const script = buildScript(statements);
         await expect(db.main.query(script)).resolves.toBeDefined();
       }),
     );
@@ -165,6 +172,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
         const statements = result!.plan.statements;
 
         // Should contain both CREATE ROLEs and the GRANT
@@ -176,7 +184,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(grantStatements).toHaveLength(1);
 
         // Verify the plan can be applied
-        const script = `${statements.join(";\n")};`;
+        const script = buildScript(statements);
         await expect(db.main.query(script)).resolves.toBeDefined();
       }),
     );
@@ -193,6 +201,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
         const statements = result!.plan.statements;
 
         // Should contain GRANT WITH ADMIN OPTION
@@ -202,7 +211,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(grantStatements).toHaveLength(1);
 
         // Verify the plan can be applied
-        const script = `${statements.join(";\n")};`;
+        const script = buildScript(statements);
         await expect(db.main.query(script)).resolves.toBeDefined();
       }),
     );
