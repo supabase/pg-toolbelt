@@ -63,14 +63,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // Now create a plan from empty main to branch with the roles
           // The plan should contain exactly one GRANT for child_role -> parent_role
           const result = await createPlan(db.main, db.branch);
-          expect(result).not.toBeNull();
-
-          const grantStatements = result?.plan.statements.filter(
-            (s) =>
-              s.includes("GRANT parent_role TO child_role") &&
-              !s.startsWith("REVOKE"),
-          );
-          expect(grantStatements).toHaveLength(1);
+          expect(result?.plan.statements).toMatchInlineSnapshot(`
+            [
+              "CREATE ROLE admin_grantor WITH CREATEROLE",
+              "CREATE ROLE child_role",
+              "CREATE ROLE parent_role",
+              "GRANT parent_role TO admin_grantor WITH ADMIN OPTION",
+              "GRANT parent_role TO child_role",
+            ]
+          `);
         }),
       );
 
@@ -109,10 +110,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // non-null with unrelated changes — either way, there should be no
           // GRANT/REVOKE for parent_role TO/FROM child_role.
           const result = await createPlan(db.main, db.branch);
-          const parentChildGrants = (result?.plan.statements ?? []).filter(
-            (s) => s.includes("parent_role") && s.includes("child_role"),
-          );
-          expect(parentChildGrants).toHaveLength(0);
+          expect(result).toBeNull();
         }),
       );
     }
