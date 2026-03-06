@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedView } from "./materialized-view.create.ts";
 
 describe("materialized-view", () => {
-  test("create minimal", () => {
+  test("create minimal", async () => {
     const mv = new MaterializedView({
       schema: "public",
       name: "test_mv",
@@ -28,12 +29,14 @@ describe("materialized-view", () => {
 
     const change = new CreateMaterializedView({ materializedView: mv });
 
+    await assertValidSql(change.serialize());
+
     expect(change.serialize()).toBe(
       "CREATE MATERIALIZED VIEW public.test_mv AS SELECT * FROM test_table WITH NO DATA",
     );
   });
 
-  test("create with all options", () => {
+  test("create with all options", async () => {
     const mv = new MaterializedView({
       schema: "public",
       name: "test_mv",
@@ -56,6 +59,8 @@ describe("materialized-view", () => {
     });
 
     const change = new CreateMaterializedView({ materializedView: mv });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE MATERIALIZED VIEW public.test_mv WITH (fillfactor=90, autovacuum_enabled=false) AS SELECT * FROM test_table WITH DATA",

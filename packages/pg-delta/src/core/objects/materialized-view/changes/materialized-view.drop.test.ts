@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedView } from "./materialized-view.drop.ts";
 
 describe("materialized-view", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const materializedView = new MaterializedView({
       schema: "public",
       name: "test_mv",
@@ -28,6 +29,8 @@ describe("materialized-view", () => {
     const change = new DropMaterializedView({
       materializedView,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP MATERIALIZED VIEW public.test_mv");
   });

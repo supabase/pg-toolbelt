@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Domain, type DomainProps } from "../domain.model.ts";
 import {
   AlterDomainAddConstraint,
@@ -13,7 +14,7 @@ import {
 
 describe.concurrent("domain", () => {
   describe("alter", () => {
-    test("set default", () => {
+    test("set default", async () => {
       const props: Omit<DomainProps, "default_value"> = {
         schema: "public",
         name: "test_domain",
@@ -39,12 +40,14 @@ describe.concurrent("domain", () => {
         defaultValue: "42",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain SET DEFAULT 42",
       );
     });
 
-    test("drop default", () => {
+    test("drop default", async () => {
       const props: Omit<DomainProps, "default_value"> = {
         schema: "public",
         name: "test_domain",
@@ -70,12 +73,14 @@ describe.concurrent("domain", () => {
         domain,
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain DROP DEFAULT",
       );
     });
 
-    test("set not null", () => {
+    test("set not null", async () => {
       const props: Omit<DomainProps, "not_null"> = {
         schema: "public",
         name: "test_domain",
@@ -101,12 +106,14 @@ describe.concurrent("domain", () => {
         domain,
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain SET NOT NULL",
       );
     });
 
-    test("drop not null", () => {
+    test("drop not null", async () => {
       const props: Omit<DomainProps, "not_null"> = {
         schema: "public",
         name: "test_domain",
@@ -132,12 +139,14 @@ describe.concurrent("domain", () => {
         domain,
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain DROP NOT NULL",
       );
     });
 
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<DomainProps, "owner"> = {
         schema: "public",
         name: "test_domain",
@@ -164,12 +173,14 @@ describe.concurrent("domain", () => {
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain OWNER TO new_owner",
       );
     });
 
-    test("add constraint", () => {
+    test("add constraint", async () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -200,12 +211,14 @@ describe.concurrent("domain", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0)",
       );
     });
 
-    test("add constraint not valid", () => {
+    test("add constraint not valid", async () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -236,12 +249,14 @@ describe.concurrent("domain", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0) NOT VALID",
       );
     });
 
-    test("drop constraint", () => {
+    test("drop constraint", async () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -272,12 +287,14 @@ describe.concurrent("domain", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain DROP CONSTRAINT test_check",
       );
     });
 
-    test("validate constraint", () => {
+    test("validate constraint", async () => {
       const props: DomainProps = {
         schema: "public",
         name: "test_domain",
@@ -307,6 +324,8 @@ describe.concurrent("domain", () => {
           check_expression: "VALUE > 0",
         },
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER DOMAIN public.test_domain VALIDATE CONSTRAINT test_check",

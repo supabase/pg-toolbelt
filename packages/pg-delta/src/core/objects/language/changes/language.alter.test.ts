@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language, type LanguageProps } from "../language.model.ts";
 import { AlterLanguageChangeOwner } from "./language.alter.ts";
 
 describe.concurrent("language", () => {
   describe("alter", () => {
-    test("change owner", () => {
+    test("change owner", async () => {
       const props: Omit<LanguageProps, "owner"> = {
         name: "plpgsql",
         is_trusted: true,
@@ -24,6 +25,8 @@ describe.concurrent("language", () => {
         language,
         owner: "new_owner",
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER LANGUAGE plpgsql OWNER TO new_owner",

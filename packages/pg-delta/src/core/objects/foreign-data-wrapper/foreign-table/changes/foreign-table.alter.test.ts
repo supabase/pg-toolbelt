@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   ForeignTable,
   type ForeignTableProps,
@@ -47,19 +48,21 @@ describe.concurrent("foreign-table", () => {
       privileges: [],
     };
 
-    test("change owner", () => {
+    test("change owner", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableChangeOwner({
         foreignTable,
         owner: "new_owner",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table OWNER TO new_owner",
       );
     });
 
-    test("add column", () => {
+    test("add column", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAddColumn({
         foreignTable,
@@ -82,13 +85,15 @@ describe.concurrent("foreign-table", () => {
           comment: null,
         },
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text",
       );
     });
 
-    test("add column with NOT NULL", () => {
+    test("add column with NOT NULL", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAddColumn({
         foreignTable,
@@ -112,12 +117,14 @@ describe.concurrent("foreign-table", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text NOT NULL",
       );
     });
 
-    test("add column with DEFAULT", () => {
+    test("add column with DEFAULT", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAddColumn({
         foreignTable,
@@ -141,12 +148,14 @@ describe.concurrent("foreign-table", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text DEFAULT 'default_value'",
       );
     });
 
-    test("add column with NOT NULL and DEFAULT", () => {
+    test("add column with NOT NULL and DEFAULT", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAddColumn({
         foreignTable,
@@ -170,24 +179,28 @@ describe.concurrent("foreign-table", () => {
         },
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text NOT NULL DEFAULT 'default_value'",
       );
     });
 
-    test("drop column", () => {
+    test("drop column", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableDropColumn({
         foreignTable,
         columnName: "id",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table DROP COLUMN id",
       );
     });
 
-    test("alter column type", () => {
+    test("alter column type", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAlterColumnType({
         foreignTable,
@@ -195,12 +208,14 @@ describe.concurrent("foreign-table", () => {
         dataType: "bigint",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id TYPE bigint",
       );
     });
 
-    test("alter column set default", () => {
+    test("alter column set default", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAlterColumnSetDefault({
         foreignTable,
@@ -208,48 +223,56 @@ describe.concurrent("foreign-table", () => {
         defaultValue: "0",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id SET DEFAULT 0",
       );
     });
 
-    test("alter column drop default", () => {
+    test("alter column drop default", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAlterColumnDropDefault({
         foreignTable,
         columnName: "id",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id DROP DEFAULT",
       );
     });
 
-    test("alter column set not null", () => {
+    test("alter column set not null", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAlterColumnSetNotNull({
         foreignTable,
         columnName: "id",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id SET NOT NULL",
       );
     });
 
-    test("alter column drop not null", () => {
+    test("alter column drop not null", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableAlterColumnDropNotNull({
         foreignTable,
         columnName: "id",
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id DROP NOT NULL",
       );
     });
 
-    test("set options ADD", () => {
+    test("set options ADD", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableSetOptions({
         foreignTable,
@@ -259,12 +282,14 @@ describe.concurrent("foreign-table", () => {
         ],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD schema_name 'remote_schema', ADD table_name 'remote_table')",
       );
     });
 
-    test("set options SET", () => {
+    test("set options SET", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableSetOptions({
         foreignTable,
@@ -273,24 +298,28 @@ describe.concurrent("foreign-table", () => {
         ],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (SET schema_name 'new_schema')",
       );
     });
 
-    test("set options DROP", () => {
+    test("set options DROP", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableSetOptions({
         foreignTable,
         options: [{ action: "DROP", option: "schema_name" }],
       });
 
+      await assertValidSql(change.serialize());
+
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (DROP schema_name)",
       );
     });
 
-    test("set options mixed ADD/SET/DROP", () => {
+    test("set options mixed ADD/SET/DROP", async () => {
       const foreignTable = new ForeignTable(baseTableProps);
       const change = new AlterForeignTableSetOptions({
         foreignTable,
@@ -300,6 +329,8 @@ describe.concurrent("foreign-table", () => {
           { action: "DROP", option: "old_option" },
         ],
       });
+
+      await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",

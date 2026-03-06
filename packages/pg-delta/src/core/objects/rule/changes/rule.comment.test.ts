@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
 import { CreateCommentOnRule, DropCommentOnRule } from "./rule.comment.ts";
@@ -28,18 +29,19 @@ const makeRule = (override: Partial<RuleProps> = {}) =>
   });
 
 describe("rule.comment", () => {
-  test("create comment serializes and tracks dependencies", () => {
+  test("create comment serializes and tracks dependencies", async () => {
     const rule = makeRule({ comment: "rule's description" });
     const change = new CreateCommentOnRule({ rule });
 
     expect(change.creates).toEqual([stableId.comment(rule.stableId)]);
     expect(change.requires).toEqual([rule.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "COMMENT ON RULE \"my_rule\" ON public.\"my_table\" IS 'rule''s description'",
     );
   });
 
-  test("drop comment serializes and tracks dependencies", () => {
+  test("drop comment serializes and tracks dependencies", async () => {
     const rule = makeRule({ comment: "temporary comment" });
     const change = new DropCommentOnRule({ rule });
 
@@ -48,6 +50,7 @@ describe("rule.comment", () => {
       stableId.comment(rule.stableId),
       rule.stableId,
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       'COMMENT ON RULE "my_rule" ON public."my_table" IS NULL',
     );

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import type { PublicationTableProps } from "../publication.model.ts";
 import { Publication } from "../publication.model.ts";
@@ -7,7 +8,6 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetList,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
@@ -46,7 +46,7 @@ const makePublication = (override: Partial<PublicationProps> = {}) =>
   });
 
 describe("publication.alter", () => {
-  test("set options serializes assignments and requires publication", () => {
+  test("set options serializes assignments and requires publication", async () => {
     const publication = makePublication({
       name: "pub_options",
       publish_delete: false,
@@ -60,25 +60,13 @@ describe("publication.alter", () => {
     });
 
     expect(change.requires).toEqual([publication.stableId]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_options SET (publish = 'insert, update', publish_via_partition_root = true)",
     );
   });
 
-  test("set for all tables serializes and requires publication", () => {
-    const publication = makePublication({
-      name: "pub_all",
-      all_tables: false,
-    });
-    const change = new AlterPublicationSetForAllTables({ publication });
-
-    expect(change.requires).toEqual([publication.stableId]);
-    expect(change.serialize()).toBe(
-      "ALTER PUBLICATION pub_all SET FOR ALL TABLES",
-    );
-  });
-
-  test("set list serializes object selection and tracks dependencies", () => {
+  test("set list serializes object selection and tracks dependencies", async () => {
     const publication = makePublication({
       name: "pub_set_list",
       all_tables: false,
@@ -108,12 +96,13 @@ describe("publication.alter", () => {
       stableId.column("public", "authors", "name"),
       stableId.schema("analytics"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_set_list SET TABLE public.articles WHERE (published = true), TABLE public.authors (id, name), TABLES IN SCHEMA analytics",
     );
   });
 
-  test("add tables serializes new tables and tracks dependencies", () => {
+  test("add tables serializes new tables and tracks dependencies", async () => {
     const publication = makePublication({ name: "pub_add_tables" });
     const tables: PublicationTableProps[] = [
       {
@@ -138,12 +127,13 @@ describe("publication.alter", () => {
       stableId.column("audit", "events", "created_at"),
       stableId.column("audit", "events", "id"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_add_tables ADD TABLE public.logs, TABLE audit.events (created_at, id)",
     );
   });
 
-  test("drop tables serializes target list and tracks dependencies", () => {
+  test("drop tables serializes target list and tracks dependencies", async () => {
     const publication = makePublication({ name: "pub_drop_tables" });
     const tables: PublicationTableProps[] = [
       {
@@ -166,12 +156,13 @@ describe("publication.alter", () => {
       stableId.table("public", "logs"),
       stableId.table("audit", "events"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_drop_tables DROP TABLE public.logs, audit.events",
     );
   });
 
-  test("add schemas serializes and tracks dependencies", () => {
+  test("add schemas serializes and tracks dependencies", async () => {
     const publication = makePublication({ name: "pub_add_schemas" });
     const change = new AlterPublicationAddSchemas({
       publication,
@@ -183,12 +174,13 @@ describe("publication.alter", () => {
       stableId.schema("analytics"),
       stableId.schema("sales"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_add_schemas ADD TABLES IN SCHEMA analytics, TABLES IN SCHEMA sales",
     );
   });
 
-  test("drop schemas serializes and tracks dependencies", () => {
+  test("drop schemas serializes and tracks dependencies", async () => {
     const publication = makePublication({ name: "pub_drop_schemas" });
     const change = new AlterPublicationDropSchemas({
       publication,
@@ -200,12 +192,13 @@ describe("publication.alter", () => {
       stableId.schema("analytics"),
       stableId.schema("sales"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_drop_schemas DROP TABLES IN SCHEMA analytics, TABLES IN SCHEMA sales",
     );
   });
 
-  test("set owner serializes and tracks dependencies", () => {
+  test("set owner serializes and tracks dependencies", async () => {
     const publication = makePublication({ name: "pub_owner" });
     const change = new AlterPublicationSetOwner({
       publication,
@@ -216,6 +209,7 @@ describe("publication.alter", () => {
       publication.stableId,
       stableId.role("owner2"),
     ]);
+    await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_owner OWNER TO owner2",
     );

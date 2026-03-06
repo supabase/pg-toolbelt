@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language } from "../language.model.ts";
 import { DropLanguage } from "./language.drop.ts";
 
 describe("language", () => {
-  test("drop", () => {
+  test("drop", async () => {
     const language = new Language({
       name: "plpgsql",
       is_trusted: true,
@@ -19,6 +20,8 @@ describe("language", () => {
     const change = new DropLanguage({
       language,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe("DROP LANGUAGE plpgsql");
   });

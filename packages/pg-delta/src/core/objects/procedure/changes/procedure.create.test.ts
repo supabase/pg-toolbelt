@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Procedure } from "../procedure.model.ts";
 import { CreateProcedure } from "./procedure.create.ts";
 
 describe("procedure", () => {
-  test("create", () => {
+  test("create", async () => {
     const procedure = new Procedure({
       schema: "public",
       name: "test_procedure",
@@ -40,6 +41,8 @@ describe("procedure", () => {
     const change = new CreateProcedure({
       procedure,
     });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE PROCEDURE public.test_procedure() LANGUAGE plpgsql AS $$BEGIN RETURN; END;$$",

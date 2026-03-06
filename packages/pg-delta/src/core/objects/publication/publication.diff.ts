@@ -6,7 +6,6 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropSchemas,
   AlterPublicationDropTables,
-  AlterPublicationSetForAllTables,
   AlterPublicationSetOptions,
   AlterPublicationSetOwner,
 } from "./changes/publication.alter.ts";
@@ -93,24 +92,18 @@ export function diffPublications(
 
     if (mainPublication.all_tables !== branchPublication.all_tables) {
       handledObjectLists = true;
-      if (branchPublication.all_tables) {
+      // Changing the all_tables mode requires DROP + CREATE because
+      // ALTER PUBLICATION does not support SET ALL TABLES.
+      changes.push(new DropPublication({ publication: mainPublication }));
+      changes.push(new CreatePublication({ publication: branchPublication }));
+      if (branchPublication.comment !== null) {
         changes.push(
-          new AlterPublicationSetForAllTables({
+          new CreateCommentOnPublication({
             publication: branchPublication,
           }),
         );
-      } else {
-        changes.push(new DropPublication({ publication: mainPublication }));
-        changes.push(new CreatePublication({ publication: branchPublication }));
-        if (branchPublication.comment !== null) {
-          changes.push(
-            new CreateCommentOnPublication({
-              publication: branchPublication,
-            }),
-          );
-        }
-        continue;
       }
+      continue;
     }
 
     if (!handledObjectLists && !branchPublication.all_tables) {

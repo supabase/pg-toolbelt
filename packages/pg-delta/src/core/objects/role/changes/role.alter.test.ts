@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role, type RoleProps } from "../role.model.ts";
 import { AlterRoleSetOptions } from "./role.alter.ts";
 
 describe.concurrent("role", () => {
   describe("alter", () => {
-    test("alter SUPERUSER", () => {
+    test("alter SUPERUSER", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -21,10 +22,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["SUPERUSER"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH SUPERUSER");
     });
 
-    test("alter NOSUPERUSER", () => {
+    test("alter NOSUPERUSER", async () => {
       const role = new Role({
         name: "r",
         is_superuser: true,
@@ -44,10 +46,11 @@ describe.concurrent("role", () => {
         role,
         options: ["NOSUPERUSER"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOSUPERUSER");
     });
 
-    test("alter NOCREATEDB", () => {
+    test("alter NOCREATEDB", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -64,10 +67,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOCREATEDB"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEDB");
     });
 
-    test("alter NOCREATEROLE", () => {
+    test("alter NOCREATEROLE", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -87,10 +91,11 @@ describe.concurrent("role", () => {
         role,
         options: ["NOCREATEROLE"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEROLE");
     });
 
-    test("alter INHERIT", () => {
+    test("alter INHERIT", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -107,10 +112,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["INHERIT"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH INHERIT");
     });
 
-    test("alter LOGIN", () => {
+    test("alter LOGIN", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -127,10 +133,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["LOGIN"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH LOGIN");
     });
 
-    test("alter NOREPLICATION", () => {
+    test("alter NOREPLICATION", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -150,10 +157,11 @@ describe.concurrent("role", () => {
         role,
         options: ["NOREPLICATION"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOREPLICATION");
     });
 
-    test("alter NOBYPASSRLS", () => {
+    test("alter NOBYPASSRLS", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -173,10 +181,11 @@ describe.concurrent("role", () => {
         role,
         options: ["NOBYPASSRLS"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOBYPASSRLS");
     });
 
-    test("alter CREATEROLE", () => {
+    test("alter CREATEROLE", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -193,10 +202,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["CREATEROLE"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH CREATEROLE");
     });
 
-    test("alter NOINHERIT", () => {
+    test("alter NOINHERIT", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -213,10 +223,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOINHERIT"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOINHERIT");
     });
 
-    test("alter NOLOGIN", () => {
+    test("alter NOLOGIN", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -233,10 +244,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOLOGIN"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH NOLOGIN");
     });
 
-    test("alter REPLICATION", () => {
+    test("alter REPLICATION", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -256,10 +268,11 @@ describe.concurrent("role", () => {
         role,
         options: ["REPLICATION"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH REPLICATION");
     });
 
-    test("alter BYPASSRLS", () => {
+    test("alter BYPASSRLS", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -276,10 +289,11 @@ describe.concurrent("role", () => {
         default_privileges: [],
       });
       const change = new AlterRoleSetOptions({ role, options: ["BYPASSRLS"] });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe("ALTER ROLE r WITH BYPASSRLS");
     });
 
-    test("alter multiple options ordering", () => {
+    test("alter multiple options ordering", async () => {
       const role = new Role({
         name: "r",
         is_superuser: false,
@@ -308,11 +322,12 @@ describe.concurrent("role", () => {
           "CONNECTION LIMIT 10",
         ],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER ROLE r WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 10",
       );
     });
-    test("alter flags and connection limit", () => {
+    test("alter flags and connection limit", async () => {
       const props: Omit<
         RoleProps,
         "can_create_databases" | "connection_limit"
@@ -338,6 +353,7 @@ describe.concurrent("role", () => {
         role,
         options: ["CREATEDB", "CONNECTION LIMIT 3"],
       });
+      await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
         "ALTER ROLE r WITH CREATEDB CONNECTION LIMIT 3",
       );

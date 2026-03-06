@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
 
 describe("index", () => {
-  test("create", () => {
+  test("create", async () => {
     const index = new Index({
       schema: "public",
       table_name: "test_table",
@@ -58,6 +59,8 @@ describe("index", () => {
     ];
 
     const change = new CreateIndex({ index, indexableObject: { columns } });
+
+    await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
       "CREATE INDEX test_index ON public.test_table (id)",
