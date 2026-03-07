@@ -1,5 +1,13 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.5
+
+### Minor Changes
+
+- 646e6be: Fix duplicate role creation from different grantors
+- f7de56c: fix correct order for grant/revoke
+- bf47b8b: fix some invalid postgres syntax in serialize
+
 ## 1.0.0-alpha.4
 
 ### Minor Changes
