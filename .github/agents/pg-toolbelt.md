@@ -14,6 +14,8 @@ description: Specific agent to work on pg-toolbelt issues
 
 Bun-based monorepo containing PostgreSQL tooling packages.
 
+> **Note:** `AGENTS.md`, `CLAUDE.md`, and `.github/agents/pg-toolbelt.md` are all symlinks pointing to the same file. Always edit only one of them — changes will automatically reflect in all three.
+
 ## Packages
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema diff and migration tool. Compares two live databases and generates DDL migration scripts.
@@ -93,13 +95,15 @@ Use `bun:test` with testcontainers for PostgreSQL validation. Located in `packag
 
 ## Changesets
 
-All code changes that affect package behavior must include a changeset. Use the changeset CLI to generate one:
+All code changes that affect package behavior must include a changeset. **When making a fix, feat, or any user-facing change (patch/minor/major), add a changeset** — do not merge or consider the work complete without one.
+
+Use the changeset CLI to generate one:
 
 ```bash
 bunx changeset
 ```
 
-This will prompt you to select affected packages and describe the change. Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
+This will prompt you to select affected packages and choose the version bump type (`patch` for fixes, `minor` for new features, `major` for breaking changes). Commit the generated `.changeset/*.md` file alongside your code changes. Changesets automate versioning and releases on merge to main.
 
 ## Conventional Commits
 
@@ -136,6 +140,10 @@ Before making any code changes, present a plan describing:
 
 Wait for user approval before implementing.
 
+### Changesets for fix/feat/major/minor
+
+When implementing a **fix**, **feat**, or any change that affects package behavior (patch/minor/major), add a changeset before considering the work complete. Run `bunx changeset`, select the affected package(s), pick the appropriate bump type, and commit the generated `.changeset/*.md` file with your changes.
+
 ### Testing Discipline
 
 pg-delta has 45+ integration test files across 2 PG versions, sharded across 12 CI runners. Never run the full suite while iterating.
@@ -158,4 +166,17 @@ All code changes must be covered by tests:
 
 - Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
 - Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
+- **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
 - Follow existing test patterns in the codebase
+
+### Snapshot Assertions
+
+Prefer `toMatchInlineSnapshot` over `toBe` or `toEqual` when asserting SQL output in integration tests. Inline snapshots make the expected SQL immediately visible in the test file, improving readability and making regressions obvious at a glance.
+
+```typescript
+expect(result.sql).toMatchInlineSnapshot(`
+  "ALTER TABLE foo ADD COLUMN bar integer;"
+`);
+```
+
+Run tests once to auto-generate the snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.

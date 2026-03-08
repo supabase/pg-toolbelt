@@ -176,9 +176,16 @@ export function normalizePrivileges(privileges: PrivilegeProps[]) {
       grantee: privilege.grantee,
       privilege: privilege.privilege,
       grantable: privilege.grantable,
+      columns: privilege.columns
+        ? [...privilege.columns].sort()
+        : privilege.columns,
     }))
     .sort((a, b) => {
       if (a.grantee !== b.grantee) return a.grantee.localeCompare(b.grantee);
-      return a.privilege.localeCompare(b.privilege);
+      if (a.privilege !== b.privilege)
+        return a.privilege.localeCompare(b.privilege);
+      const colA = a.columns?.join(",") ?? "";
+      const colB = b.columns?.join(",") ?? "";
+      return colA.localeCompare(colB);
     });
 }

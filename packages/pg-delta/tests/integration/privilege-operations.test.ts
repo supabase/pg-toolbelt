@@ -394,5 +394,90 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "table-level privileges replaced by column-level privileges (revoke before grant ordering)",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.t_priv(a int, b int, c int);
+          CREATE ROLE r_priv;
+          GRANT INSERT, UPDATE ON TABLE test_schema.t_priv TO r_priv;
+        `,
+          testSql: dedent`
+          REVOKE INSERT, UPDATE ON TABLE test_schema.t_priv FROM r_priv;
+          GRANT INSERT (a, b) ON TABLE test_schema.t_priv TO r_priv;
+          GRANT UPDATE (b) ON TABLE test_schema.t_priv TO r_priv;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "view-level privileges replaced by column-level privileges (revoke before grant ordering)",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE VIEW test_schema.v_priv AS SELECT 1 AS a, 2 AS b, 3 AS c;
+          CREATE ROLE r_view_priv;
+          GRANT SELECT, UPDATE ON test_schema.v_priv TO r_view_priv;
+        `,
+          testSql: dedent`
+          REVOKE SELECT, UPDATE ON test_schema.v_priv FROM r_view_priv;
+          GRANT SELECT (a, b) ON test_schema.v_priv TO r_view_priv;
+          GRANT UPDATE (b) ON test_schema.v_priv TO r_view_priv;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "object-level privilege swap (revoke one, grant another)",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.t_swap(a int);
+          CREATE ROLE r_swap;
+          GRANT INSERT ON TABLE test_schema.t_swap TO r_swap;
+        `,
+          testSql: dedent`
+          REVOKE INSERT ON TABLE test_schema.t_swap FROM r_swap;
+          GRANT UPDATE ON TABLE test_schema.t_swap TO r_swap;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "privilege changes on table with role membership (combined scenario)",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.t_combined(a int, b int);
+          CREATE ROLE r_parent;
+          CREATE ROLE r_child;
+          GRANT INSERT, UPDATE ON TABLE test_schema.t_combined TO r_child;
+        `,
+          testSql: dedent`
+          GRANT r_parent TO r_child;
+          REVOKE INSERT, UPDATE ON TABLE test_schema.t_combined FROM r_child;
+          GRANT INSERT (a) ON TABLE test_schema.t_combined TO r_child;
+          GRANT UPDATE (b) ON TABLE test_schema.t_combined TO r_child;
+        `,
+        });
+      }),
+    );
   });
 }
