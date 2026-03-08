@@ -1,0 +1,82 @@
+name: E2E Pipeline
+
+on:
+  schedule:
+    # Daily at 6am UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      cli_ref:
+        description: "CLI git ref (branch/tag/sha)"
+        required: false
+        default: "main"
+      dbdev_ref:
+        description: "dbdev git ref (branch/tag/sha)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Checkout CLI ref
+        if: inputs.cli_ref && inputs.cli_ref != 'main'
+        working-directory: e2e/submodules/cli
+        run: |
+          git fetch origin ${{ inputs.cli_ref }}
+          git checkout ${{ inputs.cli_ref }}
+
+      - name: Checkout dbdev ref
+        if: inputs.dbdev_ref && inputs.dbdev_ref != 'main'
+        working-directory: e2e/submodules/dbdev
+        run: |
+          git fetch origin ${{ inputs.dbdev_ref }}
+          git checkout ${{ inputs.dbdev_ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: e2e/submodules/cli/go.mod
+          cache-dependency-path: e2e/submodules/cli/go.sum
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run E2E pipeline
+        run: bash e2e/scripts/run-tests.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Verdaccio logs ==="
+          docker logs pg-toolbelt-verdaccio 2>&1 || echo "No verdaccio container"
+          echo ""
+          echo "=== Supabase logs (dbdev) ==="
+          if [ -x e2e/bin/supabase ] && [ -d e2e/submodules/dbdev/supabase ]; then
+            cd e2e/submodules/dbdev
+            e2e/bin/supabase logs 2>&1 || echo "No supabase logs"
+          fi

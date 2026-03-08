@@ -1,0 +1,9 @@
+[submodule "e2e/submodules/cli"]
+	path = e2e/submodules/cli
+	url = https://github.com/supabase/cli.git
+	branch = main
+
+[submodule "e2e/submodules/dbdev"]
+	path = e2e/submodules/dbdev
+	url = https://github.com/supabase/dbdev.git
+	branch = main

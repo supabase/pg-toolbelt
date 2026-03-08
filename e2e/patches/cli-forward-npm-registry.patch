@@ -1,0 +1,22 @@
+diff --git a/internal/db/diff/pgdelta.go b/internal/db/diff/pgdelta.go
+index 1234567..abcdefg 100644
+--- a/internal/db/diff/pgdelta.go
++++ b/internal/db/diff/pgdelta.go
+@@ -3,6 +3,7 @@ package diff
+ import (
+ 	"bytes"
+ 	"context"
++	"os"
+ 	_ "embed"
+ 	"io"
+ 	"strings"
+@@ -36,6 +37,9 @@ func DiffPgDelta(ctx context.Context, source, target pgconn.Config, schema []str
+ 	if len(schema) > 0 {
+ 		env = append(env, "INCLUDED_SCHEMAS="+strings.Join(schema, ","))
+ 	}
++	if npmRegistry := os.Getenv("NPM_CONFIG_REGISTRY"); npmRegistry != "" {
++		env = append(env, "NPM_CONFIG_REGISTRY="+npmRegistry)
++	}
+ 	var out bytes.Buffer
+ 	if err := diffWithStream(ctx, env, pgDeltaScript, &out); err != nil {
+ 		return "", err

@@ -1,0 +1,42 @@
+# Verdaccio local npm registry configuration for e2e tests.
+# @supabase packages are served locally only (no uplink to npmjs).
+# All other packages proxy through to the public registry.
+
+storage: /verdaccio/storage
+plugins: /verdaccio/plugins
+
+web:
+  enable: false
+
+auth:
+  htpasswd:
+    file: /verdaccio/storage/htpasswd
+    max_users: -1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  "@supabase/pg-delta":
+    access: $all
+    publish: $anonymous
+
+  "@supabase/pg-topo":
+    access: $all
+    publish: $anonymous
+
+  "@supabase/*":
+    access: $all
+    proxy: npmjs
+
+  "**":
+    access: $all
+    proxy: npmjs
+
+listen: 0.0.0.0:4873
+
+log:
+  type: stdout
+  format: pretty
+  level: warn

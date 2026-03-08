@@ -169,6 +169,9 @@ dev-debug.log
 declarative-schemas/
 
 
+# E2E artifacts
+e2e/bin/
+
 # ===================
 # tldr ignore patterns
 # ===================
