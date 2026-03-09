@@ -45,17 +45,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result).not.toBeNull();
 
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statement = result!.plan.statements.find((s) =>
-          s.includes("TRIGGER user_account_encrypt_secret_trigger_email"),
-        );
-
-        expect(statement).toBeDefined();
-        expect(statement).toContain(
-          "BEFORE INSERT OR UPDATE OF email ON test_schema.user_account",
-        );
-        expect(statement).not.toContain(
-          "BEFORE INSERT OR UPDATE ON test_schema.user_account",
-        );
+        const statements = result!.plan.statements;
+        expect(statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TRIGGER user_account_encrypt_secret_trigger_email BEFORE INSERT OR UPDATE OF email ON test_schema.user_account FOR EACH ROW EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email()",
+          ]
+        `);
       }),
     );
 
@@ -100,20 +95,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
         const statements = result!.plan.statements;
-        const statement = statements.find((s) =>
-          s.includes("TRIGGER user_account_encrypt_secret_trigger_email"),
-        );
-
-        expect(statement).toBeDefined();
-        expect(statement).toContain(
-          "CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email",
-        );
-        expect(statement).toContain(
-          "BEFORE INSERT OR UPDATE OF email ON test_schema.user_account",
-        );
-        expect(statement).not.toContain(
-          "BEFORE INSERT OR UPDATE ON test_schema.user_account",
-        );
+        expect(statements).toMatchInlineSnapshot(`
+          [
+            "CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email BEFORE INSERT OR UPDATE OF email ON test_schema.user_account FOR EACH ROW EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email()",
+          ]
+        `);
       }),
     );
 
