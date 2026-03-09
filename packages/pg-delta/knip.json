@@ -7,5 +7,5 @@
   "ignoreIssues": {
     "src/core/objects/**/*.model.ts": ["types"]
   },
-  "ignoreDependencies": ["@supabase/pg-topo"]
+  "ignoreDependencies": ["@supabase/pg-topo", "@supabase/bun-istanbul-coverage"]
 }

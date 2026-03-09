@@ -65,7 +65,7 @@ function writeLine(stream: NodeJS.WritableStream, message: string): void {
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
-export function isInteractiveCli(context: CommandContext): boolean {
+function isInteractiveCli(context: CommandContext): boolean {
   const io = context.process as unknown as {
     stdin?: { isTTY?: boolean };
     stdout?: { isTTY?: boolean };
