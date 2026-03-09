@@ -255,6 +255,62 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "plpgsql function body references are accepted even when helper is created later",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
+          CREATE OR REPLACE FUNCTION test_schema.a_wrapper(input text)
+           RETURNS text
+           LANGUAGE plpgsql
+           IMMUTABLE
+          AS $function$
+          BEGIN
+            RETURN test_schema.z_helper_parse(input) || '!';
+          END;
+          $function$;
+
+          CREATE OR REPLACE FUNCTION test_schema.z_helper_parse(input text)
+           RETURNS text
+           LANGUAGE plpgsql
+           IMMUTABLE
+          AS $function$
+          BEGIN
+            RETURN upper(input);
+          END;
+          $function$;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "sql function body references require helper function ordering",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
+          CREATE OR REPLACE FUNCTION test_schema.z_helper_parse(input text)
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT upper(input)$function$;
+
+          CREATE OR REPLACE FUNCTION test_schema.a_wrapper(input text)
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT test_schema.z_helper_parse(input) || '!'$function$;
+        `,
+        });
+      }),
+    );
   });
 
   // Complex function scenario test
