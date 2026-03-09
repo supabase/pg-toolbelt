@@ -685,14 +685,13 @@ export function diffTables(
       const columnTypeChanged =
         mainCol.data_type_str !== branchCol.data_type_str;
       const columnCollationChanged = mainCol.collation !== branchCol.collation;
-      const shouldUseDefaultSafeTypeChangeFlow =
-        columnTypeChanged && mainCol.default !== null;
+      const needsDefaultSafeFlow = columnTypeChanged && mainCol.default !== null;
 
       // TYPE or COLLATION change
       if (columnTypeChanged || columnCollationChanged) {
         // Skip if parent has the same type/collation change
         if (!parentHasSameColumnPropertyChange(name, "type")) {
-          if (shouldUseDefaultSafeTypeChangeFlow) {
+          if (needsDefaultSafeFlow) {
             changes.push(
               new AlterTableAlterColumnDropDefault({
                 table: branchTable,
@@ -707,10 +706,7 @@ export function diffTables(
               previousColumn: mainCol,
             }),
           );
-          if (
-            shouldUseDefaultSafeTypeChangeFlow &&
-            branchCol.default !== null
-          ) {
+          if (needsDefaultSafeFlow && branchCol.default !== null) {
             changes.push(
               new AlterTableAlterColumnSetDefault({
                 table: branchTable,
@@ -725,7 +721,8 @@ export function diffTables(
       if (mainCol.default !== branchCol.default) {
         // Skip if parent has the same default change
         if (!parentHasSameColumnPropertyChange(name, "default")) {
-          if (shouldUseDefaultSafeTypeChangeFlow) {
+          if (needsDefaultSafeFlow) {
+            // Defaults were already dropped/re-set in the type-change flow above.
             continue;
           }
           if (branchCol.default === null) {
