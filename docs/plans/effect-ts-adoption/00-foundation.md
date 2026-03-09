@@ -13,13 +13,13 @@ todos:
     status: pending
   - id: verify-tsconfig-topo
     content: Verify pg-topo tsconfig.json is compatible with Effect
-    status: pending
+    status: completed
   - id: verify-tsconfig-delta
     content: Verify pg-delta tsconfig.json/tsconfig.build.json are compatible with Effect
-    status: pending
+    status: completed
   - id: verify-build
     content: Run bun install, bun run build, bun run check-types to verify nothing breaks
-    status: pending
+    status: completed
 isProject: false
 ---
 
