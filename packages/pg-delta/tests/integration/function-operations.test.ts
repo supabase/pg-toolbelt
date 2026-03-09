@@ -2,8 +2,9 @@
  * Integration tests for PostgreSQL function operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -289,25 +290,43 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
-      "sql function body references require helper function ordering",
+      "sql function body references are protected by check_function_bodies setting",
       withDb(pgVersion, async (db) => {
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-          initialSetup: "CREATE SCHEMA test_schema;",
-          testSql: dedent`
-          CREATE OR REPLACE FUNCTION test_schema.z_helper_parse(input text)
-           RETURNS text
-           LANGUAGE sql
-           IMMUTABLE
-          AS $function$SELECT upper(input)$function$;
+        const schemaSql = "CREATE SCHEMA test_schema;";
+        const sqlFunctions = dedent`
+          SET check_function_bodies = off;
 
           CREATE OR REPLACE FUNCTION test_schema.a_wrapper(input text)
            RETURNS text
            LANGUAGE sql
            IMMUTABLE
           AS $function$SELECT test_schema.z_helper_parse(input) || '!'$function$;
-        `,
+
+          CREATE OR REPLACE FUNCTION test_schema.z_helper_parse(input text)
+           RETURNS text
+           LANGUAGE sql
+           IMMUTABLE
+          AS $function$SELECT upper(input)$function$;
+        `;
+
+        await db.main.query(schemaSql);
+        await db.branch.query(schemaSql);
+        await db.branch.query(sqlFunctions);
+
+        const planResult = await createPlan(db.main, db.branch);
+        if (!planResult) {
+          throw new Error(
+            "Expected a plan for SQL function body reference setup",
+          );
+        }
+
+        expect(planResult.plan.statements[0]).toBe(
+          "SET check_function_bodies = false",
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
         });
       }),
     );
