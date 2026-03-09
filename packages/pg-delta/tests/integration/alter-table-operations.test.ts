@@ -108,6 +108,55 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "change column type to enum with default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'archived');
+          CREATE TABLE test_schema.items (
+            id integer NOT NULL,
+            state text NOT NULL DEFAULT 'active'
+          );
+          INSERT INTO test_schema.items (id, state) VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state DROP DEFAULT;
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state TYPE test_schema.status USING state::test_schema.status;
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state SET DEFAULT 'active'::test_schema.status;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "change varchar column type to integer with using cast",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.orders (
+            id integer NOT NULL,
+            amount varchar(10)
+          );
+          INSERT INTO test_schema.orders (id, amount) VALUES (1, '42');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.orders
+            ALTER COLUMN amount TYPE integer USING amount::integer;
+        `,
+        });
+      }),
+    );
+
+    test(
       "set column default",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

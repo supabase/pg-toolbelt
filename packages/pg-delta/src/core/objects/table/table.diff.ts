@@ -682,19 +682,42 @@ export function diffTables(
       const branchCol = branchCols.get(name);
       if (!branchCol) continue;
 
+      const columnTypeChanged =
+        mainCol.data_type_str !== branchCol.data_type_str;
+      const columnCollationChanged = mainCol.collation !== branchCol.collation;
+      const shouldUseDefaultSafeTypeChangeFlow =
+        columnTypeChanged && mainCol.default !== null;
+
       // TYPE or COLLATION change
-      if (
-        mainCol.data_type_str !== branchCol.data_type_str ||
-        mainCol.collation !== branchCol.collation
-      ) {
+      if (columnTypeChanged || columnCollationChanged) {
         // Skip if parent has the same type/collation change
         if (!parentHasSameColumnPropertyChange(name, "type")) {
+          if (shouldUseDefaultSafeTypeChangeFlow) {
+            changes.push(
+              new AlterTableAlterColumnDropDefault({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
           changes.push(
             new AlterTableAlterColumnType({
               table: branchTable,
               column: branchCol,
+              previousColumn: mainCol,
             }),
           );
+          if (
+            shouldUseDefaultSafeTypeChangeFlow &&
+            branchCol.default !== null
+          ) {
+            changes.push(
+              new AlterTableAlterColumnSetDefault({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
         }
       }
 
@@ -702,6 +725,9 @@ export function diffTables(
       if (mainCol.default !== branchCol.default) {
         // Skip if parent has the same default change
         if (!parentHasSameColumnPropertyChange(name, "default")) {
+          if (shouldUseDefaultSafeTypeChangeFlow) {
+            continue;
+          }
           if (branchCol.default === null) {
             // Drop default value
             changes.push(

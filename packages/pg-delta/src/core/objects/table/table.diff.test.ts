@@ -662,6 +662,9 @@ describe.concurrent("table.diff", () => {
     expect(
       typeChanges.some((c) => c instanceof AlterTableAlterColumnType),
     ).toBe(true);
+    expect(typeChanges.map((c) => c.serialize())).toContain(
+      "ALTER TABLE public.t2 ALTER COLUMN a TYPE text USING a::text",
+    );
 
     const defaultAdded = new Table({
       ...base,
@@ -712,6 +715,46 @@ describe.concurrent("table.diff", () => {
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),
     ).toBe(true);
+
+    const withDefault = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          ...withCol.columns[0],
+          data_type: "text",
+          data_type_str: "text",
+          default: "'active'",
+        },
+      ],
+    });
+    const typeChangedWithDefault = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          ...withDefault.columns[0],
+          data_type: "USER-DEFINED",
+          data_type_str: "test_schema.status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "test_schema",
+          custom_type_name: "status",
+          default: "'active'::test_schema.status",
+        },
+      ],
+    });
+    const typeChangesWithDefault = diffTables(
+      testContext,
+      { [withDefault.stableId]: withDefault },
+      { [typeChangedWithDefault.stableId]: typeChangedWithDefault },
+    );
+    expect(typeChangesWithDefault.map((c) => c.serialize())).toEqual([
+      "ALTER TABLE public.t2 ALTER COLUMN a DROP DEFAULT",
+      "ALTER TABLE public.t2 ALTER COLUMN a TYPE test_schema.status USING a::test_schema.status",
+      "ALTER TABLE public.t2 ALTER COLUMN a SET DEFAULT 'active'::test_schema.status",
+    ]);
   });
 
   test("created table with privileges emits grant changes", () => {
