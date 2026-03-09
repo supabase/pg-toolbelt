@@ -65,8 +65,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const planResult = await createPlan(db.main, db.branch);
         expect(planResult).toBeDefined();
+        if (!planResult) {
+          throw new Error("Expected planResult to be defined");
+        }
 
-        const statements = planResult?.plan.statements ?? [];
+        const statements = planResult.plan.statements;
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );
@@ -149,8 +152,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const planResult = await createPlan(db.main, db.branch);
         expect(planResult).toBeDefined();
+        if (!planResult) {
+          throw new Error("Expected planResult to be defined");
+        }
 
-        const statements = planResult?.plan.statements ?? [];
+        const statements = planResult.plan.statements;
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );

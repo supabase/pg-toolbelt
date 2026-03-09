@@ -37,7 +37,7 @@ export class CreateDomain extends CreateDomainChange {
     const creates = [this.domain.stableId];
 
     for (const constraint of this.domain.constraints) {
-      if (constraint.check_expression && constraint.validated !== false) {
+      if (constraint.check_expression && constraint.validated) {
         creates.push(
           stableId.constraint(
             this.domain.schema,
