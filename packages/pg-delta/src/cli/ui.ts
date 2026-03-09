@@ -25,10 +25,10 @@ async function confirmFromStdin(
   const typedStdin = stdin as NodeJS.ReadableStream & {
     isTTY?: boolean;
   };
-  const stdout = getStdout(context);
+  const stderr = getStderr(context);
   const rl = createInterface({
     input: typedStdin,
-    output: stdout,
+    output: stderr,
     terminal: false,
   });
 
