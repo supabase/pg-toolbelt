@@ -44,7 +44,6 @@
         "debug": "^4.3.7",
         "effect": "^3.19.19",
         "pg": "^8.17.2",
-        "zod": "^4.2.1",
       },
       "devDependencies": {
         "@effect/platform-bun": "^0.87.1",
