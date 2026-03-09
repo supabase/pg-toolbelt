@@ -1,7 +1,14 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 
 const PUBLISH_FACING_FIELDS = [
   "dependencies",
@@ -20,7 +27,9 @@ function run(cmd, args, cwd = repoRoot) {
   });
 
   if (result.status !== 0) {
-    throw new Error(`${cmd} ${args.join(" ")} failed with exit code ${result.status}`);
+    throw new Error(
+      `${cmd} ${args.join(" ")} failed with exit code ${result.status}`,
+    );
   }
 }
 
@@ -77,8 +86,14 @@ try {
   run("bun", ["run", "--filter", "@supabase/pg-topo", "build"]);
   run("bun", ["run", "--filter", "@supabase/pg-delta", "build"]);
 
-  const pgTopoTarball = packPackage(join(repoRoot, "packages", "pg-topo"), tempDir);
-  const pgDeltaTarball = packPackage(join(repoRoot, "packages", "pg-delta"), tempDir);
+  const pgTopoTarball = packPackage(
+    join(repoRoot, "packages", "pg-topo"),
+    tempDir,
+  );
+  const pgDeltaTarball = packPackage(
+    join(repoRoot, "packages", "pg-delta"),
+    tempDir,
+  );
 
   validatePackedMetadata(pgTopoTarball, join(tempDir, "extract-pg-topo"));
   validatePackedMetadata(pgDeltaTarball, join(tempDir, "extract-pg-delta"));
@@ -91,15 +106,31 @@ try {
     JSON.stringify({ name: "deno-e2e", private: true }, null, 2),
   );
 
-  run("npm", ["install", "--silent", "--no-package-lock", pgTopoTarball, pgDeltaTarball], projectDir);
+  run(
+    "npm",
+    ["install", "--silent", "--no-package-lock", pgTopoTarball, pgDeltaTarball],
+    projectDir,
+  );
 
-  const fixtureSrc = join(repoRoot, ".github", "scripts", "fixtures", "deno-golden-path.ts");
+  const fixtureSrc = join(
+    repoRoot,
+    ".github",
+    "scripts",
+    "fixtures",
+    "deno-golden-path.ts",
+  );
   const fixtureDest = join(projectDir, "deno-golden-path.ts");
   cpSync(fixtureSrc, fixtureDest);
 
   run(
     "deno",
-    ["run", "--allow-env", "--allow-read", "--node-modules-dir=manual", fixtureDest],
+    [
+      "run",
+      "--allow-env",
+      "--allow-read",
+      "--node-modules-dir=manual",
+      fixtureDest,
+    ],
     projectDir,
   );
 } finally {

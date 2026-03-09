@@ -12,8 +12,14 @@ const topoResult = await analyzeAndSort([
   "create table public.users(id int primary key, name text not null);",
 ]);
 
-assert(topoResult.ordered.length === 2, "pg-topo should return 2 ordered statements");
-assert(topoResult.diagnostics.length === 0, "pg-topo should have no diagnostics on golden path");
+assert(
+  topoResult.ordered.length === 2,
+  "pg-topo should return 2 ordered statements",
+);
+assert(
+  topoResult.diagnostics.length === 0,
+  "pg-topo should have no diagnostics on golden path",
+);
 assert(
   topoResult.ordered[0]?.sql.toLowerCase().startsWith("create table"),
   "pg-topo should order table creation before dependent view",
