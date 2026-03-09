@@ -613,7 +613,11 @@ export class AlterTableAlterColumnType extends AlterTableChange {
   }
 
   serialize(_options?: SerializeOptions): string {
-    const hasTypeChanged =
+    // previousColumn is optional so direct serializer tests/fixtures can keep
+    // emitting canonical ALTER TYPE SQL without forcing a USING expression.
+    // When provided, we can detect true type changes and add USING for casts
+    // PostgreSQL cannot perform automatically.
+    const hasTypeChangedWithPreviousDefinition =
       this.previousColumn?.data_type_str !== undefined &&
       this.previousColumn.data_type_str !== this.column.data_type_str;
 
@@ -628,7 +632,7 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     if (this.column.collation) {
       parts.push("COLLATE", this.column.collation);
     }
-    if (hasTypeChanged) {
+    if (hasTypeChangedWithPreviousDefinition) {
       parts.push("USING", `${this.column.name}::${this.column.data_type_str}`);
     }
     return parts.join(" ");
