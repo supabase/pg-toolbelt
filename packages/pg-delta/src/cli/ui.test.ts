@@ -17,6 +17,7 @@ function createMockContext({
 }: MockContextOptions): {
   context: CommandContext;
   getStdoutOutput: () => string;
+  getStderrOutput: () => string;
 } {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
@@ -31,6 +32,12 @@ function createMockContext({
     stdoutOutput += chunk;
   });
 
+  let stderrOutput = "";
+  stderr.setEncoding("utf8");
+  stderr.on("data", (chunk: string) => {
+    stderrOutput += chunk;
+  });
+
   stdin.end(input);
 
   return {
@@ -42,6 +49,7 @@ function createMockContext({
       },
     } as unknown as CommandContext,
     getStdoutOutput: () => stdoutOutput,
+    getStderrOutput: () => stderrOutput,
   };
 }
 
@@ -61,15 +69,18 @@ describe("confirmAction", () => {
 
 describe("promptConfirmation", () => {
   test("normalizes prompt text and still accepts piped confirmation", async () => {
-    const { context, getStdoutOutput } = createMockContext({ input: "yes\n" });
+    const { context, getStderrOutput, getStdoutOutput } = createMockContext({
+      input: "yes\n",
+    });
     const result = await promptConfirmation(
       "Apply these changes? (y/N) ",
       context,
     );
 
     expect(result).toBe(true);
-    expect(getStdoutOutput()).toContain("Apply these changes (y/N) ");
-    expect(getStdoutOutput()).not.toContain(
+    expect(getStderrOutput()).toContain("Apply these changes (y/N) ");
+    expect(getStdoutOutput()).not.toContain("Apply these changes (y/N) ");
+    expect(getStderrOutput()).not.toContain(
       "Apply these changes? (y/N) (y/N) ",
     );
   });
