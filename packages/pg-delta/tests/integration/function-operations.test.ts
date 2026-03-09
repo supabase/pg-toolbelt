@@ -2,8 +2,9 @@
  * Integration tests for PostgreSQL function operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -73,6 +74,92 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         AS $function$SELECT 'v2.0'$function$;
       `,
         });
+      }),
+    );
+
+    test(
+      "function signature type change drops old signature before create",
+      withDb(pgVersion, async (db) => {
+        await db.main.query(`
+          CREATE SCHEMA test_schema;
+          CREATE FUNCTION test_schema.process_item(param1 text)
+          RETURNS void
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RAISE NOTICE 'Processing: %', param1;
+          END;
+          $$;
+        `);
+
+        await db.branch.query(`
+          CREATE SCHEMA test_schema;
+          CREATE FUNCTION test_schema.process_item(param1 uuid)
+          RETURNS void
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RAISE NOTICE 'Processing: %', param1::text;
+          END;
+          $$;
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
+        const statements = result!.plan.statements;
+        expect(statements[0]).toBe("SET check_function_bodies = false");
+        expect(statements[1]).toMatchInlineSnapshot(
+          `"DROP FUNCTION test_schema.process_item(param1 text)"`,
+        );
+        expect(statements[2]).toContain(
+          "CREATE FUNCTION test_schema.process_item(param1 uuid)",
+        );
+        expect(statements[2]).not.toContain("CREATE OR REPLACE FUNCTION");
+      }),
+    );
+
+    test(
+      "function signature arity change drops old signature before create",
+      withDb(pgVersion, async (db) => {
+        await db.main.query(`
+          CREATE SCHEMA test_schema;
+          CREATE FUNCTION test_schema.process_item(param1 text)
+          RETURNS void
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RAISE NOTICE 'Processing: %', param1;
+          END;
+          $$;
+        `);
+
+        await db.branch.query(`
+          CREATE SCHEMA test_schema;
+          CREATE FUNCTION test_schema.process_item(param1 text, param2 integer)
+          RETURNS void
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RAISE NOTICE 'Processing: % (%).', param1, param2;
+          END;
+          $$;
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
+        const statements = result!.plan.statements;
+        expect(statements[0]).toBe("SET check_function_bodies = false");
+        expect(statements[1]).toMatchInlineSnapshot(
+          `"DROP FUNCTION test_schema.process_item(param1 text)"`,
+        );
+        expect(statements[2]).toContain(
+          "CREATE FUNCTION test_schema.process_item(param1 text, param2 integer)",
+        );
+        expect(statements[2]).not.toContain("CREATE OR REPLACE FUNCTION");
       }),
     );
 
