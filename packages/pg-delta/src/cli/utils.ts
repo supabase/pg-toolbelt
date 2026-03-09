@@ -206,7 +206,7 @@ export function handleApplyResult(
 
 /**
  * Prompts user for confirmation using clack.
- * Returns false in non-interactive mode.
+ * Falls back to stdin confirmation in non-interactive mode.
  */
 export function promptConfirmation(
   question: string,
