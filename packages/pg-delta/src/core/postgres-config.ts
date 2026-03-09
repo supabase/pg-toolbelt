@@ -4,6 +4,7 @@
 
 import type { PoolClient, PoolConfig } from "pg";
 import { escapeIdentifier, Pool, types } from "pg";
+import { getPgDeltaLogger } from "./logging.ts";
 import { parseSslConfig } from "./plan/ssl-config.ts";
 
 // ============================================================================
@@ -109,6 +110,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MS =
   Number(process.env.PGDELTA_CONNECTION_TIMEOUT_MS) || 3_000;
 const DEFAULT_CONNECT_TIMEOUT_MS =
   Number(process.env.PGDELTA_CONNECT_TIMEOUT_MS) || 2_500;
+const logger = getPgDeltaLogger("postgres");
 
 /**
  * Options for creating a Pool with event listeners.
@@ -177,7 +179,10 @@ export async function createManagedPool(
     ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
     onError: (err: Error & { code?: string }) => {
       if (err.code !== "57P01") {
-        console.error("Pool error:", err);
+        logger.error("Pool error for {label} connection", {
+          label: options?.label ?? "target",
+          error: err,
+        });
       }
     },
     onConnect: async (client) => {

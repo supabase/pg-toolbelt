@@ -9,6 +9,7 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
+import { logInfo } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import {
   formatPlanForDisplay,
@@ -138,7 +139,7 @@ Exit codes:
       serialize: serializeOption,
     });
     if (!planResult) {
-      this.process.stdout.write("No changes detected.\n");
+      logInfo(this, "No changes detected.");
       process.exitCode = 0;
       return;
     }

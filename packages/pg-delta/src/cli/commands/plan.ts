@@ -11,6 +11,7 @@ import type { ChangeSerializer } from "../../core/integrations/serialize/seriali
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { setCommandExitCode } from "../exit-code.ts";
+import { logInfo } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay } from "../utils.ts";
@@ -171,7 +172,7 @@ json/sql outputs are available for artifacts or piping.
       serialize: serializeOption,
     });
     if (!planResult) {
-      this.process.stdout.write("No changes detected.\n");
+      logInfo(this, "No changes detected.");
       return;
     }
 
@@ -202,7 +203,7 @@ json/sql outputs are available for artifacts or piping.
 
     if (outputPath) {
       await writeFile(outputPath, content, "utf-8");
-      this.process.stdout.write(`${label} written to ${outputPath}\n`);
+      logInfo(this, `${label} written to ${outputPath}`);
     } else {
       this.process.stdout.write(content);
       if (!content.endsWith("\n")) {

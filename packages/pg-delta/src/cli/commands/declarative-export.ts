@@ -15,6 +15,7 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
+import { logInfo, logSuccess, logWarning } from "../ui.ts";
 import {
   assertSafePath,
   buildFileTree,
@@ -227,7 +228,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
     });
 
     if (!planResult) {
-      this.process.stdout.write("No changes detected.\n");
+      logInfo(this, "No changes detected.");
       return;
     }
 
@@ -264,7 +265,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
       formatOptions: flags["format-options"] ?? undefined,
       grouping,
       onWarning: (msg) => {
-        this.process.stderr.write(chalk.yellow(`Warning: ${msg}\n`));
+        logWarning(this, `Warning: ${msg}`);
       },
     });
 
@@ -308,10 +309,9 @@ After export, a tip is printed with the command to apply the schema to an empty 
       await rm(outputDir, { recursive: true, force: true });
       await mkdir(outputDir, { recursive: true });
     } else if (diff.deleted.length > 0) {
-      this.process.stderr.write(
-        chalk.yellow(
-          `Warning: ${diff.deleted.length} existing file(s) will no longer be present. Use --force to replace the output directory.\n`,
-        ),
+      logWarning(
+        this,
+        `Warning: ${diff.deleted.length} existing file(s) will no longer be present. Use --force to replace the output directory.`,
       );
     }
 
@@ -322,9 +322,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
       await writeFile(filePath, file.sql);
     }
 
-    this.process.stdout.write(
-      chalk.green(`Wrote ${output.files.length} file(s) to ${outputDir}\n`),
-    );
-    this.process.stdout.write(chalk.cyan(applyTip(outputDir)));
+    logSuccess(this, `Wrote ${output.files.length} file(s) to ${outputDir}`);
+    logInfo(this, applyTip(outputDir).trim());
   },
 });

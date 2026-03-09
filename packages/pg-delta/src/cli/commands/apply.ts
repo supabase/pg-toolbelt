@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { deserializePlan, type Plan } from "../../core/plan/index.ts";
+import { logError } from "../ui.ts";
 import { handleApplyResult, validatePlanRisk } from "../utils.ts";
 
 export const applyCommand = buildCommand({
@@ -67,8 +68,9 @@ Exit codes:
     try {
       planJson = await readFile(flags.plan, "utf-8");
     } catch (error) {
-      this.process.stderr.write(
-        `Error reading plan file: ${error instanceof Error ? error.message : String(error)}\n`,
+      logError(
+        this,
+        `Error reading plan file: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exitCode = 1;
       return;
@@ -78,8 +80,9 @@ Exit codes:
     try {
       plan = deserializePlan(planJson);
     } catch (error) {
-      this.process.stderr.write(
-        `Error parsing plan file: ${error instanceof Error ? error.message : String(error)}\n`,
+      logError(
+        this,
+        `Error parsing plan file: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exitCode = 1;
       return;

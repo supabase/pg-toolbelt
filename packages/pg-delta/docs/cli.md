@@ -385,6 +385,8 @@ DEBUG=pg-delta:declarative-apply pg-delta declarative apply \
   --target postgresql://user:pass@localhost:5432/fresh_db
 ```
 
+`DEBUG` accepts debug-style category patterns (for example: `pg-delta:*`, `pg-delta:graph`, `pg-delta:declarative-apply`).
+
 #### Exit Codes
 
 - `0`: Success (all statements applied and validation passed)
@@ -433,3 +435,12 @@ pg-delta catalog-export --help
 pg-delta declarative export --help
 pg-delta declarative apply --help
 ```
+
+---
+
+## Logging
+
+The CLI uses `logtape` for internal logging and `clack` for interactive UX.
+
+- `DEBUG`: enable debug categories (e.g. `DEBUG=pg-delta:*` or `DEBUG=pg-delta:declarative-apply`)
+- `PGDELTA_LOG_LEVEL`: set default logger threshold (`trace`, `debug`, `info`, `warning`, `error`, `fatal`)

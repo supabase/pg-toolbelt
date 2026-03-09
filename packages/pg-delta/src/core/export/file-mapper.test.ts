@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "../change.types.ts";
+import { getPgDeltaLogger } from "../logging.ts";
 import {
   applyGrouping,
   type CompiledPattern,
@@ -141,6 +142,30 @@ describe("compilePatterns", () => {
     expect(compiled[0].name).toBe("good");
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("[invalid(");
+  });
+
+  test("logs invalid regex warning with explicit message property", () => {
+    const logger = getPgDeltaLogger("export");
+    const calls: unknown[][] = [];
+    const originalDebug = logger.debug;
+
+    logger.debug = ((...args: unknown[]) => {
+      calls.push(args);
+    }) as typeof logger.debug;
+
+    try {
+      compilePatterns([{ pattern: "(\\d{1,3}", name: "bad" }]);
+    } finally {
+      logger.debug = originalDebug;
+    }
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe("{msg}");
+    expect(calls[0][1]).toEqual(
+      expect.objectContaining({
+        msg: expect.stringContaining("(\\d{1,3}"),
+      }),
+    );
   });
 });
 

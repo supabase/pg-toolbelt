@@ -12,6 +12,7 @@ import {
   type DeclarativeApplyResult,
   type RoundResult,
 } from "../../core/declarative-apply/index.ts";
+import { logError, logInfo, logSuccess, logWarning } from "../ui.ts";
 import {
   buildDiagnosticDisplayItems,
   type DiagnosticDisplayEntry,
@@ -117,22 +118,24 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
         }
       : undefined;
 
-    this.process.stdout.write(`Analyzing SQL files in ${flags.path}...\n`);
+    logInfo(this, `Analyzing SQL files in ${flags.path}...`);
 
     let content: Array<{ filePath: string; sql: string }>;
     try {
       content = await loadDeclarativeSchema(flags.path);
     } catch (error) {
-      this.process.stderr.write(
-        `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+      logError(
+        this,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exitCode = 1;
       return;
     }
 
     if (content.length === 0) {
-      this.process.stderr.write(
-        `No .sql files found in '${flags.path}'. Pass a directory containing .sql files or a single .sql file.\n`,
+      logError(
+        this,
+        `No .sql files found in '${flags.path}'. Pass a directory containing .sql files or a single .sql file.`,
       );
       process.exitCode = 1;
       return;
@@ -148,8 +151,9 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
         onRoundComplete,
       });
     } catch (error) {
-      this.process.stderr.write(
-        `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+      logError(
+        this,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exitCode = 1;
       return;
@@ -297,14 +301,11 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
 
     switch (apply.status) {
       case "success": {
-        this.process.stdout.write(
-          chalk.green("All statements applied successfully.\n"),
-        );
+        logSuccess(this, "All statements applied successfully.");
         if (apply.validationErrors && apply.validationErrors.length > 0) {
-          this.process.stderr.write(
-            chalk.yellow(
-              `\n${apply.validationErrors.length} function body validation error(s):\n`,
-            ),
+          logWarning(
+            this,
+            `${apply.validationErrors.length} function body validation error(s):`,
           );
           for (const err of apply.validationErrors) {
             const formatted = await formatStatementError(err, flags.path);
