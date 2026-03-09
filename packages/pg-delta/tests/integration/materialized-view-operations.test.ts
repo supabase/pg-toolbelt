@@ -145,6 +145,28 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               SELECT * FROM test_schema.order_summary
               WHERE total_spent > 1000;
           `,
+          expectedSqlTerms: [
+            "DROP INDEX test_schema.order_summary_customer_idx",
+            "DROP VIEW test_schema.top_customers",
+            "DROP MATERIALIZED VIEW test_schema.order_summary",
+            dedent`
+              CREATE MATERIALIZED VIEW test_schema.order_summary AS SELECT customer,
+                  sum(total) AS total_spent,
+                  count(*) AS order_count,
+                  max(created_at) AS last_order
+                 FROM test_schema.orders
+                GROUP BY customer WITH DATA
+            `,
+            "CREATE UNIQUE INDEX order_summary_customer_idx ON test_schema.order_summary (customer)",
+            dedent`
+              CREATE OR REPLACE VIEW test_schema.top_customers AS SELECT customer,
+                  total_spent,
+                  order_count,
+                  last_order
+                 FROM test_schema.order_summary
+                WHERE (total_spent > (1000)::numeric)
+            `,
+          ],
         });
       }),
     );
