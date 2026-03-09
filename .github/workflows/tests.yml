@@ -36,7 +36,8 @@ jobs:
 
   check-types:
     if: >-
-      github.event.pull_request.draft == false
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
     needs: detect-changes
     name: Check types
     runs-on: ubuntu-latest
@@ -54,7 +55,8 @@ jobs:
 
   format-and-lint:
     if: >-
-      github.event.pull_request.draft == false
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +69,8 @@ jobs:
 
   knip:
     if: >-
-      github.event.pull_request.draft == false
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]'
     needs: detect-changes
     name: Knip
     runs-on: ubuntu-latest
@@ -86,6 +89,7 @@ jobs:
   pg-delta-unit:
     if: >-
       github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
@@ -114,6 +118,7 @@ jobs:
   pg-delta-integration:
     if: >-
       github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
@@ -265,6 +270,7 @@ jobs:
   pg-topo-tests:
     if: >-
       github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
       (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-topo: Tests"
