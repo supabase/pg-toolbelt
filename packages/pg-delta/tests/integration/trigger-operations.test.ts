@@ -59,36 +59,42 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(planResult).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
         const statements = planResult!.plan.statements;
-
-        const viewIndex = statements.findIndex((statement) =>
-          statement.includes("CREATE VIEW test_schema.user_emails"),
-        );
-        const insertFunctionIndex = statements.findIndex((statement) =>
-          statement.includes("CREATE FUNCTION test_schema.insert_user_email("),
-        );
-        const updateFunctionIndex = statements.findIndex((statement) =>
-          statement.includes("CREATE FUNCTION test_schema.update_user_email("),
-        );
-        const insertTriggerIndex = statements.findIndex((statement) =>
-          statement.includes(
+        expect(statements).toMatchInlineSnapshot(`
+          [
+            "SET check_function_bodies = false",
+            
+          "CREATE FUNCTION test_schema.insert_user_email()
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
+          BEGIN
+              INSERT INTO test_schema.users (id, email) VALUES (NEW.id, NEW.email);
+              RETURN NEW;
+          END;
+          $function$"
+          ,
+            
+          "CREATE FUNCTION test_schema.update_user_email()
+           RETURNS trigger
+           LANGUAGE plpgsql
+          AS $function$
+          BEGIN
+              UPDATE test_schema.users SET email = NEW.email WHERE id = OLD.id;
+              RETURN NEW;
+          END;
+          $function$"
+          ,
+            "CREATE TABLE test_schema.users (id integer NOT NULL, email text NOT NULL)",
+            "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
+            
+          "CREATE VIEW test_schema.user_emails AS SELECT id,
+              email
+             FROM test_schema.users"
+          ,
             "CREATE TRIGGER user_emails_insert INSTEAD OF INSERT ON test_schema.user_emails FOR EACH ROW EXECUTE FUNCTION test_schema.insert_user_email()",
-          ),
-        );
-        const updateTriggerIndex = statements.findIndex((statement) =>
-          statement.includes(
             "CREATE TRIGGER user_emails_update INSTEAD OF UPDATE ON test_schema.user_emails FOR EACH ROW EXECUTE FUNCTION test_schema.update_user_email()",
-          ),
-        );
-
-        expect(viewIndex).toBeGreaterThan(-1);
-        expect(insertFunctionIndex).toBeGreaterThan(-1);
-        expect(updateFunctionIndex).toBeGreaterThan(-1);
-        expect(insertTriggerIndex).toBeGreaterThan(-1);
-        expect(updateTriggerIndex).toBeGreaterThan(-1);
-        expect(insertTriggerIndex).toBeGreaterThan(viewIndex);
-        expect(updateTriggerIndex).toBeGreaterThan(viewIndex);
-        expect(insertTriggerIndex).toBeGreaterThan(insertFunctionIndex);
-        expect(updateTriggerIndex).toBeGreaterThan(updateFunctionIndex);
+          ]
+        `);
 
         const migrationScript = `${statements.join(";\n\n")};`;
         await expect(db.main.query(migrationScript)).resolves.toBeDefined();
