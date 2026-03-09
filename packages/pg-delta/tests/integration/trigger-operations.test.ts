@@ -2,9 +2,8 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 import dedent from "dedent";
-import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -394,104 +393,66 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test(
       "drop trigger before dropping trigger function",
       withDb(pgVersion, async (db) => {
-        await db.main.query(dedent`
-          CREATE SCHEMA test_schema;
-          CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
-          CREATE FUNCTION test_schema.bar()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
-          BEGIN
-            RETURN NULL;
-          END;
-          $$;
-          CREATE TRIGGER foo_insert
-          BEFORE INSERT ON test_schema.foo
-          FOR EACH ROW
-          EXECUTE FUNCTION test_schema.bar();
-        `);
-        await db.branch.query(dedent`
-          CREATE SCHEMA test_schema;
-          CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
-        `);
-
-        const result = await createPlan(db.main, db.branch);
-        expect(result).not.toBeNull();
-        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statements = result!.plan.statements;
-        expect(statements).toContain(
-          "DROP TRIGGER foo_insert ON test_schema.foo",
-        );
-        expect(statements).toContain("DROP FUNCTION test_schema.bar()");
-
-        const triggerDropIndex = statements.indexOf(
-          "DROP TRIGGER foo_insert ON test_schema.foo",
-        );
-        const functionDropIndex = statements.indexOf(
-          "DROP FUNCTION test_schema.bar()",
-        );
-
-        expect(triggerDropIndex).toBeGreaterThanOrEqual(0);
-        expect(functionDropIndex).toBeGreaterThanOrEqual(0);
-        expect(triggerDropIndex).toBeLessThan(functionDropIndex);
-
-        const script = `${statements.join(";\n")};`;
-        await expect(db.main.query(script)).resolves.toBeDefined();
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.bar()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NULL;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.bar();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP FUNCTION test_schema.bar();
+          `,
+        });
       }),
     );
 
     test(
       "drop all triggers before dropping shared trigger function",
       withDb(pgVersion, async (db) => {
-        await db.main.query(dedent`
-          CREATE SCHEMA test_schema;
-          CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
-          CREATE TABLE test_schema.bar (id integer PRIMARY KEY);
-          CREATE FUNCTION test_schema.shared_trigger_fn()
-          RETURNS trigger
-          LANGUAGE plpgsql
-          AS $$
-          BEGIN
-            RETURN NEW;
-          END;
-          $$;
-          CREATE TRIGGER foo_insert
-          BEFORE INSERT ON test_schema.foo
-          FOR EACH ROW
-          EXECUTE FUNCTION test_schema.shared_trigger_fn();
-          CREATE TRIGGER bar_insert
-          BEFORE INSERT ON test_schema.bar
-          FOR EACH ROW
-          EXECUTE FUNCTION test_schema.shared_trigger_fn();
-        `);
-        await db.branch.query(dedent`
-          CREATE SCHEMA test_schema;
-          CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
-          CREATE TABLE test_schema.bar (id integer PRIMARY KEY);
-        `);
-
-        const result = await createPlan(db.main, db.branch);
-        expect(result).not.toBeNull();
-        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statements = result!.plan.statements;
-        const fooTriggerDropIndex = statements.indexOf(
-          "DROP TRIGGER foo_insert ON test_schema.foo",
-        );
-        const barTriggerDropIndex = statements.indexOf(
-          "DROP TRIGGER bar_insert ON test_schema.bar",
-        );
-        const functionDropIndex = statements.indexOf(
-          "DROP FUNCTION test_schema.shared_trigger_fn()",
-        );
-
-        expect(fooTriggerDropIndex).toBeGreaterThanOrEqual(0);
-        expect(barTriggerDropIndex).toBeGreaterThanOrEqual(0);
-        expect(functionDropIndex).toBeGreaterThanOrEqual(0);
-        expect(fooTriggerDropIndex).toBeLessThan(functionDropIndex);
-        expect(barTriggerDropIndex).toBeLessThan(functionDropIndex);
-
-        const script = `${statements.join(";\n")};`;
-        await expect(db.main.query(script)).resolves.toBeDefined();
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE TABLE test_schema.bar (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.shared_trigger_fn()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+            CREATE TRIGGER bar_insert
+            BEFORE INSERT ON test_schema.bar
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP TRIGGER bar_insert ON test_schema.bar;
+            DROP FUNCTION test_schema.shared_trigger_fn();
+          `,
+        });
       }),
     );
 
