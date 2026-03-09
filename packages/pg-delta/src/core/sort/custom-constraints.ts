@@ -160,28 +160,28 @@ function generateIdentityTransitionConstraints(
 
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i];
-    const key =
+    const columnKey =
       "table" in change && "column" in change
         ? `${change.table.schema}.${change.table.name}.${change.column.name}`
         : null;
-    if (!key) continue;
+    if (!columnKey) continue;
 
     if (change instanceof AlterTableAlterColumnDropDefault) {
-      const entries = dropDefaultByColumn.get(key) ?? [];
+      const entries = dropDefaultByColumn.get(columnKey) ?? [];
       entries.push(i);
-      dropDefaultByColumn.set(key, entries);
+      dropDefaultByColumn.set(columnKey, entries);
     } else if (change instanceof AlterTableAlterColumnAddIdentity) {
-      const entries = addIdentityByColumn.get(key) ?? [];
+      const entries = addIdentityByColumn.get(columnKey) ?? [];
       entries.push(i);
-      addIdentityByColumn.set(key, entries);
+      addIdentityByColumn.set(columnKey, entries);
     } else if (change instanceof AlterTableAlterColumnDropIdentity) {
-      const entries = dropIdentityByColumn.get(key) ?? [];
+      const entries = dropIdentityByColumn.get(columnKey) ?? [];
       entries.push(i);
-      dropIdentityByColumn.set(key, entries);
+      dropIdentityByColumn.set(columnKey, entries);
     } else if (change instanceof AlterTableAlterColumnSetDefault) {
-      const entries = setDefaultByColumn.get(key) ?? [];
+      const entries = setDefaultByColumn.get(columnKey) ?? [];
       entries.push(i);
-      setDefaultByColumn.set(key, entries);
+      setDefaultByColumn.set(columnKey, entries);
     }
   }
 
