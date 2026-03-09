@@ -13,51 +13,67 @@ on:
 permissions:
   contents: read
 
+# This workflow intentionally uses pull_request_target so required checks are still reported
+# for trusted bot-authored PRs when pull_request workflows are blocked pending approval.
 jobs:
   check-types:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: Check types
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   format-and-lint:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   knip:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: Knip
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   pg-delta-unit:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: "pg-delta: Unit tests"
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   pg-delta-integration-pg15-compat:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   pg-delta-integration-pg17-compat:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
     steps:
       - run: echo "No-op check for bot-authored PRs"
 
   pg-topo-tests:
-    if: github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]'
+    if: >-
+      github.event.pull_request.user.type == 'Bot' &&
+      (github.event.pull_request.user.login == 'Copilot' || github.event.pull_request.user.login == 'supabase-releaser[bot]')
     name: "pg-topo: Tests"
     runs-on: ubuntu-latest
     steps:
