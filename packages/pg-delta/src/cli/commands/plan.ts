@@ -206,8 +206,6 @@ export const planCommand = Command.make(
         logInfo(content.endsWith("\n") ? content.trimEnd() : content);
       }
 
-      return yield* Effect.fail(
-        new CliExitError({ exitCode: 2, message: "" }),
-      );
+      return yield* Effect.fail(new CliExitError({ exitCode: 2, message: "" }));
     }),
 );

@@ -23,8 +23,7 @@ describe("DatabaseApi mock", () => {
   test("query failure produces CatalogExtractionError", async () => {
     // biome-ignore lint/suspicious/noExplicitAny: test mock
     const FailingDb = {
-      query: () =>
-        Effect.fail(new CatalogExtractionError({ message: "boom" })),
+      query: () => Effect.fail(new CatalogExtractionError({ message: "boom" })),
       getPool: () => {
         throw new Error("no pool");
       },
@@ -54,9 +53,9 @@ describe("DatabaseApi mock", () => {
       },
     } as any as DatabaseApi;
 
-    const result = await MockDb.query<{ id: number }>("SELECT $1", [
-      99,
-    ]).pipe(Effect.runPromise);
+    const result = await MockDb.query<{ id: number }>("SELECT $1", [99]).pipe(
+      Effect.runPromise,
+    );
     expect(result.rows[0].id).toBe(99);
   });
 });

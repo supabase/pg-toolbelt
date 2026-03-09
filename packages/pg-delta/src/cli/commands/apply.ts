@@ -73,9 +73,7 @@ export const applyCommand = Command.make(
 
       const { exitCode } = handleApplyResult(result);
       if (exitCode !== 0) {
-        return yield* Effect.fail(
-          new CliExitError({ exitCode, message: "" }),
-        );
+        return yield* Effect.fail(new CliExitError({ exitCode, message: "" }));
       }
     }),
 );

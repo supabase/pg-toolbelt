@@ -12,107 +12,133 @@ import {
   type PgDepend,
 } from "./depend.ts";
 import type { CatalogExtractionError } from "./errors.ts";
-import { extractAggregatesEffect } from "./objects/aggregate/aggregate.model.ts";
-import { extractCollationsEffect } from "./objects/collation/collation.model.ts";
-import { extractDomainsEffect } from "./objects/domain/domain.model.ts";
-import { extractEventTriggersEffect } from "./objects/event-trigger/event-trigger.model.ts";
-import { extractExtensionsEffect } from "./objects/extension/extension.model.ts";
-import { extractForeignDataWrappersEffect } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
-import { extractForeignTablesEffect } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
-import { extractServersEffect } from "./objects/foreign-data-wrapper/server/server.model.ts";
-import { extractUserMappingsEffect } from "./objects/foreign-data-wrapper/user-mapping/user-mapping.model.ts";
-import { extractIndexesEffect } from "./objects/index/index.model.ts";
-import { extractMaterializedViewsEffect } from "./objects/materialized-view/materialized-view.model.ts";
-import { extractProceduresEffect } from "./objects/procedure/procedure.model.ts";
-import { extractPublicationsEffect } from "./objects/publication/publication.model.ts";
-import { extractRlsPoliciesEffect } from "./objects/rls-policy/rls-policy.model.ts";
-import { extractRolesEffect } from "./objects/role/role.model.ts";
-import { extractRulesEffect } from "./objects/rule/rule.model.ts";
-import { extractSchemasEffect } from "./objects/schema/schema.model.ts";
-import { extractSequencesEffect } from "./objects/sequence/sequence.model.ts";
-import { extractSubscriptionsEffect } from "./objects/subscription/subscription.model.ts";
-import { extractTablesEffect } from "./objects/table/table.model.ts";
-import { extractTriggersEffect } from "./objects/trigger/trigger.model.ts";
-import { extractCompositeTypesEffect } from "./objects/type/composite-type/composite-type.model.ts";
-import { extractEnumsEffect } from "./objects/type/enum/enum.model.ts";
-import { extractRangesEffect } from "./objects/type/range/range.model.ts";
-import { extractViewsEffect } from "./objects/view/view.model.ts";
-import type { DatabaseApi } from "./services/database.ts";
 import {
   type Aggregate,
   extractAggregates,
+  extractAggregatesEffect,
 } from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import {
   type Collation,
   extractCollations,
+  extractCollationsEffect,
 } from "./objects/collation/collation.model.ts";
 import type { Domain } from "./objects/domain/domain.model.ts";
-import { extractDomains } from "./objects/domain/domain.model.ts";
+import {
+  extractDomains,
+  extractDomainsEffect,
+} from "./objects/domain/domain.model.ts";
 import {
   type EventTrigger,
   extractEventTriggers,
+  extractEventTriggersEffect,
 } from "./objects/event-trigger/event-trigger.model.ts";
 import {
   type Extension,
   extractExtensions,
+  extractExtensionsEffect,
 } from "./objects/extension/extension.model.ts";
 import {
   extractForeignDataWrappers,
+  extractForeignDataWrappersEffect,
   type ForeignDataWrapper,
 } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
 import {
   extractForeignTables,
+  extractForeignTablesEffect,
   type ForeignTable,
 } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
 import {
   extractServers,
+  extractServersEffect,
   Server,
 } from "./objects/foreign-data-wrapper/server/server.model.ts";
 import {
   extractUserMappings,
+  extractUserMappingsEffect,
   UserMapping,
 } from "./objects/foreign-data-wrapper/user-mapping/user-mapping.model.ts";
-import { extractIndexes, type Index } from "./objects/index/index.model.ts";
+import {
+  extractIndexes,
+  extractIndexesEffect,
+  type Index,
+} from "./objects/index/index.model.ts";
 import {
   extractMaterializedViews,
+  extractMaterializedViewsEffect,
   type MaterializedView,
 } from "./objects/materialized-view/materialized-view.model.ts";
 import {
   extractProcedures,
+  extractProceduresEffect,
   type Procedure,
 } from "./objects/procedure/procedure.model.ts";
 import {
   extractPublications,
+  extractPublicationsEffect,
   type Publication,
 } from "./objects/publication/publication.model.ts";
 import {
   extractRlsPolicies,
+  extractRlsPoliciesEffect,
   type RlsPolicy,
 } from "./objects/rls-policy/rls-policy.model.ts";
-import { extractRoles, type Role } from "./objects/role/role.model.ts";
-import { extractRules, type Rule } from "./objects/rule/rule.model.ts";
-import { extractSchemas, Schema } from "./objects/schema/schema.model.ts";
+import {
+  extractRoles,
+  extractRolesEffect,
+  type Role,
+} from "./objects/role/role.model.ts";
+import {
+  extractRules,
+  extractRulesEffect,
+  type Rule,
+} from "./objects/rule/rule.model.ts";
+import {
+  extractSchemas,
+  extractSchemasEffect,
+  Schema,
+} from "./objects/schema/schema.model.ts";
 import {
   extractSequences,
+  extractSequencesEffect,
   type Sequence,
 } from "./objects/sequence/sequence.model.ts";
 import {
   extractSubscriptions,
+  extractSubscriptionsEffect,
   Subscription,
 } from "./objects/subscription/subscription.model.ts";
-import { extractTables, type Table } from "./objects/table/table.model.ts";
+import {
+  extractTables,
+  extractTablesEffect,
+  type Table,
+} from "./objects/table/table.model.ts";
 import {
   extractTriggers,
+  extractTriggersEffect,
   type Trigger,
 } from "./objects/trigger/trigger.model.ts";
 import {
   type CompositeType,
   extractCompositeTypes,
+  extractCompositeTypesEffect,
 } from "./objects/type/composite-type/composite-type.model.ts";
-import { type Enum, extractEnums } from "./objects/type/enum/enum.model.ts";
-import { extractRanges, type Range } from "./objects/type/range/range.model.ts";
-import { extractViews, type View } from "./objects/view/view.model.ts";
+import {
+  type Enum,
+  extractEnums,
+  extractEnumsEffect,
+} from "./objects/type/enum/enum.model.ts";
+import {
+  extractRanges,
+  extractRangesEffect,
+  type Range,
+} from "./objects/type/range/range.model.ts";
+import {
+  extractViews,
+  extractViewsEffect,
+  type View,
+} from "./objects/view/view.model.ts";
+import type { DatabaseApi } from "./services/database.ts";
 
 const SUBSCRIPTION_CONNINFO_PLACEHOLDER =
   "host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__";
@@ -450,20 +476,14 @@ export const extractCatalogEffect = (
   Effect.gen(function* () {
     const results = yield* Effect.all(
       {
-        aggregates: extractAggregatesEffect(db).pipe(
-          Effect.map(listToRecord),
-        ),
-        collations: extractCollationsEffect(db).pipe(
-          Effect.map(listToRecord),
-        ),
+        aggregates: extractAggregatesEffect(db).pipe(Effect.map(listToRecord)),
+        collations: extractCollationsEffect(db).pipe(Effect.map(listToRecord)),
         compositeTypes: extractCompositeTypesEffect(db).pipe(
           Effect.map(listToRecord),
         ),
         domains: extractDomainsEffect(db).pipe(Effect.map(listToRecord)),
         enums: extractEnumsEffect(db).pipe(Effect.map(listToRecord)),
-        extensions: extractExtensionsEffect(db).pipe(
-          Effect.map(listToRecord),
-        ),
+        extensions: extractExtensionsEffect(db).pipe(Effect.map(listToRecord)),
         indexes: extractIndexesEffect(db).pipe(Effect.map(listToRecord)),
         materializedViews: extractMaterializedViewsEffect(db).pipe(
           Effect.map(listToRecord),
@@ -474,9 +494,7 @@ export const extractCatalogEffect = (
         publications: extractPublicationsEffect(db).pipe(
           Effect.map(listToRecord),
         ),
-        procedures: extractProceduresEffect(db).pipe(
-          Effect.map(listToRecord),
-        ),
+        procedures: extractProceduresEffect(db).pipe(Effect.map(listToRecord)),
         rlsPolicies: extractRlsPoliciesEffect(db).pipe(
           Effect.map(listToRecord),
         ),

@@ -9,7 +9,7 @@ import {
   getPgDeltaLogger,
 } from "../../core/logging.ts";
 import { rootCommand } from "../app.ts";
-import { CliExitError } from "../errors.ts";
+import type { CliExitError } from "../errors.ts";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../../../package.json") as { version: string };

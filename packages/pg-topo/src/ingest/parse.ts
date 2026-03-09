@@ -1,13 +1,13 @@
-import { deparseSql, parseSql } from "plpgsql-parser";
 import { Effect, ManagedRuntime } from "effect";
+import { deparseSql, parseSql } from "plpgsql-parser";
 import { parseAnnotations } from "../annotations/parse-annotations.ts";
 import type {
   AnnotationHints,
   Diagnostic,
   StatementId,
 } from "../model/types.ts";
-import { ParserServiceLive } from "../services/parser-live.ts";
 import { ParserService } from "../services/parser.ts";
+import { ParserServiceLive } from "../services/parser-live.ts";
 
 type RawParserStatement = {
   stmt?: unknown;

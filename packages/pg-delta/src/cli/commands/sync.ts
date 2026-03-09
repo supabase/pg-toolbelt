@@ -153,9 +153,7 @@ export const syncCommand = Command.make(
       // 6. Handle apply result
       const { exitCode } = handleApplyResult(result);
       if (exitCode !== 0) {
-        return yield* Effect.fail(
-          new CliExitError({ exitCode, message: "" }),
-        );
+        return yield* Effect.fail(new CliExitError({ exitCode, message: "" }));
       }
     }),
 );
