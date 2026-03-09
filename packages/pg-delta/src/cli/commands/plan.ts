@@ -12,11 +12,11 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
-import { setCommandExitCode } from "../exit-code.ts";
+import { CliExitError } from "../errors.ts";
 import { logInfo } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
-import { formatPlanForDisplay } from "../utils.ts";
+import { formatPlanForDisplay, parseJsonEffect } from "../utils.ts";
 
 const source = Options.text("source").pipe(
   Options.withAlias("s"),
@@ -90,16 +90,6 @@ const sqlFormatOptions = Options.text("sql-format-options").pipe(
   Options.optional,
 );
 
-function parseJsonSafe<T>(label: string, value: string): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch (error) {
-    throw new Error(
-      `Invalid ${label} JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
 export const planCommand = Command.make(
   "plan",
   {
@@ -126,14 +116,17 @@ export const planCommand = Command.make(
       const sqlFormatOptionsRaw = Option.getOrUndefined(args.sqlFormatOptions);
 
       const filterParsed: FilterDSL | undefined = filterRaw
-        ? parseJsonSafe<FilterDSL>("filter", filterRaw)
+        ? yield* parseJsonEffect<FilterDSL>("filter", filterRaw)
         : undefined;
       const serializeParsed: SerializeDSL | undefined = serializeRaw
-        ? parseJsonSafe<SerializeDSL>("serialize", serializeRaw)
+        ? yield* parseJsonEffect<SerializeDSL>("serialize", serializeRaw)
         : undefined;
       const sqlFormatOptionsParsed: SqlFormatOptions | undefined =
         sqlFormatOptionsRaw
-          ? parseJsonSafe<SqlFormatOptions>("SQL format", sqlFormatOptionsRaw)
+          ? yield* parseJsonEffect<SqlFormatOptions>(
+              "SQL format",
+              sqlFormatOptionsRaw,
+            )
           : undefined;
 
       let filterOption: FilterDSL | ChangeFilter | undefined = filterParsed;
@@ -210,12 +203,11 @@ export const planCommand = Command.make(
         yield* Effect.promise(() => writeFile(outputPath, content, "utf-8"));
         logInfo(`${label} written to ${outputPath}`);
       } else {
-        process.stdout.write(content);
-        if (!content.endsWith("\n")) {
-          process.stdout.write("\n");
-        }
+        logInfo(content.endsWith("\n") ? content.trimEnd() : content);
       }
 
-      setCommandExitCode(2);
+      return yield* Effect.fail(
+        new CliExitError({ exitCode: 2, message: "" }),
+      );
     }),
 );

@@ -10,9 +10,9 @@ import { Effect, Option } from "effect";
 import { loadDeclarativeSchema } from "../../core/declarative-apply/discover-sql.ts";
 import {
   applyDeclarativeSchema,
-  type DeclarativeApplyResult,
   type RoundResult,
 } from "../../core/declarative-apply/index.ts";
+import { CliExitError } from "../errors.ts";
 import { logError, logInfo, logSuccess, logWarning } from "../ui.ts";
 import {
   buildDiagnosticDisplayItems,
@@ -88,34 +88,32 @@ export const declarativeApplyCommand = Command.make(
             if (round.failed > 0) {
               parts.push(chalk.red(`${round.failed} failed`));
             }
-            process.stdout.write(`${parts.join("  ")}\n`);
+            logInfo(parts.join("  "));
           }
         : undefined;
 
       logInfo(`Analyzing SQL files in ${args.path}...`);
 
-      let content: Array<{ filePath: string; sql: string }>;
-      try {
-        content = yield* Effect.promise(() => loadDeclarativeSchema(args.path));
-      } catch (error) {
-        logError(
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exitCode = 1;
-        return;
-      }
+      const content = yield* Effect.tryPromise({
+        try: () => loadDeclarativeSchema(args.path),
+        catch: (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      }).pipe(Effect.tapError((e) => Effect.sync(() => logError(e.message))));
 
       if (content.length === 0) {
         logError(
           `No .sql files found in '${args.path}'. Pass a directory containing .sql files or a single .sql file.`,
         );
-        process.exitCode = 1;
-        return;
+        return yield* Effect.fail(
+          new CliExitError({ exitCode: 1, message: "" }),
+        );
       }
 
-      let result: DeclarativeApplyResult;
-      try {
-        result = yield* Effect.promise(() =>
+      const result = yield* Effect.tryPromise({
+        try: () =>
           applyDeclarativeSchema({
             content,
             targetUrl: args.target,
@@ -123,14 +121,12 @@ export const declarativeApplyCommand = Command.make(
             validateFunctionBodies: !args.noValidateFunctions,
             onRoundComplete,
           }),
-        );
-      } catch (error) {
-        logError(
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        process.exitCode = 1;
-        return;
-      }
+        catch: (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      }).pipe(Effect.tapError((e) => Effect.sync(() => logError(e.message))));
 
       const diagnosticDisplayOrder: Record<string, number> = {
         UNKNOWN_STATEMENT_CLASS: 0,
@@ -169,25 +165,16 @@ export const declarativeApplyCommand = Command.make(
             id.filePath &&
             !fileContentCache.has(id.filePath)
           ) {
-            try {
-              const fullPath = yield* Effect.promise(() =>
-                resolveSqlFilePath(args.path, id.filePath),
-              );
-              const fileContent = yield* Effect.promise(() =>
-                readFile(fullPath, "utf-8"),
-              );
-              fileContentCache.set(id.filePath, fileContent);
-            } catch {
-              // Fall back to statementIndex display
-            }
+            yield* Effect.tryPromise(() =>
+              resolveSqlFilePath(args.path, id.filePath).then((fullPath) =>
+                readFile(fullPath, "utf-8").then((fileContent) => {
+                  fileContentCache.set(id.filePath, fileContent);
+                }),
+              ),
+            ).pipe(Effect.ignore);
           }
         }
 
-        process.stderr.write(
-          chalk.yellow(
-            `\n${warnings.length} diagnostic(s) from static analysis:\n`,
-          ),
-        );
         const entries: DiagnosticDisplayEntry[] = warnings.map((diag) => {
           let location: string | undefined;
           if (diag.statementId) {
@@ -216,12 +203,17 @@ export const declarativeApplyCommand = Command.make(
           !args.ungroupDiagnostics,
         );
 
+        const diagLines: string[] = [];
+        diagLines.push(
+          `\n${warnings.length} diagnostic(s) from static analysis:\n`,
+        );
+
         let lastCode = "";
         const previewLimit = 5;
         for (const item of displayItems) {
           if (item.code !== lastCode) {
             if (lastCode !== "") {
-              process.stderr.write("\n");
+              diagLines.push("\n");
             }
             lastCode = item.code;
           }
@@ -232,132 +224,130 @@ export const declarativeApplyCommand = Command.make(
             !args.ungroupDiagnostics && item.locations.length > 1
               ? ` x${item.locations.length}`
               : "";
-          process.stderr.write(
+          diagLines.push(
             colorFn(
               `  [${item.code}]${location}${occurrences} ${item.message}\n`,
             ),
           );
           if (!args.ungroupDiagnostics && item.requiredObjectKey) {
-            process.stderr.write(
+            diagLines.push(
               colorFn(`    -> Object: ${item.requiredObjectKey}\n`),
             );
           }
           if (!args.ungroupDiagnostics && item.locations.length > 1) {
             for (const locationEntry of item.locations.slice(0, previewLimit)) {
-              process.stderr.write(colorFn(`    at ${locationEntry}\n`));
+              diagLines.push(colorFn(`    at ${locationEntry}\n`));
             }
             const remaining = item.locations.length - previewLimit;
             if (remaining > 0) {
-              process.stderr.write(
+              diagLines.push(
                 colorFn(`    ... and ${remaining} more location(s)\n`),
               );
             }
           }
           if (item.suggestedFix) {
-            process.stderr.write(colorFn(`    -> Fix: ${item.suggestedFix}\n`));
+            diagLines.push(colorFn(`    -> Fix: ${item.suggestedFix}\n`));
           }
         }
-        process.stderr.write("\n");
+
+        logWarning(diagLines.join(""));
       }
 
       const { apply } = result;
 
       // Summary
-      process.stdout.write("\n");
-      process.stdout.write(
+      const summaryParts: string[] = [];
+      summaryParts.push(
         `Statements: ${result.totalStatements} total, ${apply.totalApplied} applied`,
       );
       if (apply.totalSkipped > 0) {
-        process.stdout.write(`, ${apply.totalSkipped} skipped`);
+        summaryParts.push(`, ${apply.totalSkipped} skipped`);
       }
-      process.stdout.write("\n");
-      process.stdout.write(`Rounds: ${apply.totalRounds}\n`);
+      logInfo(summaryParts.join(""));
+      logInfo(`Rounds: ${apply.totalRounds}`);
 
       switch (apply.status) {
         case "success": {
           logSuccess("All statements applied successfully.");
           if (apply.validationErrors && apply.validationErrors.length > 0) {
-            logWarning(
+            const errorLines: string[] = [
               `${apply.validationErrors.length} function body validation error(s):`,
-            );
+            ];
             for (const err of apply.validationErrors) {
               const formatted = yield* Effect.promise(() =>
                 formatStatementError(err, args.path),
               );
-              process.stderr.write(chalk.yellow(formatted));
-              process.stderr.write("\n\n");
+              errorLines.push(chalk.yellow(formatted));
+              errorLines.push("");
             }
-            process.exitCode = 1;
-          } else {
-            process.exitCode = 0;
+            logWarning(errorLines.join("\n"));
+            return yield* Effect.fail(
+              new CliExitError({ exitCode: 1, message: "" }),
+            );
           }
           break;
         }
 
         case "stuck": {
-          process.stderr.write(
-            chalk.red(
-              `\nStuck after ${apply.totalRounds} round(s). ${apply.stuckStatements?.length ?? 0} statement(s) could not be applied:\n`,
-            ),
-          );
+          const errorLines: string[] = [
+            `\nStuck after ${apply.totalRounds} round(s). ${apply.stuckStatements?.length ?? 0} statement(s) could not be applied:`,
+          ];
           if (apply.stuckStatements) {
             for (const stuck of apply.stuckStatements) {
               const formatted = yield* Effect.promise(() =>
                 formatStatementError(stuck, args.path),
               );
-              process.stderr.write(chalk.red(formatted));
-              process.stderr.write("\n\n");
+              errorLines.push(chalk.red(formatted));
+              errorLines.push("");
             }
           }
           if (apply.errors && apply.errors.length > 0) {
-            process.stderr.write(
-              chalk.red(
-                `\nAdditionally, ${apply.errors.length} statement(s) had non-dependency errors:\n`,
-              ),
+            errorLines.push(
+              `\nAdditionally, ${apply.errors.length} statement(s) had non-dependency errors:`,
             );
             for (const err of apply.errors) {
               const formatted = yield* Effect.promise(() =>
                 formatStatementError(err, args.path),
               );
-              process.stderr.write(chalk.red(formatted));
-              process.stderr.write("\n\n");
+              errorLines.push(chalk.red(formatted));
+              errorLines.push("");
             }
           }
-          process.exitCode = 2;
-          break;
+          logError(errorLines.join("\n"));
+          return yield* Effect.fail(
+            new CliExitError({ exitCode: 2, message: "" }),
+          );
         }
 
         case "error": {
-          process.stderr.write(
-            chalk.red(
-              `\nCompleted with errors. ${apply.errors?.length ?? 0} statement(s) failed:\n`,
-            ),
-          );
+          const errorLines: string[] = [
+            `\nCompleted with errors. ${apply.errors?.length ?? 0} statement(s) failed:`,
+          ];
           if (apply.errors) {
             for (const err of apply.errors) {
               const formatted = yield* Effect.promise(() =>
                 formatStatementError(err, args.path),
               );
-              process.stderr.write(chalk.red(formatted));
-              process.stderr.write("\n\n");
+              errorLines.push(chalk.red(formatted));
+              errorLines.push("");
             }
           }
           if (apply.validationErrors && apply.validationErrors.length > 0) {
-            process.stderr.write(
-              chalk.yellow(
-                `\n${apply.validationErrors.length} function body validation error(s):\n`,
-              ),
+            errorLines.push(
+              `\n${apply.validationErrors.length} function body validation error(s):`,
             );
             for (const err of apply.validationErrors) {
               const formatted = yield* Effect.promise(() =>
                 formatStatementError(err, args.path),
               );
-              process.stderr.write(chalk.yellow(formatted));
-              process.stderr.write("\n\n");
+              errorLines.push(chalk.yellow(formatted));
+              errorLines.push("");
             }
           }
-          process.exitCode = 1;
-          break;
+          logError(errorLines.join("\n"));
+          return yield* Effect.fail(
+            new CliExitError({ exitCode: 1, message: "" }),
+          );
         }
       }
     }),

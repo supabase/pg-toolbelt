@@ -17,6 +17,7 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
+import { CliExitError } from "../errors.ts";
 import { logInfo, logSuccess, logWarning } from "../ui.ts";
 import {
   assertSafePath,
@@ -26,16 +27,7 @@ import {
 } from "../utils/export-display.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
-
-function parseJsonFlag<T>(label: string, value: string): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch (error) {
-    throw new Error(
-      `Invalid ${label} JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
+import { parseJsonEffect } from "../utils.ts";
 
 const source = Options.text("source").pipe(
   Options.withAlias("s"),
@@ -163,26 +155,34 @@ export const declarativeExportCommand = Command.make(
       const formatOptionsRaw = Option.getOrUndefined(args.formatOptions);
 
       const filterParsed: FilterDSL | undefined = filterRaw
-        ? parseJsonFlag<FilterDSL>("filter", filterRaw)
+        ? yield* parseJsonEffect<FilterDSL>("filter", filterRaw)
         : undefined;
       const serializeParsed: SerializeDSL | undefined = serializeRaw
-        ? parseJsonFlag<SerializeDSL>("serialize", serializeRaw)
+        ? yield* parseJsonEffect<SerializeDSL>("serialize", serializeRaw)
         : undefined;
       const groupPatternsParsed: GroupingPattern[] | undefined =
         groupPatternsRaw
-          ? (() => {
-              const parsed = parseJsonFlag<GroupingPattern[]>(
-                "group-patterns",
-                groupPatternsRaw,
-              );
-              if (!Array.isArray(parsed)) {
-                throw new Error("group-patterns must be a JSON array");
-              }
-              return parsed;
-            })()
+          ? yield* parseJsonEffect<GroupingPattern[]>(
+              "group-patterns",
+              groupPatternsRaw,
+            ).pipe(
+              Effect.flatMap((parsed) =>
+                Array.isArray(parsed)
+                  ? Effect.succeed(parsed)
+                  : Effect.fail(
+                      new CliExitError({
+                        exitCode: 1,
+                        message: "group-patterns must be a JSON array",
+                      }),
+                    ),
+              ),
+            )
           : undefined;
       const formatOptionsParsed: SqlFormatOptions | undefined = formatOptionsRaw
-        ? parseJsonFlag<SqlFormatOptions>("format-options", formatOptionsRaw)
+        ? yield* parseJsonEffect<SqlFormatOptions>(
+            "format-options",
+            formatOptionsRaw,
+          )
         : undefined;
 
       let filterOption: FilterDSL | ChangeFilter | undefined = filterParsed;
@@ -267,28 +267,24 @@ export const declarativeExportCommand = Command.make(
 
       const outputDir = path.resolve(args.output);
       const applyTip = (dir: string) =>
-        `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${dir} --target <database_url>\n`;
+        `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${dir} --target <database_url>`;
       const diff = yield* Effect.promise(() =>
         computeFileDiff(outputDir, exportOutput.files),
       );
 
-      process.stdout.write("\n");
-      process.stdout.write(
-        `${buildFileTree(
-          exportOutput.files.map((f) => f.path),
-          path.basename(outputDir) || outputDir,
-          { diff, diffFocus: args.diffFocus },
-        )}\n`,
+      const treeOutput = buildFileTree(
+        exportOutput.files.map((f) => f.path),
+        path.basename(outputDir) || outputDir,
+        { diff, diffFocus: args.diffFocus },
       );
-      process.stdout.write("\n");
-      process.stdout.write(
-        `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted\n`,
+      logInfo(treeOutput);
+      logInfo(
+        `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted`,
       );
-      process.stdout.write("\n");
 
       const summary = formatExportSummary(diff, args.dryRun);
       if (summary) {
-        process.stdout.write(`${summary}\n`);
+        logInfo(summary);
       }
 
       const totalChanges = planResult.sortedChanges.length;
@@ -296,13 +292,13 @@ export const declarativeExportCommand = Command.make(
         (s, f) => s + f.statements,
         0,
       );
-      process.stdout.write(
-        `Changes: ${totalChanges} | Files: ${exportOutput.files.length} | Statements: ${totalStatements}\n`,
+      logInfo(
+        `Changes: ${totalChanges} | Files: ${exportOutput.files.length} | Statements: ${totalStatements}`,
       );
 
       if (args.dryRun) {
-        process.stdout.write(chalk.dim("\n(dry-run: no files written)\n"));
-        process.stdout.write(chalk.cyan(applyTip(outputDir)));
+        logInfo(chalk.dim("\n(dry-run: no files written)"));
+        logInfo(chalk.cyan(applyTip(outputDir)));
         return;
       }
 

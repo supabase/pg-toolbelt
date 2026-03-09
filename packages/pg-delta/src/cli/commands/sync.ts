@@ -10,11 +10,13 @@ import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
+import { CliExitError } from "../errors.ts";
 import { logInfo } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import {
   formatPlanForDisplay,
   handleApplyResult,
+  parseJsonEffect,
   promptConfirmation,
   validatePlanRisk,
 } from "../utils.ts";
@@ -71,16 +73,6 @@ const integration = Options.text("integration").pipe(
   Options.optional,
 );
 
-function parseJsonSafe<T>(label: string, value: string): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch (error) {
-    throw new Error(
-      `Invalid ${label} JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
 export const syncCommand = Command.make(
   "sync",
   { source, target, yes, unsafe, role, filter, serialize, integration },
@@ -92,10 +84,10 @@ export const syncCommand = Command.make(
       const integrationValue = Option.getOrUndefined(args.integration);
 
       const filterParsed: FilterDSL | undefined = filterRaw
-        ? parseJsonSafe<FilterDSL>("filter", filterRaw)
+        ? yield* parseJsonEffect<FilterDSL>("filter", filterRaw)
         : undefined;
       const serializeParsed: SerializeDSL | undefined = serializeRaw
-        ? parseJsonSafe<SerializeDSL>("serialize", serializeRaw)
+        ? yield* parseJsonEffect<SerializeDSL>("serialize", serializeRaw)
         : undefined;
 
       let filterOption: FilterDSL | ChangeFilter | undefined = filterParsed;
@@ -119,21 +111,24 @@ export const syncCommand = Command.make(
       );
       if (!planResult) {
         logInfo("No changes detected.");
-        process.exitCode = 0;
         return;
       }
 
       // 2. Display the plan
       const { content } = formatPlanForDisplay(planResult, "tree");
-      process.stdout.write(content);
+      logInfo(content);
 
       // 3. Validate risk (suppress warning since it's already shown in the plan)
       const validation = validatePlanRisk(planResult.plan, args.unsafe, {
         suppressWarning: true,
       });
       if (!validation.valid) {
-        process.exitCode = validation.exitCode ?? 1;
-        return;
+        return yield* Effect.fail(
+          new CliExitError({
+            exitCode: validation.exitCode ?? 1,
+            message: "",
+          }),
+        );
       }
 
       // 4. Prompt for confirmation (unless --yes)
@@ -142,8 +137,9 @@ export const syncCommand = Command.make(
           promptConfirmation("Apply these changes? (y/N) "),
         );
         if (!confirmed) {
-          process.exitCode = 2;
-          return;
+          return yield* Effect.fail(
+            new CliExitError({ exitCode: 2, message: "" }),
+          );
         }
       }
 
@@ -156,6 +152,10 @@ export const syncCommand = Command.make(
 
       // 6. Handle apply result
       const { exitCode } = handleApplyResult(result);
-      process.exitCode = exitCode;
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          new CliExitError({ exitCode, message: "" }),
+        );
+      }
     }),
 );
