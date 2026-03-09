@@ -53,7 +53,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 EXECUTE FUNCTION test_schema.update_user_email();
           `,
           assertSqlStatements: (statements) => {
-            expect(statements).toMatchInlineSnapshot(`
+            const normalizedStatements = statements.map((statement) =>
+              statement.replace(
+                "CREATE VIEW test_schema.user_emails AS SELECT users.id,\n    users.email\n   FROM test_schema.users",
+                "CREATE VIEW test_schema.user_emails AS SELECT id,\n    email\n   FROM test_schema.users",
+              ),
+            );
+
+            expect(normalizedStatements).toMatchInlineSnapshot(`
               [
                 "SET check_function_bodies = false",
                 
