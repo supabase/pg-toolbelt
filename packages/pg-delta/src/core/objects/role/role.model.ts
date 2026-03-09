@@ -139,6 +139,10 @@ export class Role extends BasePgModel {
  * In PostgreSQL 16+, `pg_auth_members` can have multiple rows for the same
  * (roleid, member) pair with different grantors. Merge them into a single
  * entry per member, combining options with OR so the most permissive wins.
+ *
+ * When merging, prefer a non-self grantor (grantor !== member) so that
+ * downstream code can detect true self-grants (auto-created by CREATE ROLE)
+ * by checking `grantor === member`.
  */
 function deduplicateMembers(
   members: RoleProps["members"],
@@ -156,6 +160,13 @@ function deduplicateMembers(
       }
       if (m.set_option != null) {
         existing.set_option = (existing.set_option ?? false) || m.set_option;
+      }
+      // Prefer a non-self grantor so diff can detect true self-grants.
+      // Once a non-self grantor is chosen the value is kept (the specific
+      // non-self grantor doesn't matter — only the self vs non-self
+      // distinction is used downstream).
+      if (existing.grantor === existing.member && m.grantor !== m.member) {
+        existing.grantor = m.grantor;
       }
     } else {
       map.set(m.member, { ...m });
