@@ -20,6 +20,20 @@
       "require": "./dist/core/integrations/supabase.js",
       "types": "./dist/core/integrations/supabase.d.ts",
       "default": "./dist/core/integrations/supabase.js"
+    },
+    "./declarative": {
+      "bun": "./src/core/declarative-apply/index.ts",
+      "import": "./dist/core/declarative-apply/index.js",
+      "require": "./dist/core/declarative-apply/index.js",
+      "types": "./dist/core/declarative-apply/index.d.ts",
+      "default": "./dist/core/declarative-apply/index.js"
+    },
+    "./catalog-export": {
+      "bun": "./src/core/catalog-export/index.ts",
+      "import": "./dist/core/catalog-export/index.js",
+      "require": "./dist/core/catalog-export/index.js",
+      "types": "./dist/core/catalog-export/index.d.ts",
+      "default": "./dist/core/catalog-export/index.js"
     }
   },
   "bin": {

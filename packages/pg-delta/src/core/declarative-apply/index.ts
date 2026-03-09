@@ -197,5 +197,9 @@ export async function applyDeclarativeSchema(
   }
 }
 
+export type { SqlFileEntry } from "./discover-sql.ts";
+
+// Re-export file discovery for programmatic callers (e.g. Supabase CLI edge-runtime templates)
+export { loadDeclarativeSchema } from "./discover-sql.ts";
 // Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
 export type { ApplyResult, RoundResult } from "./round-apply.ts";
