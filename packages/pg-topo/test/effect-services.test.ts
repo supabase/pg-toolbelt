@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { analyzeAndSortEffect } from "../src/analyze-and-sort.ts";
 import { ParseError } from "../src/errors.ts";
 import type { Diagnostic } from "../src/model/types.ts";
-import { analyzeAndSortEffect } from "../src/analyze-and-sort.ts";
-import { ParserServiceLive } from "../src/services/parser-live.ts";
 import { ParserService } from "../src/services/parser.ts";
+import { ParserServiceLive } from "../src/services/parser-live.ts";
 
 describe("ParserService", () => {
   test("ParserServiceLive loads and parses SQL", async () => {
@@ -74,8 +74,8 @@ describe("ParserService", () => {
       Effect.runPromise,
     );
     expect(result.ordered.length).toBe(0);
-    expect(
-      result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR"),
-    ).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR")).toBe(
+      true,
+    );
   });
 });

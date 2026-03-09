@@ -2,7 +2,7 @@
  * Type definitions for the Plan module.
  */
 
-import z from "zod";
+import { Schema } from "effect";
 import type { Change } from "../change.types.ts";
 import type { FilterDSL } from "../integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
@@ -119,38 +119,37 @@ export interface HierarchicalPlan {
 }
 
 /**
+ * Plan risk schema — either safe or data_loss with affected statements.
+ */
+export const PlanRiskSchema = Schema.Union(
+  Schema.Struct({ level: Schema.Literal("safe") }),
+  Schema.Struct({
+    level: Schema.Literal("data_loss"),
+    statements: Schema.mutable(Schema.Array(Schema.String)),
+  }),
+);
+
+/**
  * Plan schema for serialization/deserialization.
  */
-export const PlanSchema = z.object({
-  version: z.number(),
-  toolVersion: z.string().optional(),
-  source: z.object({
-    fingerprint: z.string(),
+export const PlanSchema = Schema.mutable(
+  Schema.Struct({
+    version: Schema.Number,
+    toolVersion: Schema.optional(Schema.String),
+    source: Schema.mutable(Schema.Struct({ fingerprint: Schema.String })),
+    target: Schema.mutable(Schema.Struct({ fingerprint: Schema.String })),
+    statements: Schema.mutable(Schema.Array(Schema.String)),
+    role: Schema.optional(Schema.String),
+    filter: Schema.optional(Schema.Unknown), // FilterDSL - complex recursive type, validated at compile time
+    serialize: Schema.optional(Schema.Unknown), // SerializeDSL - complex recursive type, validated at compile time
+    risk: Schema.optional(PlanRiskSchema),
   }),
-  target: z.object({
-    fingerprint: z.string(),
-  }),
-  statements: z.array(z.string()),
-  role: z.string().optional(),
-  filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
-  serialize: z.any().optional(), // SerializeDSL - complex recursive type, validated at compile time
-  risk: z
-    .discriminatedUnion("level", [
-      z.object({
-        level: z.literal("safe"),
-      }),
-      z.object({
-        level: z.literal("data_loss"),
-        statements: z.array(z.string()),
-      }),
-    ])
-    .optional(),
-});
+);
 
 /**
  * A migration plan containing all changes to transform one database schema into another.
  */
-export type Plan = z.infer<typeof PlanSchema>;
+export type Plan = typeof PlanSchema.Type;
 
 /**
  * Options for creating a plan.

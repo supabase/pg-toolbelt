@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 
 /**
@@ -14,13 +14,15 @@ import { BasePgModel } from "../../base.model.ts";
  * User mappings are not schema-qualified (no schema property).
  * User can be a role name, CURRENT_USER, PUBLIC, etc.
  */
-const userMappingPropsSchema = z.object({
-  user: z.string(),
-  server: z.string(),
-  options: z.array(z.string()).nullable(),
-});
+const userMappingPropsSchema = Schema.mutable(
+  Schema.Struct({
+    user: Schema.String,
+    server: Schema.String,
+    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  }),
+);
 
-export type UserMappingProps = z.infer<typeof userMappingPropsSchema>;
+export type UserMappingProps = typeof userMappingPropsSchema.Type;
 
 export class UserMapping extends BasePgModel {
   public readonly user: UserMappingProps["user"];
@@ -75,22 +77,23 @@ export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
         srv.srvname, um.umuser
   `);
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = mappingRows.map((row: unknown) => {
-    const parsed = userMappingPropsSchema.parse(row);
+    const parsed = Schema.decodeUnknownSync(userMappingPropsSchema)(row);
     // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-    if (parsed.options && parsed.options.length > 0) {
+    let options = parsed.options;
+    if (options && options.length > 0) {
       const parsedOptions: string[] = [];
-      for (const opt of parsed.options) {
+      for (const opt of options) {
         const eqIndex = opt.indexOf("=");
         if (eqIndex > 0) {
           parsedOptions.push(opt.substring(0, eqIndex));
           parsedOptions.push(opt.substring(eqIndex + 1));
         }
       }
-      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+      options = parsedOptions.length > 0 ? parsedOptions : null;
     }
-    return parsed;
+    return { ...parsed, options };
   });
   return validatedRows.map((row: UserMappingProps) => new UserMapping(row));
 }

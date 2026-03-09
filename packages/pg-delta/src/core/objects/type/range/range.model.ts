@@ -1,39 +1,41 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
 
-const rangePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  owner: z.string(),
-  comment: z.string().nullable(),
+const rangePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
 
-  // Subtype information
-  subtype_schema: z.string(),
-  subtype_str: z.string(),
+    // Subtype information
+    subtype_schema: Schema.String,
+    subtype_str: Schema.String,
 
-  // Optional, only present when non-default relative to subtype
-  collation: z.string().nullable(),
+    // Optional, only present when non-default relative to subtype
+    collation: Schema.NullOr(Schema.String),
 
-  // Canonical and diff functions when present (non-default)
-  canonical_function_schema: z.string().nullable(),
-  canonical_function_name: z.string().nullable(),
-  subtype_diff_schema: z.string().nullable(),
-  subtype_diff_name: z.string().nullable(),
+    // Canonical and diff functions when present (non-default)
+    canonical_function_schema: Schema.NullOr(Schema.String),
+    canonical_function_name: Schema.NullOr(Schema.String),
+    subtype_diff_schema: Schema.NullOr(Schema.String),
+    subtype_diff_name: Schema.NullOr(Schema.String),
 
-  // Optional: print only when non-default (see extractor logic)
-  subtype_opclass_schema: z.string().nullable(),
-  subtype_opclass_name: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+    // Optional: print only when non-default (see extractor logic)
+    subtype_opclass_schema: Schema.NullOr(Schema.String),
+    subtype_opclass_name: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type RangePrivilegeProps = PrivilegeProps;
-export type RangeProps = z.infer<typeof rangePropsSchema>;
+export type RangeProps = typeof rangePropsSchema.Type;
 
 export class Range extends BasePgModel {
   public readonly schema: RangeProps["schema"];
@@ -182,6 +184,8 @@ where not t.typnamespace::regnamespace::text like any(array['pg\_%', 'informatio
   and e.objid is null
 order by 1, 2
   `);
-  const validated = rows.map((row: unknown) => rangePropsSchema.parse(row));
+  const validated = rows.map((row: unknown) =>
+    Schema.decodeUnknownSync(rangePropsSchema)(row),
+  );
   return validated.map((row: RangeProps) => new Range(row));
 }

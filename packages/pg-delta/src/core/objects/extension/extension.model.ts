@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
 /**
@@ -19,17 +19,19 @@ import { BasePgModel } from "../base.model.ts";
  *  - extconfig, extcondition
  * https://www.postgresql.org/docs/current/catalog-pg-extension.html
  */
-const extensionPropsSchema = z.object({
-  name: z.string(),
-  schema: z.string(),
-  relocatable: z.boolean(),
-  version: z.string(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  members: z.array(z.string()),
-});
+const extensionPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    schema: Schema.String,
+    relocatable: Schema.Boolean,
+    version: Schema.String,
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    members: Schema.mutable(Schema.Array(Schema.String)),
+  }),
+);
 
-export type ExtensionProps = z.infer<typeof extensionPropsSchema>;
+export type ExtensionProps = typeof extensionPropsSchema.Type;
 
 export class Extension extends BasePgModel {
   public readonly name: ExtensionProps["name"];
@@ -272,9 +274,9 @@ export async function extractExtensions(pool: Pool): Promise<Extension[]> {
   order by
     er.name
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = extensionRows.map((row: unknown) =>
-    extensionPropsSchema.parse(row),
+    Schema.decodeUnknownSync(extensionPropsSchema)(row),
   );
   return validatedRows.map((row: ExtensionProps) => new Extension(row));
 }

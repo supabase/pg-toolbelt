@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
-import type { ParsedStatement } from "../ingest/parse.ts";
 import type { ParseError } from "../errors.ts";
+import type { ParsedStatement } from "../ingest/parse.ts";
 import type { Diagnostic } from "../model/types.ts";
 
 export interface ParserApi {

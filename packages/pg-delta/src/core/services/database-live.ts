@@ -7,8 +7,8 @@ import {
   ConnectionTimeoutError,
   SslConfigError,
 } from "../errors.ts";
-import { createPool, endPool } from "../postgres-config.ts";
 import { parseSslConfig } from "../plan/ssl-config.ts";
+import { createPool, endPool } from "../postgres-config.ts";
 import type { DatabaseApi } from "./database.ts";
 
 const DEFAULT_CONNECT_TIMEOUT_MS =
@@ -55,9 +55,7 @@ export const makeScopedPool = (
           onConnect: async (client) => {
             await client.query("SET search_path = ''");
             if (options?.role) {
-              await client.query(
-                `SET ROLE ${escapeIdentifier(options.role)}`,
-              );
+              await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
             }
           },
         }),
@@ -74,9 +72,7 @@ export const makeScopedPool = (
           new Promise<never>((_, reject) =>
             setTimeout(
               () =>
-                reject(
-                  new Error(`Connection timed out after ${timeoutMs}ms`),
-                ),
+                reject(new Error(`Connection timed out after ${timeoutMs}ms`)),
               timeoutMs,
             ),
           ),

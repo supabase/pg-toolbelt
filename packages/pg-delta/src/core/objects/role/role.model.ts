@@ -1,43 +1,56 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-const membershipInfoSchema = z.object({
-  member: z.string(),
-  grantor: z.string(),
-  admin_option: z.boolean(),
-  inherit_option: z.boolean().nullish(),
-  set_option: z.boolean().nullish(),
-});
+const membershipInfoSchema = Schema.mutable(
+  Schema.Struct({
+    member: Schema.String,
+    grantor: Schema.String,
+    admin_option: Schema.Boolean,
+    inherit_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    set_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  }),
+);
 
-const defaultPrivilegeSchema = z.object({
-  in_schema: z.string().nullable(),
-  objtype: z.enum(["r", "S", "f", "T", "n"]),
-  grantee: z.string(),
-  privileges: z.array(
-    z.object({ privilege: z.string(), grantable: z.boolean() }),
-  ),
-  is_implicit: z.boolean(),
-});
+const defaultPrivilegeSchema = Schema.mutable(
+  Schema.Struct({
+    in_schema: Schema.NullOr(Schema.String),
+    objtype: Schema.Literal("r", "S", "f", "T", "n"),
+    grantee: Schema.String,
+    privileges: Schema.mutable(
+      Schema.Array(
+        Schema.mutable(
+          Schema.Struct({
+            privilege: Schema.String,
+            grantable: Schema.Boolean,
+          }),
+        ),
+      ),
+    ),
+    is_implicit: Schema.Boolean,
+  }),
+);
 
-const rolePropsSchema = z.object({
-  name: z.string(),
-  is_superuser: z.boolean(),
-  can_inherit: z.boolean(),
-  can_create_roles: z.boolean(),
-  can_create_databases: z.boolean(),
-  can_login: z.boolean(),
-  can_replicate: z.boolean(),
-  connection_limit: z.number().nullable(),
-  can_bypass_rls: z.boolean(),
-  config: z.array(z.string()).nullable(),
-  comment: z.string().nullable(),
-  members: z.array(membershipInfoSchema),
-  default_privileges: z.array(defaultPrivilegeSchema),
-});
+const rolePropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    is_superuser: Schema.Boolean,
+    can_inherit: Schema.Boolean,
+    can_create_roles: Schema.Boolean,
+    can_create_databases: Schema.Boolean,
+    can_login: Schema.Boolean,
+    can_replicate: Schema.Boolean,
+    connection_limit: Schema.NullOr(Schema.Number),
+    can_bypass_rls: Schema.Boolean,
+    config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    comment: Schema.NullOr(Schema.String),
+    members: Schema.mutable(Schema.Array(membershipInfoSchema)),
+    default_privileges: Schema.mutable(Schema.Array(defaultPrivilegeSchema)),
+  }),
+);
 
-export type RoleProps = z.infer<typeof rolePropsSchema>;
+export type RoleProps = typeof rolePropsSchema.Type;
 
 export class Role extends BasePgModel {
   public readonly name: RoleProps["name"];
@@ -444,9 +457,9 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
     roleRows = result.rows;
   }
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = roleRows.map((row: unknown) =>
-    rolePropsSchema.parse(row),
+    Schema.decodeUnknownSync(rolePropsSchema)(row),
   );
   return validatedRows.map((row: RoleProps) => new Role(row));
 }

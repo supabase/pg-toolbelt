@@ -1,7 +1,7 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { FileSystem } from "@effect/platform";
+import { Effect } from "effect";
 import { analyzeAndSort, analyzeAndSortEffect } from "./analyze-and-sort.ts";
 import type { ParseError } from "./errors.ts";
 import { discoverSqlFiles, discoverSqlFilesEffect } from "./ingest/discover.ts";
@@ -191,10 +191,7 @@ const remapResult = (
 ): AnalyzeResult => {
   const filePathMap = new Map<string, string>();
   for (let i = 0; i < discoveryFiles.length; i += 1) {
-    filePathMap.set(
-      `<input:${i}>`,
-      toStablePath(discoveryFiles[i], basePath),
-    );
+    filePathMap.set(`<input:${i}>`, toStablePath(discoveryFiles[i], basePath));
   }
 
   const remapFilePath = (filePath: string): string =>

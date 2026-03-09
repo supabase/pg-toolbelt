@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../../base.model.ts";
 import {
   type PrivilegeProps,
@@ -17,20 +17,20 @@ import {
  *
  * Foreign Data Wrappers are not schema-qualified (no schema property).
  */
-const foreignDataWrapperPropsSchema = z.object({
-  name: z.string(),
-  owner: z.string(),
-  handler: z.string().nullable(),
-  validator: z.string().nullable(),
-  options: z.array(z.string()).nullable(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const foreignDataWrapperPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    owner: Schema.String,
+    handler: Schema.NullOr(Schema.String),
+    validator: Schema.NullOr(Schema.String),
+    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type ForeignDataWrapperPrivilegeProps = PrivilegeProps;
-export type ForeignDataWrapperProps = z.infer<
-  typeof foreignDataWrapperPropsSchema
->;
+export type ForeignDataWrapperProps = typeof foreignDataWrapperPropsSchema.Type;
 
 export class ForeignDataWrapper extends BasePgModel {
   public readonly name: ForeignDataWrapperProps["name"];
@@ -126,22 +126,23 @@ export async function extractForeignDataWrappers(
         fdw.fdwname
   `);
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = fdwRows.map((row: unknown) => {
-    const parsed = foreignDataWrapperPropsSchema.parse(row);
+    const parsed = Schema.decodeUnknownSync(foreignDataWrapperPropsSchema)(row);
     // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-    if (parsed.options && parsed.options.length > 0) {
+    let options = parsed.options;
+    if (options && options.length > 0) {
       const parsedOptions: string[] = [];
-      for (const opt of parsed.options) {
+      for (const opt of options) {
         const eqIndex = opt.indexOf("=");
         if (eqIndex > 0) {
           parsedOptions.push(opt.substring(0, eqIndex));
           parsedOptions.push(opt.substring(eqIndex + 1));
         }
       }
-      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+      options = parsedOptions.length > 0 ? parsedOptions : null;
     }
-    return parsed;
+    return { ...parsed, options };
   });
   return validatedRows.map(
     (row: ForeignDataWrapperProps) => new ForeignDataWrapper(row),

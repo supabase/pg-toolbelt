@@ -1,7 +1,7 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { FileSystem } from "@effect/platform";
+import { Effect } from "effect";
 
 type DiscoveryResult = {
   files: string[];

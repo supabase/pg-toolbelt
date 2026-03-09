@@ -1,18 +1,22 @@
-import z from "zod";
+import { Schema } from "effect";
 import type { Change } from "../change.types.ts";
 import type { BaseChange } from "./base.change.ts";
 
 /**
  * Privilege properties that all privilege objects share.
  */
-export const privilegePropsSchema = z.object({
-  grantee: z.string(),
-  privilege: z.string(),
-  grantable: z.boolean(),
-  columns: z.array(z.string()).nullable().optional(),
-});
+export const privilegePropsSchema = Schema.mutable(
+  Schema.Struct({
+    grantee: Schema.String,
+    privilege: Schema.String,
+    grantable: Schema.Boolean,
+    columns: Schema.optional(
+      Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    ),
+  }),
+);
 
-export type PrivilegeProps = z.infer<typeof privilegePropsSchema>;
+export type PrivilegeProps = typeof privilegePropsSchema.Type;
 
 /**
  * Result of privilege diffing for a single grantee

@@ -18,9 +18,9 @@ describe("analyzeAndSortFromFilesEffect", () => {
     const result = await analyzeAndSortFromFilesEffect([
       "/nonexistent/path/does/not/exist",
     ]).pipe(Effect.provide(TestLayer), Effect.runPromise);
-    expect(
-      result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR"),
-    ).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR")).toBe(
+      true,
+    );
   });
 
   test("empty roots returns discovery error", async () => {
@@ -29,8 +29,8 @@ describe("analyzeAndSortFromFilesEffect", () => {
       Effect.runPromise,
     );
     expect(result.ordered.length).toBe(0);
-    expect(
-      result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR"),
-    ).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR")).toBe(
+      true,
+    );
   });
 });

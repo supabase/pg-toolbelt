@@ -1,44 +1,48 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 
-const TableRelkindSchema = z.enum([
+const TableRelkindSchema = Schema.Literal(
   "r", // table (regular relation)
   "m", // materialized view
   "p", // partitioned table
-]);
+);
 
-const indexPropsSchema = z.object({
-  schema: z.string(),
-  table_name: z.string(),
-  name: z.string(),
-  storage_params: z.array(z.string()),
-  statistics_target: z.array(z.number()),
-  index_type: z.string(),
-  tablespace: z.string().nullable(),
-  is_unique: z.boolean(),
-  is_primary: z.boolean(),
-  is_exclusion: z.boolean(),
-  nulls_not_distinct: z.boolean(),
-  immediate: z.boolean(),
-  is_clustered: z.boolean(),
-  is_replica_identity: z.boolean(),
-  key_columns: z.array(z.number()),
-  column_collations: z.array(z.string().nullable()),
-  operator_classes: z.array(z.string()),
-  column_options: z.array(z.number()),
-  index_expressions: z.string().nullable(),
-  partial_predicate: z.string().nullable(),
-  is_owned_by_constraint: z.boolean(),
-  table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
-  is_partitioned_index: z.boolean(),
-  is_index_partition: z.boolean(),
-  parent_index_name: z.string().nullable(),
-  definition: z.string(),
-  comment: z.string().nullable(),
-  owner: z.string(),
-});
+const indexPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    table_name: Schema.String,
+    name: Schema.String,
+    storage_params: Schema.mutable(Schema.Array(Schema.String)),
+    statistics_target: Schema.mutable(Schema.Array(Schema.Number)),
+    index_type: Schema.String,
+    tablespace: Schema.NullOr(Schema.String),
+    is_unique: Schema.Boolean,
+    is_primary: Schema.Boolean,
+    is_exclusion: Schema.Boolean,
+    nulls_not_distinct: Schema.Boolean,
+    immediate: Schema.Boolean,
+    is_clustered: Schema.Boolean,
+    is_replica_identity: Schema.Boolean,
+    key_columns: Schema.mutable(Schema.Array(Schema.Number)),
+    column_collations: Schema.mutable(
+      Schema.Array(Schema.NullOr(Schema.String)),
+    ),
+    operator_classes: Schema.mutable(Schema.Array(Schema.String)),
+    column_options: Schema.mutable(Schema.Array(Schema.Number)),
+    index_expressions: Schema.NullOr(Schema.String),
+    partial_predicate: Schema.NullOr(Schema.String),
+    is_owned_by_constraint: Schema.Boolean,
+    table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
+    is_partitioned_index: Schema.Boolean,
+    is_index_partition: Schema.Boolean,
+    parent_index_name: Schema.NullOr(Schema.String),
+    definition: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+  }),
+);
 
 /**
  * All properties exposed by CREATE INDEX statement are included in diff output.
@@ -53,7 +57,7 @@ const indexPropsSchema = z.object({
  *
  * Other properties require dropping and creating a new index.
  */
-export type IndexProps = z.infer<typeof indexPropsSchema>;
+export type IndexProps = typeof indexPropsSchema.Type;
 
 export class Index extends BasePgModel {
   public readonly schema: IndexProps["schema"];
@@ -362,9 +366,9 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = indexRows.map((row: unknown) =>
-    indexPropsSchema.parse(row),
+    Schema.decodeUnknownSync(indexPropsSchema)(row),
   );
   return validatedRows.map((row: IndexProps) => new Index(row));
 }

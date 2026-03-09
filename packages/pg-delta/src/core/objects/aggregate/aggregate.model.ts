@@ -1,84 +1,90 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const AggregateKindSchema = z.enum([
+const AggregateKindSchema = Schema.Literal(
   "n", // normal aggregate
   "o", // ordered-set aggregate
   "h", // hypothetical-set aggregate
-]);
+);
 
-const FunctionParallelSafetySchema = z.enum([
+const FunctionParallelSafetySchema = Schema.Literal(
   "u", // UNSAFE
   "s", // SAFE
   "r", // RESTRICTED
-]);
+);
 
-const FunctionArgumentModeSchema = z.enum([
+const FunctionArgumentModeSchema = Schema.Literal(
   "i", // IN parameter
   "o", // OUT parameter
   "b", // INOUT parameter
   "v", // VARIADIC parameter
   "t", // TABLE parameter
-]);
+);
 
-const FinalFunctionModifySchema = z.enum([
+const FinalFunctionModifySchema = Schema.Literal(
   "r", // READ_ONLY
   "s", // SHAREABLE
   "w", // READ_WRITE
-]);
+);
 
-const aggregatePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  identity_arguments: z.string(),
-  kind: z.literal("a"),
-  aggkind: AggregateKindSchema,
-  num_direct_args: z.number(),
-  return_type: z.string(),
-  return_type_schema: z.string().nullable(),
-  parallel_safety: FunctionParallelSafetySchema,
-  is_strict: z.boolean(),
-  transition_function: z.string(),
-  state_data_type: z.string(),
-  state_data_type_schema: z.string().nullable(),
-  state_data_space: z.number(),
-  final_function: z.string().nullable(),
-  final_function_extra_args: z.boolean(),
-  final_function_modify: FinalFunctionModifySchema.nullable(),
-  combine_function: z.string().nullable(),
-  serial_function: z.string().nullable(),
-  deserial_function: z.string().nullable(),
-  initial_condition: z.string().nullable(),
-  moving_transition_function: z.string().nullable(),
-  moving_inverse_function: z.string().nullable(),
-  moving_state_data_type: z.string().nullable(),
-  moving_state_data_type_schema: z.string().nullable(),
-  moving_state_data_space: z.number().nullable(),
-  moving_final_function: z.string().nullable(),
-  moving_final_function_extra_args: z.boolean(),
-  moving_final_function_modify: FinalFunctionModifySchema.nullable(),
-  moving_initial_condition: z.string().nullable(),
-  sort_operator: z.string().nullable(),
-  argument_count: z.number(),
-  argument_default_count: z.number(),
-  argument_names: z.array(z.string()).nullable(),
-  argument_types: z.array(z.string()).nullable(),
-  all_argument_types: z.array(z.string()).nullable(),
-  argument_modes: z.array(FunctionArgumentModeSchema).nullable(),
-  argument_defaults: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const aggregatePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    identity_arguments: Schema.String,
+    kind: Schema.Literal("a"),
+    aggkind: AggregateKindSchema,
+    num_direct_args: Schema.Number,
+    return_type: Schema.String,
+    return_type_schema: Schema.NullOr(Schema.String),
+    parallel_safety: FunctionParallelSafetySchema,
+    is_strict: Schema.Boolean,
+    transition_function: Schema.String,
+    state_data_type: Schema.String,
+    state_data_type_schema: Schema.NullOr(Schema.String),
+    state_data_space: Schema.Number,
+    final_function: Schema.NullOr(Schema.String),
+    final_function_extra_args: Schema.Boolean,
+    final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
+    combine_function: Schema.NullOr(Schema.String),
+    serial_function: Schema.NullOr(Schema.String),
+    deserial_function: Schema.NullOr(Schema.String),
+    initial_condition: Schema.NullOr(Schema.String),
+    moving_transition_function: Schema.NullOr(Schema.String),
+    moving_inverse_function: Schema.NullOr(Schema.String),
+    moving_state_data_type: Schema.NullOr(Schema.String),
+    moving_state_data_type_schema: Schema.NullOr(Schema.String),
+    moving_state_data_space: Schema.NullOr(Schema.Number),
+    moving_final_function: Schema.NullOr(Schema.String),
+    moving_final_function_extra_args: Schema.Boolean,
+    moving_final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
+    moving_initial_condition: Schema.NullOr(Schema.String),
+    sort_operator: Schema.NullOr(Schema.String),
+    argument_count: Schema.Number,
+    argument_default_count: Schema.Number,
+    argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    all_argument_types: Schema.NullOr(
+      Schema.mutable(Schema.Array(Schema.String)),
+    ),
+    argument_modes: Schema.NullOr(
+      Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
+    ),
+    argument_defaults: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type AggregatePrivilegeProps = PrivilegeProps;
-type AggregateProps = z.infer<typeof aggregatePropsSchema>;
+type AggregateProps = typeof aggregatePropsSchema.Type;
 
 export class Aggregate extends BasePgModel {
   public readonly schema: AggregateProps["schema"];
@@ -311,7 +317,7 @@ order by
   `);
 
   const validatedRows = aggregateRows.map((row: unknown) =>
-    aggregatePropsSchema.parse(row),
+    Schema.decodeUnknownSync(aggregatePropsSchema)(row),
   );
   return validatedRows.map((row: AggregateProps) => new Aggregate(row));
 }

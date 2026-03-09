@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
@@ -17,20 +17,22 @@ import {
  * Other properties require dropping and creating a new language.
  */
 
-const languagePropsSchema = z.object({
-  name: z.string(),
-  is_trusted: z.boolean(),
-  is_procedural: z.boolean(),
-  call_handler: z.string().nullable(),
-  inline_handler: z.string().nullable(),
-  validator: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const languagePropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    is_trusted: Schema.Boolean,
+    is_procedural: Schema.Boolean,
+    call_handler: Schema.NullOr(Schema.String),
+    inline_handler: Schema.NullOr(Schema.String),
+    validator: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type LanguagePrivilegeProps = PrivilegeProps;
-export type LanguageProps = z.infer<typeof languagePropsSchema>;
+export type LanguageProps = typeof languagePropsSchema.Type;
 
 export class Language extends BasePgModel {
   public readonly name: LanguageProps["name"];
@@ -142,9 +144,9 @@ async function _extractLanguages(pool: Pool): Promise<Language[]> {
     validator: row.validator === "-" ? null : row.validator,
   }));
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = processedRows.map((row: unknown) =>
-    languagePropsSchema.parse(row),
+    Schema.decodeUnknownSync(languagePropsSchema)(row),
   );
   return validatedRows.map((row: LanguageProps) => new Language(row));
 }

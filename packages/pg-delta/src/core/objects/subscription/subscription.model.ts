@@ -1,31 +1,33 @@
+import { Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const subscriptionPropsSchema = z.object({
-  name: z.string(),
-  raw_name: z.string(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  enabled: z.boolean(),
-  binary: z.boolean(),
-  streaming: z.enum(["off", "on", "parallel"]),
-  two_phase: z.boolean(),
-  disable_on_error: z.boolean(),
-  password_required: z.boolean(),
-  run_as_owner: z.boolean(),
-  failover: z.boolean(),
-  conninfo: z.string(),
-  slot_name: z.string().nullable(),
-  slot_is_none: z.boolean(),
-  replication_slot_created: z.boolean(),
-  synchronous_commit: z.string(),
-  publications: z.array(z.string()),
-  origin: z.enum(["any", "none"]),
-});
+const subscriptionPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    raw_name: Schema.String,
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    enabled: Schema.Boolean,
+    binary: Schema.Boolean,
+    streaming: Schema.Literal("off", "on", "parallel"),
+    two_phase: Schema.Boolean,
+    disable_on_error: Schema.Boolean,
+    password_required: Schema.Boolean,
+    run_as_owner: Schema.Boolean,
+    failover: Schema.Boolean,
+    conninfo: Schema.String,
+    slot_name: Schema.NullOr(Schema.String),
+    slot_is_none: Schema.Boolean,
+    replication_slot_created: Schema.Boolean,
+    synchronous_commit: Schema.String,
+    publications: Schema.mutable(Schema.Array(Schema.String)),
+    origin: Schema.Literal("any", "none"),
+  }),
+);
 
-export type SubscriptionProps = z.infer<typeof subscriptionPropsSchema>;
+export type SubscriptionProps = typeof subscriptionPropsSchema.Type;
 
 export class Subscription extends BasePgModel {
   public readonly name: SubscriptionProps["name"];
@@ -185,6 +187,8 @@ export async function extractSubscriptions(
 
   const { rows } = await pool.query<SubscriptionProps>(queryText);
 
-  const validated = rows.map((row) => subscriptionPropsSchema.parse(row));
+  const validated = rows.map((row) =>
+    Schema.decodeUnknownSync(subscriptionPropsSchema)(row),
+  );
   return validated.map((row) => new Subscription(row));
 }
