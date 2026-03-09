@@ -54,10 +54,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `,
           assertSqlStatements: (statements) => {
             const normalizedStatements = statements.map((statement) =>
-              statement.replace(
-                "CREATE VIEW test_schema.user_emails AS SELECT users.id,\n    users.email\n   FROM test_schema.users",
-                "CREATE VIEW test_schema.user_emails AS SELECT id,\n    email\n   FROM test_schema.users",
-              ),
+              statement.startsWith(
+                "CREATE VIEW test_schema.user_emails AS SELECT",
+              )
+                ? statement.replaceAll("users.", "")
+                : statement,
             );
 
             expect(normalizedStatements).toMatchInlineSnapshot(`
