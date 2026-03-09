@@ -1,14 +1,13 @@
-import {
-  deparseSql,
-  loadModule as loadPlpgsqlParserModule,
-  parseSql,
-} from "plpgsql-parser";
+import { deparseSql, parseSql } from "plpgsql-parser";
+import { Effect, ManagedRuntime } from "effect";
 import { parseAnnotations } from "../annotations/parse-annotations.ts";
 import type {
   AnnotationHints,
   Diagnostic,
   StatementId,
 } from "../model/types.ts";
+import { ParserServiceLive } from "../services/parser-live.ts";
+import { ParserService } from "../services/parser.ts";
 
 type RawParserStatement = {
   stmt?: unknown;
@@ -30,15 +29,6 @@ export type ParsedStatement = {
 type ParseContentResult = {
   statements: ParsedStatement[];
   diagnostics: Diagnostic[];
-};
-
-let parserModuleLoadPromise: Promise<void> | null = null;
-
-const ensureParserModuleLoaded = async (): Promise<void> => {
-  if (!parserModuleLoadPromise) {
-    parserModuleLoadPromise = loadPlpgsqlParserModule();
-  }
-  await parserModuleLoadPromise;
 };
 
 const ensureStatementTerminator = (sql: string): string =>
@@ -161,13 +151,24 @@ export const parseSqlContentImpl = async (
 };
 
 /**
- * Backward-compatible wrapper that ensures the parser module is loaded before parsing.
- * New code should use `ParserService` from `../services/parser.ts` instead.
+ * Module-level managed runtime — lazily builds ParserServiceLive on first use
+ * and reuses it for all subsequent calls. WASM loading happens exactly once
+ * through Effect.once inside ParserServiceLive.
+ */
+const parserRuntime = ManagedRuntime.make(ParserServiceLive);
+
+/**
+ * Backward-compatible wrapper that routes through ParserService.
+ * New code should use `ParserService` from `../services/parser.ts` directly.
  */
 export const parseSqlContent = async (
   content: string,
   sourceLabel: string,
 ): Promise<ParseContentResult> => {
-  await ensureParserModuleLoaded();
-  return parseSqlContentImpl(content, sourceLabel);
+  return parserRuntime.runPromise(
+    Effect.gen(function* () {
+      const parser = yield* ParserService;
+      return yield* parser.parseSqlContent(content, sourceLabel);
+    }),
+  );
 };

@@ -1,8 +1,18 @@
 import { Data } from "effect";
 
 /**
- * Fatal parser failure — the parser WASM module fails to load, or SQL syntax
- * is completely invalid. Non-fatal parse issues remain as diagnostics.
+ * Fatal failure loading the parser WASM module. Distinct from SQL-level parse
+ * errors so callers can differentiate infrastructure failures from bad input.
+ */
+export class WasmLoadError extends Data.TaggedError("WasmLoadError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+/**
+ * Fatal parser failure — SQL syntax is completely invalid or the parser
+ * encountered an unexpected error while processing input.
+ * Non-fatal parse issues remain as diagnostics.
  */
 export class ParseError extends Data.TaggedError("ParseError")<{
   readonly message: string;

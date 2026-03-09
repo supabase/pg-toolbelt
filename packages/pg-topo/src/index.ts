@@ -5,7 +5,12 @@
 // Promise-based exports (backward compatible — unchanged signatures)
 // ============================================================================
 export { analyzeAndSort, analyzeAndSortEffect } from "./analyze-and-sort.ts";
-export { DiscoveryError, ParseError, ValidationError } from "./errors.ts";
+export {
+  DiscoveryError,
+  ParseError,
+  ValidationError,
+  WasmLoadError,
+} from "./errors.ts";
 export {
   analyzeAndSortFromFiles,
   analyzeAndSortFromFilesEffect,
