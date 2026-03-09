@@ -9,6 +9,7 @@ on:
       - ready_for_review
     branches:
       - main
+      - changeset-release/main
   workflow_call:
 
 permissions:
