@@ -1,8 +1,8 @@
-import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
+import { getPgDeltaLogger } from "./logging.ts";
 
-const debugCatalog = debug("pg-delta:catalog");
+const logger = getPgDeltaLogger("catalog");
 
 import type { Change } from "./change.types.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
@@ -238,10 +238,9 @@ export function diffCatalogs(
     branchCatalog: branch,
   });
 
-  debugCatalog(
-    "changes catalog diff: %O",
-    stringifyWithBigInt(filteredChanges, 2),
-  );
+  logger.debug("changes catalog diff: {changes}", {
+    changes: stringifyWithBigInt(filteredChanges, 2),
+  });
 
   return filteredChanges;
 }

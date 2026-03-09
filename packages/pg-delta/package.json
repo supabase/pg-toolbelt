@@ -20,6 +20,20 @@
       "require": "./dist/core/integrations/supabase.js",
       "types": "./dist/core/integrations/supabase.d.ts",
       "default": "./dist/core/integrations/supabase.js"
+    },
+    "./declarative": {
+      "bun": "./src/core/declarative-apply/index.ts",
+      "import": "./dist/core/declarative-apply/index.js",
+      "require": "./dist/core/declarative-apply/index.js",
+      "types": "./dist/core/declarative-apply/index.d.ts",
+      "default": "./dist/core/declarative-apply/index.js"
+    },
+    "./catalog-export": {
+      "bun": "./src/core/catalog-export/index.ts",
+      "import": "./dist/core/catalog-export/index.js",
+      "require": "./dist/core/catalog-export/index.js",
+      "types": "./dist/core/catalog-export/index.d.ts",
+      "default": "./dist/core/catalog-export/index.js"
     }
   },
   "bin": {
@@ -64,9 +78,11 @@
     "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
   },
   "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "@logtape/logtape": "^2.0.4",
     "@stricli/core": "^1.2.4",
-    "@ts-safeql/sql-tag": "^0.2.0",
     "@supabase/pg-topo": "workspace:*",
+    "@ts-safeql/sql-tag": "^0.2.0",
     "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "pg": "^8.17.2",

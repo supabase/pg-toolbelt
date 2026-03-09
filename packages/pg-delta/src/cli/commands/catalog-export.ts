@@ -10,6 +10,7 @@ import {
   stringifyCatalogSnapshot,
 } from "../../core/catalog.snapshot.ts";
 import { createManagedPool } from "../../core/postgres-config.ts";
+import { logSuccess } from "../ui.ts";
 
 export const catalogExportCommand = buildCommand({
   parameters: {
@@ -68,9 +69,7 @@ Use cases:
       const snapshot = serializeCatalog(catalog);
       const json = stringifyCatalogSnapshot(snapshot);
       await writeFile(flags.output, json, "utf-8");
-      this.process.stdout.write(
-        `Catalog snapshot written to ${flags.output}\n`,
-      );
+      logSuccess(this, `Catalog snapshot written to ${flags.output}`);
     } finally {
       await close();
     }

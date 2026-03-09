@@ -1,9 +1,9 @@
-import debug from "debug";
 import type { Change } from "../change.types.ts";
+import { getPgDeltaLogger } from "../logging.ts";
 import { findCycle } from "./topological-sort.ts";
 import type { Constraint, GraphData, PgDependRow } from "./types.ts";
 
-const debugGraph = debug("pg-delta:graph");
+const logger = getPgDeltaLogger("graph");
 
 /**
  * Generate a Mermaid diagram representation of the dependency graph for debugging.
@@ -229,9 +229,9 @@ export function printDebugGraph(
       requirementSets,
       dependenciesByReferencedId,
     );
-    debugGraph(
-      "\n==== Mermaid (cycle detected) ====\n%s\n==== end ====",
-      mermaidDiagram,
+    logger.debug(
+      "\n==== Mermaid (cycle detected) ====\n{diagram}\n==== end ====",
+      { diagram: mermaidDiagram },
     );
   } catch (_error) {
     // ignore debug printing errors

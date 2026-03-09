@@ -51,8 +51,15 @@ export function diffRoles(
     if (role.comment !== null) {
       changes.push(new CreateCommentOnRole({ role }));
     }
-    // MEMBERSHIPS: Grant memberships immediately after role creation
+    // MEMBERSHIPS: Grant memberships immediately after role creation.
+    // Members are already deduplicated by the Role model constructor.
     for (const membership of role.members) {
+      // Skip memberships where the member is the grantor (auto-created by
+      // CREATE ROLE — re-granting them, especially WITH ADMIN OPTION, fails
+      // with "ADMIN option cannot be granted back to your own grantor").
+      if (membership.grantor === membership.member) {
+        continue;
+      }
       changes.push(
         new GrantRoleMembership({
           role,
@@ -209,12 +216,19 @@ export function diffRoles(
     }
 
     // MEMBERSHIPS
+    // Members are already deduplicated by the Role model constructor.
     const mainMembers = new Map(mainRole.members.map((m) => [m.member, m]));
     const branchMembers = new Map(branchRole.members.map((m) => [m.member, m]));
 
     // Find new members to grant
     for (const [member, membership] of branchMembers) {
       if (!mainMembers.has(member)) {
+        // Skip memberships where the member is the grantor (auto-created by
+        // CREATE ROLE — re-granting them fails with "ADMIN option cannot be
+        // granted back to your own grantor").
+        if (membership.grantor === membership.member) {
+          continue;
+        }
         changes.push(
           new GrantRoleMembership({
             role: branchRole,
@@ -281,6 +295,11 @@ export function diffRoles(
           );
         }
         if (toGrant.admin || toGrant.inherit || toGrant.set) {
+          // Skip granting options back to the grantor (same restriction as
+          // for newly created roles).
+          if (branchMembership.grantor === branchMembership.member) {
+            continue;
+          }
           changes.push(
             new GrantRoleMembership({
               role: branchRole,

@@ -156,4 +156,124 @@ describe.concurrent("role.diff", () => {
     );
     expect(changes).toHaveLength(0);
   });
+
+  test("create role skips self-granted membership (member === grantor)", () => {
+    // Simulates the auto-created membership when postgres creates a role:
+    // PostgreSQL automatically makes the creator a member with grantor=self.
+    const role = new Role({
+      ...base,
+      name: "developer",
+      members: [
+        {
+          member: "postgres",
+          grantor: "postgres",
+          admin_option: true,
+          inherit_option: true,
+          set_option: true,
+        },
+      ],
+    });
+    const changes = diffRoles(
+      { version: 170000 },
+      {},
+      { [role.stableId]: role },
+    );
+    // Should only have CreateRole, no GrantRoleMembership for postgres
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(CreateRole);
+  });
+
+  test("create role keeps membership when member differs from grantor", () => {
+    const role = new Role({
+      ...base,
+      name: "developer",
+      members: [
+        {
+          member: "app_user",
+          grantor: "postgres",
+          admin_option: true,
+          inherit_option: true,
+          set_option: true,
+        },
+      ],
+    });
+    const changes = diffRoles(
+      { version: 170000 },
+      {},
+      { [role.stableId]: role },
+    );
+    // Should have CreateRole + GrantRoleMembership
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(CreateRole);
+    expect(changes[1]).toBeInstanceOf(GrantRoleMembership);
+  });
+
+  test("create role keeps mixed-grantor membership where not all grantors equal member", () => {
+    // Model dedup should prefer the non-self grantor, so diff keeps the membership
+    const role = new Role({
+      ...base,
+      name: "developer",
+      members: [
+        {
+          member: "postgres",
+          grantor: "postgres",
+          admin_option: false,
+          inherit_option: true,
+          set_option: true,
+        },
+        {
+          member: "postgres",
+          grantor: "supabase_admin",
+          admin_option: true,
+          inherit_option: true,
+          set_option: true,
+        },
+      ],
+    });
+    const changes = diffRoles(
+      { version: 170000 },
+      {},
+      { [role.stableId]: role },
+    );
+    // One grantor is different from member, dedup prefers it → membership kept
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(CreateRole);
+    expect(changes[1]).toBeInstanceOf(GrantRoleMembership);
+  });
+
+  test("alter role skips granting admin to self-granted membership", () => {
+    const mainRole = new Role({
+      ...base,
+      name: "developer",
+      members: [
+        {
+          member: "postgres",
+          grantor: "postgres",
+          admin_option: false,
+          inherit_option: true,
+          set_option: true,
+        },
+      ],
+    });
+    const branchRole = new Role({
+      ...base,
+      name: "developer",
+      members: [
+        {
+          member: "postgres",
+          grantor: "postgres",
+          admin_option: true,
+          inherit_option: true,
+          set_option: true,
+        },
+      ],
+    });
+    const changes = diffRoles(
+      { version: 170000 },
+      { [mainRole.stableId]: mainRole },
+      { [branchRole.stableId]: branchRole },
+    );
+    // Should produce no changes — granting admin back to self would fail
+    expect(changes).toHaveLength(0);
+  });
 });
