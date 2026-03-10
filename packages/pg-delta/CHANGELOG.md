@@ -1,5 +1,27 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.6
+
+### Patch Changes
+
+- 7acf51b: fix(package): replace workspace protocol for pg-topo runtime dependency so npm releases resolve in Deno
+
+## 1.0.0-alpha.5
+
+### Minor Changes
+
+- 2441e1c: Add `@supabase/pg-delta/catalog-export` subpath export for programmatic catalog export (extract, serialize, deserialize, createManagedPool) without pulling in the full package API.
+- 646e6be: Fix duplicate role creation from different grantors
+- f7de56c: fix correct order for grant/revoke
+- bf47b8b: fix some invalid postgres syntax in serialize
+- 2441e1c: feat: add declarative export/apply and catalog-export to pg-delta
+
+### Patch Changes
+
+- 9c445f1: fix(roles): skip self-granted memberships to avoid ADMIN option error on PG 17+
+- Updated dependencies [2441e1c]
+  - @supabase/pg-topo@1.0.0-alpha.1
+
 ## 1.0.0-alpha.4
 
 ### Minor Changes

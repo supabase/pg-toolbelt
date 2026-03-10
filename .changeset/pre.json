@@ -3,18 +3,26 @@
   "tag": "alpha",
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0",
-    "@supabase/pg-topo": "0.1.1"
+    "@supabase/pg-topo": "0.1.1",
+    "@supabase/bun-istanbul-coverage": "1.0.0-alpha.0"
   },
   "changesets": [
+    "add-catalog-export-subpath",
     "brave-sails-kneel",
+    "clean-bees-fetch",
     "curvy-buckets-collect",
     "eight-moles-throw",
+    "fix-self-grant-admin-option",
+    "hungry-bushes-tan",
     "kind-balloons-invite",
+    "little-berries-wish",
     "major-cities-lose",
     "many-bobcats-divide",
+    "nine-candles-sleep",
     "rich-regions-sneeze",
     "ripe-ravens-doubt",
     "slick-moons-turn",
+    "smart-points-burn",
     "tall-canyons-add"
   ]
 }

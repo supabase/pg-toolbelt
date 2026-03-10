@@ -25,7 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       pg-delta: ${{ steps.changes.outputs.pg-delta }}
+      pg-delta-package-json: ${{ steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ steps.changes.outputs.pg-topo }}
+      pg-topo-package-json: ${{ steps.changes.outputs.pg-topo-package-json }}
       root: ${{ steps.changes.outputs.root }}
     steps:
       - name: Checkout
@@ -296,6 +298,30 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  deno2-library-e2e:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
+        needs.detect-changes.outputs.pg-topo-package-json == 'true'
+      )
+    needs:
+      - detect-changes
+    name: "Deno 2: Library golden path e2e"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run Deno e2e golden-path check
+        run: node .github/scripts/deno-library-e2e.mjs
+
   release-preview:
     needs:
       - check-types
@@ -305,6 +331,7 @@ jobs:
       - pg-delta-integration-pg15-compat
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
+      - deno2-library-e2e
     if: always() && !cancelled()
     name: Release preview
     runs-on: ubuntu-latest
