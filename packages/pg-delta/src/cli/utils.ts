@@ -13,7 +13,7 @@ import type { SqlFormatOptions } from "../core/plan/sql-format.ts";
 import { formatSqlScript } from "../core/plan/statements.ts";
 import { CliExitError } from "./errors.ts";
 import { formatTree } from "./formatters/index.ts";
-import { confirmAction, logError, logInfo, logWarning } from "./ui.ts";
+import { logError, logInfo, logWarning } from "./ui.ts";
 
 /**
  * Parse a JSON string inside an Effect context. Replaces the throwing
@@ -215,16 +215,4 @@ export function handleApplyResult(result: ApplyPlanResult): {
       return { exitCode: 0 };
     }
   }
-}
-
-/**
- * Prompts user for confirmation using clack.
- * Falls back to stdin confirmation in non-interactive mode.
- */
-export function promptConfirmation(question: string): Promise<boolean> {
-  const promptMessage = question
-    .replace(/\(y\/N\)\s*$/i, "")
-    .trim()
-    .replace(/\?$/, "");
-  return confirmAction(promptMessage);
 }

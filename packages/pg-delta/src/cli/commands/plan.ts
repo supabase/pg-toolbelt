@@ -13,7 +13,7 @@ import type { ChangeSerializer } from "../../core/integrations/serialize/seriali
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { ChangesDetected } from "../errors.ts";
-import { logInfo } from "../ui.ts";
+import { logInfo, writeOutput } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay, parseJsonEffect } from "../utils.ts";
@@ -201,7 +201,7 @@ export const planCommand = Command.make(
         yield* Effect.promise(() => writeFile(outputPath, content, "utf-8"));
         logInfo(`${label} written to ${outputPath}`);
       } else {
-        logInfo(content.endsWith("\n") ? content.trimEnd() : content);
+        writeOutput(content.endsWith("\n") ? content.trimEnd() : content);
       }
 
       return yield* Effect.fail(

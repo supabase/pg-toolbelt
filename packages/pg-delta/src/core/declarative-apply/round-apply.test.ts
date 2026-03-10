@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { configure, type LogRecord, reset } from "@logtape/logtape";
 import type { Pool, PoolClient, QueryResult } from "pg";
+import { configurePgDeltaLogging } from "../logging.ts";
 import {
   type RoundResult,
   rewriteAsOrReplace,
@@ -399,34 +399,21 @@ describe("roundApply", () => {
     });
     const pool = createMockPool(client);
 
-    const logs: LogRecord[] = [];
-    await configure({
-      reset: true,
-      sinks: {
-        capture: (record) => {
-          logs.push(record);
-        },
+    const logs: Array<{
+      level: string;
+      category: readonly string[];
+      rawMessage: string;
+      properties: Record<string, unknown>;
+    }> = [];
+    await configurePgDeltaLogging({
+      debug: "pg-delta:declarative-apply",
+      captureLogger: (entry) => {
+        logs.push(entry);
       },
-      loggers: [
-        {
-          category: ["pg-delta", "declarative-apply"],
-          sinks: ["capture"],
-          lowestLevel: "debug",
-        },
-        {
-          category: ["logtape"],
-          sinks: ["capture"],
-          lowestLevel: "error",
-        },
-      ],
     });
-    try {
-      const result = await roundApply({ pool, statements });
-      expect(result.status).toBe("success");
-      expect(result.rounds[0].deferred).toBe(1);
-    } finally {
-      await reset();
-    }
+    const result = await roundApply({ pool, statements });
+    expect(result.status).toBe("success");
+    expect(result.rounds[0].deferred).toBe(1);
 
     const deferredLog = logs.find(
       (record) =>

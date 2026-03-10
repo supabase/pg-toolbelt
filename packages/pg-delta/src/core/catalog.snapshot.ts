@@ -7,6 +7,7 @@
 
 import { Schema as EffectSchema } from "effect";
 import { Catalog } from "./catalog.model.ts";
+import { PgDependSchema } from "./depend.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { Collation } from "./objects/collation/collation.model.ts";
 import { Domain } from "./objects/domain/domain.model.ts";
@@ -32,7 +33,6 @@ import { CompositeType } from "./objects/type/composite-type/composite-type.mode
 import { Enum } from "./objects/type/enum/enum.model.ts";
 import { Range } from "./objects/type/range/range.model.ts";
 import { View } from "./objects/view/view.model.ts";
-import { PgDependSchema } from "./depend.ts";
 
 // ============================================================================
 // Schema for validation on deserialization

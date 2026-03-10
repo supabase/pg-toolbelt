@@ -416,6 +416,7 @@ Examples:
 Integrations provide pre-configured filter and serialization rules for specific database platforms or use cases. See [Integrations Documentation](./integrations.md) for details.
 
 Available built-in integrations:
+
 - `supabase` - Supabase-specific filtering and serialization rules
 
 You can also create custom integrations by providing a JSON file. See the integrations documentation for the DSL format.
@@ -435,12 +436,3 @@ pg-delta catalog-export --help
 pg-delta declarative export --help
 pg-delta declarative apply --help
 ```
-
----
-
-## Logging
-
-The CLI uses `logtape` for internal logging and `clack` for interactive UX.
-
-- `DEBUG`: enable debug categories (e.g. `DEBUG=pg-delta:*` or `DEBUG=pg-delta:declarative-apply`)
-- `PGDELTA_LOG_LEVEL`: set default logger threshold (`trace`, `debug`, `info`, `warning`, `error`, `fatal`)

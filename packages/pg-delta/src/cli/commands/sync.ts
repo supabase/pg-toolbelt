@@ -11,13 +11,12 @@ import type { ChangeSerializer } from "../../core/integrations/serialize/seriali
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import { CliExitError, UserCancelled } from "../errors.ts";
-import { logInfo } from "../ui.ts";
+import { logInfo, promptConfirmation, writeOutput } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import {
   formatPlanForDisplay,
   handleApplyResult,
   parseJsonEffect,
-  promptConfirmation,
   validatePlanRisk,
 } from "../utils.ts";
 
@@ -116,7 +115,7 @@ export const syncCommand = Command.make(
 
       // 2. Display the plan
       const { content } = formatPlanForDisplay(planResult, "tree");
-      logInfo(content);
+      writeOutput(content);
 
       // 3. Validate risk (suppress warning since it's already shown in the plan)
       const validation = validatePlanRisk(planResult.plan, args.unsafe, {

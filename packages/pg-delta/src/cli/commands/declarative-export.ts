@@ -18,7 +18,7 @@ import type { ChangeSerializer } from "../../core/integrations/serialize/seriali
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { CliExitError } from "../errors.ts";
-import { logInfo, logSuccess, logWarning } from "../ui.ts";
+import { logInfo, logSuccess, logWarning, writeOutput } from "../ui.ts";
 import {
   assertSafePath,
   buildFileTree,
@@ -277,8 +277,8 @@ export const declarativeExportCommand = Command.make(
         path.basename(outputDir) || outputDir,
         { diff, diffFocus: args.diffFocus },
       );
-      logInfo(treeOutput);
-      logInfo(
+      writeOutput(treeOutput);
+      writeOutput(
         `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted`,
       );
 

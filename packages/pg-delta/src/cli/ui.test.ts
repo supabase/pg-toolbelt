@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { confirmAction } from "./ui.ts";
-import { promptConfirmation } from "./utils.ts";
+import {
+  confirmAction,
+  logError,
+  logInfo,
+  logSuccess,
+  logWarning,
+  promptConfirmation,
+  writeOutput,
+} from "./ui.ts";
 
 interface MockStdioOptions {
   input: string;
@@ -12,7 +19,11 @@ interface MockStdioOptions {
 function withMockStdio(
   { input, stdinIsTTY = false, stdoutIsTTY = false }: MockStdioOptions,
   fn: () => Promise<unknown>,
-): { run: () => Promise<void>; getStdoutOutput: () => string } {
+): {
+  run: () => Promise<void>;
+  getStdoutOutput: () => string;
+  getStderrOutput: () => string;
+} {
   const fakeStdin = new PassThrough();
   const fakeStdout = new PassThrough();
   const fakeStderr = new PassThrough();
@@ -21,9 +32,14 @@ function withMockStdio(
   (fakeStderr as unknown as { isTTY?: boolean }).isTTY = false;
 
   let stdoutOutput = "";
+  let stderrOutput = "";
   fakeStdout.setEncoding("utf8");
   fakeStdout.on("data", (chunk: string) => {
     stdoutOutput += chunk;
+  });
+  fakeStderr.setEncoding("utf8");
+  fakeStderr.on("data", (chunk: string) => {
+    stderrOutput += chunk;
   });
 
   fakeStdin.end(input);
@@ -69,8 +85,38 @@ function withMockStdio(
       }
     },
     getStdoutOutput: () => stdoutOutput,
+    getStderrOutput: () => stderrOutput,
   };
 }
+
+describe("output routing", () => {
+  test("writes primary output to stdout in non-interactive mode", async () => {
+    const mock = withMockStdio({ input: "" }, async () => {
+      writeOutput("SELECT 1;");
+    });
+
+    await mock.run();
+
+    expect(mock.getStdoutOutput()).toBe("SELECT 1;\n");
+    expect(mock.getStderrOutput()).toBe("");
+  });
+
+  test("writes status logs to stderr in non-interactive mode", async () => {
+    const mock = withMockStdio({ input: "" }, async () => {
+      logInfo("No changes detected.");
+      logSuccess("Wrote file.");
+      logWarning("Careful.");
+      logError("Failed.");
+    });
+
+    await mock.run();
+
+    expect(mock.getStdoutOutput()).toBe("");
+    expect(mock.getStderrOutput()).toBe(
+      "No changes detected.\nWrote file.\nCareful.\nFailed.\n",
+    );
+  });
+});
 
 describe("confirmAction", () => {
   test("accepts piped yes input in non-interactive mode", async () => {

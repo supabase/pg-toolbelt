@@ -44,6 +44,10 @@ function writeLine(stream: NodeJS.WritableStream, message: string): void {
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
+export function writeOutput(message: string): void {
+  writeLine(process.stdout, message);
+}
+
 function isInteractiveCli(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY && !clack.isCI());
 }
@@ -53,7 +57,7 @@ export function logInfo(message: string): void {
     clack.log.info(message);
     return;
   }
-  writeLine(process.stdout, message);
+  writeLine(process.stderr, message);
 }
 
 export function logSuccess(message: string): void {
@@ -61,7 +65,7 @@ export function logSuccess(message: string): void {
     clack.log.success(message);
     return;
   }
-  writeLine(process.stdout, message);
+  writeLine(process.stderr, message);
 }
 
 export function logWarning(message: string): void {
@@ -94,4 +98,12 @@ export async function confirmAction(message: string): Promise<boolean> {
     return false;
   }
   return result;
+}
+
+export function promptConfirmation(question: string): Promise<boolean> {
+  const promptMessage = question
+    .replace(/\(y\/N\)\s*$/i, "")
+    .trim()
+    .replace(/\?$/, "");
+  return confirmAction(promptMessage);
 }
