@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.7
+
+### Minor Changes
+
+- 28f6a9b: fix: export createManagedPool from lib core
+
 ## 1.0.0-alpha.6
 
 ### Patch Changes
