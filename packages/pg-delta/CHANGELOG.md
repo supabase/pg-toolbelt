@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.6
+
+### Patch Changes
+
+- 7acf51b: fix(package): replace workspace protocol for pg-topo runtime dependency so npm releases resolve in Deno
+
 ## 1.0.0-alpha.5
 
 ### Minor Changes
