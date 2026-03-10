@@ -3,8 +3,8 @@
  */
 
 import { writeFile } from "node:fs/promises";
-import { Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import type { Catalog } from "../../core/catalog.model.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
@@ -18,76 +18,74 @@ import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay, parseJsonEffect } from "../utils.ts";
 
-const source = Options.text("source").pipe(
-  Options.withAlias("s"),
-  Options.withDescription(
+const source = Flag.string("source").pipe(
+  Flag.withAlias("s"),
+  Flag.withDescription(
     "Source (current state): postgres URL or catalog snapshot file path. Omit for empty baseline.",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const target = Options.text("target").pipe(
-  Options.withAlias("t"),
-  Options.withDescription(
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription(
     "Target (desired state): postgres URL or catalog snapshot file path",
   ),
 );
 
-const format = Options.choice("format", ["json", "sql"]).pipe(
-  Options.withDescription(
-    "Output format override: json (plan) or sql (script).",
-  ),
-  Options.optional,
+const format = Flag.choice("format", ["json", "sql"]).pipe(
+  Flag.withDescription("Output format override: json (plan) or sql (script)."),
+  Flag.optional,
 );
 
-const output = Options.text("output").pipe(
-  Options.withAlias("o"),
-  Options.withDescription(
+const output = Flag.string("output").pipe(
+  Flag.withAlias("o"),
+  Flag.withDescription(
     "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const role = Options.text("role").pipe(
-  Options.withDescription(
+const role = Flag.string("role").pipe(
+  Flag.withDescription(
     "Role to use when executing the migration (SET ROLE will be added to statements).",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const filter = Options.text("filter").pipe(
-  Options.withDescription(
+const filter = Flag.string("filter").pipe(
+  Flag.withDescription(
     'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const serialize = Options.text("serialize").pipe(
-  Options.withDescription(
+const serialize = Flag.string("serialize").pipe(
+  Flag.withDescription(
     'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const integration = Options.text("integration").pipe(
-  Options.withDescription(
+const integration = Flag.string("integration").pipe(
+  Flag.withDescription(
     "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const sqlFormat = Options.boolean("sql-format").pipe(
-  Options.withDescription(
+const sqlFormat = Flag.boolean("sql-format").pipe(
+  Flag.withDescription(
     "Format SQL output (opt-in for --format sql or .sql output).",
   ),
-  Options.withDefault(false),
+  Flag.withDefault(false),
 );
 
-const sqlFormatOptions = Options.text("sql-format-options").pipe(
-  Options.withDescription(
+const sqlFormatOptions = Flag.string("sql-format-options").pipe(
+  Flag.withDescription(
     'SQL format options as inline JSON (e.g., \'{"keywordCase":"upper","maxWidth":100}\').',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
 export const planCommand = Command.make(

@@ -57,14 +57,14 @@ describe("ParserService", () => {
 
     const result = await analyzeAndSortEffect(["bad sql"]).pipe(
       Effect.provide(FailingParser),
-      Effect.either,
+      Effect.result,
       Effect.runPromise,
     );
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("ParseError");
-      expect(result.left.message).toBe("parser crashed");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("ParseError");
+      expect(result.failure.message).toBe("parser crashed");
     }
   });
 

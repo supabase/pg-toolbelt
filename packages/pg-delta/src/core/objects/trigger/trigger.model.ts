@@ -5,51 +5,48 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const TriggerEnabledSchema = Schema.Literal(
+const TriggerEnabledSchema = Schema.Literals([
   "O", // ORIGIN - trigger fires in "origin" and "local" replica modes
   "D", // DISABLED - trigger is disabled
   "R", // REPLICA - trigger fires only in "replica" mode
   "A", // ALWAYS - trigger fires regardless of replication mode
-);
+]);
 
-const TriggerTableRelkindSchema = Schema.Literal(
+const TriggerTableRelkindSchema = Schema.Literals([
   "r", // ordinary table
   "p", // partitioned table
   "f", // foreign table
   "v", // view
   "m", // materialized view
-);
+]);
 
-const triggerPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    table_name: Schema.String,
-    table_relkind: TriggerTableRelkindSchema,
-    function_schema: Schema.String,
-    function_name: Schema.String,
-    trigger_type: Schema.Number,
-    enabled: TriggerEnabledSchema,
-    is_internal: Schema.Boolean,
-    deferrable: Schema.Boolean,
-    initially_deferred: Schema.Boolean,
-    argument_count: Schema.Number,
-    column_numbers: Schema.NullOr(Schema.mutable(Schema.Array(Schema.Number))),
-    arguments: Schema.mutable(Schema.Array(Schema.String)),
-    when_condition: Schema.NullOr(Schema.String),
-    old_table: Schema.NullOr(Schema.String),
-    new_table: Schema.NullOr(Schema.String),
-    is_partition_clone: Schema.Boolean,
-    parent_trigger_name: Schema.NullOr(Schema.String),
-    parent_table_schema: Schema.NullOr(Schema.String),
-    parent_table_name: Schema.NullOr(Schema.String),
-    is_on_partitioned_table: Schema.Boolean,
-    owner: Schema.String,
-    definition: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-  }),
-);
-
+const triggerPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  table_name: Schema.String,
+  table_relkind: TriggerTableRelkindSchema,
+  function_schema: Schema.String,
+  function_name: Schema.String,
+  trigger_type: Schema.Number,
+  enabled: TriggerEnabledSchema,
+  is_internal: Schema.Boolean,
+  deferrable: Schema.Boolean,
+  initially_deferred: Schema.Boolean,
+  argument_count: Schema.Number,
+  column_numbers: Schema.NullOr(Schema.mutable(Schema.Array(Schema.Number))),
+  arguments: Schema.mutable(Schema.Array(Schema.String)),
+  when_condition: Schema.NullOr(Schema.String),
+  old_table: Schema.NullOr(Schema.String),
+  new_table: Schema.NullOr(Schema.String),
+  is_partition_clone: Schema.Boolean,
+  parent_trigger_name: Schema.NullOr(Schema.String),
+  parent_table_schema: Schema.NullOr(Schema.String),
+  parent_table_name: Schema.NullOr(Schema.String),
+  is_on_partitioned_table: Schema.Boolean,
+  owner: Schema.String,
+  definition: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+});
 export type TriggerProps = typeof triggerPropsSchema.Type;
 
 export class Trigger extends BasePgModel {

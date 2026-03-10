@@ -9,71 +9,68 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const FunctionKindSchema = Schema.Literal(
+const FunctionKindSchema = Schema.Literals([
   "f", // function
   "p", // procedure
   "a", // aggregate function
   "w", // window function
-);
+]);
 
-const FunctionVolatilitySchema = Schema.Literal(
+const FunctionVolatilitySchema = Schema.Literals([
   "i", // IMMUTABLE
   "s", // STABLE
   "v", // VOLATILE
-);
+]);
 
-const FunctionParallelSafetySchema = Schema.Literal(
+const FunctionParallelSafetySchema = Schema.Literals([
   "u", // UNSAFE (cannot run in parallel)
   "s", // SAFE (can run in parallel)
   "r", // RESTRICTED (can run in parallel with restrictions)
-);
+]);
 
-const FunctionArgumentModeSchema = Schema.Literal(
+const FunctionArgumentModeSchema = Schema.Literals([
   "i", // IN parameter
   "o", // OUT parameter
   "b", // INOUT parameter
   "v", // VARIADIC parameter
   "t", // TABLE parameter
-);
+]);
 
-const procedurePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    kind: FunctionKindSchema,
-    return_type: Schema.String,
-    return_type_schema: Schema.String,
-    language: Schema.String,
-    security_definer: Schema.Boolean,
-    volatility: FunctionVolatilitySchema,
-    parallel_safety: FunctionParallelSafetySchema,
-    execution_cost: Schema.Number,
-    result_rows: Schema.Number,
-    is_strict: Schema.Boolean,
-    leakproof: Schema.Boolean,
-    returns_set: Schema.Boolean,
-    argument_count: Schema.Number,
-    argument_default_count: Schema.Number,
-    argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    all_argument_types: Schema.NullOr(
-      Schema.mutable(Schema.Array(Schema.String)),
-    ),
-    argument_modes: Schema.NullOr(
-      Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
-    ),
-    argument_defaults: Schema.NullOr(Schema.String),
-    source_code: Schema.NullOr(Schema.String),
-    binary_path: Schema.NullOr(Schema.String),
-    sql_body: Schema.NullOr(Schema.String),
-    definition: Schema.String,
-    config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const procedurePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  kind: FunctionKindSchema,
+  return_type: Schema.String,
+  return_type_schema: Schema.String,
+  language: Schema.String,
+  security_definer: Schema.Boolean,
+  volatility: FunctionVolatilitySchema,
+  parallel_safety: FunctionParallelSafetySchema,
+  execution_cost: Schema.Number,
+  result_rows: Schema.Number,
+  is_strict: Schema.Boolean,
+  leakproof: Schema.Boolean,
+  returns_set: Schema.Boolean,
+  argument_count: Schema.Number,
+  argument_default_count: Schema.Number,
+  argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  all_argument_types: Schema.NullOr(
+    Schema.mutable(Schema.Array(Schema.String)),
+  ),
+  argument_modes: Schema.NullOr(
+    Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
+  ),
+  argument_defaults: Schema.NullOr(Schema.String),
+  source_code: Schema.NullOr(Schema.String),
+  binary_path: Schema.NullOr(Schema.String),
+  sql_body: Schema.NullOr(Schema.String),
+  definition: Schema.String,
+  config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = typeof procedurePropsSchema.Type;
 

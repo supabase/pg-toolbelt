@@ -23,19 +23,16 @@ import {
  *
  * Foreign tables are schema-qualified and similar to regular tables but reference a server.
  */
-const foreignTablePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    owner: Schema.String,
-    server: Schema.String,
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    comment: Schema.NullOr(Schema.String),
-    columns: Schema.mutable(Schema.Array(columnPropsSchema)),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const foreignTablePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  owner: Schema.String,
+  server: Schema.String,
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  comment: Schema.NullOr(Schema.String),
+  columns: Schema.mutable(Schema.Array(columnPropsSchema)),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type ForeignTablePrivilegeProps = PrivilegeProps;
 export type ForeignTableProps = typeof foreignTablePropsSchema.Type;
 

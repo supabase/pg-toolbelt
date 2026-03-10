@@ -16,9 +16,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
-        plan.statements = [];
+        const emptyPlan = { ...plan, statements: [] as string[] };
 
-        const applied = await applyPlan(plan, db.main, db.branch);
+        const applied = await applyPlan(emptyPlan, db.main, db.branch);
         expect(applied.status).toBe("invalid_plan");
         expect(applied).toHaveProperty("message");
       }),
@@ -34,9 +34,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
-        plan.target.fingerprint = plan.source.fingerprint;
+        const sameFingerPlan = {
+          ...plan,
+          target: { ...plan.target, fingerprint: plan.source.fingerprint },
+        };
 
-        const applied = await applyPlan(plan, db.main, db.branch);
+        const applied = await applyPlan(sameFingerPlan, db.main, db.branch);
         expect(applied.status).toBe("already_applied");
       }),
     );
@@ -70,9 +73,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
-        plan.statements = ["INVALID SQL SYNTAX"];
+        const badPlan = { ...plan, statements: ["INVALID SQL SYNTAX"] };
 
-        const applied = await applyPlan(plan, db.main, db.branch);
+        const applied = await applyPlan(badPlan, db.main, db.branch);
         expect(applied.status).toBe("failed");
         expect(applied).toHaveProperty("error");
         expect(applied).toHaveProperty("script");

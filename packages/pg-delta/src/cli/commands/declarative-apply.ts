@@ -4,9 +4,9 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { Command, Options } from "@effect/cli";
 import chalk from "chalk";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import { loadDeclarativeSchema } from "../../core/declarative-apply/discover-sql.ts";
 import {
   applyDeclarativeSchema,
@@ -23,43 +23,41 @@ import {
   resolveSqlFilePath,
 } from "../utils/apply-display.ts";
 
-const pathOpt = Options.text("path").pipe(
-  Options.withAlias("p"),
-  Options.withDescription(
+const pathOpt = Flag.string("path").pipe(
+  Flag.withAlias("p"),
+  Flag.withDescription(
     "Path to the declarative schema directory (containing .sql files) or a single .sql file",
   ),
 );
 
-const target = Options.text("target").pipe(
-  Options.withAlias("t"),
-  Options.withDescription(
-    "Target database connection URL to apply the schema to",
-  ),
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription("Target database connection URL to apply the schema to"),
 );
 
-const maxRounds = Options.integer("max-rounds").pipe(
-  Options.withDescription(
+const maxRounds = Flag.integer("max-rounds").pipe(
+  Flag.withDescription(
     "Maximum number of application rounds before giving up (default: 100)",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const noValidateFunctions = Options.boolean("no-validate-functions").pipe(
-  Options.withDescription("Skip final function body validation pass"),
-  Options.withDefault(false),
+const noValidateFunctions = Flag.boolean("no-validate-functions").pipe(
+  Flag.withDescription("Skip final function body validation pass"),
+  Flag.withDefault(false),
 );
 
-const verbose = Options.boolean("verbose").pipe(
-  Options.withAlias("v"),
-  Options.withDescription("Show detailed per-round progress"),
-  Options.withDefault(false),
+const verbose = Flag.boolean("verbose").pipe(
+  Flag.withAlias("v"),
+  Flag.withDescription("Show detailed per-round progress"),
+  Flag.withDefault(false),
 );
 
-const ungroupDiagnostics = Options.boolean("ungroup-diagnostics").pipe(
-  Options.withDescription(
+const ungroupDiagnostics = Flag.boolean("ungroup-diagnostics").pipe(
+  Flag.withDescription(
     "Show full per-diagnostic detail instead of grouped summary output",
   ),
-  Options.withDefault(false),
+  Flag.withDefault(false),
 );
 
 export const declarativeApplyCommand = Command.make(

@@ -19,19 +19,16 @@ import {
  *
  * Servers are not schema-qualified (no schema property).
  */
-const serverPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    owner: Schema.String,
-    foreign_data_wrapper: Schema.String,
-    type: Schema.NullOr(Schema.String),
-    version: Schema.NullOr(Schema.String),
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const serverPropsSchema = Schema.Struct({
+  name: Schema.String,
+  owner: Schema.String,
+  foreign_data_wrapper: Schema.String,
+  type: Schema.NullOr(Schema.String),
+  version: Schema.NullOr(Schema.String),
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type ServerPrivilegeProps = PrivilegeProps;
 export type ServerProps = typeof serverPropsSchema.Type;
 

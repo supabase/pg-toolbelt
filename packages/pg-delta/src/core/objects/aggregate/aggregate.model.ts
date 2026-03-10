@@ -9,82 +9,79 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const AggregateKindSchema = Schema.Literal(
+const AggregateKindSchema = Schema.Literals([
   "n", // normal aggregate
   "o", // ordered-set aggregate
   "h", // hypothetical-set aggregate
-);
+]);
 
-const FunctionParallelSafetySchema = Schema.Literal(
+const FunctionParallelSafetySchema = Schema.Literals([
   "u", // UNSAFE
   "s", // SAFE
   "r", // RESTRICTED
-);
+]);
 
-const FunctionArgumentModeSchema = Schema.Literal(
+const FunctionArgumentModeSchema = Schema.Literals([
   "i", // IN parameter
   "o", // OUT parameter
   "b", // INOUT parameter
   "v", // VARIADIC parameter
   "t", // TABLE parameter
-);
+]);
 
-const FinalFunctionModifySchema = Schema.Literal(
+const FinalFunctionModifySchema = Schema.Literals([
   "r", // READ_ONLY
   "s", // SHAREABLE
   "w", // READ_WRITE
-);
+]);
 
-const aggregatePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    identity_arguments: Schema.String,
-    kind: Schema.Literal("a"),
-    aggkind: AggregateKindSchema,
-    num_direct_args: Schema.Number,
-    return_type: Schema.String,
-    return_type_schema: Schema.NullOr(Schema.String),
-    parallel_safety: FunctionParallelSafetySchema,
-    is_strict: Schema.Boolean,
-    transition_function: Schema.String,
-    state_data_type: Schema.String,
-    state_data_type_schema: Schema.NullOr(Schema.String),
-    state_data_space: Schema.Number,
-    final_function: Schema.NullOr(Schema.String),
-    final_function_extra_args: Schema.Boolean,
-    final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
-    combine_function: Schema.NullOr(Schema.String),
-    serial_function: Schema.NullOr(Schema.String),
-    deserial_function: Schema.NullOr(Schema.String),
-    initial_condition: Schema.NullOr(Schema.String),
-    moving_transition_function: Schema.NullOr(Schema.String),
-    moving_inverse_function: Schema.NullOr(Schema.String),
-    moving_state_data_type: Schema.NullOr(Schema.String),
-    moving_state_data_type_schema: Schema.NullOr(Schema.String),
-    moving_state_data_space: Schema.NullOr(Schema.Number),
-    moving_final_function: Schema.NullOr(Schema.String),
-    moving_final_function_extra_args: Schema.Boolean,
-    moving_final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
-    moving_initial_condition: Schema.NullOr(Schema.String),
-    sort_operator: Schema.NullOr(Schema.String),
-    argument_count: Schema.Number,
-    argument_default_count: Schema.Number,
-    argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    all_argument_types: Schema.NullOr(
-      Schema.mutable(Schema.Array(Schema.String)),
-    ),
-    argument_modes: Schema.NullOr(
-      Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
-    ),
-    argument_defaults: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const aggregatePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  identity_arguments: Schema.String,
+  kind: Schema.Literal("a"),
+  aggkind: AggregateKindSchema,
+  num_direct_args: Schema.Number,
+  return_type: Schema.String,
+  return_type_schema: Schema.NullOr(Schema.String),
+  parallel_safety: FunctionParallelSafetySchema,
+  is_strict: Schema.Boolean,
+  transition_function: Schema.String,
+  state_data_type: Schema.String,
+  state_data_type_schema: Schema.NullOr(Schema.String),
+  state_data_space: Schema.Number,
+  final_function: Schema.NullOr(Schema.String),
+  final_function_extra_args: Schema.Boolean,
+  final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
+  combine_function: Schema.NullOr(Schema.String),
+  serial_function: Schema.NullOr(Schema.String),
+  deserial_function: Schema.NullOr(Schema.String),
+  initial_condition: Schema.NullOr(Schema.String),
+  moving_transition_function: Schema.NullOr(Schema.String),
+  moving_inverse_function: Schema.NullOr(Schema.String),
+  moving_state_data_type: Schema.NullOr(Schema.String),
+  moving_state_data_type_schema: Schema.NullOr(Schema.String),
+  moving_state_data_space: Schema.NullOr(Schema.Number),
+  moving_final_function: Schema.NullOr(Schema.String),
+  moving_final_function_extra_args: Schema.Boolean,
+  moving_final_function_modify: Schema.NullOr(FinalFunctionModifySchema),
+  moving_initial_condition: Schema.NullOr(Schema.String),
+  sort_operator: Schema.NullOr(Schema.String),
+  argument_count: Schema.Number,
+  argument_default_count: Schema.Number,
+  argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  all_argument_types: Schema.NullOr(
+    Schema.mutable(Schema.Array(Schema.String)),
+  ),
+  argument_modes: Schema.NullOr(
+    Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
+  ),
+  argument_defaults: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type AggregatePrivilegeProps = PrivilegeProps;
 type AggregateProps = typeof aggregatePropsSchema.Type;
 

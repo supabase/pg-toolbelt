@@ -14,36 +14,33 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const ReplicaIdentitySchema = Schema.Literal(
+const ReplicaIdentitySchema = Schema.Literals([
   "d", // DEFAULT (use default key)
   "n", // NOTHING (no replica identity)
   "f", // FULL (all columns)
   "i", // INDEX (specific index)
-);
+]);
 
-const viewPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    definition: Schema.String,
-    row_security: Schema.Boolean,
-    force_row_security: Schema.Boolean,
-    has_indexes: Schema.Boolean,
-    has_rules: Schema.Boolean,
-    has_triggers: Schema.Boolean,
-    has_subclasses: Schema.Boolean,
-    is_populated: Schema.Boolean,
-    replica_identity: ReplicaIdentitySchema,
-    is_partition: Schema.Boolean,
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    partition_bound: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    columns: Schema.mutable(Schema.Array(columnPropsSchema)),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const viewPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  definition: Schema.String,
+  row_security: Schema.Boolean,
+  force_row_security: Schema.Boolean,
+  has_indexes: Schema.Boolean,
+  has_rules: Schema.Boolean,
+  has_triggers: Schema.Boolean,
+  has_subclasses: Schema.Boolean,
+  is_populated: Schema.Boolean,
+  replica_identity: ReplicaIdentitySchema,
+  is_partition: Schema.Boolean,
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  partition_bound: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  columns: Schema.mutable(Schema.Array(columnPropsSchema)),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type ViewPrivilegeProps = PrivilegeProps;
 export type ViewProps = typeof viewPropsSchema.Type;
 

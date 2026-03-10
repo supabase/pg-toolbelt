@@ -1,7 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { analyzeAndSort, analyzeAndSortEffect } from "./analyze-and-sort.ts";
 import type { ParseError } from "./errors.ts";
 import { discoverSqlFiles, discoverSqlFilesEffect } from "./ingest/discover.ts";

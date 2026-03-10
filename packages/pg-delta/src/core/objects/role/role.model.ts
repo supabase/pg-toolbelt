@@ -5,52 +5,44 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const membershipInfoSchema = Schema.mutable(
-  Schema.Struct({
-    member: Schema.String,
-    grantor: Schema.String,
-    admin_option: Schema.Boolean,
-    inherit_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
-    set_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
-  }),
-);
+const membershipInfoSchema = Schema.Struct({
+  member: Schema.String,
+  grantor: Schema.String,
+  admin_option: Schema.Boolean,
+  inherit_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  set_option: Schema.optional(Schema.NullOr(Schema.Boolean)),
+});
 
-const defaultPrivilegeSchema = Schema.mutable(
-  Schema.Struct({
-    in_schema: Schema.NullOr(Schema.String),
-    objtype: Schema.Literal("r", "S", "f", "T", "n"),
-    grantee: Schema.String,
-    privileges: Schema.mutable(
-      Schema.Array(
-        Schema.mutable(
-          Schema.Struct({
-            privilege: Schema.String,
-            grantable: Schema.Boolean,
-          }),
-        ),
-      ),
+const defaultPrivilegeSchema = Schema.Struct({
+  in_schema: Schema.NullOr(Schema.String),
+  objtype: Schema.Literals(["r", "S", "f", "T", "n"]),
+  grantee: Schema.String,
+  privileges: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({
+        privilege: Schema.String,
+        grantable: Schema.Boolean,
+      }),
     ),
-    is_implicit: Schema.Boolean,
-  }),
-);
+  ),
+  is_implicit: Schema.Boolean,
+});
 
-const rolePropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    is_superuser: Schema.Boolean,
-    can_inherit: Schema.Boolean,
-    can_create_roles: Schema.Boolean,
-    can_create_databases: Schema.Boolean,
-    can_login: Schema.Boolean,
-    can_replicate: Schema.Boolean,
-    connection_limit: Schema.NullOr(Schema.Number),
-    can_bypass_rls: Schema.Boolean,
-    config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    comment: Schema.NullOr(Schema.String),
-    members: Schema.mutable(Schema.Array(membershipInfoSchema)),
-    default_privileges: Schema.mutable(Schema.Array(defaultPrivilegeSchema)),
-  }),
-);
+const rolePropsSchema = Schema.Struct({
+  name: Schema.String,
+  is_superuser: Schema.Boolean,
+  can_inherit: Schema.Boolean,
+  can_create_roles: Schema.Boolean,
+  can_create_databases: Schema.Boolean,
+  can_login: Schema.Boolean,
+  can_replicate: Schema.Boolean,
+  connection_limit: Schema.NullOr(Schema.Number),
+  can_bypass_rls: Schema.Boolean,
+  config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  comment: Schema.NullOr(Schema.String),
+  members: Schema.mutable(Schema.Array(membershipInfoSchema)),
+  default_privileges: Schema.mutable(Schema.Array(defaultPrivilegeSchema)),
+});
 
 export type RoleProps = typeof rolePropsSchema.Type;
 
@@ -159,10 +151,14 @@ export class Role extends BasePgModel {
  * downstream code can detect true self-grants (auto-created by CREATE ROLE)
  * by checking `grantor === member`.
  */
+type MutableMembershipInfo = {
+  -readonly [K in keyof RoleProps["members"][number]]: RoleProps["members"][number][K];
+};
+
 function deduplicateMembers(
   members: RoleProps["members"],
 ): RoleProps["members"] {
-  const map = new Map<string, RoleProps["members"][number]>();
+  const map = new Map<string, MutableMembershipInfo>();
   for (const m of members) {
     const existing = map.get(m.member);
     if (existing) {

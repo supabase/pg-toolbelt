@@ -9,33 +9,30 @@ import {
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
 
-const rangePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
+const rangePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
 
-    // Subtype information
-    subtype_schema: Schema.String,
-    subtype_str: Schema.String,
+  // Subtype information
+  subtype_schema: Schema.String,
+  subtype_str: Schema.String,
 
-    // Optional, only present when non-default relative to subtype
-    collation: Schema.NullOr(Schema.String),
+  // Optional, only present when non-default relative to subtype
+  collation: Schema.NullOr(Schema.String),
 
-    // Canonical and diff functions when present (non-default)
-    canonical_function_schema: Schema.NullOr(Schema.String),
-    canonical_function_name: Schema.NullOr(Schema.String),
-    subtype_diff_schema: Schema.NullOr(Schema.String),
-    subtype_diff_name: Schema.NullOr(Schema.String),
+  // Canonical and diff functions when present (non-default)
+  canonical_function_schema: Schema.NullOr(Schema.String),
+  canonical_function_name: Schema.NullOr(Schema.String),
+  subtype_diff_schema: Schema.NullOr(Schema.String),
+  subtype_diff_name: Schema.NullOr(Schema.String),
 
-    // Optional: print only when non-default (see extractor logic)
-    subtype_opclass_schema: Schema.NullOr(Schema.String),
-    subtype_opclass_name: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+  // Optional: print only when non-default (see extractor logic)
+  subtype_opclass_schema: Schema.NullOr(Schema.String),
+  subtype_opclass_name: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type RangePrivilegeProps = PrivilegeProps;
 export type RangeProps = typeof rangePropsSchema.Type;
 

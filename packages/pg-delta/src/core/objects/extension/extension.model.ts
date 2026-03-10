@@ -21,18 +21,15 @@ import { BasePgModel } from "../base.model.ts";
  *  - extconfig, extcondition
  * https://www.postgresql.org/docs/current/catalog-pg-extension.html
  */
-const extensionPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    schema: Schema.String,
-    relocatable: Schema.Boolean,
-    version: Schema.String,
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    members: Schema.mutable(Schema.Array(Schema.String)),
-  }),
-);
-
+const extensionPropsSchema = Schema.Struct({
+  name: Schema.String,
+  schema: Schema.String,
+  relocatable: Schema.Boolean,
+  version: Schema.String,
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  members: Schema.mutable(Schema.Array(Schema.String)),
+});
 export type ExtensionProps = typeof extensionPropsSchema.Type;
 
 export class Extension extends BasePgModel {

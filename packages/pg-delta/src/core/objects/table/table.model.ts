@@ -15,107 +15,101 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const RelationPersistenceSchema = Schema.Literal(
+const RelationPersistenceSchema = Schema.Literals([
   "p", // permanent
   "u", // unlogged
   "t", // temporary
-);
+]);
 
-const ReplicaIdentitySchema = Schema.Literal(
+const ReplicaIdentitySchema = Schema.Literals([
   "d", // DEFAULT (use default key)
   "n", // NOTHING (no replica identity)
   "f", // FULL (all columns)
   "i", // INDEX (specific index)
-);
+]);
 
-const ForeignKeyActionSchema = Schema.Literal(
+const ForeignKeyActionSchema = Schema.Literals([
   "a", // NO ACTION
   "r", // RESTRICT
   "c", // CASCADE
   "n", // SET NULL
   "d", // SET DEFAULT
-);
+]);
 
-const ForeignKeyMatchTypeSchema = Schema.Literal(
+const ForeignKeyMatchTypeSchema = Schema.Literals([
   "f", // FULL
   "p", // PARTIAL
   "s", // SIMPLE
   "u", // UNSPECIFIED (default)
-);
+]);
 
-const tableConstraintPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    constraint_type: Schema.Literal(
-      "c", // CHECK constraint
-      "f", // FOREIGN KEY constraint
-      "p", // PRIMARY KEY constraint
-      "t", // TRIGGER constraint
-      "u", // UNIQUE constraint
-      "x", // EXCLUDE constraint
-    ),
-    deferrable: Schema.Boolean,
-    initially_deferred: Schema.Boolean,
-    validated: Schema.Boolean,
-    is_local: Schema.Boolean,
-    no_inherit: Schema.Boolean,
-    is_partition_clone: Schema.Boolean,
-    parent_constraint_schema: Schema.NullOr(Schema.String),
-    parent_constraint_name: Schema.NullOr(Schema.String),
-    parent_table_schema: Schema.NullOr(Schema.String),
-    parent_table_name: Schema.NullOr(Schema.String),
-    key_columns: Schema.mutable(Schema.Array(Schema.String)),
-    foreign_key_columns: Schema.NullOr(
-      Schema.mutable(Schema.Array(Schema.String)),
-    ),
-    foreign_key_table: Schema.NullOr(Schema.String),
-    foreign_key_schema: Schema.NullOr(Schema.String),
-    foreign_key_table_is_partition: Schema.NullOr(Schema.Boolean),
-    foreign_key_parent_schema: Schema.NullOr(Schema.String),
-    foreign_key_parent_table: Schema.NullOr(Schema.String),
-    foreign_key_effective_schema: Schema.NullOr(Schema.String),
-    foreign_key_effective_table: Schema.NullOr(Schema.String),
-    on_update: Schema.NullOr(ForeignKeyActionSchema),
-    on_delete: Schema.NullOr(ForeignKeyActionSchema),
-    match_type: Schema.NullOr(ForeignKeyMatchTypeSchema),
-    check_expression: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    definition: Schema.String,
-    comment: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-);
-
+const tableConstraintPropsSchema = Schema.Struct({
+  name: Schema.String,
+  constraint_type: Schema.Literals([
+    "c", // CHECK constraint
+    "f", // FOREIGN KEY constraint
+    "p", // PRIMARY KEY constraint
+    "t", // TRIGGER constraint
+    "u", // UNIQUE constraint
+    "x", // EXCLUDE constraint
+  ]),
+  deferrable: Schema.Boolean,
+  initially_deferred: Schema.Boolean,
+  validated: Schema.Boolean,
+  is_local: Schema.Boolean,
+  no_inherit: Schema.Boolean,
+  is_partition_clone: Schema.Boolean,
+  parent_constraint_schema: Schema.NullOr(Schema.String),
+  parent_constraint_name: Schema.NullOr(Schema.String),
+  parent_table_schema: Schema.NullOr(Schema.String),
+  parent_table_name: Schema.NullOr(Schema.String),
+  key_columns: Schema.mutable(Schema.Array(Schema.String)),
+  foreign_key_columns: Schema.NullOr(
+    Schema.mutable(Schema.Array(Schema.String)),
+  ),
+  foreign_key_table: Schema.NullOr(Schema.String),
+  foreign_key_schema: Schema.NullOr(Schema.String),
+  foreign_key_table_is_partition: Schema.NullOr(Schema.Boolean),
+  foreign_key_parent_schema: Schema.NullOr(Schema.String),
+  foreign_key_parent_table: Schema.NullOr(Schema.String),
+  foreign_key_effective_schema: Schema.NullOr(Schema.String),
+  foreign_key_effective_table: Schema.NullOr(Schema.String),
+  on_update: Schema.NullOr(ForeignKeyActionSchema),
+  on_delete: Schema.NullOr(ForeignKeyActionSchema),
+  match_type: Schema.NullOr(ForeignKeyMatchTypeSchema),
+  check_expression: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  definition: Schema.String,
+  comment: Schema.optional(Schema.NullOr(Schema.String)),
+});
 export type TableConstraintProps = typeof tableConstraintPropsSchema.Type;
 
-const tablePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    persistence: RelationPersistenceSchema,
-    row_security: Schema.Boolean,
-    force_row_security: Schema.Boolean,
-    has_indexes: Schema.Boolean,
-    has_rules: Schema.Boolean,
-    has_triggers: Schema.Boolean,
-    has_subclasses: Schema.Boolean,
-    is_populated: Schema.Boolean,
-    replica_identity: ReplicaIdentitySchema,
-    is_partition: Schema.Boolean,
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    partition_bound: Schema.NullOr(Schema.String),
-    partition_by: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.optional(Schema.NullOr(Schema.String)),
-    parent_schema: Schema.NullOr(Schema.String),
-    parent_name: Schema.NullOr(Schema.String),
-    columns: Schema.mutable(Schema.Array(columnPropsSchema)),
-    constraints: Schema.optional(
-      Schema.mutable(Schema.Array(tableConstraintPropsSchema)),
-    ),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const tablePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  persistence: RelationPersistenceSchema,
+  row_security: Schema.Boolean,
+  force_row_security: Schema.Boolean,
+  has_indexes: Schema.Boolean,
+  has_rules: Schema.Boolean,
+  has_triggers: Schema.Boolean,
+  has_subclasses: Schema.Boolean,
+  is_populated: Schema.Boolean,
+  replica_identity: ReplicaIdentitySchema,
+  is_partition: Schema.Boolean,
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  partition_bound: Schema.NullOr(Schema.String),
+  partition_by: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.optional(Schema.NullOr(Schema.String)),
+  parent_schema: Schema.NullOr(Schema.String),
+  parent_name: Schema.NullOr(Schema.String),
+  columns: Schema.mutable(Schema.Array(columnPropsSchema)),
+  constraints: Schema.optional(
+    Schema.mutable(Schema.Array(tableConstraintPropsSchema)),
+  ),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type TablePrivilegeProps = PrivilegeProps;
 export type TableProps = typeof tablePropsSchema.Type;
 

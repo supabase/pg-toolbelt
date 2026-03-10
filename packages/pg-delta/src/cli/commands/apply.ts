@@ -3,32 +3,32 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { Command, Options } from "@effect/cli";
 import { Effect } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { deserializePlan, type Plan } from "../../core/plan/index.ts";
 import { CliExitError } from "../errors.ts";
 import { handleApplyResult, validatePlanRisk } from "../utils.ts";
 
-const plan = Options.text("plan").pipe(
-  Options.withAlias("p"),
-  Options.withDescription("Path to plan file (JSON format)"),
+const plan = Flag.string("plan").pipe(
+  Flag.withAlias("p"),
+  Flag.withDescription("Path to plan file (JSON format)"),
 );
 
-const source = Options.text("source").pipe(
-  Options.withAlias("s"),
-  Options.withDescription("Source database connection URL (current state)"),
+const source = Flag.string("source").pipe(
+  Flag.withAlias("s"),
+  Flag.withDescription("Source database connection URL (current state)"),
 );
 
-const target = Options.text("target").pipe(
-  Options.withAlias("t"),
-  Options.withDescription("Target database connection URL (desired state)"),
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription("Target database connection URL (desired state)"),
 );
 
-const unsafe = Options.boolean("unsafe").pipe(
-  Options.withAlias("u"),
-  Options.withDescription("Allow data-loss operations (unsafe mode)"),
-  Options.withDefault(false),
+const unsafe = Flag.boolean("unsafe").pipe(
+  Flag.withAlias("u"),
+  Flag.withDescription("Allow data-loss operations (unsafe mode)"),
+  Flag.withDefault(false),
 );
 
 export const applyCommand = Command.make(

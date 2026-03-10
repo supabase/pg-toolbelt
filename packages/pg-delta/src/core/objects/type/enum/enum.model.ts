@@ -9,13 +9,10 @@ import {
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
 
-const enumLabelSchema = Schema.mutable(
-  Schema.Struct({
-    sort_order: Schema.Number,
-    label: Schema.String,
-  }),
-);
-
+const enumLabelSchema = Schema.Struct({
+  sort_order: Schema.Number,
+  label: Schema.String,
+});
 /**
  * All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
  * https://www.postgresql.org/docs/current/sql-createtype.html
@@ -30,17 +27,14 @@ const enumLabelSchema = Schema.mutable(
  * Type ACL will be supported separately.
  * https://www.postgresql.org/docs/current/ddl-priv.html
  */
-const enumPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    owner: Schema.String,
-    labels: Schema.mutable(Schema.Array(enumLabelSchema)),
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const enumPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  owner: Schema.String,
+  labels: Schema.mutable(Schema.Array(enumLabelSchema)),
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type EnumPrivilegeProps = PrivilegeProps;
 export type EnumProps = typeof enumPropsSchema.Type;
 

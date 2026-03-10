@@ -5,47 +5,42 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const TableRelkindSchema = Schema.Literal(
+const TableRelkindSchema = Schema.Literals([
   "r", // table (regular relation)
   "m", // materialized view
   "p", // partitioned table
-);
+]);
 
-const indexPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    table_name: Schema.String,
-    name: Schema.String,
-    storage_params: Schema.mutable(Schema.Array(Schema.String)),
-    statistics_target: Schema.mutable(Schema.Array(Schema.Number)),
-    index_type: Schema.String,
-    tablespace: Schema.NullOr(Schema.String),
-    is_unique: Schema.Boolean,
-    is_primary: Schema.Boolean,
-    is_exclusion: Schema.Boolean,
-    nulls_not_distinct: Schema.Boolean,
-    immediate: Schema.Boolean,
-    is_clustered: Schema.Boolean,
-    is_replica_identity: Schema.Boolean,
-    key_columns: Schema.mutable(Schema.Array(Schema.Number)),
-    column_collations: Schema.mutable(
-      Schema.Array(Schema.NullOr(Schema.String)),
-    ),
-    operator_classes: Schema.mutable(Schema.Array(Schema.String)),
-    column_options: Schema.mutable(Schema.Array(Schema.Number)),
-    index_expressions: Schema.NullOr(Schema.String),
-    partial_predicate: Schema.NullOr(Schema.String),
-    is_owned_by_constraint: Schema.Boolean,
-    table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
-    is_partitioned_index: Schema.Boolean,
-    is_index_partition: Schema.Boolean,
-    parent_index_name: Schema.NullOr(Schema.String),
-    definition: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-  }),
-);
-
+const indexPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  table_name: Schema.String,
+  name: Schema.String,
+  storage_params: Schema.mutable(Schema.Array(Schema.String)),
+  statistics_target: Schema.mutable(Schema.Array(Schema.Number)),
+  index_type: Schema.String,
+  tablespace: Schema.NullOr(Schema.String),
+  is_unique: Schema.Boolean,
+  is_primary: Schema.Boolean,
+  is_exclusion: Schema.Boolean,
+  nulls_not_distinct: Schema.Boolean,
+  immediate: Schema.Boolean,
+  is_clustered: Schema.Boolean,
+  is_replica_identity: Schema.Boolean,
+  key_columns: Schema.mutable(Schema.Array(Schema.Number)),
+  column_collations: Schema.mutable(Schema.Array(Schema.NullOr(Schema.String))),
+  operator_classes: Schema.mutable(Schema.Array(Schema.String)),
+  column_options: Schema.mutable(Schema.Array(Schema.Number)),
+  index_expressions: Schema.NullOr(Schema.String),
+  partial_predicate: Schema.NullOr(Schema.String),
+  is_owned_by_constraint: Schema.Boolean,
+  table_relkind: TableRelkindSchema, // 'r' for table, 'm' for materialized view
+  is_partitioned_index: Schema.Boolean,
+  is_index_partition: Schema.Boolean,
+  parent_index_name: Schema.NullOr(Schema.String),
+  definition: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+});
 /**
  * All properties exposed by CREATE INDEX statement are included in diff output.
  * https://www.postgresql.org/docs/current/sql-createindex.html

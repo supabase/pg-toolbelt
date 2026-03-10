@@ -19,18 +19,15 @@ import {
  *
  * Foreign Data Wrappers are not schema-qualified (no schema property).
  */
-const foreignDataWrapperPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    owner: Schema.String,
-    handler: Schema.NullOr(Schema.String),
-    validator: Schema.NullOr(Schema.String),
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const foreignDataWrapperPropsSchema = Schema.Struct({
+  name: Schema.String,
+  owner: Schema.String,
+  handler: Schema.NullOr(Schema.String),
+  validator: Schema.NullOr(Schema.String),
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 type ForeignDataWrapperPrivilegeProps = PrivilegeProps;
 export type ForeignDataWrapperProps = typeof foreignDataWrapperPropsSchema.Type;
 

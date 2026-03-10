@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { createRequire } from "node:module";
-import { Command } from "@effect/cli";
-import { BunContext, BunRuntime } from "@effect/platform-bun";
+import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
+import { Command } from "effect/unstable/cli";
 import {
   configurePgDeltaLogging,
   getPgDeltaLogger,
@@ -20,14 +20,12 @@ await configurePgDeltaLogging({
 });
 const logger = getPgDeltaLogger("cli");
 
-const cli = Command.run(rootCommand, {
-  name: "pgdelta",
-  version: packageJson.version,
-});
-
-cli(process.argv).pipe(
+rootCommand.pipe(
+  Command.run({
+    version: packageJson.version,
+  }),
   Effect.catchTags({
-    CliExitError: (err) =>
+    CliExitError: (err: { message?: string; exitCode: number }) =>
       Effect.sync(() => {
         if (err.message) {
           logError(err.message);
@@ -43,20 +41,13 @@ cli(process.argv).pipe(
         process.exitCode = 2;
       }),
   }),
-  Effect.tapErrorCause((cause) =>
+  Effect.tapCause((cause) =>
     Effect.sync(() => {
-      const error = cause.toJSON();
-      if (error && typeof error === "object" && "error" in error) {
-        logger.error("CLI command failed: {error}", {
-          error: String(error.error),
-        });
-      } else {
-        logger.error("CLI command failed: {error}", {
-          error: String(cause),
-        });
-      }
+      logger.error("CLI command failed: {error}", {
+        error: String(cause),
+      });
     }),
   ),
-  Effect.provide(BunContext.layer),
+  Effect.provide(BunServices.layer),
   BunRuntime.runMain,
 );

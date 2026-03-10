@@ -1,4 +1,4 @@
-import { Command } from "@effect/cli";
+import { Command } from "effect/unstable/cli";
 import { applyCommand } from "./commands/apply.ts";
 import { catalogExportCommand } from "./commands/catalog-export.ts";
 import { declarativeApplyCommand } from "./commands/declarative-apply.ts";

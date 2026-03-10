@@ -19,19 +19,17 @@ import {
  * Other properties require dropping and creating a new language.
  */
 
-const languagePropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    is_trusted: Schema.Boolean,
-    is_procedural: Schema.Boolean,
-    call_handler: Schema.NullOr(Schema.String),
-    inline_handler: Schema.NullOr(Schema.String),
-    validator: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
+const languagePropsSchema = Schema.Struct({
+  name: Schema.String,
+  is_trusted: Schema.Boolean,
+  is_procedural: Schema.Boolean,
+  call_handler: Schema.NullOr(Schema.String),
+  inline_handler: Schema.NullOr(Schema.String),
+  validator: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 
 type LanguagePrivilegeProps = PrivilegeProps;
 export type LanguageProps = typeof languagePropsSchema.Type;

@@ -16,15 +16,12 @@ import {
  * ALTER SCHEMA statement can be generated for all properties.
  * https://www.postgresql.org/docs/current/sql-alterschema.html
  */
-const schemaPropsSchema = EffectSchema.mutable(
-  EffectSchema.Struct({
-    name: EffectSchema.String,
-    owner: EffectSchema.String,
-    comment: EffectSchema.NullOr(EffectSchema.String),
-    privileges: EffectSchema.mutable(EffectSchema.Array(privilegePropsSchema)),
-  }),
-);
-
+const schemaPropsSchema = EffectSchema.Struct({
+  name: EffectSchema.String,
+  owner: EffectSchema.String,
+  comment: EffectSchema.NullOr(EffectSchema.String),
+  privileges: EffectSchema.mutable(EffectSchema.Array(privilegePropsSchema)),
+});
 type SchemaPrivilegeProps = PrivilegeProps;
 export type SchemaProps = typeof schemaPropsSchema.Type;
 

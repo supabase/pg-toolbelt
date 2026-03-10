@@ -16,14 +16,11 @@ import { BasePgModel } from "../../base.model.ts";
  * User mappings are not schema-qualified (no schema property).
  * User can be a role name, CURRENT_USER, PUBLIC, etc.
  */
-const userMappingPropsSchema = Schema.mutable(
-  Schema.Struct({
-    user: Schema.String,
-    server: Schema.String,
-    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-  }),
-);
-
+const userMappingPropsSchema = Schema.Struct({
+  user: Schema.String,
+  server: Schema.String,
+  options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+});
 export type UserMappingProps = typeof userMappingPropsSchema.Type;
 
 export class UserMapping extends BasePgModel {

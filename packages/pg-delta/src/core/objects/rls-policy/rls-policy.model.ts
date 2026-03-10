@@ -5,29 +5,26 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const RlsPolicyCommandSchema = Schema.Literal(
+const RlsPolicyCommandSchema = Schema.Literals([
   "r", // SELECT command
   "a", // INSERT command (add)
   "w", // UPDATE command (write)
   "d", // DELETE command
   "*", // ALL commands
-);
+]);
 
-const rlsPolicyPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    table_name: Schema.String,
-    command: RlsPolicyCommandSchema,
-    permissive: Schema.Boolean,
-    roles: Schema.mutable(Schema.Array(Schema.String)),
-    using_expression: Schema.NullOr(Schema.String),
-    with_check_expression: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-  }),
-);
-
+const rlsPolicyPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  table_name: Schema.String,
+  command: RlsPolicyCommandSchema,
+  permissive: Schema.Boolean,
+  roles: Schema.mutable(Schema.Array(Schema.String)),
+  using_expression: Schema.NullOr(Schema.String),
+  with_check_expression: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+});
 export type RlsPolicyProps = typeof rlsPolicyPropsSchema.Type;
 
 export class RlsPolicy extends BasePgModel {

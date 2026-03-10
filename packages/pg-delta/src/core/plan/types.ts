@@ -13,10 +13,6 @@ import type { ChangeSerializer } from "../integrations/serialize/serialize.types
 // Core Types
 // ============================================================================
 
-export type PlanRisk =
-  | { level: "safe" }
-  | { level: "data_loss"; statements: string[] };
-
 /**
  * All supported object types in the system.
  * Derived from the Change union type's objectType discriminant.
@@ -121,35 +117,34 @@ export interface HierarchicalPlan {
 /**
  * Plan risk schema — either safe or data_loss with affected statements.
  */
-const PlanRiskSchema = Schema.Union(
+const PlanRiskSchema = Schema.Union([
   Schema.Struct({ level: Schema.Literal("safe") }),
   Schema.Struct({
     level: Schema.Literal("data_loss"),
     statements: Schema.mutable(Schema.Array(Schema.String)),
   }),
-);
+]);
 
 /**
  * Plan schema for serialization/deserialization.
  */
-export const PlanSchema = Schema.mutable(
-  Schema.Struct({
-    version: Schema.Number,
-    toolVersion: Schema.optional(Schema.String),
-    source: Schema.mutable(Schema.Struct({ fingerprint: Schema.String })),
-    target: Schema.mutable(Schema.Struct({ fingerprint: Schema.String })),
-    statements: Schema.mutable(Schema.Array(Schema.String)),
-    role: Schema.optional(Schema.String),
-    filter: Schema.optional(Schema.Unknown), // FilterDSL - complex recursive type, validated at compile time
-    serialize: Schema.optional(Schema.Unknown), // SerializeDSL - complex recursive type, validated at compile time
-    risk: Schema.optional(PlanRiskSchema),
-  }),
-);
+export const PlanSchema = Schema.Struct({
+  version: Schema.Number,
+  toolVersion: Schema.optional(Schema.String),
+  source: Schema.Struct({ fingerprint: Schema.String }),
+  target: Schema.Struct({ fingerprint: Schema.String }),
+  statements: Schema.mutable(Schema.Array(Schema.String)),
+  role: Schema.optional(Schema.String),
+  filter: Schema.optional(Schema.Unknown), // FilterDSL - complex recursive type, validated at compile time
+  serialize: Schema.optional(Schema.Unknown), // SerializeDSL - complex recursive type, validated at compile time
+  risk: Schema.optional(PlanRiskSchema),
+});
 
 /**
  * A migration plan containing all changes to transform one database schema into another.
  */
 export type Plan = typeof PlanSchema.Type;
+export type PlanRisk = typeof PlanRiskSchema.Type;
 
 /**
  * Options for creating a plan.

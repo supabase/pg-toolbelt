@@ -1,4 +1,4 @@
-import { Context, type Effect } from "effect";
+import { type Effect, ServiceMap } from "effect";
 import type { ParseError } from "../errors.ts";
 import type { ParsedStatement } from "../ingest/parse.ts";
 import type { Diagnostic } from "../model/types.ts";
@@ -13,7 +13,7 @@ export interface ParserApi {
   >;
 }
 
-export class ParserService extends Context.Tag("@pg-topo/ParserService")<
+export class ParserService extends ServiceMap.Service<
   ParserService,
   ParserApi
->() {}
+>()("@pg-topo/ParserService") {}

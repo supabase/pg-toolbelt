@@ -27,14 +27,13 @@ describe("DatabaseApi mock", () => {
       },
     } as unknown as DatabaseApi;
 
-    const result = await FailingDb.query("SELECT 1").pipe(
-      Effect.either,
-      Effect.runPromise,
+    const result = await Effect.runPromise(
+      Effect.result(FailingDb.query("SELECT 1")),
     );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("CatalogExtractionError");
-      expect(result.left.message).toBe("boom");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("CatalogExtractionError");
+      expect(result.failure.message).toBe("boom");
     }
   });
 

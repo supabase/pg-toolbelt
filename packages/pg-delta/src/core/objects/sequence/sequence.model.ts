@@ -9,26 +9,24 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const sequencePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    data_type: Schema.String,
-    start_value: Schema.Number,
-    minimum_value: Schema.BigIntFromSelf,
-    maximum_value: Schema.BigIntFromSelf,
-    increment: Schema.Number,
-    cycle_option: Schema.Boolean,
-    cache_size: Schema.Number,
-    persistence: Schema.String,
-    owned_by_schema: Schema.NullOr(Schema.String),
-    owned_by_table: Schema.NullOr(Schema.String),
-    owned_by_column: Schema.NullOr(Schema.String),
-    comment: Schema.NullOr(Schema.String),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-    owner: Schema.String,
-  }),
-);
+const sequencePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  data_type: Schema.String,
+  start_value: Schema.Number,
+  minimum_value: Schema.BigInt,
+  maximum_value: Schema.BigInt,
+  increment: Schema.Number,
+  cycle_option: Schema.Boolean,
+  cache_size: Schema.Number,
+  persistence: Schema.String,
+  owned_by_schema: Schema.NullOr(Schema.String),
+  owned_by_table: Schema.NullOr(Schema.String),
+  owned_by_column: Schema.NullOr(Schema.String),
+  comment: Schema.NullOr(Schema.String),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  owner: Schema.String,
+});
 
 type SequencePrivilegeProps = PrivilegeProps;
 export type SequenceProps = typeof sequencePropsSchema.Type;
@@ -185,7 +183,7 @@ order by
   const validatedRows = sequenceRows.map((row: unknown) =>
     Schema.decodeUnknownSync(sequencePropsSchema)(row),
   );
-  return validatedRows.map((row: SequenceProps) => new Sequence(row));
+  return validatedRows.map((row) => new Sequence(row));
 }
 
 // ============================================================================

@@ -6,33 +6,35 @@ import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import { stableId } from "../utils.ts";
 
-const RuleEventSchema = Schema.Literal("SELECT", "INSERT", "UPDATE", "DELETE");
-const RuleEnabledStateSchema = Schema.Literal("O", "D", "R", "A");
+const RuleEventSchema = Schema.Literals([
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+]);
+const RuleEnabledStateSchema = Schema.Literals(["O", "D", "R", "A"]);
 
-const RuleRelationKindSchema = Schema.Literal(
+const RuleRelationKindSchema = Schema.Literals([
   "r", // ordinary table
   "p", // partitioned table
   "f", // foreign table
   "v", // view
   "m", // materialized view
-);
+]);
 
-const rulePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    table_name: Schema.String,
-    relation_kind: RuleRelationKindSchema,
-    event: RuleEventSchema,
-    enabled: RuleEnabledStateSchema,
-    is_instead: Schema.Boolean,
-    owner: Schema.String,
-    definition: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    columns: Schema.mutable(Schema.Array(Schema.String)),
-  }),
-);
-
+const rulePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  table_name: Schema.String,
+  relation_kind: RuleRelationKindSchema,
+  event: RuleEventSchema,
+  enabled: RuleEnabledStateSchema,
+  is_instead: Schema.Boolean,
+  owner: Schema.String,
+  definition: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  columns: Schema.mutable(Schema.Array(Schema.String)),
+});
 export type RuleEnabledState = typeof RuleEnabledStateSchema.Type;
 export type RuleProps = typeof rulePropsSchema.Type;
 

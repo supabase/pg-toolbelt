@@ -158,11 +158,12 @@ export function validatePlanRisk(
       );
       return { valid: false, exitCode: 1 };
     }
-    if (plan.risk.level === "data_loss") {
+    const risk = plan.risk;
+    if (risk.level === "data_loss") {
       if (!options?.suppressWarning) {
         const warningLines = [
           chalk.yellow("⚠ Data-loss operations detected:"),
-          ...plan.risk.statements.map((statement: string) =>
+          ...risk.statements.map((statement: string) =>
             chalk.yellow(`- ${statement}`),
           ),
           chalk.yellow("Use `--unsafe` to allow applying these operations."),

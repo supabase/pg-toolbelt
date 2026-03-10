@@ -5,30 +5,27 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const subscriptionPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    raw_name: Schema.String,
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    enabled: Schema.Boolean,
-    binary: Schema.Boolean,
-    streaming: Schema.Literal("off", "on", "parallel"),
-    two_phase: Schema.Boolean,
-    disable_on_error: Schema.Boolean,
-    password_required: Schema.Boolean,
-    run_as_owner: Schema.Boolean,
-    failover: Schema.Boolean,
-    conninfo: Schema.String,
-    slot_name: Schema.NullOr(Schema.String),
-    slot_is_none: Schema.Boolean,
-    replication_slot_created: Schema.Boolean,
-    synchronous_commit: Schema.String,
-    publications: Schema.mutable(Schema.Array(Schema.String)),
-    origin: Schema.Literal("any", "none"),
-  }),
-);
-
+const subscriptionPropsSchema = Schema.Struct({
+  name: Schema.String,
+  raw_name: Schema.String,
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  enabled: Schema.Boolean,
+  binary: Schema.Boolean,
+  streaming: Schema.Literals(["off", "on", "parallel"]),
+  two_phase: Schema.Boolean,
+  disable_on_error: Schema.Boolean,
+  password_required: Schema.Boolean,
+  run_as_owner: Schema.Boolean,
+  failover: Schema.Boolean,
+  conninfo: Schema.String,
+  slot_name: Schema.NullOr(Schema.String),
+  slot_is_none: Schema.Boolean,
+  replication_slot_created: Schema.Boolean,
+  synchronous_commit: Schema.String,
+  publications: Schema.mutable(Schema.Array(Schema.String)),
+  origin: Schema.Literals(["any", "none"]),
+});
 export type SubscriptionProps = typeof subscriptionPropsSchema.Type;
 
 export class Subscription extends BasePgModel {

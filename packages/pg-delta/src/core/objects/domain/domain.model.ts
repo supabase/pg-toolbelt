@@ -9,36 +9,30 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const domainConstraintPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    validated: Schema.Boolean,
-    is_local: Schema.Boolean,
-    no_inherit: Schema.Boolean,
-    check_expression: Schema.NullOr(Schema.String),
-  }),
-);
-
-const domainPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    base_type: Schema.String,
-    base_type_schema: Schema.String,
-    base_type_str: Schema.optional(Schema.String),
-    not_null: Schema.Boolean,
-    type_modifier: Schema.NullOr(Schema.Number),
-    array_dimensions: Schema.NullOr(Schema.Number),
-    collation: Schema.NullOr(Schema.String),
-    default_bin: Schema.NullOr(Schema.String),
-    default_value: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    constraints: Schema.mutable(Schema.Array(domainConstraintPropsSchema)),
-    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
-  }),
-);
-
+const domainConstraintPropsSchema = Schema.Struct({
+  name: Schema.String,
+  validated: Schema.Boolean,
+  is_local: Schema.Boolean,
+  no_inherit: Schema.Boolean,
+  check_expression: Schema.NullOr(Schema.String),
+});
+const domainPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  base_type: Schema.String,
+  base_type_schema: Schema.String,
+  base_type_str: Schema.optional(Schema.String),
+  not_null: Schema.Boolean,
+  type_modifier: Schema.NullOr(Schema.Number),
+  array_dimensions: Schema.NullOr(Schema.Number),
+  collation: Schema.NullOr(Schema.String),
+  default_bin: Schema.NullOr(Schema.String),
+  default_value: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  constraints: Schema.mutable(Schema.Array(domainConstraintPropsSchema)),
+  privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+});
 export type DomainConstraintProps = typeof domainConstraintPropsSchema.Type;
 type DomainPrivilegeProps = PrivilegeProps;
 export type DomainProps = typeof domainPropsSchema.Type;

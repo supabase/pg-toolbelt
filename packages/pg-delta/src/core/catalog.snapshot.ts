@@ -7,7 +7,6 @@
 
 import { Schema as EffectSchema } from "effect";
 import { Catalog } from "./catalog.model.ts";
-import type { PgDepend } from "./depend.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { Collation } from "./objects/collation/collation.model.ts";
 import { Domain } from "./objects/domain/domain.model.ts";
@@ -33,6 +32,16 @@ import { CompositeType } from "./objects/type/composite-type/composite-type.mode
 import { Enum } from "./objects/type/enum/enum.model.ts";
 import { Range } from "./objects/type/range/range.model.ts";
 import { View } from "./objects/view/view.model.ts";
+import { PgDependSchema } from "./depend.ts";
+
+// ============================================================================
+// Schema for validation on deserialization
+// ============================================================================
+
+const objectRecord = EffectSchema.Record(
+  EffectSchema.String,
+  EffectSchema.Record(EffectSchema.String, EffectSchema.Unknown),
+);
 
 // ============================================================================
 // CatalogSnapshot type
@@ -44,49 +53,6 @@ import { View } from "./objects/view/view.model.ts";
  * Every object record uses plain props objects (not class instances).
  * `indexableObjects` is omitted -- it is reconstructed on deserialization.
  */
-export interface CatalogSnapshot {
-  version: number;
-  currentUser: string;
-  aggregates: Record<string, Record<string, unknown>>;
-  collations: Record<string, Record<string, unknown>>;
-  compositeTypes: Record<string, Record<string, unknown>>;
-  domains: Record<string, Record<string, unknown>>;
-  enums: Record<string, Record<string, unknown>>;
-  extensions: Record<string, Record<string, unknown>>;
-  procedures: Record<string, Record<string, unknown>>;
-  indexes: Record<string, Record<string, unknown>>;
-  materializedViews: Record<string, Record<string, unknown>>;
-  subscriptions: Record<string, Record<string, unknown>>;
-  publications: Record<string, Record<string, unknown>>;
-  rlsPolicies: Record<string, Record<string, unknown>>;
-  roles: Record<string, Record<string, unknown>>;
-  schemas: Record<string, Record<string, unknown>>;
-  sequences: Record<string, Record<string, unknown>>;
-  tables: Record<string, Record<string, unknown>>;
-  triggers: Record<string, Record<string, unknown>>;
-  eventTriggers: Record<string, Record<string, unknown>>;
-  rules: Record<string, Record<string, unknown>>;
-  ranges: Record<string, Record<string, unknown>>;
-  views: Record<string, Record<string, unknown>>;
-  foreignDataWrappers: Record<string, Record<string, unknown>>;
-  servers: Record<string, Record<string, unknown>>;
-  userMappings: Record<string, Record<string, unknown>>;
-  foreignTables: Record<string, Record<string, unknown>>;
-  depends: PgDepend[];
-}
-
-// ============================================================================
-// Schema for validation on deserialization
-// ============================================================================
-
-const objectRecord = EffectSchema.Record({
-  key: EffectSchema.String,
-  value: EffectSchema.Record({
-    key: EffectSchema.String,
-    value: EffectSchema.Unknown,
-  }),
-});
-
 const CatalogSnapshotSchema = EffectSchema.Struct({
   version: EffectSchema.Number,
   currentUser: EffectSchema.String,
@@ -115,14 +81,10 @@ const CatalogSnapshotSchema = EffectSchema.Struct({
   servers: objectRecord,
   userMappings: objectRecord,
   foreignTables: objectRecord,
-  depends: EffectSchema.Array(
-    EffectSchema.Struct({
-      dependent_stable_id: EffectSchema.String,
-      referenced_stable_id: EffectSchema.String,
-      deptype: EffectSchema.Literal("n", "a", "i"),
-    }),
-  ),
+  depends: EffectSchema.Array(PgDependSchema),
 });
+
+export type CatalogSnapshot = typeof CatalogSnapshotSchema.Type;
 
 // ============================================================================
 // Serialization

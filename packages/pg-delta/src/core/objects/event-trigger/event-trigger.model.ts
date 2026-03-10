@@ -5,26 +5,23 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const EventTriggerEnabledSchema = Schema.Literal(
+const EventTriggerEnabledSchema = Schema.Literals([
   "O", // ORIGIN - trigger fires in origin mode
   "D", // DISABLED - trigger does not fire
   "R", // REPLICA - trigger fires only in replica session
   "A", // ALWAYS - trigger fires regardless of replication mode
-);
+]);
 
-const eventTriggerPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    event: Schema.String,
-    function_schema: Schema.String,
-    function_name: Schema.String,
-    enabled: EventTriggerEnabledSchema,
-    tags: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-  }),
-);
-
+const eventTriggerPropsSchema = Schema.Struct({
+  name: Schema.String,
+  event: Schema.String,
+  function_schema: Schema.String,
+  function_name: Schema.String,
+  enabled: EventTriggerEnabledSchema,
+  tags: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+});
 export type EventTriggerProps = typeof eventTriggerPropsSchema.Type;
 
 export class EventTrigger extends BasePgModel {

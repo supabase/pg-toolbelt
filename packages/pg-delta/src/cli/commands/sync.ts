@@ -2,8 +2,8 @@
  * Sync command - plan and apply changes in one go with confirmation prompt.
  */
 
-import { Command, Options } from "@effect/cli";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
@@ -21,56 +21,56 @@ import {
   validatePlanRisk,
 } from "../utils.ts";
 
-const source = Options.text("source").pipe(
-  Options.withAlias("s"),
-  Options.withDescription("Source database connection URL (current state)"),
+const source = Flag.string("source").pipe(
+  Flag.withAlias("s"),
+  Flag.withDescription("Source database connection URL (current state)"),
 );
 
-const target = Options.text("target").pipe(
-  Options.withAlias("t"),
-  Options.withDescription("Target database connection URL (desired state)"),
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription("Target database connection URL (desired state)"),
 );
 
-const yes = Options.boolean("yes").pipe(
-  Options.withAlias("y"),
-  Options.withDescription(
+const yes = Flag.boolean("yes").pipe(
+  Flag.withAlias("y"),
+  Flag.withDescription(
     "Skip confirmation prompt and apply changes automatically",
   ),
-  Options.withDefault(false),
+  Flag.withDefault(false),
 );
 
-const unsafe = Options.boolean("unsafe").pipe(
-  Options.withAlias("u"),
-  Options.withDescription("Allow data-loss operations (unsafe mode)"),
-  Options.withDefault(false),
+const unsafe = Flag.boolean("unsafe").pipe(
+  Flag.withAlias("u"),
+  Flag.withDescription("Allow data-loss operations (unsafe mode)"),
+  Flag.withDefault(false),
 );
 
-const role = Options.text("role").pipe(
-  Options.withDescription(
+const role = Flag.string("role").pipe(
+  Flag.withDescription(
     "Role to use when executing the migration (SET ROLE will be added to statements).",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const filter = Options.text("filter").pipe(
-  Options.withDescription(
+const filter = Flag.string("filter").pipe(
+  Flag.withDescription(
     'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const serialize = Options.text("serialize").pipe(
-  Options.withDescription(
+const serialize = Flag.string("serialize").pipe(
+  Flag.withDescription(
     'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const integration = Options.text("integration").pipe(
-  Options.withDescription(
+const integration = Flag.string("integration").pipe(
+  Flag.withDescription(
     "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
 export const syncCommand = Command.make(

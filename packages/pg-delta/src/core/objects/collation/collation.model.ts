@@ -9,12 +9,12 @@ import { BasePgModel } from "../base.model.ts";
 /**
  * Collation provider codes as stored in pg_collation.collprovider
  */
-const CollationProviderSchema = Schema.Literal(
+const CollationProviderSchema = Schema.Literals([
   "d", // database default provider (omit PROVIDER clause)
   "b", // builtin
   "c", // libc
   "i", // icu
-);
+]);
 
 /**
  * All properties exposed by CREATE COLLATION statement are included in diff output.
@@ -26,23 +26,20 @@ const CollationProviderSchema = Schema.Literal(
  *
  * Other properties require dropping and creating a new collation.
  */
-const collationPropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    provider: CollationProviderSchema,
-    is_deterministic: Schema.Boolean,
-    encoding: Schema.Number,
-    collate: Schema.String,
-    ctype: Schema.String,
-    locale: Schema.NullOr(Schema.String),
-    icu_rules: Schema.NullOr(Schema.String),
-    version: Schema.NullOr(Schema.String),
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-  }),
-);
-
+const collationPropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  provider: CollationProviderSchema,
+  is_deterministic: Schema.Boolean,
+  encoding: Schema.Number,
+  collate: Schema.String,
+  ctype: Schema.String,
+  locale: Schema.NullOr(Schema.String),
+  icu_rules: Schema.NullOr(Schema.String),
+  version: Schema.NullOr(Schema.String),
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+});
 export type CollationProps = typeof collationPropsSchema.Type;
 
 export class Collation extends BasePgModel {

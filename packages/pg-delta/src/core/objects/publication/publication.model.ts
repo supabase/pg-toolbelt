@@ -5,31 +5,25 @@ import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const publicationTablePropsSchema = Schema.mutable(
-  Schema.Struct({
-    schema: Schema.String,
-    name: Schema.String,
-    columns: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    row_filter: Schema.NullOr(Schema.String),
-  }),
-);
-
-const publicationPropsSchema = Schema.mutable(
-  Schema.Struct({
-    name: Schema.String,
-    owner: Schema.String,
-    comment: Schema.NullOr(Schema.String),
-    all_tables: Schema.Boolean,
-    publish_insert: Schema.Boolean,
-    publish_update: Schema.Boolean,
-    publish_delete: Schema.Boolean,
-    publish_truncate: Schema.Boolean,
-    publish_via_partition_root: Schema.Boolean,
-    tables: Schema.mutable(Schema.Array(publicationTablePropsSchema)),
-    schemas: Schema.mutable(Schema.Array(Schema.String)),
-  }),
-);
-
+const publicationTablePropsSchema = Schema.Struct({
+  schema: Schema.String,
+  name: Schema.String,
+  columns: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  row_filter: Schema.NullOr(Schema.String),
+});
+const publicationPropsSchema = Schema.Struct({
+  name: Schema.String,
+  owner: Schema.String,
+  comment: Schema.NullOr(Schema.String),
+  all_tables: Schema.Boolean,
+  publish_insert: Schema.Boolean,
+  publish_update: Schema.Boolean,
+  publish_delete: Schema.Boolean,
+  publish_truncate: Schema.Boolean,
+  publish_via_partition_root: Schema.Boolean,
+  tables: Schema.mutable(Schema.Array(publicationTablePropsSchema)),
+  schemas: Schema.mutable(Schema.Array(Schema.String)),
+});
 export type PublicationTableProps = typeof publicationTablePropsSchema.Type;
 export type PublicationProps = typeof publicationPropsSchema.Type;
 

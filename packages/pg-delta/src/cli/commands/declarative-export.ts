@@ -4,9 +4,9 @@
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Command, Options } from "@effect/cli";
 import chalk from "chalk";
 import { Effect, Option } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import type { Catalog } from "../../core/catalog.model.ts";
 import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
 import { exportDeclarativeSchema } from "../../core/export/index.ts";
@@ -29,96 +29,96 @@ import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { parseJsonEffect } from "../utils.ts";
 
-const source = Options.text("source").pipe(
-  Options.withAlias("s"),
-  Options.withDescription(
+const source = Flag.string("source").pipe(
+  Flag.withAlias("s"),
+  Flag.withDescription(
     "Source (current state): postgres URL or catalog snapshot file path. Omit to export all objects from target.",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const target = Options.text("target").pipe(
-  Options.withAlias("t"),
-  Options.withDescription(
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription(
     "Target (desired state): postgres URL or catalog snapshot file path",
   ),
 );
 
-const output = Options.text("output").pipe(
-  Options.withAlias("o"),
-  Options.withDescription("Output directory path for declarative schema files"),
+const output = Flag.string("output").pipe(
+  Flag.withAlias("o"),
+  Flag.withDescription("Output directory path for declarative schema files"),
 );
 
-const integration = Options.text("integration").pipe(
-  Options.withDescription(
+const integration = Flag.string("integration").pipe(
+  Flag.withDescription(
     "Integration name (e.g., 'supabase') or path to integration JSON file",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const filter = Options.text("filter").pipe(
-  Options.withDescription(
+const filter = Flag.string("filter").pipe(
+  Flag.withDescription(
     'Filter DSL as inline JSON (e.g., \'{"schema":"public"}\')',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const serialize = Options.text("serialize").pipe(
-  Options.withDescription(
+const serialize = Flag.string("serialize").pipe(
+  Flag.withDescription(
     'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\')',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const groupingMode = Options.choice("grouping-mode", [
+const groupingMode = Flag.choice("grouping-mode", [
   "single-file",
   "subdirectory",
 ]).pipe(
-  Options.withDescription("How grouped entities are organized on disk"),
-  Options.optional,
+  Flag.withDescription("How grouped entities are organized on disk"),
+  Flag.optional,
 );
 
-const groupPatterns = Options.text("group-patterns").pipe(
-  Options.withDescription(
+const groupPatterns = Flag.string("group-patterns").pipe(
+  Flag.withDescription(
     'JSON array of {pattern, name} objects (e.g., \'[{"pattern":"^auth","name":"auth"}]\')',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const flatSchemas = Options.text("flat-schemas").pipe(
-  Options.withDescription(
+const flatSchemas = Flag.string("flat-schemas").pipe(
+  Flag.withDescription(
     "Comma-separated list of schemas to flatten (e.g., partman,pgboss,audit)",
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const formatOptions = Options.text("format-options").pipe(
-  Options.withDescription(
+const formatOptions = Flag.string("format-options").pipe(
+  Flag.withDescription(
     'SQL format options as inline JSON (e.g., \'{"keywordCase":"lower","maxWidth":180}\')',
   ),
-  Options.optional,
+  Flag.optional,
 );
 
-const force = Options.boolean("force").pipe(
-  Options.withDescription("Remove entire output directory before writing"),
-  Options.withDefault(false),
+const force = Flag.boolean("force").pipe(
+  Flag.withDescription("Remove entire output directory before writing"),
+  Flag.withDefault(false),
 );
 
-const dryRun = Options.boolean("dry-run").pipe(
-  Options.withDescription("Show tree and summary without writing files"),
-  Options.withDefault(false),
+const dryRun = Flag.boolean("dry-run").pipe(
+  Flag.withDescription("Show tree and summary without writing files"),
+  Flag.withDefault(false),
 );
 
-const diffFocus = Options.boolean("diff-focus").pipe(
-  Options.withDescription(
+const diffFocus = Flag.boolean("diff-focus").pipe(
+  Flag.withDescription(
     "Show only files that changed (created/updated/deleted) in the tree",
   ),
-  Options.withDefault(false),
+  Flag.withDefault(false),
 );
 
-const verbose = Options.boolean("verbose").pipe(
-  Options.withDescription("Show detailed output"),
-  Options.withDefault(false),
+const verbose = Flag.boolean("verbose").pipe(
+  Flag.withDescription("Show detailed output"),
+  Flag.withDefault(false),
 );
 
 export const declarativeExportCommand = Command.make(

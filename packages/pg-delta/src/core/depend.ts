@@ -1,5 +1,5 @@
 import { sql } from "@ts-safeql/sql-tag";
-import { Effect } from "effect";
+import { Effect, Schema as EffectSchema } from "effect";
 import type { Pool } from "pg";
 import { CatalogExtractionError } from "./errors.ts";
 import type { DatabaseApi } from "./services/database.ts";
@@ -10,11 +10,10 @@ import type { DatabaseApi } from "./services/database.ts";
  * a: auto
  * i: internal
  */
-type PgDependType = "n" | "a" | "i";
-
-export interface PgDepend {
-  dependent_stable_id: string;
-  referenced_stable_id: string;
+const PgDependTypeSchema = EffectSchema.Literals(["n", "a", "i"]);
+export const PgDependSchema = EffectSchema.Struct({
+  dependent_stable_id: EffectSchema.String,
+  referenced_stable_id: EffectSchema.String,
   /**
    * Dependency type as defined in PostgreSQL's pg_depend.deptype.
    *
@@ -25,9 +24,10 @@ export interface PgDepend {
    * - "i" (internal): Internal dependency — the dependent object is a low-level part of the referenced object and cannot be dropped
    *   without dropping the whole referenced object. Example: a table's toast table or an index that's part of a unique constraint.
    */
-  deptype: PgDependType;
-}
+  deptype: PgDependTypeSchema,
+});
 
+export type PgDepend = typeof PgDependSchema.Type;
 /**
  * Extract dependencies for privileges and memberships so that GRANT/REVOKE
  * operations are properly ordered with respect to their target objects/roles.

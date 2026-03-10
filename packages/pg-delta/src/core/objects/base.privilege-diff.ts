@@ -5,17 +5,14 @@ import type { BaseChange } from "./base.change.ts";
 /**
  * Privilege properties that all privilege objects share.
  */
-export const privilegePropsSchema = Schema.mutable(
-  Schema.Struct({
-    grantee: Schema.String,
-    privilege: Schema.String,
-    grantable: Schema.Boolean,
-    columns: Schema.optional(
-      Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    ),
-  }),
-);
-
+export const privilegePropsSchema = Schema.Struct({
+  grantee: Schema.String,
+  privilege: Schema.String,
+  grantable: Schema.Boolean,
+  columns: Schema.optional(
+    Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+  ),
+});
 export type PrivilegeProps = typeof privilegePropsSchema.Type;
 
 /**
