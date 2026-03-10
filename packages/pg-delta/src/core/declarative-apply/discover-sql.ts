@@ -5,6 +5,8 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
+import { FileDiscoveryError } from "../errors.ts";
 
 export interface SqlFileEntry {
   /** Relative path from base (forward slashes, e.g. schemas/public/views/billing.sql) */
@@ -105,3 +107,19 @@ export async function loadDeclarativeSchema(
 
   return entries;
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const loadDeclarativeSchemaEffect = (
+  schemaPath: string,
+): Effect.Effect<SqlFileEntry[], FileDiscoveryError> =>
+  Effect.tryPromise({
+    try: () => loadDeclarativeSchema(schemaPath),
+    catch: (err) =>
+      new FileDiscoveryError({
+        message: `loadDeclarativeSchema failed: ${err instanceof Error ? err.message : err}`,
+        path: schemaPath,
+      }),
+  });

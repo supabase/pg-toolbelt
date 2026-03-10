@@ -2,6 +2,7 @@
  * Plan creation - the main entry point for creating migration plans.
  */
 
+import { Effect } from "effect";
 import type { Pool } from "pg";
 import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
@@ -12,6 +13,7 @@ import {
 } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
+import { CatalogExtractionError } from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import {
   compileFilterDSL,
@@ -366,3 +368,24 @@ function hasRoutineChanges(changes: Change[]): boolean {
       change.objectType === "procedure" || change.objectType === "aggregate",
   );
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const createPlanEffect = (
+  source: CatalogInput | null,
+  target: CatalogInput,
+  options: CreatePlanOptions = {},
+): Effect.Effect<
+  { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
+  CatalogExtractionError
+> =>
+  Effect.tryPromise({
+    try: () => createPlan(source, target, options),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `createPlan failed: ${err instanceof Error ? err.message : err}`,
+        cause: err,
+      }),
+  });

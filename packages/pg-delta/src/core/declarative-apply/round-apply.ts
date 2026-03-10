@@ -8,10 +8,10 @@
  * 4. Optional final validation pass for function bodies
  */
 
-import debug from "debug";
 import type { Pool, PoolClient } from "pg";
+import { getPgDeltaLogger } from "../logging.ts";
 
-const debugApply = debug("pg-delta:declarative-apply");
+const logger = getPgDeltaLogger("declarative-apply");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,7 +279,10 @@ export async function roundApply(
     }
 
     for (let round = 1; round <= maxRounds && pending.length > 0; round++) {
-      debugApply("round %d: %d pending", round, pending.length);
+      logger.debug("round {round}: {pending} pending", {
+        round,
+        pending: pending.length,
+      });
       const roundErrors: StatementError[] = [];
       const deferred: StatementEntry[] = [];
       let appliedThisRound = 0;
@@ -307,11 +310,10 @@ export async function roundApply(
           if (
             isEnvironmentCapabilityError(code, message, stmt.statementClass)
           ) {
-            debugApply(
-              "skipped %s: %s",
-              stmt.id,
-              pgErr.message ?? code ?? "environment/capability",
-            );
+            logger.debug("skipped {statementId}: {reason}", {
+              statementId: stmt.id,
+              reason: pgErr.message ?? code ?? "environment/capability",
+            });
             skipped.push(stmt);
             totalSkipped++;
             continue;
@@ -319,14 +321,16 @@ export async function roundApply(
 
           // Check if this is a dependency error (retryable)
           if (isDependencyError(code)) {
-            debugApply(
-              "deferred %s: %s - %s",
-              stmt.id,
+            logger.debug("deferred {statementId}: {code} - {message}", {
+              statementId: stmt.id,
               code,
-              pgErr.message ?? "Unknown error",
-            );
-            if (pgErr.detail) debugApply("  detail: %s", pgErr.detail);
-            if (pgErr.hint) debugApply("  hint: %s", pgErr.hint);
+              message: pgErr.message ?? "Unknown error",
+            });
+            if (pgErr.detail) {
+              logger.debug("  detail: {detail}", { detail: pgErr.detail });
+            }
+            if (pgErr.hint)
+              logger.debug("  hint: {hint}", { hint: pgErr.hint });
             deferred.push(stmt);
             roundErrors.push({
               statement: stmt,
@@ -342,14 +346,15 @@ export async function roundApply(
 
           // Hard failure - non-dependency, non-environment error
           failedThisRound++;
-          debugApply(
-            "failed %s: %s - %s",
-            stmt.id,
+          logger.debug("failed {statementId}: {code} - {message}", {
+            statementId: stmt.id,
             code,
-            pgErr.message ?? "Unknown error",
-          );
-          if (pgErr.detail) debugApply("  detail: %s", pgErr.detail);
-          if (pgErr.hint) debugApply("  hint: %s", pgErr.hint);
+            message: pgErr.message ?? "Unknown error",
+          });
+          if (pgErr.detail) {
+            logger.debug("  detail: {detail}", { detail: pgErr.detail });
+          }
+          if (pgErr.hint) logger.debug("  hint: {hint}", { hint: pgErr.hint });
           const stmtError: StatementError = {
             statement: stmt,
             code,
@@ -365,23 +370,25 @@ export async function roundApply(
         }
       }
 
-      if (debugApply.enabled && deferred.length > 0) {
-        debugApply(
-          "Round %d complete: %d applied, %d deferred, %d failed",
-          round,
-          appliedThisRound,
-          deferred.length,
-          failedThisRound,
+      if (logger.isEnabledFor("debug") && deferred.length > 0) {
+        logger.debug(
+          "Round {round} complete: {applied} applied, {deferred} deferred, {failed} failed",
+          {
+            round,
+            applied: appliedThisRound,
+            deferred: deferred.length,
+            failed: failedThisRound,
+          },
         );
         for (const e of roundErrors.filter((er) => er.isDependencyError)) {
-          debugApply(
-            "  deferred %s: %s - %s",
-            e.statement.id,
-            e.code,
-            e.message,
-          );
-          if (e.detail) debugApply("    detail: %s", e.detail);
-          if (e.hint) debugApply("    hint: %s", e.hint);
+          logger.debug("  deferred {statementId}: {code} - {message}", {
+            statementId: e.statement.id,
+            code: e.code,
+            message: e.message,
+          });
+          if (e.detail)
+            logger.debug("    detail: {detail}", { detail: e.detail });
+          if (e.hint) logger.debug("    hint: {hint}", { hint: e.hint });
         }
       }
 
@@ -523,7 +530,9 @@ async function validateFunctionBodies(
     `);
     const detectedSchemas = rows[0]?.schemas;
     if (detectedSchemas) {
-      debugApply("validation search_path: %s, pg_catalog", detectedSchemas);
+      logger.debug("validation search_path: {schemas}, pg_catalog", {
+        schemas: detectedSchemas,
+      });
       await client.query(
         `SET LOCAL search_path = ${detectedSchemas}, pg_catalog`,
       );

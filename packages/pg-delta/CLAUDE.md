@@ -78,7 +78,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 ### CLI (`src/cli/`)
 
 - `bin/cli.ts` — Entry point.
-- `app.ts` — Stricli CLI framework.
+- `app.ts` — @effect/cli framework.
 - `commands/` — plan, apply, sync, declarative-export, declarative-apply, etc.
 - `formatters/` — Tree view, SQL scripts.
 - `utils.ts` — Shared CLI helpers.
@@ -118,5 +118,5 @@ To add a new PostgreSQL object type:
 
 ## Dependencies & Debug
 
-- **Runtime**: `pg`, `@stricli/core`, `@ts-safeql/sql-tag`, `zod`, `debug`.
+- **Runtime**: `pg`, `@effect/cli`, `effect`, `@ts-safeql/sql-tag`, `zod`, `debug`.
 - **Debug**: `DEBUG=pg-delta:* bun run pgdelta ...`; for declarative apply, `DEBUG=pg-delta:declarative-apply` (or `DEBUG=pg-delta:*`) shows deferred statements and per-round summaries.

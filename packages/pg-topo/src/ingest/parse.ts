@@ -1,14 +1,13 @@
-import {
-  deparseSql,
-  loadModule as loadPlpgsqlParserModule,
-  parseSql,
-} from "plpgsql-parser";
+import { Effect, ManagedRuntime } from "effect";
+import { deparseSql, parseSql } from "plpgsql-parser";
 import { parseAnnotations } from "../annotations/parse-annotations.ts";
 import type {
   AnnotationHints,
   Diagnostic,
   StatementId,
 } from "../model/types.ts";
+import { ParserService } from "../services/parser.ts";
+import { ParserServiceLive } from "../services/parser-live.ts";
 
 type RawParserStatement = {
   stmt?: unknown;
@@ -30,15 +29,6 @@ export type ParsedStatement = {
 type ParseContentResult = {
   statements: ParsedStatement[];
   diagnostics: Diagnostic[];
-};
-
-let parserModuleLoadPromise: Promise<void> | null = null;
-
-const ensureParserModuleLoaded = async (): Promise<void> => {
-  if (!parserModuleLoadPromise) {
-    parserModuleLoadPromise = loadPlpgsqlParserModule();
-  }
-  await parserModuleLoadPromise;
 };
 
 const ensureStatementTerminator = (sql: string): string =>
@@ -79,12 +69,15 @@ const extractStatementSql = async (
   return "";
 };
 
-export const parseSqlContent = async (
+/**
+ * Core implementation — assumes the parser WASM module is already loaded.
+ * Used by `ParserServiceLive` which handles module loading via `Effect.once`.
+ */
+export const parseSqlContentImpl = async (
   content: string,
   sourceLabel: string,
 ): Promise<ParseContentResult> => {
   const diagnostics: Diagnostic[] = [];
-  await ensureParserModuleLoaded();
 
   let parseResult: RawParserResult;
   try {
@@ -155,4 +148,27 @@ export const parseSqlContent = async (
   }
 
   return { statements, diagnostics };
+};
+
+/**
+ * Module-level managed runtime — lazily builds ParserServiceLive on first use
+ * and reuses it for all subsequent calls. WASM loading happens exactly once
+ * through Effect.once inside ParserServiceLive.
+ */
+const parserRuntime = ManagedRuntime.make(ParserServiceLive);
+
+/**
+ * Backward-compatible wrapper that routes through ParserService.
+ * New code should use `ParserService` from `../services/parser.ts` directly.
+ */
+export const parseSqlContent = async (
+  content: string,
+  sourceLabel: string,
+): Promise<ParseContentResult> => {
+  return parserRuntime.runPromise(
+    Effect.gen(function* () {
+      const parser = yield* ParserService;
+      return yield* parser.parseSqlContent(content, sourceLabel);
+    }),
+  );
 };

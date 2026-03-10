@@ -1,5 +1,8 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect } from "effect";
 import type { Pool } from "pg";
+import { CatalogExtractionError } from "./errors.ts";
+import type { DatabaseApi } from "./services/database.ts";
 
 /**
  * Dependency type as defined in PostgreSQL's pg_depend.deptype.
@@ -1868,3 +1871,20 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
       a.referenced_stable_id.localeCompare(b.referenced_stable_id),
   );
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractDependsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<PgDepend[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractDepends(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractDepends failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractDepends",
+        cause: err,
+      }),
+  });

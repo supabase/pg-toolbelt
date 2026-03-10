@@ -10,7 +10,9 @@
 
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
 import { analyzeAndSort } from "@supabase/pg-topo";
+import { Effect } from "effect";
 import type { Pool } from "pg";
+import { DeclarativeApplyError } from "../errors.ts";
 import { createManagedPool } from "../postgres-config.ts";
 import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
@@ -203,3 +205,19 @@ export type { SqlFileEntry } from "./discover-sql.ts";
 export { loadDeclarativeSchema } from "./discover-sql.ts";
 // Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
 export type { ApplyResult, RoundResult } from "./round-apply.ts";
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const applyDeclarativeSchemaEffect = (
+  options: DeclarativeApplyOptions,
+): Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> =>
+  Effect.tryPromise({
+    try: () => applyDeclarativeSchema(options),
+    catch: (err) =>
+      new DeclarativeApplyError({
+        message: `applyDeclarativeSchema failed: ${err instanceof Error ? err.message : err}`,
+        cause: err,
+      }),
+  });

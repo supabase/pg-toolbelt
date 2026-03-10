@@ -1,31 +1,37 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const publicationTablePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  columns: z.array(z.string()).nullable(),
-  row_filter: z.string().nullable(),
-});
+const publicationTablePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    columns: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    row_filter: Schema.NullOr(Schema.String),
+  }),
+);
 
-const publicationPropsSchema = z.object({
-  name: z.string(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  all_tables: z.boolean(),
-  publish_insert: z.boolean(),
-  publish_update: z.boolean(),
-  publish_delete: z.boolean(),
-  publish_truncate: z.boolean(),
-  publish_via_partition_root: z.boolean(),
-  tables: z.array(publicationTablePropsSchema),
-  schemas: z.array(z.string()),
-});
+const publicationPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    all_tables: Schema.Boolean,
+    publish_insert: Schema.Boolean,
+    publish_update: Schema.Boolean,
+    publish_delete: Schema.Boolean,
+    publish_truncate: Schema.Boolean,
+    publish_via_partition_root: Schema.Boolean,
+    tables: Schema.mutable(Schema.Array(publicationTablePropsSchema)),
+    schemas: Schema.mutable(Schema.Array(Schema.String)),
+  }),
+);
 
-export type PublicationTableProps = z.infer<typeof publicationTablePropsSchema>;
-export type PublicationProps = z.infer<typeof publicationPropsSchema>;
+export type PublicationTableProps = typeof publicationTablePropsSchema.Type;
+export type PublicationProps = typeof publicationPropsSchema.Type;
 
 /**
  * Logical replication publication definition extracted from pg_publication.
@@ -201,6 +207,25 @@ export async function extractPublications(pool: Pool): Promise<Publication[]> {
       order by 1
   `);
 
-  const validated = rows.map((row) => publicationPropsSchema.parse(row));
+  const validated = rows.map((row) =>
+    Schema.decodeUnknownSync(publicationPropsSchema)(row),
+  );
   return validated.map((row) => new Publication(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractPublicationsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Publication[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractPublications(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractPublications failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractPublications",
+        cause: err,
+      }),
+  });

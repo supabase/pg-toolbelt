@@ -1,6 +1,8 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
@@ -13,101 +15,109 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const RelationPersistenceSchema = z.enum([
+const RelationPersistenceSchema = Schema.Literal(
   "p", // permanent
   "u", // unlogged
   "t", // temporary
-]);
+);
 
-export const ReplicaIdentitySchema = z.enum([
+export const ReplicaIdentitySchema = Schema.Literal(
   "d", // DEFAULT (use default key)
   "n", // NOTHING (no replica identity)
   "f", // FULL (all columns)
   "i", // INDEX (specific index)
-]);
+);
 
-const ForeignKeyActionSchema = z.enum([
+const ForeignKeyActionSchema = Schema.Literal(
   "a", // NO ACTION
   "r", // RESTRICT
   "c", // CASCADE
   "n", // SET NULL
   "d", // SET DEFAULT
-]);
+);
 
-const ForeignKeyMatchTypeSchema = z.enum([
+const ForeignKeyMatchTypeSchema = Schema.Literal(
   "f", // FULL
   "p", // PARTIAL
   "s", // SIMPLE
   "u", // UNSPECIFIED (default)
-]);
+);
 
-const tableConstraintPropsSchema = z.object({
-  name: z.string(),
-  constraint_type: z.enum([
-    "c", // CHECK constraint
-    "f", // FOREIGN KEY constraint
-    "p", // PRIMARY KEY constraint
-    "t", // TRIGGER constraint
-    "u", // UNIQUE constraint
-    "x", // EXCLUDE constraint
-  ]),
-  deferrable: z.boolean(),
-  initially_deferred: z.boolean(),
-  validated: z.boolean(),
-  is_local: z.boolean(),
-  no_inherit: z.boolean(),
-  is_partition_clone: z.boolean(),
-  parent_constraint_schema: z.string().nullable(),
-  parent_constraint_name: z.string().nullable(),
-  parent_table_schema: z.string().nullable(),
-  parent_table_name: z.string().nullable(),
-  key_columns: z.array(z.string()),
-  foreign_key_columns: z.array(z.string()).nullable(),
-  foreign_key_table: z.string().nullable(),
-  foreign_key_schema: z.string().nullable(),
-  foreign_key_table_is_partition: z.boolean().nullable(),
-  foreign_key_parent_schema: z.string().nullable(),
-  foreign_key_parent_table: z.string().nullable(),
-  foreign_key_effective_schema: z.string().nullable(),
-  foreign_key_effective_table: z.string().nullable(),
-  on_update: ForeignKeyActionSchema.nullable(),
-  on_delete: ForeignKeyActionSchema.nullable(),
-  match_type: ForeignKeyMatchTypeSchema.nullable(),
-  check_expression: z.string().nullable(),
-  owner: z.string(),
-  definition: z.string(),
-  comment: z.string().nullable().optional(),
-});
+const tableConstraintPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    constraint_type: Schema.Literal(
+      "c", // CHECK constraint
+      "f", // FOREIGN KEY constraint
+      "p", // PRIMARY KEY constraint
+      "t", // TRIGGER constraint
+      "u", // UNIQUE constraint
+      "x", // EXCLUDE constraint
+    ),
+    deferrable: Schema.Boolean,
+    initially_deferred: Schema.Boolean,
+    validated: Schema.Boolean,
+    is_local: Schema.Boolean,
+    no_inherit: Schema.Boolean,
+    is_partition_clone: Schema.Boolean,
+    parent_constraint_schema: Schema.NullOr(Schema.String),
+    parent_constraint_name: Schema.NullOr(Schema.String),
+    parent_table_schema: Schema.NullOr(Schema.String),
+    parent_table_name: Schema.NullOr(Schema.String),
+    key_columns: Schema.mutable(Schema.Array(Schema.String)),
+    foreign_key_columns: Schema.NullOr(
+      Schema.mutable(Schema.Array(Schema.String)),
+    ),
+    foreign_key_table: Schema.NullOr(Schema.String),
+    foreign_key_schema: Schema.NullOr(Schema.String),
+    foreign_key_table_is_partition: Schema.NullOr(Schema.Boolean),
+    foreign_key_parent_schema: Schema.NullOr(Schema.String),
+    foreign_key_parent_table: Schema.NullOr(Schema.String),
+    foreign_key_effective_schema: Schema.NullOr(Schema.String),
+    foreign_key_effective_table: Schema.NullOr(Schema.String),
+    on_update: Schema.NullOr(ForeignKeyActionSchema),
+    on_delete: Schema.NullOr(ForeignKeyActionSchema),
+    match_type: Schema.NullOr(ForeignKeyMatchTypeSchema),
+    check_expression: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    definition: Schema.String,
+    comment: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+);
 
-export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
+export type TableConstraintProps = typeof tableConstraintPropsSchema.Type;
 
-const tablePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  persistence: RelationPersistenceSchema,
-  row_security: z.boolean(),
-  force_row_security: z.boolean(),
-  has_indexes: z.boolean(),
-  has_rules: z.boolean(),
-  has_triggers: z.boolean(),
-  has_subclasses: z.boolean(),
-  is_populated: z.boolean(),
-  replica_identity: ReplicaIdentitySchema,
-  is_partition: z.boolean(),
-  options: z.array(z.string()).nullable(),
-  partition_bound: z.string().nullable(),
-  partition_by: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable().optional(),
-  parent_schema: z.string().nullable(),
-  parent_name: z.string().nullable(),
-  columns: z.array(columnPropsSchema),
-  constraints: z.array(tableConstraintPropsSchema).optional(),
-  privileges: z.array(privilegePropsSchema),
-});
+const tablePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    persistence: RelationPersistenceSchema,
+    row_security: Schema.Boolean,
+    force_row_security: Schema.Boolean,
+    has_indexes: Schema.Boolean,
+    has_rules: Schema.Boolean,
+    has_triggers: Schema.Boolean,
+    has_subclasses: Schema.Boolean,
+    is_populated: Schema.Boolean,
+    replica_identity: ReplicaIdentitySchema,
+    is_partition: Schema.Boolean,
+    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    partition_bound: Schema.NullOr(Schema.String),
+    partition_by: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.optional(Schema.NullOr(Schema.String)),
+    parent_schema: Schema.NullOr(Schema.String),
+    parent_name: Schema.NullOr(Schema.String),
+    columns: Schema.mutable(Schema.Array(columnPropsSchema)),
+    constraints: Schema.optional(
+      Schema.mutable(Schema.Array(tableConstraintPropsSchema)),
+    ),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type TablePrivilegeProps = PrivilegeProps;
-export type TableProps = z.infer<typeof tablePropsSchema>;
+export type TableProps = typeof tablePropsSchema.Type;
 
 export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
@@ -452,9 +462,26 @@ group by
 order by
   t.schema, t.name
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = tableRows.map((row: unknown) =>
-    tablePropsSchema.parse(row),
+    Schema.decodeUnknownSync(tablePropsSchema)(row),
   );
   return validatedRows.map((row: TableProps) => new Table(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractTablesEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Table[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractTables(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractTables failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractTables",
+        cause: err,
+      }),
+  });

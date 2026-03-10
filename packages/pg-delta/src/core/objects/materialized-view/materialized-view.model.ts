@@ -1,6 +1,8 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
@@ -10,31 +12,34 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
-const materializedViewPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  definition: z.string(),
-  row_security: z.boolean(),
-  force_row_security: z.boolean(),
-  has_indexes: z.boolean(),
-  has_rules: z.boolean(),
-  has_triggers: z.boolean(),
-  has_subclasses: z.boolean(),
-  is_populated: z.boolean(),
-  replica_identity: ReplicaIdentitySchema,
-  is_partition: z.boolean(),
-  options: z.array(z.string()).nullable(),
-  partition_bound: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  columns: z.array(columnPropsSchema),
-  privileges: z.array(privilegePropsSchema),
-});
+const ReplicaIdentitySchema = Schema.Literal("d", "n", "f", "i");
+
+const materializedViewPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    definition: Schema.String,
+    row_security: Schema.Boolean,
+    force_row_security: Schema.Boolean,
+    has_indexes: Schema.Boolean,
+    has_rules: Schema.Boolean,
+    has_triggers: Schema.Boolean,
+    has_subclasses: Schema.Boolean,
+    is_populated: Schema.Boolean,
+    replica_identity: ReplicaIdentitySchema,
+    is_partition: Schema.Boolean,
+    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    partition_bound: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    columns: Schema.mutable(Schema.Array(columnPropsSchema)),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type MaterializedViewPrivilegeProps = PrivilegeProps;
-export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
+export type MaterializedViewProps = typeof materializedViewPropsSchema.Type;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly schema: MaterializedViewProps["schema"];
@@ -248,11 +253,28 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = mvRows.map((row: unknown) =>
-    materializedViewPropsSchema.parse(row),
+    Schema.decodeUnknownSync(materializedViewPropsSchema)(row),
   );
   return validatedRows.map(
     (row: MaterializedViewProps) => new MaterializedView(row),
   );
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractMaterializedViewsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<MaterializedView[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractMaterializedViews(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractMaterializedViews failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractMaterializedViews",
+        cause: err,
+      }),
+  });

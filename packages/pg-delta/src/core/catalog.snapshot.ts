@@ -5,7 +5,7 @@
  * (use a snapshot as source/target for createPlan).
  */
 
-import z from "zod";
+import { Schema as EffectSchema } from "effect";
 import { Catalog } from "./catalog.model.ts";
 import type { PgDepend } from "./depend.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
@@ -76,14 +76,20 @@ export interface CatalogSnapshot {
 }
 
 // ============================================================================
-// Zod schema for validation on deserialization
+// Schema for validation on deserialization
 // ============================================================================
 
-const objectRecord = z.record(z.string(), z.any());
+const objectRecord = EffectSchema.Record({
+  key: EffectSchema.String,
+  value: EffectSchema.Record({
+    key: EffectSchema.String,
+    value: EffectSchema.Unknown,
+  }),
+});
 
-const CatalogSnapshotSchema = z.object({
-  version: z.number(),
-  currentUser: z.string(),
+const CatalogSnapshotSchema = EffectSchema.Struct({
+  version: EffectSchema.Number,
+  currentUser: EffectSchema.String,
   aggregates: objectRecord,
   collations: objectRecord,
   compositeTypes: objectRecord,
@@ -109,11 +115,11 @@ const CatalogSnapshotSchema = z.object({
   servers: objectRecord,
   userMappings: objectRecord,
   foreignTables: objectRecord,
-  depends: z.array(
-    z.object({
-      dependent_stable_id: z.string(),
-      referenced_stable_id: z.string(),
-      deptype: z.enum(["n", "a", "i"]),
+  depends: EffectSchema.Array(
+    EffectSchema.Struct({
+      dependent_stable_id: EffectSchema.String,
+      referenced_stable_id: EffectSchema.String,
+      deptype: EffectSchema.Literal("n", "a", "i"),
     }),
   ),
 });
@@ -245,12 +251,12 @@ function coerceSequenceBigInts(
 /**
  * Deserialize a CatalogSnapshot (plain JSON data) back into a Catalog.
  *
- * Validates the top-level structure with Zod, then constructs model
+ * Validates the top-level structure with the schema, then constructs model
  * class instances via their constructors. Rebuilds `indexableObjects`
  * from tables + materializedViews.
  */
 export function deserializeCatalog(data: unknown): Catalog {
-  const s = CatalogSnapshotSchema.parse(data);
+  const s = EffectSchema.decodeUnknownSync(CatalogSnapshotSchema)(data);
 
   const tables = buildRecord(s.tables, Table);
   const materializedViews = buildRecord(s.materializedViews, MaterializedView);
@@ -283,7 +289,7 @@ export function deserializeCatalog(data: unknown): Catalog {
     servers: buildRecord(s.servers, Server),
     userMappings: buildRecord(s.userMappings, UserMapping),
     foreignTables: buildRecord(s.foreignTables, ForeignTable),
-    depends: s.depends,
+    depends: [...s.depends],
     indexableObjects: { ...tables, ...materializedViews },
   });
 }

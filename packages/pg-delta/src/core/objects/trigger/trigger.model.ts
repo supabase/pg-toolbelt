@@ -1,52 +1,56 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const TriggerEnabledSchema = z.enum([
+const TriggerEnabledSchema = Schema.Literal(
   "O", // ORIGIN - trigger fires in "origin" and "local" replica modes
   "D", // DISABLED - trigger is disabled
   "R", // REPLICA - trigger fires only in "replica" mode
   "A", // ALWAYS - trigger fires regardless of replication mode
-]);
+);
 
-const TriggerTableRelkindSchema = z.enum([
+const TriggerTableRelkindSchema = Schema.Literal(
   "r", // ordinary table
   "p", // partitioned table
   "f", // foreign table
   "v", // view
   "m", // materialized view
-]);
+);
 
-const triggerPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  table_name: z.string(),
-  table_relkind: TriggerTableRelkindSchema,
-  function_schema: z.string(),
-  function_name: z.string(),
-  trigger_type: z.number(),
-  enabled: TriggerEnabledSchema,
-  is_internal: z.boolean(),
-  deferrable: z.boolean(),
-  initially_deferred: z.boolean(),
-  argument_count: z.number(),
-  column_numbers: z.array(z.number()).nullable(),
-  arguments: z.array(z.string()),
-  when_condition: z.string().nullable(),
-  old_table: z.string().nullable(),
-  new_table: z.string().nullable(),
-  is_partition_clone: z.boolean(),
-  parent_trigger_name: z.string().nullable(),
-  parent_table_schema: z.string().nullable(),
-  parent_table_name: z.string().nullable(),
-  is_on_partitioned_table: z.boolean(),
-  owner: z.string(),
-  definition: z.string(),
-  comment: z.string().nullable(),
-});
+const triggerPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    table_name: Schema.String,
+    table_relkind: TriggerTableRelkindSchema,
+    function_schema: Schema.String,
+    function_name: Schema.String,
+    trigger_type: Schema.Number,
+    enabled: TriggerEnabledSchema,
+    is_internal: Schema.Boolean,
+    deferrable: Schema.Boolean,
+    initially_deferred: Schema.Boolean,
+    argument_count: Schema.Number,
+    column_numbers: Schema.NullOr(Schema.mutable(Schema.Array(Schema.Number))),
+    arguments: Schema.mutable(Schema.Array(Schema.String)),
+    when_condition: Schema.NullOr(Schema.String),
+    old_table: Schema.NullOr(Schema.String),
+    new_table: Schema.NullOr(Schema.String),
+    is_partition_clone: Schema.Boolean,
+    parent_trigger_name: Schema.NullOr(Schema.String),
+    parent_table_schema: Schema.NullOr(Schema.String),
+    parent_table_name: Schema.NullOr(Schema.String),
+    is_on_partitioned_table: Schema.Boolean,
+    owner: Schema.String,
+    definition: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+  }),
+);
 
-export type TriggerProps = z.infer<typeof triggerPropsSchema>;
+export type TriggerProps = typeof triggerPropsSchema.Type;
 
 export class Trigger extends BasePgModel {
   public readonly schema: TriggerProps["schema"];
@@ -256,9 +260,26 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = triggerRows.map((row: unknown) =>
-    triggerPropsSchema.parse(row),
+    Schema.decodeUnknownSync(triggerPropsSchema)(row),
   );
   return validatedRows.map((row: TriggerProps) => new Trigger(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractTriggersEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Trigger[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractTriggers(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractTriggers failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractTriggers",
+        cause: err,
+      }),
+  });

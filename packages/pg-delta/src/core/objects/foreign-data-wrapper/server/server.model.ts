@@ -1,6 +1,8 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../../errors.ts";
+import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 import {
   type PrivilegeProps,
@@ -17,19 +19,21 @@ import {
  *
  * Servers are not schema-qualified (no schema property).
  */
-const serverPropsSchema = z.object({
-  name: z.string(),
-  owner: z.string(),
-  foreign_data_wrapper: z.string(),
-  type: z.string().nullable(),
-  version: z.string().nullable(),
-  options: z.array(z.string()).nullable(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const serverPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    owner: Schema.String,
+    foreign_data_wrapper: Schema.String,
+    type: Schema.NullOr(Schema.String),
+    version: Schema.NullOr(Schema.String),
+    options: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type ServerPrivilegeProps = PrivilegeProps;
-export type ServerProps = z.infer<typeof serverPropsSchema>;
+export type ServerProps = typeof serverPropsSchema.Type;
 
 export class Server extends BasePgModel {
   public readonly name: ServerProps["name"];
@@ -112,22 +116,40 @@ export async function extractServers(pool: Pool): Promise<Server[]> {
         srv.srvname
   `);
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = serverRows.map((row: unknown) => {
-    const parsed = serverPropsSchema.parse(row);
+    const parsed = Schema.decodeUnknownSync(serverPropsSchema)(row);
     // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
-    if (parsed.options && parsed.options.length > 0) {
+    let options = parsed.options;
+    if (options && options.length > 0) {
       const parsedOptions: string[] = [];
-      for (const opt of parsed.options) {
+      for (const opt of options) {
         const eqIndex = opt.indexOf("=");
         if (eqIndex > 0) {
           parsedOptions.push(opt.substring(0, eqIndex));
           parsedOptions.push(opt.substring(eqIndex + 1));
         }
       }
-      parsed.options = parsedOptions.length > 0 ? parsedOptions : null;
+      options = parsedOptions.length > 0 ? parsedOptions : null;
     }
-    return parsed;
+    return { ...parsed, options };
   });
   return validatedRows.map((row: ServerProps) => new Server(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractServersEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Server[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractServers(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractServers failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractServers",
+        cause: err,
+      }),
+  });

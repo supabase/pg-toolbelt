@@ -1,33 +1,37 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const sequencePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  data_type: z.string(),
-  start_value: z.number(),
-  minimum_value: z.bigint(),
-  maximum_value: z.bigint(),
-  increment: z.number(),
-  cycle_option: z.boolean(),
-  cache_size: z.number(),
-  persistence: z.string(),
-  owned_by_schema: z.string().nullable(),
-  owned_by_table: z.string().nullable(),
-  owned_by_column: z.string().nullable(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-  owner: z.string(),
-});
+const sequencePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    data_type: Schema.String,
+    start_value: Schema.Number,
+    minimum_value: Schema.BigIntFromSelf,
+    maximum_value: Schema.BigIntFromSelf,
+    increment: Schema.Number,
+    cycle_option: Schema.Boolean,
+    cache_size: Schema.Number,
+    persistence: Schema.String,
+    owned_by_schema: Schema.NullOr(Schema.String),
+    owned_by_table: Schema.NullOr(Schema.String),
+    owned_by_column: Schema.NullOr(Schema.String),
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+    owner: Schema.String,
+  }),
+);
 
 type SequencePrivilegeProps = PrivilegeProps;
-export type SequenceProps = z.infer<typeof sequencePropsSchema>;
+export type SequenceProps = typeof sequencePropsSchema.Type;
 
 export class Sequence extends BasePgModel {
   public readonly schema: SequenceProps["schema"];
@@ -177,9 +181,26 @@ from
 order by
   1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = sequenceRows.map((row: unknown) =>
-    sequencePropsSchema.parse(row),
+    Schema.decodeUnknownSync(sequencePropsSchema)(row),
   );
   return validatedRows.map((row: SequenceProps) => new Sequence(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractSequencesEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Sequence[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractSequences(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractSequences failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractSequences",
+        cause: err,
+      }),
+  });

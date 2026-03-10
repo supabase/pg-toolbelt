@@ -11,13 +11,13 @@
  * - Custom constraints (change-to-change ordering rules)
  */
 
-import debug from "debug";
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
+import { getPgDeltaLogger } from "../logging.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
 
-const debugGraph = debug("pg-delta:graph");
+const logger = getPgDeltaLogger("graph");
 
 import {
   filterEdgesForCycleBreaking,
@@ -209,7 +209,7 @@ function sortPhaseChanges(
   const finalEdgePairs = edgesToPairs(edges);
 
   // Debug visualization
-  if (debugGraph.enabled) {
+  if (logger.isEnabledFor("debug")) {
     printDebugGraph(
       phaseChanges,
       graphData,

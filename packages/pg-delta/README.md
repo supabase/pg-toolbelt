@@ -11,7 +11,7 @@ Generate migration scripts by comparing two PostgreSQL databases. Automatically 
 - 📋 Plan-based workflow: preview changes before applying, store plans for version control
 - 📁 Declarative schemas: export/apply schemas as version-controlled `.sql` files
 - 🎯 Integration DSL: filter and customize serialization with JSON-based rules
-- 🛠️ Developer-friendly: interactive CLI with tree-formatted change previews
+- 🛠️ Developer-friendly: clack-powered interactive CLI with tree-formatted change previews
 
 ## Installation
 

@@ -1,8 +1,10 @@
+import { Effect } from "effect";
 import {
   classifyStatement,
   phaseForStatementClass,
   statementClassAstNode,
 } from "./classify/classify-statement.ts";
+import type { ParseError } from "./errors.ts";
 import { extractDependencies } from "./extract/extract-dependencies.ts";
 import { buildGraph, type EdgeMetadata } from "./graph/build-graph.ts";
 import { compareStatementIndices, topoSort } from "./graph/topo-sort.ts";
@@ -16,6 +18,7 @@ import type {
   GraphReport,
   StatementNode,
 } from "./model/types.ts";
+import { ParserService } from "./services/parser.ts";
 
 const dedupeDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   const map = new Map<string, Diagnostic>();
@@ -241,3 +244,151 @@ export const analyzeAndSort = async (
     graph,
   };
 };
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+/**
+ * Pure synchronous pipeline: classify → extract → build graph → topo sort.
+ * Shared by both the Promise-based and Effect-based entry points.
+ */
+const runSyncPipeline = (
+  parsedStatements: ParsedStatement[],
+  parseDiagnostics: Diagnostic[],
+  options?: AnalyzeOptions,
+): AnalyzeResult => {
+  const diagnostics: Diagnostic[] = [...parseDiagnostics];
+  const statementNodes: StatementNode[] = [];
+
+  for (const parsedStatement of parsedStatements) {
+    const statementClass = classifyStatement(parsedStatement.ast);
+    if (statementClass === "UNKNOWN") {
+      diagnostics.push({
+        code: "UNKNOWN_STATEMENT_CLASS",
+        message: `Unsupported statement AST root '${statementClassAstNode(parsedStatement.ast) ?? "unknown"}'.`,
+        statementId: parsedStatement.id,
+      });
+    }
+
+    const extraction = extractDependencies(
+      statementClass,
+      parsedStatement.ast,
+      parsedStatement.annotations,
+    );
+
+    statementNodes.push({
+      id: parsedStatement.id,
+      sql: parsedStatement.sql,
+      statementClass,
+      provides: extraction.provides,
+      requires: extraction.requires,
+      phase:
+        parsedStatement.annotations.phase ??
+        phaseForStatementClass(statementClass),
+      annotations: parsedStatement.annotations,
+    });
+  }
+
+  const graphState = buildGraph(statementNodes, options?.externalProviders);
+  diagnostics.push(...graphState.diagnostics);
+
+  const topoResult = topoSort(statementNodes, graphState.edges);
+  if (topoResult.cycleGroups.length > 0) {
+    for (const cycleGroup of topoResult.cycleGroups) {
+      const firstCycleIndex = cycleGroup[0];
+      const firstCycleNode =
+        typeof firstCycleIndex === "number"
+          ? statementNodes[firstCycleIndex]
+          : undefined;
+      const cycleSet = new Set(cycleGroup);
+      const cycleStatements = cycleGroup
+        .map((index) => statementNodes[index]?.id)
+        .filter((statementId): statementId is StatementNode["id"] =>
+          Boolean(statementId),
+        )
+        .map(
+          (statementId) =>
+            `${statementId.filePath}:${statementId.statementIndex}${statementId.sourceOffset != null ? `@${statementId.sourceOffset}` : ""}`,
+        );
+      const cycleObjectKeys = [...graphState.edgeMetadata.entries()]
+        .filter(([edge]) => {
+          const [fromText, toText] = edge.split("->");
+          if (!fromText || !toText) {
+            return false;
+          }
+          const fromIndex = Number.parseInt(fromText, 10);
+          const toIndex = Number.parseInt(toText, 10);
+          return cycleSet.has(fromIndex) && cycleSet.has(toIndex);
+        })
+        .map(([, metadata]) => metadata.objectRef)
+        .filter((objectRef): objectRef is NonNullable<typeof objectRef> =>
+          Boolean(objectRef),
+        )
+        .map((objectRef) => objectRefKey(objectRef))
+        .sort((left, right) => left.localeCompare(right));
+
+      diagnostics.push({
+        code: "CYCLE_DETECTED",
+        message: `Dependency cycle detected across ${cycleGroup.length} statements.`,
+        statementId: firstCycleNode?.id,
+        details: {
+          cycleStatements,
+          cycleObjectKeys,
+        },
+        suggestedFix:
+          "Break the cycle by splitting DDL into separate statements or adding explicit pg-topo:depends_on annotations.",
+      });
+    }
+  }
+
+  const ordered = topoResult.orderedIndices
+    .map((index) => statementNodes[index])
+    .filter((statementNode): statementNode is StatementNode =>
+      Boolean(statementNode),
+    );
+  const graph = buildGraphReport(
+    statementNodes,
+    graphState.edges,
+    graphState.edgeMetadata,
+    topoResult.cycleGroups,
+  );
+
+  const sortedDiagnostics =
+    dedupeDiagnostics(diagnostics).sort(compareDiagnostics);
+  return {
+    ordered,
+    diagnostics: sortedDiagnostics,
+    graph,
+  };
+};
+
+export const analyzeAndSortEffect = (
+  sql: string[],
+  options?: AnalyzeOptions,
+): Effect.Effect<AnalyzeResult, ParseError, ParserService> =>
+  Effect.gen(function* () {
+    if (sql.length === 0) {
+      return {
+        ...EMPTY_RESULT,
+        diagnostics: [
+          {
+            code: "DISCOVERY_ERROR" as const,
+            message: "No SQL input provided.",
+          },
+        ],
+      };
+    }
+
+    const parser = yield* ParserService;
+    const diagnostics: Diagnostic[] = [];
+    const parsedStatements: ParsedStatement[] = [];
+
+    for (let i = 0; i < sql.length; i += 1) {
+      const parsed = yield* parser.parseSqlContent(sql[i], `<input:${i}>`);
+      parsedStatements.push(...parsed.statements);
+      diagnostics.push(...parsed.diagnostics);
+    }
+
+    return runSyncPipeline(parsedStatements, diagnostics, options);
+  });

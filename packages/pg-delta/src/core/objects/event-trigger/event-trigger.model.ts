@@ -1,27 +1,31 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const EventTriggerEnabledSchema = z.enum([
+const EventTriggerEnabledSchema = Schema.Literal(
   "O", // ORIGIN - trigger fires in origin mode
   "D", // DISABLED - trigger does not fire
   "R", // REPLICA - trigger fires only in replica session
   "A", // ALWAYS - trigger fires regardless of replication mode
-]);
+);
 
-const eventTriggerPropsSchema = z.object({
-  name: z.string(),
-  event: z.string(),
-  function_schema: z.string(),
-  function_name: z.string(),
-  enabled: EventTriggerEnabledSchema,
-  tags: z.array(z.string()).nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-});
+const eventTriggerPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    event: Schema.String,
+    function_schema: Schema.String,
+    function_name: Schema.String,
+    enabled: EventTriggerEnabledSchema,
+    tags: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+  }),
+);
 
-export type EventTriggerProps = z.infer<typeof eventTriggerPropsSchema>;
+export type EventTriggerProps = typeof eventTriggerPropsSchema.Type;
 
 export class EventTrigger extends BasePgModel {
   public readonly name: EventTriggerProps["name"];
@@ -99,8 +103,25 @@ order by 1
   `);
 
   const validatedRows = rows.map((row: unknown) =>
-    eventTriggerPropsSchema.parse(row),
+    Schema.decodeUnknownSync(eventTriggerPropsSchema)(row),
   );
 
   return validatedRows.map((row: EventTriggerProps) => new EventTrigger(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractEventTriggersEffect = (
+  db: DatabaseApi,
+): Effect.Effect<EventTrigger[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractEventTriggers(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractEventTriggers failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractEventTriggers",
+        cause: err,
+      }),
+  });

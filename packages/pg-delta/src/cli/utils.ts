@@ -2,9 +2,8 @@
  * Shared utility functions for CLI commands.
  */
 
-import { createInterface } from "node:readline";
-import type { CommandContext } from "@stricli/core";
 import chalk from "chalk";
+import { Effect } from "effect";
 import type { Change } from "../core/change.types.ts";
 import type { DiffContext } from "../core/context.ts";
 import { groupChangesHierarchically } from "../core/plan/hierarchy.ts";
@@ -12,7 +11,26 @@ import { type Plan, serializePlan } from "../core/plan/index.ts";
 import { classifyChangesRisk } from "../core/plan/risk.ts";
 import type { SqlFormatOptions } from "../core/plan/sql-format.ts";
 import { formatSqlScript } from "../core/plan/statements.ts";
+import { CliExitError } from "./errors.ts";
 import { formatTree } from "./formatters/index.ts";
+import { confirmAction, logError, logInfo, logWarning } from "./ui.ts";
+
+/**
+ * Parse a JSON string inside an Effect context. Replaces the throwing
+ * `parseJsonSafe` / `parseJsonFlag` helpers that were called from Effect.gen.
+ */
+export const parseJsonEffect = <T>(
+  label: string,
+  value: string,
+): Effect.Effect<T, CliExitError> =>
+  Effect.try({
+    try: () => JSON.parse(value) as T,
+    catch: (error) =>
+      new CliExitError({
+        exitCode: 1,
+        message: `Invalid ${label} JSON: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+  });
 
 // Re-export ApplyPlanResult type for convenience
 type ApplyPlanResult =
@@ -131,13 +149,12 @@ export function formatPlanForDisplay(
 export function validatePlanRisk(
   plan: Plan,
   unsafe: boolean,
-  context: CommandContext,
   options?: { suppressWarning?: boolean },
 ): { valid: boolean; exitCode?: number } {
   if (!unsafe) {
     if (!plan.risk) {
-      context.process.stderr.write(
-        "Plan is missing risk metadata. Regenerate the plan with the current pgdelta or re-run with --unsafe to apply anyway.\n",
+      logError(
+        "Plan is missing risk metadata. Regenerate the plan with the current pgdelta or re-run with --unsafe to apply anyway.",
       );
       return { valid: false, exitCode: 1 };
     }
@@ -150,7 +167,7 @@ export function validatePlanRisk(
           ),
           chalk.yellow("Use `--unsafe` to allow applying these operations."),
         ];
-        context.process.stderr.write(`${warningLines.join("\n")}\n`);
+        logWarning(warningLines.join("\n"));
       }
       return { valid: false, exitCode: 1 };
     }
@@ -162,39 +179,36 @@ export function validatePlanRisk(
  * Handles applyPlan results and writes appropriate output.
  * Returns the exit code that should be set.
  */
-export function handleApplyResult(
-  result: ApplyPlanResult,
-  context: CommandContext,
-): { exitCode: number } {
+export function handleApplyResult(result: ApplyPlanResult): {
+  exitCode: number;
+} {
   switch (result.status) {
     case "invalid_plan":
-      context.process.stderr.write(`${result.message}\n`);
+      logError(result.message);
       return { exitCode: 1 };
     case "fingerprint_mismatch":
-      context.process.stderr.write(
-        "Target database does not match plan source fingerprint. Aborting.\n",
+      logError(
+        "Target database does not match plan source fingerprint. Aborting.",
       );
       return { exitCode: 1 };
     case "already_applied":
-      context.process.stdout.write(
-        "Plan already applied (target fingerprint matches desired state).\n",
+      logInfo(
+        "Plan already applied (target fingerprint matches desired state).",
       );
       return { exitCode: 0 };
     case "failed": {
-      context.process.stderr.write(
-        `Failed to apply changes: ${result.error instanceof Error ? result.error.message : String(result.error)}\n`,
+      logError(
+        `Failed to apply changes: ${result.error instanceof Error ? result.error.message : String(result.error)}`,
       );
-      context.process.stderr.write(`Migration script:\n${result.script}\n`);
+      logError(`Migration script:\n${result.script}`);
       return { exitCode: 1 };
     }
     case "applied": {
-      context.process.stdout.write(
-        `Applying ${result.statements} changes to database...\n`,
-      );
-      context.process.stdout.write("Successfully applied all changes.\n");
+      logInfo(`Applying ${result.statements} changes to database...`);
+      logInfo("Successfully applied all changes.");
       if (result.warnings?.length) {
         for (const warning of result.warnings) {
-          context.process.stderr.write(`Warning: ${warning}\n`);
+          logWarning(`Warning: ${warning}`);
         }
       }
       return { exitCode: 0 };
@@ -203,29 +217,13 @@ export function handleApplyResult(
 }
 
 /**
- * Prompts user for confirmation using readline.
- * Returns true for 'y'/'yes', false otherwise.
+ * Prompts user for confirmation using clack.
+ * Falls back to stdin confirmation in non-interactive mode.
  */
-export function promptConfirmation(
-  question: string,
-  context: CommandContext,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    // Access stdin/stdout from the process object
-    // Type assertion needed because CommandContext.process may not expose stdin in its type
-    const process = context.process as unknown as {
-      stdin: NodeJS.ReadableStream;
-      stdout: NodeJS.WritableStream;
-    };
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    rl.question(question, (answer) => {
-      rl.close();
-      const normalized = answer.trim().toLowerCase();
-      resolve(normalized === "y" || normalized === "yes");
-    });
-  });
+export function promptConfirmation(question: string): Promise<boolean> {
+  const promptMessage = question
+    .replace(/\(y\/N\)\s*$/i, "")
+    .trim()
+    .replace(/\?$/, "");
+  return confirmAction(promptMessage);
 }

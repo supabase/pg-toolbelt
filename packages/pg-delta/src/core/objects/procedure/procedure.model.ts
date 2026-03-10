@@ -1,73 +1,81 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const FunctionKindSchema = z.enum([
+const FunctionKindSchema = Schema.Literal(
   "f", // function
   "p", // procedure
   "a", // aggregate function
   "w", // window function
-]);
+);
 
-const FunctionVolatilitySchema = z.enum([
+const FunctionVolatilitySchema = Schema.Literal(
   "i", // IMMUTABLE
   "s", // STABLE
   "v", // VOLATILE
-]);
+);
 
-const FunctionParallelSafetySchema = z.enum([
+const FunctionParallelSafetySchema = Schema.Literal(
   "u", // UNSAFE (cannot run in parallel)
   "s", // SAFE (can run in parallel)
   "r", // RESTRICTED (can run in parallel with restrictions)
-]);
+);
 
-const FunctionArgumentModeSchema = z.enum([
+const FunctionArgumentModeSchema = Schema.Literal(
   "i", // IN parameter
   "o", // OUT parameter
   "b", // INOUT parameter
   "v", // VARIADIC parameter
   "t", // TABLE parameter
-]);
+);
 
-const procedurePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  kind: FunctionKindSchema,
-  return_type: z.string(),
-  return_type_schema: z.string(),
-  language: z.string(),
-  security_definer: z.boolean(),
-  volatility: FunctionVolatilitySchema,
-  parallel_safety: FunctionParallelSafetySchema,
-  execution_cost: z.number(),
-  result_rows: z.number(),
-  is_strict: z.boolean(),
-  leakproof: z.boolean(),
-  returns_set: z.boolean(),
-  argument_count: z.number(),
-  argument_default_count: z.number(),
-  argument_names: z.array(z.string()).nullable(),
-  argument_types: z.array(z.string()).nullable(),
-  all_argument_types: z.array(z.string()).nullable(),
-  argument_modes: z.array(FunctionArgumentModeSchema).nullable(),
-  argument_defaults: z.string().nullable(),
-  source_code: z.string().nullable(),
-  binary_path: z.string().nullable(),
-  sql_body: z.string().nullable(),
-  definition: z.string(),
-  config: z.array(z.string()).nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const procedurePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    kind: FunctionKindSchema,
+    return_type: Schema.String,
+    return_type_schema: Schema.String,
+    language: Schema.String,
+    security_definer: Schema.Boolean,
+    volatility: FunctionVolatilitySchema,
+    parallel_safety: FunctionParallelSafetySchema,
+    execution_cost: Schema.Number,
+    result_rows: Schema.Number,
+    is_strict: Schema.Boolean,
+    leakproof: Schema.Boolean,
+    returns_set: Schema.Boolean,
+    argument_count: Schema.Number,
+    argument_default_count: Schema.Number,
+    argument_names: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    argument_types: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    all_argument_types: Schema.NullOr(
+      Schema.mutable(Schema.Array(Schema.String)),
+    ),
+    argument_modes: Schema.NullOr(
+      Schema.mutable(Schema.Array(FunctionArgumentModeSchema)),
+    ),
+    argument_defaults: Schema.NullOr(Schema.String),
+    source_code: Schema.NullOr(Schema.String),
+    binary_path: Schema.NullOr(Schema.String),
+    sql_body: Schema.NullOr(Schema.String),
+    definition: Schema.String,
+    config: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type ProcedurePrivilegeProps = PrivilegeProps;
-export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
+export type ProcedureProps = typeof procedurePropsSchema.Type;
 
 export class Procedure extends BasePgModel {
   public readonly schema: ProcedureProps["schema"];
@@ -256,9 +264,26 @@ from
 order by
   1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = procedureRows.map((row: unknown) =>
-    procedurePropsSchema.parse(row),
+    Schema.decodeUnknownSync(procedurePropsSchema)(row),
   );
   return validatedRows.map((row: ProcedureProps) => new Procedure(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractProceduresEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Procedure[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractProcedures(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractProcedures failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractProcedures",
+        cause: err,
+      }),
+  });

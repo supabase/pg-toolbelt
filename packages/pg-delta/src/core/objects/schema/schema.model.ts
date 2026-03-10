@@ -1,6 +1,8 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema as EffectSchema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
@@ -14,15 +16,17 @@ import {
  * ALTER SCHEMA statement can be generated for all properties.
  * https://www.postgresql.org/docs/current/sql-alterschema.html
  */
-const schemaPropsSchema = z.object({
-  name: z.string(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const schemaPropsSchema = EffectSchema.mutable(
+  EffectSchema.Struct({
+    name: EffectSchema.String,
+    owner: EffectSchema.String,
+    comment: EffectSchema.NullOr(EffectSchema.String),
+    privileges: EffectSchema.mutable(EffectSchema.Array(privilegePropsSchema)),
+  }),
+);
 
 type SchemaPrivilegeProps = PrivilegeProps;
-export type SchemaProps = z.infer<typeof schemaPropsSchema>;
+export type SchemaProps = typeof schemaPropsSchema.Type;
 
 export class Schema extends BasePgModel {
   public readonly name: SchemaProps["name"];
@@ -99,9 +103,26 @@ export async function extractSchemas(pool: Pool): Promise<Schema[]> {
     order by
       1
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the Effect Schema
   const validatedRows = schemaRows.map((row: unknown) =>
-    schemaPropsSchema.parse(row),
+    EffectSchema.decodeUnknownSync(schemaPropsSchema)(row),
   );
   return validatedRows.map((row: SchemaProps) => new Schema(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractSchemasEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Schema[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractSchemas(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractSchemas failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractSchemas",
+        cause: err,
+      }),
+  });

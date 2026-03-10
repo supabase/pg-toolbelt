@@ -1,41 +1,47 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 
-const domainConstraintPropsSchema = z.object({
-  name: z.string(),
-  validated: z.boolean(),
-  is_local: z.boolean(),
-  no_inherit: z.boolean(),
-  check_expression: z.string().nullable(),
-});
+const domainConstraintPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    validated: Schema.Boolean,
+    is_local: Schema.Boolean,
+    no_inherit: Schema.Boolean,
+    check_expression: Schema.NullOr(Schema.String),
+  }),
+);
 
-const domainPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  base_type: z.string(),
-  base_type_schema: z.string(),
-  base_type_str: z.string().optional(),
-  not_null: z.boolean(),
-  type_modifier: z.number().nullable(),
-  array_dimensions: z.number().nullable(),
-  collation: z.string().nullable(),
-  default_bin: z.string().nullable(),
-  default_value: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-  constraints: z.array(domainConstraintPropsSchema),
-  privileges: z.array(privilegePropsSchema),
-});
+const domainPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    base_type: Schema.String,
+    base_type_schema: Schema.String,
+    base_type_str: Schema.optional(Schema.String),
+    not_null: Schema.Boolean,
+    type_modifier: Schema.NullOr(Schema.Number),
+    array_dimensions: Schema.NullOr(Schema.Number),
+    collation: Schema.NullOr(Schema.String),
+    default_bin: Schema.NullOr(Schema.String),
+    default_value: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    constraints: Schema.mutable(Schema.Array(domainConstraintPropsSchema)),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
-export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
+export type DomainConstraintProps = typeof domainConstraintPropsSchema.Type;
 type DomainPrivilegeProps = PrivilegeProps;
-export type DomainProps = z.infer<typeof domainPropsSchema>;
+export type DomainProps = typeof domainPropsSchema.Type;
 
 /**
  * A domain is a user-defined data type that is based on another underlying type.
@@ -182,9 +188,26 @@ export async function extractDomains(pool: Pool): Promise<Domain[]> {
       order by
         1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = domainRows.map((row: unknown) =>
-    domainPropsSchema.parse(row),
+    Schema.decodeUnknownSync(domainPropsSchema)(row),
   );
   return validatedRows.map((row: DomainProps) => new Domain(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractDomainsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Domain[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractDomains(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractDomains failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractDomains",
+        cause: err,
+      }),
+  });

@@ -1,26 +1,28 @@
-import z from "zod";
+import { Schema } from "effect";
 import { deepEqual } from "./utils.ts";
 
-export const columnPropsSchema = z.object({
-  name: z.string(),
-  position: z.number(),
-  data_type: z.string(),
-  data_type_str: z.string(),
-  is_custom_type: z.boolean(),
-  custom_type_type: z.string().nullable(),
-  custom_type_category: z.string().nullable(),
-  custom_type_schema: z.string().nullable(),
-  custom_type_name: z.string().nullable(),
-  not_null: z.boolean(),
-  is_identity: z.boolean(),
-  is_identity_always: z.boolean(),
-  is_generated: z.boolean(),
-  collation: z.string().nullable(),
-  default: z.string().nullable(),
-  comment: z.string().nullable(),
-});
+export const columnPropsSchema = Schema.mutable(
+  Schema.Struct({
+    name: Schema.String,
+    position: Schema.Number,
+    data_type: Schema.String,
+    data_type_str: Schema.String,
+    is_custom_type: Schema.Boolean,
+    custom_type_type: Schema.NullOr(Schema.String),
+    custom_type_category: Schema.NullOr(Schema.String),
+    custom_type_schema: Schema.NullOr(Schema.String),
+    custom_type_name: Schema.NullOr(Schema.String),
+    not_null: Schema.Boolean,
+    is_identity: Schema.Boolean,
+    is_identity_always: Schema.Boolean,
+    is_generated: Schema.Boolean,
+    collation: Schema.NullOr(Schema.String),
+    default: Schema.NullOr(Schema.String),
+    comment: Schema.NullOr(Schema.String),
+  }),
+);
 
-export type ColumnProps = z.infer<typeof columnPropsSchema>;
+export type ColumnProps = typeof columnPropsSchema.Type;
 
 export function normalizeColumns(columns: ColumnProps[]) {
   return columns

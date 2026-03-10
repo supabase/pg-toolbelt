@@ -1,18 +1,20 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
 import { extractVersion } from "../../context.ts";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
 /**
  * Collation provider codes as stored in pg_collation.collprovider
  */
-const CollationProviderSchema = z.enum([
+const CollationProviderSchema = Schema.Literal(
   "d", // database default provider (omit PROVIDER clause)
   "b", // builtin
   "c", // libc
   "i", // icu
-]);
+);
 
 /**
  * All properties exposed by CREATE COLLATION statement are included in diff output.
@@ -24,22 +26,24 @@ const CollationProviderSchema = z.enum([
  *
  * Other properties require dropping and creating a new collation.
  */
-const collationPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  provider: CollationProviderSchema,
-  is_deterministic: z.boolean(),
-  encoding: z.number(),
-  collate: z.string(),
-  ctype: z.string(),
-  locale: z.string().nullable(),
-  icu_rules: z.string().nullable(),
-  version: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-});
+const collationPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    provider: CollationProviderSchema,
+    is_deterministic: Schema.Boolean,
+    encoding: Schema.Number,
+    collate: Schema.String,
+    ctype: Schema.String,
+    locale: Schema.NullOr(Schema.String),
+    icu_rules: Schema.NullOr(Schema.String),
+    version: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+  }),
+);
 
-export type CollationProps = z.infer<typeof collationPropsSchema>;
+export type CollationProps = typeof collationPropsSchema.Type;
 
 export class Collation extends BasePgModel {
   public readonly schema: CollationProps["schema"];
@@ -216,9 +220,26 @@ export async function extractCollations(pool: Pool): Promise<Collation[]> {
     collationRows = result.rows;
   }
 
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = collationRows.map((row: unknown) =>
-    collationPropsSchema.parse(row),
+    Schema.decodeUnknownSync(collationPropsSchema)(row),
   );
   return validatedRows.map((row: CollationProps) => new Collation(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractCollationsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Collation[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractCollations(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractCollations failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractCollations",
+        cause: err,
+      }),
+  });

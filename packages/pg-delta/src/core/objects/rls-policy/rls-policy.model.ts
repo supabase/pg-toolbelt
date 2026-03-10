@@ -1,30 +1,34 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
-const RlsPolicyCommandSchema = z.enum([
+const RlsPolicyCommandSchema = Schema.Literal(
   "r", // SELECT command
   "a", // INSERT command (add)
   "w", // UPDATE command (write)
   "d", // DELETE command
   "*", // ALL commands
-]);
+);
 
-const rlsPolicyPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  table_name: z.string(),
-  command: RlsPolicyCommandSchema,
-  permissive: z.boolean(),
-  roles: z.array(z.string()),
-  using_expression: z.string().nullable(),
-  with_check_expression: z.string().nullable(),
-  owner: z.string(),
-  comment: z.string().nullable(),
-});
+const rlsPolicyPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    table_name: Schema.String,
+    command: RlsPolicyCommandSchema,
+    permissive: Schema.Boolean,
+    roles: Schema.mutable(Schema.Array(Schema.String)),
+    using_expression: Schema.NullOr(Schema.String),
+    with_check_expression: Schema.NullOr(Schema.String),
+    owner: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+  }),
+);
 
-export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
+export type RlsPolicyProps = typeof rlsPolicyPropsSchema.Type;
 
 export class RlsPolicy extends BasePgModel {
   public readonly schema: RlsPolicyProps["schema"];
@@ -132,9 +136,26 @@ from
 order by
   1, 2
   `);
-  // Validate and parse each row using the Zod schema
+  // Validate and parse each row using the schema
   const validatedRows = policyRows.map((row: unknown) =>
-    rlsPolicyPropsSchema.parse(row),
+    Schema.decodeUnknownSync(rlsPolicyPropsSchema)(row),
   );
   return validatedRows.map((row: RlsPolicyProps) => new RlsPolicy(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractRlsPoliciesEffect = (
+  db: DatabaseApi,
+): Effect.Effect<RlsPolicy[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractRlsPolicies(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractRlsPolicies failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractRlsPolicies",
+        cause: err,
+      }),
+  });

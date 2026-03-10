@@ -1,12 +1,16 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { analyzeAndSort } from "./analyze-and-sort.ts";
-import { discoverSqlFiles } from "./ingest/discover.ts";
+import { FileSystem } from "@effect/platform";
+import { Effect } from "effect";
+import { analyzeAndSort, analyzeAndSortEffect } from "./analyze-and-sort.ts";
+import type { ParseError } from "./errors.ts";
+import { discoverSqlFiles, discoverSqlFilesEffect } from "./ingest/discover.ts";
 import type {
   AnalyzeOptions,
   AnalyzeResult,
   Diagnostic,
 } from "./model/types.ts";
+import type { ParserService } from "./services/parser.ts";
 
 const computeCommonBase = async (resolvedRoots: string[]): Promise<string> => {
   if (resolvedRoots.length === 0) {
@@ -140,3 +144,158 @@ export const analyzeAndSortFromFiles = async (
     graph: remappedGraph,
   };
 };
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+const computeCommonBaseEffect = (
+  resolvedRoots: string[],
+): Effect.Effect<string, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    if (resolvedRoots.length === 0) {
+      return process.cwd();
+    }
+
+    const fs = yield* FileSystem.FileSystem;
+    const dirs: string[] = [];
+    for (const root of resolvedRoots) {
+      const info = yield* fs
+        .stat(root)
+        .pipe(Effect.orElseSucceed(() => ({ type: "Directory" as const })));
+      dirs.push(info.type === "File" ? path.dirname(root) : root);
+    }
+
+    if (dirs.length === 1) {
+      return dirs[0];
+    }
+
+    const segments = dirs.map((d) => d.split(path.sep));
+    const common: string[] = [];
+    for (let i = 0; i < (segments[0]?.length ?? 0); i += 1) {
+      const seg = segments[0]?.[i];
+      if (seg !== undefined && segments.every((s) => s[i] === seg)) {
+        common.push(seg);
+      } else {
+        break;
+      }
+    }
+    return common.join(path.sep) || path.sep;
+  });
+
+const remapResult = (
+  result: AnalyzeResult,
+  discoveryFiles: string[],
+  basePath: string,
+  discoveryDiagnostics: Diagnostic[],
+): AnalyzeResult => {
+  const filePathMap = new Map<string, string>();
+  for (let i = 0; i < discoveryFiles.length; i += 1) {
+    filePathMap.set(`<input:${i}>`, toStablePath(discoveryFiles[i], basePath));
+  }
+
+  const remapFilePath = (filePath: string): string =>
+    filePathMap.get(filePath) ?? filePath;
+
+  const remappedOrdered = result.ordered.map((node) => ({
+    ...node,
+    id: {
+      ...node.id,
+      filePath: remapFilePath(node.id.filePath),
+    },
+  }));
+
+  const remappedDiagnostics = [
+    ...discoveryDiagnostics,
+    ...result.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      statementId: diagnostic.statementId
+        ? {
+            ...diagnostic.statementId,
+            filePath: remapFilePath(diagnostic.statementId.filePath),
+          }
+        : undefined,
+    })),
+  ];
+
+  const remappedGraph = {
+    ...result.graph,
+    edges: result.graph.edges.map((edge) => ({
+      ...edge,
+      from: {
+        ...edge.from,
+        filePath: remapFilePath(edge.from.filePath),
+      },
+      to: {
+        ...edge.to,
+        filePath: remapFilePath(edge.to.filePath),
+      },
+    })),
+    cycleGroups: result.graph.cycleGroups.map((group) =>
+      group.map((statementId) => ({
+        ...statementId,
+        filePath: remapFilePath(statementId.filePath),
+      })),
+    ),
+  };
+
+  return {
+    ordered: remappedOrdered,
+    diagnostics: remappedDiagnostics,
+    graph: remappedGraph,
+  };
+};
+
+export const analyzeAndSortFromFilesEffect = (
+  roots: string[],
+  options?: AnalyzeOptions,
+): Effect.Effect<
+  AnalyzeResult,
+  ParseError,
+  ParserService | FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    if (roots.length === 0) {
+      return {
+        ordered: [],
+        diagnostics: [
+          {
+            code: "DISCOVERY_ERROR" as const,
+            message:
+              "No roots provided. Pass at least one SQL file or directory root.",
+          },
+        ],
+        graph: {
+          nodeCount: 0,
+          edges: [],
+          cycleGroups: [],
+        },
+      };
+    }
+
+    const fs = yield* FileSystem.FileSystem;
+    const discovery = yield* discoverSqlFilesEffect(roots);
+    const discoveryDiagnostics: Diagnostic[] = [];
+
+    for (const missingRoot of discovery.missingRoots) {
+      discoveryDiagnostics.push({
+        code: "DISCOVERY_ERROR",
+        message: `Root does not exist: '${missingRoot}'.`,
+      });
+    }
+
+    const resolvedRoots = roots.map((r) => path.resolve(r));
+    const basePath = yield* computeCommonBaseEffect(resolvedRoots);
+
+    const sqlContents: string[] = [];
+    for (const filePath of discovery.files) {
+      const content = yield* fs
+        .readFileString(filePath, "utf-8")
+        .pipe(Effect.orDie);
+      sqlContents.push(content);
+    }
+
+    const result = yield* analyzeAndSortEffect(sqlContents, options);
+
+    return remapResult(result, discovery.files, basePath, discoveryDiagnostics);
+  });

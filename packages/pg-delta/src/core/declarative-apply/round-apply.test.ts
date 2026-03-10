@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import debug from "debug";
+import { configure, type LogRecord, reset } from "@logtape/logtape";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import {
   type RoundResult,
@@ -383,7 +383,7 @@ describe("roundApply", () => {
     ).toHaveLength(1);
   });
 
-  test("should log deferred statement id and reason when DEBUG=pg-delta:declarative-apply", async () => {
+  test("should log deferred statement id and reason when debug logging is enabled", async () => {
     const statements: StatementEntry[] = [
       { id: "table", sql: "CREATE TABLE test.users (id int);" },
       { id: "schema", sql: "CREATE SCHEMA test;" },
@@ -399,26 +399,45 @@ describe("roundApply", () => {
     });
     const pool = createMockPool(client);
 
-    const logs: string[] = [];
-    const originalLog = debug.log;
-    debug.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(" "));
-    };
-    debug.enable("pg-delta:declarative-apply");
+    const logs: LogRecord[] = [];
+    await configure({
+      reset: true,
+      sinks: {
+        capture: (record) => {
+          logs.push(record);
+        },
+      },
+      loggers: [
+        {
+          category: ["pg-delta", "declarative-apply"],
+          sinks: ["capture"],
+          lowestLevel: "debug",
+        },
+        {
+          category: ["logtape"],
+          sinks: ["capture"],
+          lowestLevel: "error",
+        },
+      ],
+    });
     try {
       const result = await roundApply({ pool, statements });
       expect(result.status).toBe("success");
       expect(result.rounds[0].deferred).toBe(1);
-
-      const logText = logs.join("\n");
-      expect(logText).toContain("deferred");
-      expect(logText).toContain("table");
-      expect(logText).toContain("3F000");
-      expect(logText).toMatch(/schema.*does not exist/i);
     } finally {
-      debug.log = originalLog;
-      debug.disable();
+      await reset();
     }
+
+    const deferredLog = logs.find(
+      (record) =>
+        record.rawMessage === "deferred {statementId}: {code} - {message}",
+    );
+    expect(deferredLog).toBeDefined();
+    expect(deferredLog?.properties.statementId).toBe("table");
+    expect(deferredLog?.properties.code).toBe("3F000");
+    expect(String(deferredLog?.properties.message)).toMatch(
+      /schema.*does not exist/i,
+    );
   });
 });
 

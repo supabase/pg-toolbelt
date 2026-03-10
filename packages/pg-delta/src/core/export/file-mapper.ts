@@ -2,8 +2,8 @@
  * Map changes to declarative schema file paths.
  */
 
-import createDebug from "debug";
 import type { Change } from "../change.types.ts";
+import { getPgDeltaLogger } from "../logging.ts";
 import {
   getObjectName,
   getObjectSchema,
@@ -11,7 +11,7 @@ import {
 } from "../plan/serialize.ts";
 import type { FileCategory, FilePath, Grouping } from "./types.ts";
 
-const debugExport = createDebug("pg-delta:export");
+const logger = getPgDeltaLogger("export");
 
 // ============================================================================
 // Helpers
@@ -391,7 +391,7 @@ export function compilePatterns(
         regex = new RegExp(p.pattern);
       } catch (e) {
         const msg = `Skipping invalid grouping regex '${p.pattern}': ${e instanceof Error ? e.message : String(e)}`;
-        debugExport(msg);
+        logger.debug("{msg}", { msg });
         warnings.push(msg);
         continue;
       }

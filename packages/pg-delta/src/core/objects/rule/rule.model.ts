@@ -1,36 +1,40 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../errors.ts";
+import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import { stableId } from "../utils.ts";
 
-const RuleEventSchema = z.enum(["SELECT", "INSERT", "UPDATE", "DELETE"]);
-const RuleEnabledStateSchema = z.enum(["O", "D", "R", "A"]);
+const RuleEventSchema = Schema.Literal("SELECT", "INSERT", "UPDATE", "DELETE");
+const RuleEnabledStateSchema = Schema.Literal("O", "D", "R", "A");
 
-const RuleRelationKindSchema = z.enum([
+const RuleRelationKindSchema = Schema.Literal(
   "r", // ordinary table
   "p", // partitioned table
   "f", // foreign table
   "v", // view
   "m", // materialized view
-]);
+);
 
-const rulePropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  table_name: z.string(),
-  relation_kind: RuleRelationKindSchema,
-  event: RuleEventSchema,
-  enabled: RuleEnabledStateSchema,
-  is_instead: z.boolean(),
-  owner: z.string(),
-  definition: z.string(),
-  comment: z.string().nullable(),
-  columns: z.array(z.string()),
-});
+const rulePropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    table_name: Schema.String,
+    relation_kind: RuleRelationKindSchema,
+    event: RuleEventSchema,
+    enabled: RuleEnabledStateSchema,
+    is_instead: Schema.Boolean,
+    owner: Schema.String,
+    definition: Schema.String,
+    comment: Schema.NullOr(Schema.String),
+    columns: Schema.mutable(Schema.Array(Schema.String)),
+  }),
+);
 
-export type RuleEnabledState = z.infer<typeof RuleEnabledStateSchema>;
-export type RuleProps = z.infer<typeof rulePropsSchema>;
+export type RuleEnabledState = typeof RuleEnabledStateSchema.Type;
+export type RuleProps = typeof rulePropsSchema.Type;
 
 export class Rule extends BasePgModel {
   public readonly schema: RuleProps["schema"];
@@ -166,8 +170,25 @@ export async function extractRules(pool: Pool): Promise<Rule[]> {
   `);
 
   const validatedRows = ruleRows.map((row: unknown) =>
-    rulePropsSchema.parse(row),
+    Schema.decodeUnknownSync(rulePropsSchema)(row),
   );
 
   return validatedRows.map((row) => new Rule(row));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractRulesEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Rule[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractRules(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractRules failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractRules",
+        cause: err,
+      }),
+  });

@@ -3,214 +3,211 @@
  */
 
 import { writeFile } from "node:fs/promises";
-import { buildCommand, type CommandContext } from "@stricli/core";
+import { Command, Options } from "@effect/cli";
+import { Effect, Option } from "effect";
+import type { Catalog } from "../../core/catalog.model.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
-import { setCommandExitCode } from "../exit-code.ts";
+import { ChangesDetected } from "../errors.ts";
+import { logInfo } from "../ui.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
-import { formatPlanForDisplay } from "../utils.ts";
+import { formatPlanForDisplay, parseJsonEffect } from "../utils.ts";
 
-export const planCommand = buildCommand({
-  parameters: {
-    flags: {
-      source: {
-        kind: "parsed",
-        brief:
-          "Source (current state): postgres URL or catalog snapshot file path. Omit for empty baseline.",
-        parse: String,
-        optional: true,
-      },
-      target: {
-        kind: "parsed",
-        brief:
-          "Target (desired state): postgres URL or catalog snapshot file path",
-        parse: String,
-      },
-      format: {
-        kind: "enum",
-        brief: "Output format override: json (plan) or sql (script).",
-        values: ["json", "sql"] as const,
-        optional: true,
-      },
-      output: {
-        kind: "parsed",
-        brief:
-          "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
-        parse: String,
-        optional: true,
-      },
-      role: {
-        kind: "parsed",
-        brief:
-          "Role to use when executing the migration (SET ROLE will be added to statements).",
-        parse: String,
-        optional: true,
-      },
-      filter: {
-        kind: "parsed",
-        brief:
-          'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
-        parse: (value: string): FilterDSL => {
-          try {
-            return JSON.parse(value) as FilterDSL;
-          } catch (error) {
-            throw new Error(
-              `Invalid filter JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-      serialize: {
-        kind: "parsed",
-        brief:
-          'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
-        parse: (value: string): SerializeDSL => {
-          try {
-            return JSON.parse(value) as SerializeDSL;
-          } catch (error) {
-            throw new Error(
-              `Invalid serialize JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-      integration: {
-        kind: "parsed",
-        brief:
-          "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
-        parse: String,
-        optional: true,
-      },
-      "sql-format": {
-        kind: "boolean",
-        brief: "Format SQL output (opt-in for --format sql or .sql output).",
-        optional: true,
-      },
-      "sql-format-options": {
-        kind: "parsed",
-        brief:
-          'SQL format options as inline JSON (e.g., \'{"keywordCase":"upper","maxWidth":100}\').',
-        parse: (value: string): SqlFormatOptions => {
-          try {
-            return JSON.parse(value) as SqlFormatOptions;
-          } catch (error) {
-            throw new Error(
-              `Invalid SQL format JSON: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        },
-        optional: true,
-      },
-    },
-    aliases: {
-      s: "source",
-      t: "target",
-      o: "output",
-    },
+const source = Options.text("source").pipe(
+  Options.withAlias("s"),
+  Options.withDescription(
+    "Source (current state): postgres URL or catalog snapshot file path. Omit for empty baseline.",
+  ),
+  Options.optional,
+);
+
+const target = Options.text("target").pipe(
+  Options.withAlias("t"),
+  Options.withDescription(
+    "Target (desired state): postgres URL or catalog snapshot file path",
+  ),
+);
+
+const format = Options.choice("format", ["json", "sql"]).pipe(
+  Options.withDescription(
+    "Output format override: json (plan) or sql (script).",
+  ),
+  Options.optional,
+);
+
+const output = Options.text("output").pipe(
+  Options.withAlias("o"),
+  Options.withDescription(
+    "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
+  ),
+  Options.optional,
+);
+
+const role = Options.text("role").pipe(
+  Options.withDescription(
+    "Role to use when executing the migration (SET ROLE will be added to statements).",
+  ),
+  Options.optional,
+);
+
+const filter = Options.text("filter").pipe(
+  Options.withDescription(
+    'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
+  ),
+  Options.optional,
+);
+
+const serialize = Options.text("serialize").pipe(
+  Options.withDescription(
+    'Serialize DSL as inline JSON array (e.g., \'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]\').',
+  ),
+  Options.optional,
+);
+
+const integration = Options.text("integration").pipe(
+  Options.withDescription(
+    "Integration name (e.g., 'supabase') or path to integration JSON file (must end with .json). Loads from core/integrations/ or file path.",
+  ),
+  Options.optional,
+);
+
+const sqlFormat = Options.boolean("sql-format").pipe(
+  Options.withDescription(
+    "Format SQL output (opt-in for --format sql or .sql output).",
+  ),
+  Options.withDefault(false),
+);
+
+const sqlFormatOptions = Options.text("sql-format-options").pipe(
+  Options.withDescription(
+    'SQL format options as inline JSON (e.g., \'{"keywordCase":"upper","maxWidth":100}\').',
+  ),
+  Options.optional,
+);
+
+export const planCommand = Command.make(
+  "plan",
+  {
+    source,
+    target,
+    format,
+    output,
+    role,
+    filter,
+    serialize,
+    integration,
+    sqlFormat,
+    sqlFormatOptions,
   },
-  docs: {
-    brief: "Compute schema diff and preview changes",
-    fullDescription: `
-Compute the schema diff between two PostgreSQL databases (source → target),
-and preview it for review or scripting. Defaults to tree display;
-json/sql outputs are available for artifacts or piping.
-    `.trim(),
-  },
-  async func(
-    this: CommandContext,
-    flags: {
-      source?: string;
-      target: string;
-      format?: "json" | "sql";
-      output?: string;
-      role?: string;
-      filter?: FilterDSL;
-      serialize?: SerializeDSL;
-      integration?: string;
-      "sql-format"?: boolean;
-      "sql-format-options"?: SqlFormatOptions;
-    },
-  ) {
-    let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
-    let serializeOption: SerializeDSL | ChangeSerializer | undefined =
-      flags.serialize;
-    let integrationEmptyCatalog:
-      | import("../../core/catalog.snapshot.ts").CatalogSnapshot
-      | undefined;
-    if (flags.integration) {
-      const integrationDSL = await loadIntegrationDSL(flags.integration);
-      filterOption = filterOption ?? integrationDSL.filter;
-      serializeOption = serializeOption ?? integrationDSL.serialize;
-      integrationEmptyCatalog = integrationDSL.emptyCatalog;
-    }
+  (args) =>
+    Effect.gen(function* () {
+      const sourceValue = Option.getOrUndefined(args.source);
+      const formatValue = Option.getOrUndefined(args.format);
+      const outputValue = Option.getOrUndefined(args.output);
+      const roleValue = Option.getOrUndefined(args.role);
+      const filterRaw = Option.getOrUndefined(args.filter);
+      const serializeRaw = Option.getOrUndefined(args.serialize);
+      const integrationValue = Option.getOrUndefined(args.integration);
+      const sqlFormatOptionsRaw = Option.getOrUndefined(args.sqlFormatOptions);
 
-    const resolvedSource = flags.source
-      ? isPostgresUrl(flags.source)
-        ? flags.source
-        : await loadCatalogFromFile(flags.source)
-      : integrationEmptyCatalog
-        ? (await import("../../core/catalog.snapshot.ts")).deserializeCatalog(
-            integrationEmptyCatalog,
-          )
-        : null;
+      const filterParsed: FilterDSL | undefined = filterRaw
+        ? yield* parseJsonEffect<FilterDSL>("filter", filterRaw)
+        : undefined;
+      const serializeParsed: SerializeDSL | undefined = serializeRaw
+        ? yield* parseJsonEffect<SerializeDSL>("serialize", serializeRaw)
+        : undefined;
+      const sqlFormatOptionsParsed: SqlFormatOptions | undefined =
+        sqlFormatOptionsRaw
+          ? yield* parseJsonEffect<SqlFormatOptions>(
+              "SQL format",
+              sqlFormatOptionsRaw,
+            )
+          : undefined;
 
-    const resolvedTarget = isPostgresUrl(flags.target)
-      ? flags.target
-      : await loadCatalogFromFile(flags.target);
-
-    const planResult = await createPlan(resolvedSource, resolvedTarget, {
-      role: flags.role,
-      filter: filterOption,
-      serialize: serializeOption,
-    });
-    if (!planResult) {
-      this.process.stdout.write("No changes detected.\n");
-      return;
-    }
-
-    const outputPath = flags.output;
-    let effectiveFormat: "tree" | "json" | "sql";
-    if (flags.format) {
-      effectiveFormat = flags.format;
-    } else if (outputPath?.endsWith(".sql")) {
-      effectiveFormat = "sql";
-    } else if (outputPath?.endsWith(".json")) {
-      effectiveFormat = "json";
-    } else {
-      effectiveFormat = "tree";
-    }
-
-    const { content, label } = formatPlanForDisplay(
-      planResult,
-      effectiveFormat,
-      {
-        disableColors: !!outputPath,
-        showUnsafeFlagSuggestion: false,
-        sqlFormatOptions:
-          flags["sql-format"] || flags["sql-format-options"]
-            ? (flags["sql-format-options"] ?? {})
-            : undefined,
-      },
-    );
-
-    if (outputPath) {
-      await writeFile(outputPath, content, "utf-8");
-      this.process.stdout.write(`${label} written to ${outputPath}\n`);
-    } else {
-      this.process.stdout.write(content);
-      if (!content.endsWith("\n")) {
-        this.process.stdout.write("\n");
+      let filterOption: FilterDSL | ChangeFilter | undefined = filterParsed;
+      let serializeOption: SerializeDSL | ChangeSerializer | undefined =
+        serializeParsed;
+      let integrationEmptyCatalog:
+        | import("../../core/catalog.snapshot.ts").CatalogSnapshot
+        | undefined;
+      if (integrationValue) {
+        const integrationDSL = yield* Effect.promise(() =>
+          loadIntegrationDSL(integrationValue),
+        );
+        filterOption = filterOption ?? integrationDSL.filter;
+        serializeOption = serializeOption ?? integrationDSL.serialize;
+        integrationEmptyCatalog = integrationDSL.emptyCatalog;
       }
-    }
 
-    // Exit code 2 indicates changes were detected
-    setCommandExitCode(2);
-  },
-});
+      let resolvedSource: string | Catalog | null;
+      if (sourceValue) {
+        resolvedSource = isPostgresUrl(sourceValue)
+          ? sourceValue
+          : yield* Effect.promise(() => loadCatalogFromFile(sourceValue));
+      } else if (integrationEmptyCatalog) {
+        const { deserializeCatalog } = yield* Effect.promise(
+          () => import("../../core/catalog.snapshot.ts"),
+        );
+        resolvedSource = deserializeCatalog(integrationEmptyCatalog);
+      } else {
+        resolvedSource = null;
+      }
+
+      const resolvedTarget = isPostgresUrl(args.target)
+        ? args.target
+        : yield* Effect.promise(() => loadCatalogFromFile(args.target));
+
+      const planResult = yield* Effect.promise(() =>
+        createPlan(resolvedSource, resolvedTarget, {
+          role: roleValue,
+          filter: filterOption,
+          serialize: serializeOption,
+        }),
+      );
+      if (!planResult) {
+        logInfo("No changes detected.");
+        return;
+      }
+
+      const outputPath = outputValue;
+      let effectiveFormat: "tree" | "json" | "sql";
+      if (formatValue) {
+        effectiveFormat = formatValue;
+      } else if (outputPath?.endsWith(".sql")) {
+        effectiveFormat = "sql";
+      } else if (outputPath?.endsWith(".json")) {
+        effectiveFormat = "json";
+      } else {
+        effectiveFormat = "tree";
+      }
+
+      const { content, label } = formatPlanForDisplay(
+        planResult,
+        effectiveFormat,
+        {
+          disableColors: !!outputPath,
+          showUnsafeFlagSuggestion: false,
+          sqlFormatOptions:
+            args.sqlFormat || sqlFormatOptionsParsed
+              ? (sqlFormatOptionsParsed ?? {})
+              : undefined,
+        },
+      );
+
+      if (outputPath) {
+        yield* Effect.promise(() => writeFile(outputPath, content, "utf-8"));
+        logInfo(`${label} written to ${outputPath}`);
+      } else {
+        logInfo(content.endsWith("\n") ? content.trimEnd() : content);
+      }
+
+      return yield* Effect.fail(
+        new ChangesDetected({ message: "Changes detected" }),
+      );
+    }),
+);

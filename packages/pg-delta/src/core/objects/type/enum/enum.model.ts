@@ -1,16 +1,20 @@
 import { sql } from "@ts-safeql/sql-tag";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
-import z from "zod";
+import { CatalogExtractionError } from "../../../errors.ts";
+import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
 
-const enumLabelSchema = z.object({
-  sort_order: z.number(),
-  label: z.string(),
-});
+const enumLabelSchema = Schema.mutable(
+  Schema.Struct({
+    sort_order: Schema.Number,
+    label: Schema.String,
+  }),
+);
 
 /**
  * All properties exposed by CREATE TYPE AS ENUM statement are included in diff output.
@@ -26,17 +30,19 @@ const enumLabelSchema = z.object({
  * Type ACL will be supported separately.
  * https://www.postgresql.org/docs/current/ddl-priv.html
  */
-const enumPropsSchema = z.object({
-  schema: z.string(),
-  name: z.string(),
-  owner: z.string(),
-  labels: z.array(enumLabelSchema),
-  comment: z.string().nullable(),
-  privileges: z.array(privilegePropsSchema),
-});
+const enumPropsSchema = Schema.mutable(
+  Schema.Struct({
+    schema: Schema.String,
+    name: Schema.String,
+    owner: Schema.String,
+    labels: Schema.mutable(Schema.Array(enumLabelSchema)),
+    comment: Schema.NullOr(Schema.String),
+    privileges: Schema.mutable(Schema.Array(privilegePropsSchema)),
+  }),
+);
 
 type EnumPrivilegeProps = PrivilegeProps;
-export type EnumProps = z.infer<typeof enumPropsSchema>;
+export type EnumProps = typeof enumPropsSchema.Type;
 
 export class Enum extends BasePgModel {
   public readonly schema: EnumProps["schema"];
@@ -186,9 +192,26 @@ order by
     }
     grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
   }
-  // Validate and parse each enum using the Zod schema
+  // Validate and parse each enum using the schema
   const validatedEnums = Object.values(grouped).map((e) =>
-    enumPropsSchema.parse(e),
+    Schema.decodeUnknownSync(enumPropsSchema)(e),
   );
   return validatedEnums.map((e: EnumProps) => new Enum(e));
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+export const extractEnumsEffect = (
+  db: DatabaseApi,
+): Effect.Effect<Enum[], CatalogExtractionError> =>
+  Effect.tryPromise({
+    try: () => extractEnums(db.getPool()),
+    catch: (err) =>
+      new CatalogExtractionError({
+        message: `extractEnums failed: ${err instanceof Error ? err.message : err}`,
+        extractor: "extractEnums",
+        cause: err,
+      }),
+  });

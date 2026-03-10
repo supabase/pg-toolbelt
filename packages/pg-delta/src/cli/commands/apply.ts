@@ -3,99 +3,79 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { buildCommand, type CommandContext } from "@stricli/core";
+import { Command, Options } from "@effect/cli";
+import { Effect } from "effect";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { deserializePlan, type Plan } from "../../core/plan/index.ts";
+import { CliExitError } from "../errors.ts";
 import { handleApplyResult, validatePlanRisk } from "../utils.ts";
 
-export const applyCommand = buildCommand({
-  parameters: {
-    flags: {
-      plan: {
-        kind: "parsed",
-        brief: "Path to plan file (JSON format)",
-        parse: String,
-      },
-      source: {
-        kind: "parsed",
-        brief: "Source database connection URL (current state)",
-        parse: String,
-      },
-      target: {
-        kind: "parsed",
-        brief: "Target database connection URL (desired state)",
-        parse: String,
-      },
-      unsafe: {
-        kind: "boolean",
-        brief: "Allow data-loss operations (unsafe mode)",
-        optional: true,
-      },
-    },
-    aliases: {
-      p: "plan",
-      s: "source",
-      t: "target",
-      u: "unsafe",
-    },
-  },
-  docs: {
-    brief: "Apply a plan's migration script to a database",
-    fullDescription: `
-Apply changes from a plan file to a target database.
+const plan = Options.text("plan").pipe(
+  Options.withAlias("p"),
+  Options.withDescription("Path to plan file (JSON format)"),
+);
 
-The plan file should be a JSON file created with "pgdelta plan --output <file>.plan.json" (or any .plan/.json path).
+const source = Options.text("source").pipe(
+  Options.withAlias("s"),
+  Options.withDescription("Source database connection URL (current state)"),
+);
 
-Safe by default: will refuse plans containing data-loss unless --unsafe is set.
+const target = Options.text("target").pipe(
+  Options.withAlias("t"),
+  Options.withDescription("Target database connection URL (desired state)"),
+);
 
-Exit codes:
-  0 - Success (changes applied)
-  1 - Error occurred
-    `.trim(),
-  },
-  async func(
-    this: CommandContext,
-    flags: {
-      plan: string;
-      source: string;
-      target: string;
-      unsafe?: boolean;
-    },
-  ) {
-    // Read and parse plan file
-    let planJson: string;
-    try {
-      planJson = await readFile(flags.plan, "utf-8");
-    } catch (error) {
-      this.process.stderr.write(
-        `Error reading plan file: ${error instanceof Error ? error.message : String(error)}\n`,
+const unsafe = Options.boolean("unsafe").pipe(
+  Options.withAlias("u"),
+  Options.withDescription("Allow data-loss operations (unsafe mode)"),
+  Options.withDefault(false),
+);
+
+export const applyCommand = Command.make(
+  "apply",
+  { plan, source, target, unsafe },
+  (args) =>
+    Effect.gen(function* () {
+      const planJson = yield* Effect.tryPromise({
+        try: () => readFile(args.plan, "utf-8"),
+        catch: (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Error reading plan file: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      });
+
+      const parsedPlan: Plan = yield* Effect.try({
+        try: () => deserializePlan(planJson),
+        catch: (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Error parsing plan file: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      });
+
+      const validation = validatePlanRisk(parsedPlan, args.unsafe);
+      if (!validation.valid) {
+        return yield* Effect.fail(
+          new CliExitError({
+            exitCode: validation.exitCode ?? 1,
+            message:
+              "Plan blocked: unsafe operations require the --unsafe flag",
+          }),
+        );
+      }
+
+      const result = yield* Effect.promise(() =>
+        applyPlan(parsedPlan, args.source, args.target, {
+          verifyPostApply: true,
+        }),
       );
-      process.exitCode = 1;
-      return;
-    }
 
-    let plan: Plan;
-    try {
-      plan = deserializePlan(planJson);
-    } catch (error) {
-      this.process.stderr.write(
-        `Error parsing plan file: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-
-    const validation = validatePlanRisk(plan, !!flags.unsafe, this);
-    if (!validation.valid) {
-      process.exitCode = validation.exitCode ?? 1;
-      return;
-    }
-
-    const result = await applyPlan(plan, flags.source, flags.target, {
-      verifyPostApply: true,
-    });
-
-    const { exitCode } = handleApplyResult(result, this);
-    process.exitCode = exitCode;
-  },
-});
+      const { exitCode } = handleApplyResult(result);
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          new CliExitError({ exitCode, message: "Plan apply failed" }),
+        );
+      }
+    }),
+);

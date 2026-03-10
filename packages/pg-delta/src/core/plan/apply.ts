@@ -2,10 +2,18 @@
  * Plan application - execute migration plans against target databases.
  */
 
+import { Effect } from "effect";
 import type { Pool } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
+import {
+  AlreadyAppliedError,
+  CatalogExtractionError,
+  FingerprintMismatchError,
+  InvalidPlanError,
+  PlanApplyError,
+} from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
 import { createManagedPool, endPool } from "../postgres-config.ts";
@@ -170,3 +178,57 @@ export async function applyPlan(
     }
   }
 }
+
+// ============================================================================
+// Effect-native version
+// ============================================================================
+
+type ApplyPlanSuccess = {
+  statements: number;
+  warnings?: string[];
+};
+
+export const applyPlanEffect = (
+  plan: Plan,
+  source: ConnectionInput,
+  target: ConnectionInput,
+  options: ApplyPlanOptions = {},
+): Effect.Effect<
+  ApplyPlanSuccess,
+  | InvalidPlanError
+  | FingerprintMismatchError
+  | AlreadyAppliedError
+  | PlanApplyError
+  | CatalogExtractionError
+> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.tryPromise({
+      try: () => applyPlan(plan, source, target, options),
+      catch: (err) =>
+        new CatalogExtractionError({
+          message: `applyPlan failed: ${err instanceof Error ? err.message : err}`,
+          cause: err,
+        }),
+    });
+    switch (result.status) {
+      case "invalid_plan":
+        return yield* new InvalidPlanError({ message: result.message });
+      case "fingerprint_mismatch":
+        return yield* new FingerprintMismatchError({
+          current: result.current,
+          expected: result.expected,
+        });
+      case "already_applied":
+        return yield* new AlreadyAppliedError();
+      case "failed":
+        return yield* new PlanApplyError({
+          cause: result.error,
+          script: result.script,
+        });
+      case "applied":
+        return {
+          statements: result.statements,
+          warnings: result.warnings,
+        };
+    }
+  });
