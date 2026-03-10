@@ -157,7 +157,8 @@ async function _extractLanguages(pool: Pool): Promise<Language[]> {
 // Effect-native version
 // ============================================================================
 
-export const extractLanguagesEffect = (
+// TODO: This is not used anywhere yet, but it's here for future reference.
+const extractLanguagesEffect = (
   db: DatabaseApi,
 ): Effect.Effect<Language[], CatalogExtractionError> =>
   Effect.tryPromise({
