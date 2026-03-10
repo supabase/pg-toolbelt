@@ -56,11 +56,190 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun test tests/
 
 - Both packages are runtime-agnostic: importable in Bun, Node.js, or Deno
 - Conditional exports: `bun` condition serves TypeScript source directly, `import` serves compiled JS
+- Both packages use **Effect v4** (`effect@4.x-beta`) for typed errors, dependency injection, and schema validation
+- `pg-delta` CLI is built on `effect/unstable/cli` (Command / Flag)
 - `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat)
 - `pg-topo` is pure static analysis -- no runtime database dependency in the library itself
 - Integration tests use `testcontainers` to spin up PostgreSQL Docker containers
 - Biome handles formatting and linting (config at root `biome.json`)
 - Changesets manage versioning across both packages
+
+## Effect v4 Patterns
+
+This codebase uses **Effect v4** (not v3). Many APIs were renamed or restructured. Follow these patterns exactly when writing new Effect code.
+
+### Services (`ServiceMap.Service`)
+
+`Context.Tag` no longer exists in v4. Define services with `ServiceMap.Service`:
+
+```typescript
+import { type Effect, ServiceMap } from "effect";
+
+export interface MyApi {
+  readonly doSomething: (input: string) => Effect.Effect<string, MyError>;
+}
+
+export class MyService extends ServiceMap.Service<
+  MyService,
+  MyApi
+>()("@scope/MyService") {}
+```
+
+Consume with `yield* MyService` inside `Effect.gen`.
+
+### Layers
+
+`Layer.effect` memoizes automatically in v4 -- `Effect.once` no longer exists:
+
+```typescript
+import { Effect, Layer } from "effect";
+
+// Effectful layer (runs once, result is cached)
+export const MyServiceLive = Layer.effect(
+  MyService,
+  Effect.gen(function* () {
+    yield* Effect.tryPromise({ try: () => loadSomething(), catch: toMyError });
+    return MyService.of({ doSomething: (input) => Effect.succeed(input) });
+  }),
+);
+
+// Synchronous / mock layer
+const MockService = Layer.succeed(MyService, {
+  doSomething: (input) => Effect.succeed(input),
+});
+```
+
+### Schema
+
+Schema is the most error-prone area. Pay close attention:
+
+```typescript
+import { Schema } from "effect";
+
+// Multiple literal values: use Schema.Literals (array)
+const Status = Schema.Literals(["active", "inactive", "pending"]);
+
+// Single literal: Schema.Literal (one argument only)
+const Active = Schema.Literal("active");
+
+// Union: array argument
+const MyUnion = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("a"), value: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("b"), count: Schema.Number }),
+]);
+
+// Record: positional arguments
+const MyRecord = Schema.Record(Schema.String, Schema.Number);
+
+// mutable: ONLY valid on Array/Tuple, NOT on Struct
+const Tags = Schema.mutable(Schema.Array(Schema.String));      // OK
+const Props = Schema.Struct({ name: Schema.String });           // OK (readonly)
+// Schema.mutable(Schema.Struct({ ... }))                      // CRASHES at runtime
+
+// BigInt (was BigIntFromSelf in v3)
+const BigVal = Schema.BigInt;
+```
+
+### CLI (`effect/unstable/cli`)
+
+The CLI module moved from `@effect/cli` into `effect/unstable/cli`. `Options` was renamed to `Flag`:
+
+```typescript
+import { Command, Flag } from "effect/unstable/cli";
+import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { Effect } from "effect";
+
+const target = Flag.string("target").pipe(
+  Flag.withAlias("t"),
+  Flag.withDescription("Target database connection string"),
+);
+
+const verbose = Flag.boolean("verbose").pipe(
+  Flag.withDescription("Enable verbose output"),
+  Flag.optional,
+);
+
+const format = Flag.choice("format", ["json", "sql"]).pipe(
+  Flag.withDescription("Output format"),
+  Flag.optional,
+);
+
+const myCommand = Command.make("run", { target, verbose, format }, (args) =>
+  Effect.gen(function* () {
+    // args.target is string, args.verbose is Option<boolean>, etc.
+  }),
+);
+
+const root = Command.make("mycli").pipe(Command.withSubcommands([myCommand]));
+
+// Entry point: pipe Command.run onto the root command
+root.pipe(
+  Command.run({ version: "1.0.0" }),
+  Effect.provide(BunServices.layer),
+  BunRuntime.runMain,
+);
+```
+
+### Error Handling
+
+Several APIs were renamed:
+
+```typescript
+import { Effect } from "effect";
+
+// Effect.result replaces Effect.either
+const result = await myEffect.pipe(Effect.result, Effect.runPromise);
+
+// Result tags are "Success" / "Failure" (not "Right" / "Left")
+if (result._tag === "Failure") {
+  console.error(result.failure);  // .failure (not .left)
+}
+if (result._tag === "Success") {
+  console.log(result.success);    // .success (not .right)
+}
+
+// Effect.tapCause replaces Effect.tapErrorCause
+myEffect.pipe(
+  Effect.tapCause((cause) => Effect.sync(() => console.error(cause))),
+);
+```
+
+### Runtime and Imports
+
+```typescript
+// Platform-bun: BunServices (not BunContext)
+import { BunRuntime, BunServices } from "@effect/platform-bun";
+Effect.provide(BunServices.layer);
+
+// FileSystem: import from "effect" (not @effect/platform)
+import { FileSystem } from "effect";
+
+// ManagedRuntime for long-lived runtimes outside the CLI
+import { ManagedRuntime } from "effect";
+const runtime = ManagedRuntime.make(MyServiceLive);
+await runtime.runPromise(myEffect);
+```
+
+### Common v3 vs v4 Mistakes
+
+| v3 (wrong) | v4 (correct) |
+|---|---|
+| `Context.Tag("T")<Self, Api>()` | `ServiceMap.Service<Self, Api>()("T")` |
+| `Effect.once(effect)` | Remove; `Layer.effect` already memoizes |
+| `Schema.Literal("a", "b", "c")` | `Schema.Literals(["a", "b", "c"])` |
+| `Schema.Union(a, b)` | `Schema.Union([a, b])` |
+| `Schema.Record({ key, value })` | `Schema.Record(key, value)` |
+| `Schema.mutable(Schema.Struct({...}))` | Just `Schema.Struct({...})` (mutable is for arrays only) |
+| `Schema.BigIntFromSelf` | `Schema.BigInt` |
+| `import { Options } from "@effect/cli"` | `import { Flag } from "effect/unstable/cli"` |
+| `Options.text("name")` | `Flag.string("name")` |
+| `Command.run(cmd, { name, version })` | `cmd.pipe(Command.run({ version }))` |
+| `Effect.either` | `Effect.result` |
+| `result._tag === "Left"` / `result.left` | `result._tag === "Failure"` / `result.failure` |
+| `result._tag === "Right"` / `result.right` | `result._tag === "Success"` / `result.success` |
+| `Effect.tapErrorCause` | `Effect.tapCause` |
+| `BunContext.layer` | `BunServices.layer` |
+| `import { FileSystem } from "@effect/platform"` | `import { FileSystem } from "effect"` |
 
 ## Test Patterns
 
