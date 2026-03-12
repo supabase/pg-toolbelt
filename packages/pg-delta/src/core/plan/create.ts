@@ -5,11 +5,8 @@
 import type { Pool } from "pg";
 import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
-import {
-  Catalog,
-  createEmptyCatalog,
-  extractCatalog,
-} from "../catalog.model.ts";
+import type { Catalog } from "../catalog.model.ts";
+import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
@@ -37,6 +34,25 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
  * an already-resolved Catalog (e.g. deserialized from a snapshot file).
  */
 export type CatalogInput = string | Pool | Catalog;
+
+/**
+ * Bundle-safe catalog detection: treat input as a resolved Catalog when it has
+ * the catalog shape and is not a pg Pool. Deserialized or cross-bundle Catalog
+ * instances may fail `instanceof Catalog` but pass this guard.
+ */
+function isResolvedCatalog(input: CatalogInput): input is Catalog {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    typeof (input as { query?: unknown }).query !== "function" &&
+    "version" in input &&
+    "currentUser" in input &&
+    "depends" in input &&
+    "schemas" in input &&
+    "tables" in input &&
+    "views" in input
+  );
+}
 
 /**
  * Create a migration plan by comparing two catalog states.
@@ -82,7 +98,7 @@ export async function createPlan(
     label: "source" | "target",
     pools: Array<{ pool: Pool; shouldClose: boolean }>,
   ): Promise<Catalog> => {
-    if (input instanceof Catalog) {
+    if (isResolvedCatalog(input)) {
       return input;
     }
     const resolved = await resolvePool(input, label);
