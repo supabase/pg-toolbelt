@@ -6,10 +6,7 @@ import type { Pool } from "pg";
 import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import type { Catalog } from "../catalog.model.ts";
-import {
-  createEmptyCatalog,
-  extractCatalog,
-} from "../catalog.model.ts";
+import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
