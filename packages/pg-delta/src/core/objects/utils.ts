@@ -68,6 +68,9 @@ export const stableId = {
   column(schema: string, table: string, column: string) {
     return `column:${schema}.${table}.${column}` as const;
   },
+  columnDefaultDropped(schema: string, table: string, column: string) {
+    return `columnDefaultDropped:${schema}.${table}.${column}` as const;
+  },
   constraint(schema: string, table: string, constraint: string) {
     return `constraint:${schema}.${table}.${constraint}` as const;
   },

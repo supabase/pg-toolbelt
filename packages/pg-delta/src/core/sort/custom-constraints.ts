@@ -4,6 +4,12 @@ import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
 } from "../objects/role/changes/role.privilege.ts";
+import {
+  AlterTableAlterColumnAddIdentity,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
+  AlterTableAlterColumnSetDefault,
+} from "../objects/table/changes/table.alter.ts";
 import type { Constraint } from "./types.ts";
 
 /**
@@ -143,11 +149,77 @@ function generateDefaultPrivilegeConstraints(changes: Change[]): Constraint[] {
   return constraints;
 }
 
+function generateIdentityTransitionConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const dropDefaultByColumn = new Map<string, number[]>();
+  const dropIdentityByColumn = new Map<string, number[]>();
+  const addIdentityByColumn = new Map<string, number[]>();
+  const setDefaultByColumn = new Map<string, number[]>();
+
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i];
+    const columnKey =
+      "table" in change && "column" in change
+        ? `${change.table.schema}.${change.table.name}.${change.column.name}`
+        : null;
+    if (!columnKey) continue;
+
+    if (change instanceof AlterTableAlterColumnDropDefault) {
+      const entries = dropDefaultByColumn.get(columnKey) ?? [];
+      entries.push(i);
+      dropDefaultByColumn.set(columnKey, entries);
+    } else if (change instanceof AlterTableAlterColumnAddIdentity) {
+      const entries = addIdentityByColumn.get(columnKey) ?? [];
+      entries.push(i);
+      addIdentityByColumn.set(columnKey, entries);
+    } else if (change instanceof AlterTableAlterColumnDropIdentity) {
+      const entries = dropIdentityByColumn.get(columnKey) ?? [];
+      entries.push(i);
+      dropIdentityByColumn.set(columnKey, entries);
+    } else if (change instanceof AlterTableAlterColumnSetDefault) {
+      const entries = setDefaultByColumn.get(columnKey) ?? [];
+      entries.push(i);
+      setDefaultByColumn.set(columnKey, entries);
+    }
+  }
+
+  for (const [columnKey, dropDefaultIndexes] of dropDefaultByColumn) {
+    const addIdentityIndexes = addIdentityByColumn.get(columnKey) ?? [];
+    for (const sourceIndex of dropDefaultIndexes) {
+      for (const targetIndex of addIdentityIndexes) {
+        constraints.push({
+          sourceChangeIndex: sourceIndex,
+          targetChangeIndex: targetIndex,
+          source: "custom",
+        });
+      }
+    }
+  }
+
+  for (const [columnKey, dropIdentityIndexes] of dropIdentityByColumn) {
+    const setDefaultIndexes = setDefaultByColumn.get(columnKey) ?? [];
+    for (const sourceIndex of dropIdentityIndexes) {
+      for (const targetIndex of setDefaultIndexes) {
+        constraints.push({
+          sourceChangeIndex: sourceIndex,
+          targetChangeIndex: targetIndex,
+          source: "custom",
+        });
+      }
+    }
+  }
+
+  return constraints;
+}
+
 /**
  * All custom constraint generators.
  */
 const customConstraintGenerators: ConstraintGenerator[] = [
   generateDefaultPrivilegeConstraints,
+  generateIdentityTransitionConstraints,
 ];
 
 /**

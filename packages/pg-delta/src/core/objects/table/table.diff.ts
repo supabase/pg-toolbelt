@@ -8,9 +8,12 @@ import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnDropNotNull,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetGenerated,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableAttachPartition,
@@ -545,7 +548,7 @@ export function diffTables(
     // Helper to check if parent has the same column property change
     const parentHasSameColumnPropertyChange = (
       columnName: string,
-      property: "type" | "default" | "not_null",
+      property: "type" | "default" | "not_null" | "identity",
     ): boolean => {
       const { parentMain, parentBranch } = getParentTables();
       if (!parentMain || !parentBranch) {
@@ -599,6 +602,21 @@ export function diffTables(
             parentNotNullChanged &&
             partitionNotNullChanged &&
             parentBranchCol.not_null === branchCol.not_null
+          );
+        }
+        case "identity": {
+          const parentIdentityChanged =
+            parentMainCol.is_identity !== parentBranchCol.is_identity ||
+            parentMainCol.is_identity_always !==
+              parentBranchCol.is_identity_always;
+          const partitionIdentityChanged =
+            mainCol.is_identity !== branchCol.is_identity ||
+            mainCol.is_identity_always !== branchCol.is_identity_always;
+          return (
+            parentIdentityChanged &&
+            partitionIdentityChanged &&
+            parentBranchCol.is_identity === branchCol.is_identity &&
+            parentBranchCol.is_identity_always === branchCol.is_identity_always
           );
         }
       }
@@ -698,6 +716,18 @@ export function diffTables(
         }
       }
 
+      // DROP IDENTITY must happen before setting a default (e.g. IDENTITY -> serial)
+      if (mainCol.is_identity && !branchCol.is_identity) {
+        if (!parentHasSameColumnPropertyChange(name, "identity")) {
+          changes.push(
+            new AlterTableAlterColumnDropIdentity({
+              table: branchTable,
+              column: branchCol,
+            }),
+          );
+        }
+      }
+
       // DEFAULT change
       if (mainCol.default !== branchCol.default) {
         // Skip if parent has the same default change
@@ -742,6 +772,37 @@ export function diffTables(
                 }),
               );
             }
+          }
+        }
+      }
+
+      // IDENTITY add/mode change after default handling (e.g. serial -> IDENTITY)
+      if (
+        (!mainCol.is_identity && branchCol.is_identity) ||
+        (mainCol.is_identity &&
+          branchCol.is_identity &&
+          mainCol.is_identity_always !== branchCol.is_identity_always)
+      ) {
+        // Skip if parent has the same identity change
+        if (!parentHasSameColumnPropertyChange(name, "identity")) {
+          if (!mainCol.is_identity && branchCol.is_identity) {
+            changes.push(
+              new AlterTableAlterColumnAddIdentity({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          } else if (
+            mainCol.is_identity &&
+            branchCol.is_identity &&
+            mainCol.is_identity_always !== branchCol.is_identity_always
+          ) {
+            changes.push(
+              new AlterTableAlterColumnSetGenerated({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
           }
         }
       }

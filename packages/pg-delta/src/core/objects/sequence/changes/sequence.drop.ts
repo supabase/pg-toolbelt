@@ -1,3 +1,4 @@
+import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { DropSequenceChange } from "./sequence.base.ts";
 
@@ -25,13 +26,39 @@ export class DropSequence extends DropSequenceChange {
   }
 
   get requires() {
-    return [this.sequence.stableId];
+    const dependencies = new Set<string>([this.sequence.stableId]);
+
+    if (
+      this.sequence.owned_by_schema &&
+      this.sequence.owned_by_table &&
+      this.sequence.owned_by_column
+    ) {
+      dependencies.add(
+        stableId.columnDefaultDropped(
+          this.sequence.owned_by_schema,
+          this.sequence.owned_by_table,
+          this.sequence.owned_by_column,
+        ),
+      );
+    }
+
+    return Array.from(dependencies);
   }
 
   serialize(): string {
-    return [
+    const parts = [
       "DROP SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
-    ].join(" ");
+    ];
+
+    if (
+      this.sequence.owned_by_schema &&
+      this.sequence.owned_by_table &&
+      this.sequence.owned_by_column
+    ) {
+      parts.push("CASCADE");
+    }
+
+    return parts.join(" ");
   }
 }

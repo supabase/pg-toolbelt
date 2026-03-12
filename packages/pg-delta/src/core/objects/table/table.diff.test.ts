@@ -3,9 +3,12 @@ import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnDropNotNull,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetGenerated,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableChangeOwner,
@@ -711,6 +714,103 @@ describe.concurrent("table.diff", () => {
     );
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),
+    ).toBe(true);
+  });
+
+  test("identity transitions emit drop/add/set-generated changes", () => {
+    const serialColumn = {
+      name: "id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: "nextval('public.t_identity_id_seq'::regclass)",
+      comment: null,
+    };
+
+    const identityAlwaysColumn = {
+      ...serialColumn,
+      is_identity: true,
+      is_identity_always: true,
+      default: null,
+    };
+
+    const identityByDefaultColumn = {
+      ...identityAlwaysColumn,
+      is_identity_always: false,
+    };
+
+    const serialToIdentityMain = new Table({
+      ...base,
+      name: "t_identity",
+      columns: [serialColumn],
+    });
+    const serialToIdentityBranch = new Table({
+      ...base,
+      name: "t_identity",
+      columns: [identityAlwaysColumn],
+    });
+
+    const serialToIdentityChanges = diffTables(
+      testContext,
+      { [serialToIdentityMain.stableId]: serialToIdentityMain },
+      { [serialToIdentityBranch.stableId]: serialToIdentityBranch },
+    );
+    expect(
+      serialToIdentityChanges.some(
+        (c) => c instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(true);
+    expect(
+      serialToIdentityChanges.some(
+        (c) => c instanceof AlterTableAlterColumnAddIdentity,
+      ),
+    ).toBe(true);
+
+    const identityToSerialChanges = diffTables(
+      testContext,
+      { [serialToIdentityBranch.stableId]: serialToIdentityBranch },
+      { [serialToIdentityMain.stableId]: serialToIdentityMain },
+    );
+    expect(
+      identityToSerialChanges.some(
+        (c) => c instanceof AlterTableAlterColumnDropIdentity,
+      ),
+    ).toBe(true);
+    expect(
+      identityToSerialChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(true);
+
+    const alwaysToByDefaultMain = new Table({
+      ...base,
+      name: "t_identity_mode",
+      columns: [identityAlwaysColumn],
+    });
+    const alwaysToByDefaultBranch = new Table({
+      ...base,
+      name: "t_identity_mode",
+      columns: [identityByDefaultColumn],
+    });
+    const alwaysToByDefaultChanges = diffTables(
+      testContext,
+      { [alwaysToByDefaultMain.stableId]: alwaysToByDefaultMain },
+      { [alwaysToByDefaultBranch.stableId]: alwaysToByDefaultBranch },
+    );
+    expect(
+      alwaysToByDefaultChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetGenerated,
+      ),
     ).toBe(true);
   });
 
