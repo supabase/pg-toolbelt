@@ -248,5 +248,32 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "add exclude constraint",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.reservations (
+            id integer PRIMARY KEY,
+            room_id integer NOT NULL,
+            during tstzrange NOT NULL
+          );
+        `,
+          testSql: `
+          ALTER TABLE test_schema.reservations
+            ADD CONSTRAINT no_overlap
+            EXCLUDE USING gist (room_id WITH =, during WITH &&);
+        `,
+          expectedSqlTerms: [
+            "ALTER TABLE test_schema.reservations ADD CONSTRAINT no_overlap EXCLUDE USING gist (room_id WITH =, during WITH &&)",
+          ],
+        });
+      }),
+    );
   });
 }
