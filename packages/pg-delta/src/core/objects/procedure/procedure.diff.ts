@@ -165,9 +165,19 @@ export function diffProcedures(
     );
 
     if (nonAlterablePropsChanged) {
+      const signatureChanged = !deepEqual(
+        mainProcedure.argument_types,
+        branchProcedure.argument_types,
+      );
+      if (signatureChanged) {
+        changes.push(new DropProcedure({ procedure: mainProcedure }));
+      }
       // Replace the entire procedure
       changes.push(
-        new CreateProcedure({ procedure: branchProcedure, orReplace: true }),
+        new CreateProcedure({
+          procedure: branchProcedure,
+          orReplace: !signatureChanged,
+        }),
       );
     } else {
       // Only alterable properties changed - check each one
