@@ -391,6 +391,72 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop trigger before dropping trigger function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.bar()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NULL;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.bar();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP FUNCTION test_schema.bar();
+          `,
+        });
+      }),
+    );
+
+    test(
+      "drop all triggers before dropping shared trigger function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE TABLE test_schema.bar (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.shared_trigger_fn()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+            CREATE TRIGGER bar_insert
+            BEFORE INSERT ON test_schema.bar
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP TRIGGER bar_insert ON test_schema.bar;
+            DROP FUNCTION test_schema.shared_trigger_fn();
+          `,
+        });
+      }),
+    );
+
+    test(
       "trigger semantic equality",
       withDb(pgVersion, async (db) => {
         // Setup: Create a trigger in both databases
