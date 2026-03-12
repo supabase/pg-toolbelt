@@ -588,12 +588,18 @@ export class AlterTableDropColumn extends AlterTableChange {
 export class AlterTableAlterColumnType extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly previousColumn?: ColumnProps;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; column: ColumnProps }) {
+  constructor(props: {
+    table: Table;
+    column: ColumnProps;
+    previousColumn?: ColumnProps;
+  }) {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.previousColumn = props.previousColumn;
   }
 
   get requires() {
@@ -603,6 +609,14 @@ export class AlterTableAlterColumnType extends AlterTableChange {
   }
 
   serialize(): string {
+    // previousColumn is optional so direct serializer tests/fixtures can keep
+    // emitting canonical ALTER TYPE SQL without forcing a USING expression.
+    // When provided, we can detect true type changes and add USING for casts
+    // PostgreSQL cannot perform automatically.
+    const hasTypeChangedWithPreviousDefinition =
+      this.previousColumn?.data_type_str !== undefined &&
+      this.previousColumn.data_type_str !== this.column.data_type_str;
+
     const parts: string[] = [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -613,6 +627,9 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
     if (this.column.collation) {
       parts.push("COLLATE", this.column.collation);
+    }
+    if (hasTypeChangedWithPreviousDefinition) {
+      parts.push("USING", `${this.column.name}::${this.column.data_type_str}`);
     }
     return parts.join(" ");
   }
