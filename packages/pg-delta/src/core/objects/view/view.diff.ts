@@ -43,19 +43,17 @@ export function diffViews(
   const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: ViewChange[] = [];
-
-  for (const viewId of created) {
-    const v = branch[viewId];
-    changes.push(new CreateView({ view: v }));
+  const appendCreateViewChanges = (view: View) => {
+    changes.push(new CreateView({ view }));
 
     // OWNER: If the view should be owned by someone other than the current user,
     // emit ALTER VIEW ... OWNER TO after creation
-    if (v.owner !== ctx.currentUser) {
-      changes.push(new AlterViewChangeOwner({ view: v, owner: v.owner }));
+    if (view.owner !== ctx.currentUser) {
+      changes.push(new AlterViewChangeOwner({ view, owner: view.owner }));
     }
 
-    if (v.comment !== null) {
-      changes.push(new CreateCommentOnView({ view: v }));
+    if (view.comment !== null) {
+      changes.push(new CreateCommentOnView({ view }));
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -66,26 +64,26 @@ export function diffViews(
     const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
       ctx.currentUser,
       "view",
-      v.schema ?? "",
+      view.schema ?? "",
     );
     const creatorFilteredDefaults =
-      v.owner !== ctx.currentUser
+      view.owner !== ctx.currentUser
         ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
         : effectiveDefaults;
-    const desiredPrivileges = v.privileges;
+    const desiredPrivileges = view.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the view owner as the reference.
     const privilegeResults = diffPrivileges(
       creatorFilteredDefaults,
       desiredPrivileges,
-      v.owner,
+      view.owner,
     );
 
     changes.push(
       ...(emitColumnPrivilegeChanges(
         privilegeResults,
-        v,
-        v,
+        view,
+        view,
         "view",
         {
           Grant: GrantViewPrivileges,
@@ -96,6 +94,10 @@ export function diffViews(
         ctx.version,
       ) as ViewChange[]),
     );
+  };
+
+  for (const viewId of created) {
+    appendCreateViewChanges(branch[viewId]);
   }
 
   for (const viewId of dropped) {
@@ -128,7 +130,10 @@ export function diffViews(
       { options: deepEqual },
     );
 
-    if (nonAlterablePropsChanged) {
+    if (!deepEqual(mainView.columns, branchView.columns)) {
+      changes.push(new DropView({ view: mainView }));
+      appendCreateViewChanges(branchView);
+    } else if (nonAlterablePropsChanged) {
       // Replace the entire view using CREATE OR REPLACE to avoid drop when possible
       changes.push(new CreateView({ view: branchView, orReplace: true }));
     } else {

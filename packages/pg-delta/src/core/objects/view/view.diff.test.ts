@@ -105,6 +105,64 @@ describe.concurrent("view.diff", () => {
     expect(changes[0]).toBeInstanceOf(CreateView);
   });
 
+  test("drop and recreate when view columns change", () => {
+    const main = makeView({
+      owner: "postgres",
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const branch = makeView({
+      owner: "postgres",
+      columns: [
+        ...main.columns,
+        {
+          name: "priority",
+          position: 2,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+    });
+    const changes = diffViews(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(2);
+    expect(changes[0]).toBeInstanceOf(DropView);
+    expect(changes[1]).toBeInstanceOf(CreateView);
+  });
+
   test("create with privileges emits grant changes", () => {
     const v = makeView({
       privileges: [
