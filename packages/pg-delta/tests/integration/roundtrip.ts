@@ -54,6 +54,8 @@ interface RoundtripTestOptions {
    * When defined, random sorting of changes is skipped to ensure deterministic order.
    */
   expectedSqlTerms?: string[] | "same-as-test-sql";
+  /** Optional custom assertion for generated SQL statements (e.g. inline snapshots). */
+  assertSqlStatements?: (sqlStatements: string[]) => void;
   /** Dependencies that must be present in the main catalog after the roundtrip. */
   expectedMainDependencies?: PgDepend[];
   /** Dependencies that must be present in the branch catalog. */
@@ -99,6 +101,7 @@ export async function roundtripFidelityTest(
     initialSetup,
     testSql,
     expectedSqlTerms,
+    assertSqlStatements,
     expectedMainDependencies,
     expectedBranchDependencies,
     expectedOperationOrder,
@@ -198,6 +201,10 @@ export async function roundtripFidelityTest(
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }
+  }
+
+  if (assertSqlStatements) {
+    assertSqlStatements(sqlStatements);
   }
 
   debugTest("migrationScript: %s", migrationScript);

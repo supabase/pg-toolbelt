@@ -167,6 +167,7 @@ All code changes must be covered by tests:
 - Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
 - Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
 - **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
+- Prefer `roundtripFidelityTest` for pg-delta integration coverage instead of hand-rolled `createPlan` + apply assertions. Use custom plan assertions only when validating planner internals that roundtrip utilities cannot express.
 - Follow existing test patterns in the codebase
 
 ### Snapshot Assertions

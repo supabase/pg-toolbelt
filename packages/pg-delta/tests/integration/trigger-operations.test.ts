@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -10,6 +10,90 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`trigger operations (pg${pgVersion})`, () => {
+    test(
+      "INSTEAD OF triggers on views are diffed and ordered after view creation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE SCHEMA test_schema;",
+          testSql: dedent`
+            CREATE TABLE test_schema.users (
+              id integer PRIMARY KEY,
+              email text NOT NULL
+            );
+
+            CREATE VIEW test_schema.user_emails AS
+              SELECT id, email FROM test_schema.users;
+
+            CREATE OR REPLACE FUNCTION test_schema.insert_user_email()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                INSERT INTO test_schema.users (id, email) VALUES (NEW.id, NEW.email);
+                RETURN NEW;
+            END;
+            $$;
+
+            CREATE OR REPLACE FUNCTION test_schema.update_user_email()
+            RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                UPDATE test_schema.users SET email = NEW.email WHERE id = OLD.id;
+                RETURN NEW;
+            END;
+            $$;
+
+            CREATE TRIGGER user_emails_insert
+                INSTEAD OF INSERT ON test_schema.user_emails
+                FOR EACH ROW
+                EXECUTE FUNCTION test_schema.insert_user_email();
+
+            CREATE TRIGGER user_emails_update
+                INSTEAD OF UPDATE ON test_schema.user_emails
+                FOR EACH ROW
+                EXECUTE FUNCTION test_schema.update_user_email();
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "SET check_function_bodies = false",
+                
+              "CREATE FUNCTION test_schema.insert_user_email()
+               RETURNS trigger
+               LANGUAGE plpgsql
+              AS $function$
+              BEGIN
+                  INSERT INTO test_schema.users (id, email) VALUES (NEW.id, NEW.email);
+                  RETURN NEW;
+              END;
+              $function$"
+              ,
+                
+              "CREATE FUNCTION test_schema.update_user_email()
+               RETURNS trigger
+               LANGUAGE plpgsql
+              AS $function$
+              BEGIN
+                  UPDATE test_schema.users SET email = NEW.email WHERE id = OLD.id;
+                  RETURN NEW;
+              END;
+              $function$"
+              ,
+                "CREATE TABLE test_schema.users (id integer NOT NULL, email text NOT NULL)",
+                "ALTER TABLE test_schema.users ADD CONSTRAINT users_pkey PRIMARY KEY (id)",
+                
+              "CREATE VIEW test_schema.user_emails AS SELECT id,
+                  email
+                 FROM test_schema.users"
+              ,
+                "CREATE TRIGGER user_emails_insert INSTEAD OF INSERT ON test_schema.user_emails FOR EACH ROW EXECUTE FUNCTION test_schema.insert_user_email()",
+                "CREATE TRIGGER user_emails_update INSTEAD OF UPDATE ON test_schema.user_emails FOR EACH ROW EXECUTE FUNCTION test_schema.update_user_email()",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
     test(
       "simple trigger creation",
       withDb(pgVersion, async (db) => {
