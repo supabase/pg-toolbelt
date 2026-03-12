@@ -2,14 +2,107 @@
  * Integration tests for PostgreSQL trigger operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`trigger operations (pg${pgVersion})`, () => {
+    test(
+      "trigger creation preserves UPDATE OF column list",
+      withDb(pgVersion, async (db) => {
+        const setupSql = dedent`
+          CREATE SCHEMA test_schema;
+
+          CREATE TABLE test_schema.user_account (
+            id bigint generated always as identity primary key,
+            email text not null,
+            verified boolean not null default false
+          );
+
+          CREATE OR REPLACE FUNCTION test_schema.user_account_encrypt_secret_email()
+          RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+              NEW.email := 'enc:' || NEW.email;
+              RETURN NEW;
+          END;
+          $$;
+        `;
+
+        await db.main.query(setupSql);
+        await db.branch.query(setupSql);
+        await db.branch.query(`
+          CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email
+              BEFORE INSERT OR UPDATE OF email ON test_schema.user_account
+              FOR EACH ROW
+              EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email();
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
+        const statements = result!.plan.statements;
+        expect(statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TRIGGER user_account_encrypt_secret_trigger_email BEFORE INSERT OR UPDATE OF email ON test_schema.user_account FOR EACH ROW EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email()",
+          ]
+        `);
+      }),
+    );
+
+    test(
+      "trigger replacement preserves UPDATE OF column list",
+      withDb(pgVersion, async (db) => {
+        const setupSql = dedent`
+          CREATE SCHEMA test_schema;
+
+          CREATE TABLE test_schema.user_account (
+            id bigint generated always as identity primary key,
+            email text not null,
+            verified boolean not null default false
+          );
+
+          CREATE OR REPLACE FUNCTION test_schema.user_account_encrypt_secret_email()
+          RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+              NEW.email := 'enc:' || NEW.email;
+              RETURN NEW;
+          END;
+          $$;
+        `;
+
+        await db.main.query(setupSql);
+        await db.branch.query(setupSql);
+        await db.main.query(`
+          CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email
+            BEFORE INSERT OR UPDATE ON test_schema.user_account
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email();
+        `);
+        await db.branch.query(`
+          CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email
+              BEFORE INSERT OR UPDATE OF email ON test_schema.user_account
+              FOR EACH ROW
+              EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email();
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+
+        // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
+        const statements = result!.plan.statements;
+        expect(statements).toMatchInlineSnapshot(`
+          [
+            "CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email BEFORE INSERT OR UPDATE OF email ON test_schema.user_account FOR EACH ROW EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email()",
+          ]
+        `);
+      }),
+    );
+
     test(
       "simple trigger creation",
       withDb(pgVersion, async (db) => {

@@ -179,4 +179,4 @@ expect(result.sql).toMatchInlineSnapshot(`
 `);
 ```
 
-Run tests once to auto-generate the snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.
+Run tests once to auto-generate the snapshot values — Bun will fill them in automatically on first run. Starts with empty assertions (eg: expect(statements).toMatchInlineSnapshots(``) ) then update snapshots intentionally with `bun run test -u -- <test-name>`
