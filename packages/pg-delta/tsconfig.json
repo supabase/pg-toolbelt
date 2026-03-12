@@ -5,6 +5,8 @@
   ],
   "compilerOptions": {
     "baseUrl": ".",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "paths": {
       "@supabase/pg-topo": ["../pg-topo/src/index.ts"]
     }

@@ -5,7 +5,9 @@
   ],
   "compilerOptions": {
     "outDir": "./dist",
-    "declaration": true
+    "declaration": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
   },
   "rootDir": "./src",
   "include": ["./src"],
