@@ -98,6 +98,80 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "replace materialized view with dependent index and view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.orders (
+              id serial PRIMARY KEY,
+              customer text NOT NULL,
+              total numeric NOT NULL,
+              created_at timestamptz DEFAULT now()
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.order_summary AS
+              SELECT customer, sum(total) AS total_spent, count(*) AS order_count
+              FROM test_schema.orders
+              GROUP BY customer;
+
+            CREATE UNIQUE INDEX order_summary_customer_idx
+              ON test_schema.order_summary (customer);
+
+            CREATE VIEW test_schema.top_customers AS
+              SELECT * FROM test_schema.order_summary
+              WHERE total_spent > 1000;
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.top_customers;
+            DROP INDEX test_schema.order_summary_customer_idx;
+            DROP MATERIALIZED VIEW test_schema.order_summary;
+
+            CREATE MATERIALIZED VIEW test_schema.order_summary AS
+              SELECT customer,
+                     sum(total) AS total_spent,
+                     count(*) AS order_count,
+                     max(created_at) AS last_order
+              FROM test_schema.orders
+              GROUP BY customer;
+
+            CREATE UNIQUE INDEX order_summary_customer_idx
+              ON test_schema.order_summary (customer);
+
+            CREATE VIEW test_schema.top_customers AS
+              SELECT * FROM test_schema.order_summary
+              WHERE total_spent > 1000;
+          `,
+          expectedSqlTerms: [
+            "DROP INDEX test_schema.order_summary_customer_idx",
+            "DROP VIEW test_schema.top_customers",
+            "DROP MATERIALIZED VIEW test_schema.order_summary",
+            dedent`
+              CREATE MATERIALIZED VIEW test_schema.order_summary AS SELECT customer,
+                  sum(total) AS total_spent,
+                  count(*) AS order_count,
+                  max(created_at) AS last_order
+                 FROM test_schema.orders
+                GROUP BY customer WITH DATA
+            `,
+            "CREATE UNIQUE INDEX order_summary_customer_idx ON test_schema.order_summary (customer)",
+            dedent`
+              CREATE OR REPLACE VIEW test_schema.top_customers AS SELECT customer,
+                  total_spent,
+                  order_count,
+                  last_order
+                 FROM test_schema.order_summary
+                WHERE (total_spent > (1000)::numeric)
+            `,
+          ],
+        });
+      }),
+    );
+
+    test(
       "materialized view with aggregations",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

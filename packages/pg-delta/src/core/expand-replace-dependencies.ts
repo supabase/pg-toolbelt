@@ -2,6 +2,8 @@ import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
+import { CreateIndex } from "./objects/index/changes/index.create.ts";
+import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
@@ -32,6 +34,12 @@ type ResolvedObject =
       kind: "view";
       main: Catalog["views"][string];
       branch: Catalog["views"][string];
+    }
+  | {
+      kind: "index";
+      main: Catalog["indexes"][string];
+      branch: Catalog["indexes"][string];
+      branchIndexableObject: Catalog["indexableObjects"][string] | undefined;
     }
   | {
       kind: "materialized_view";
@@ -242,6 +250,20 @@ function resolveObjectForStableId(
     return main && branch ? { kind: "materialized_view", main, branch } : null;
   }
 
+  if (stableId.startsWith("index:")) {
+    const main = mainCatalog.indexes[stableId];
+    const branch = branchCatalog.indexes[stableId];
+    return main && branch
+      ? {
+          kind: "index",
+          main,
+          branch,
+          branchIndexableObject:
+            branchCatalog.indexableObjects[branch.tableStableId],
+        }
+      : null;
+  }
+
   if (stableId.startsWith("procedure:")) {
     const main = mainCatalog.procedures[stableId];
     const branch = branchCatalog.procedures[stableId];
@@ -341,6 +363,18 @@ function buildReplaceChanges(
           : []),
         ...(addCreate
           ? [new CreateMaterializedView({ materializedView: resolved.branch })]
+          : []),
+      ];
+    case "index":
+      return [
+        ...(addDrop ? [new DropIndex({ index: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateIndex({
+                index: resolved.branch,
+                indexableObject: resolved.branchIndexableObject,
+              }),
+            ]
           : []),
       ];
     case "procedure":
