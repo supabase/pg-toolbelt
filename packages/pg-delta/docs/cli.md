@@ -7,13 +7,13 @@ For end-to-end workflow examples, see the [Workflow Guide](./workflow.md).
 ## Installation
 
 ```bash
-npm install -g @supabase/pg-delta
+npm install -g @supabase/pg-delta@alpha
 ```
 
 Or use with `npx`:
 
 ```bash
-npx @supabase/pg-delta sync --source <source> --target <target>
+npx @supabase/pg-delta@alpha sync --source <source> --target <target>
 ```
 
 ## Commands
