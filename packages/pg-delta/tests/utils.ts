@@ -17,7 +17,12 @@ function suppressShutdownError(err: Error & { code?: string }) {
   console.error("Pool error:", err);
 }
 
-export type DbFixture = { main: Pool; branch: Pool };
+export type DbFixture = {
+  main: Pool;
+  branch: Pool;
+  mainUrl: string;
+  branchUrl: string;
+};
 
 /**
  * Default test utility using Alpine PostgreSQL containers with single container per version.
@@ -31,10 +36,10 @@ export function withDb(
   fn: (db: DbFixture) => Promise<void>,
 ): () => Promise<void> {
   return async () => {
-    const { main, branch, cleanup } =
+    const { main, branch, mainUrl, branchUrl, cleanup } =
       await containerManager.getDatabasePair(postgresVersion);
     try {
-      await fn({ main, branch });
+      await fn({ main, branch, mainUrl, branchUrl });
     } finally {
       await cleanup();
     }
@@ -53,10 +58,10 @@ export function withDbIsolated(
   fn: (db: DbFixture) => Promise<void>,
 ): () => Promise<void> {
   return async () => {
-    const { main, branch, cleanup } =
+    const { main, branch, mainUrl, branchUrl, cleanup } =
       await containerManager.getIsolatedContainers(postgresVersion);
     try {
-      await fn({ main, branch });
+      await fn({ main, branch, mainUrl, branchUrl });
     } finally {
       await cleanup();
     }
@@ -87,7 +92,12 @@ export function withDbSupabaseIsolated(
     });
 
     try {
-      await fn({ main, branch });
+      await fn({
+        main,
+        branch,
+        mainUrl: containerMain.getConnectionUri(),
+        branchUrl: containerBranch.getConnectionUri(),
+      });
     } finally {
       await Promise.all([main.end(), branch.end()]);
       await Promise.all([containerMain.stop(), containerBranch.stop()]);

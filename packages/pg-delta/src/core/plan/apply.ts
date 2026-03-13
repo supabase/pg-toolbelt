@@ -107,6 +107,9 @@ export async function applyPlan(
     }
 
     const sortedChanges = sortChanges(ctx, filteredChanges);
+    if (sortedChanges.length === 0) {
+      return { status: "already_applied" };
+    }
     const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
       ctx.mainCatalog,
       sortedChanges,

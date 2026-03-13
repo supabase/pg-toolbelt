@@ -128,6 +128,8 @@ class ContainerManager {
   async getDatabasePair(version: PostgresVersion): Promise<{
     main: Pool;
     branch: Pool;
+    mainUrl: string;
+    branchUrl: string;
     cleanup: () => Promise<void>;
   }> {
     debugContainer(
@@ -170,6 +172,8 @@ class ContainerManager {
       container.getConnectionUriForDatabase(dbNameBranch),
       { onError: suppressShutdownError },
     );
+    const mainUrl = container.getConnectionUriForDatabase(dbNameMain);
+    const branchUrl = container.getConnectionUriForDatabase(dbNameBranch);
 
     const cleanup = async () => {
       try {
@@ -212,7 +216,7 @@ class ContainerManager {
       }
     };
 
-    return { main: poolMain, branch: poolBranch, cleanup };
+    return { main: poolMain, branch: poolBranch, mainUrl, branchUrl, cleanup };
   }
 
   /**
@@ -221,6 +225,8 @@ class ContainerManager {
   async getIsolatedContainers(version: PostgresVersion): Promise<{
     main: Pool;
     branch: Pool;
+    mainUrl: string;
+    branchUrl: string;
     cleanup: () => Promise<void>;
   }> {
     const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
@@ -236,6 +242,8 @@ class ContainerManager {
     const poolBranch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
     });
+    const mainUrl = containerMain.getConnectionUri();
+    const branchUrl = containerBranch.getConnectionUri();
 
     const cleanup = async () => {
       try {
@@ -246,7 +254,7 @@ class ContainerManager {
       }
     };
 
-    return { main: poolMain, branch: poolBranch, cleanup };
+    return { main: poolMain, branch: poolBranch, mainUrl, branchUrl, cleanup };
   }
 
   /**

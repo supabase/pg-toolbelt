@@ -42,7 +42,7 @@ const maxRounds = Flag.integer("max-rounds").pipe(
   Flag.optional,
 );
 
-const noValidateFunctions = Flag.boolean("no-validate-functions").pipe(
+const skipFunctionValidation = Flag.boolean("skip-function-validation").pipe(
   Flag.withDescription("Skip final function body validation pass"),
   Flag.withDefault(false),
 );
@@ -66,7 +66,7 @@ export const declarativeApplyCommand = Command.make(
     path: pathOpt,
     target,
     maxRounds,
-    noValidateFunctions,
+    skipFunctionValidation,
     verbose,
     ungroupDiagnostics,
   },
@@ -116,7 +116,7 @@ export const declarativeApplyCommand = Command.make(
             content,
             targetUrl: args.target,
             maxRounds: maxRoundsValue,
-            validateFunctionBodies: !args.noValidateFunctions,
+            validateFunctionBodies: !args.skipFunctionValidation,
             onRoundComplete,
           }),
         catch: (error) =>

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "toolVersion": "test",
+  "source": {
+    "fingerprint": "source"
+  },
+  "target": {
+    "fingerprint": "target"
+  },
+  "statements": [
+    "DROP TABLE public.users;"
+  ],
+  "risk": {
+    "level": "data_loss",
+    "statements": [
+      "DROP TABLE public.users;"
+    ]
+  }
+}

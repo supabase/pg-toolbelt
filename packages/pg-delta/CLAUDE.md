@@ -10,6 +10,8 @@ PostgreSQL schema diff and migration tool. Connects to two PostgreSQL databases 
 bun test              # All tests (unit + integration)
 bun test src/         # Unit tests only (no Docker)
 bun test tests/       # Integration tests (Docker required)
+bun test tests/cli/offline-cli-e2e.test.ts # CLI offline e2e (no Docker)
+PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/cli/pg17-cli-e2e.test.ts # CLI PG17 e2e
 bun run build         # Compile with tsc
 bun run check-types   # Type check without emitting
 bun run pgdelta       # Run CLI (e.g. bun run pgdelta plan --help)

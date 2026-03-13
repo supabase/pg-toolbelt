@@ -18,16 +18,14 @@ npx @supabase/pg-delta@alpha sync --source <source> --target <target>
 
 ## Commands
 
-### `sync` (default)
+### `sync`
 
-Plan and apply schema changes in one go with confirmation prompt. This is the default command when no command is specified.
+Plan and apply schema changes in one go with confirmation prompt.
 
 #### Usage
 
 ```bash
 pgdelta sync --source <source-url> --target <target-url> [options]
-# or simply
-pgdelta --source <source-url> --target <target-url> [options]
 ```
 
 #### Options
@@ -345,7 +343,7 @@ pgdelta declarative apply --path <dir-or-file> --target <target-url> [options]
 - `-p, --path <dir|file>` (required): Path to the schema directory (containing `.sql` files) or a single `.sql` file
 - `-t, --target <url>` (required): Target database connection URL
 - `--max-rounds <n>`: Maximum application rounds before giving up (default: 100)
-- `--no-validate-functions`: Skip final function body validation pass
+- `--skip-function-validation`: Skip final function body validation pass
 - `-v, --verbose`: Show detailed per-round progress (applied/deferred/failed)
 - `--ungroup-diagnostics`: Show full per-diagnostic detail instead of grouped summary
 
@@ -374,7 +372,7 @@ pgdelta declarative apply \
 pgdelta declarative apply \
   --path ./declarative-schemas/ \
   --target postgresql://user:pass@localhost:5432/fresh_db \
-  --no-validate-functions
+  --skip-function-validation
 ```
 
 **Debug logging:**
@@ -436,3 +434,24 @@ pgdelta catalog-export --help
 pgdelta declarative export --help
 pgdelta declarative apply --help
 ```
+
+## Global Flags
+
+- `--help, -h`: Show help information
+- `--version`: Show version information
+- `--completions <shell>`: Print a shell completion script. Supported shells: `bash`, `zsh`, `fish`, `sh`
+- `--log-level <level>`: Set the minimum CLI log level
+
+Examples:
+
+```bash
+pgdelta --completions zsh > ~/.zsh/completions/_pgdelta
+pgdelta --completions bash >> ~/.bashrc
+pgdelta --completions fish > ~/.config/fish/completions/pgdelta.fish
+```
+
+`--completions sh` emits bash-compatible output.
+
+## Troubleshooting
+
+Normal CLI failures should not expose raw internal Effect `Cause(...)` output. If you still see that surface in stderr, treat it as a bug and report the exact command plus output.

@@ -209,7 +209,7 @@ Apply a declarative SQL schema (a directory or single file of `.sql` files) to a
 | `--path` | `-p` | Yes | Path to the schema directory or a single `.sql` file |
 | `--target` | `-t` | Yes | Target database connection URL |
 | `--max-rounds` | | No | Maximum application rounds before giving up (default: 100) |
-| `--no-validate-functions` | | No | Skip final function body validation pass |
+| `--skip-function-validation` | | No | Skip final function body validation pass |
 | `--verbose` | `-v` | No | Show per-round progress (applied/deferred/failed) |
 | `--ungroup-diagnostics` | | No | Show full per-diagnostic detail instead of grouped summary |
 
@@ -246,7 +246,7 @@ Skip function body validation (useful when functions reference external objects)
 pgdelta declarative apply \
   --path ./declarative-schemas/ \
   --target postgresql://user:pass@localhost:5432/fresh_db \
-  --no-validate-functions
+  --skip-function-validation
 ```
 
 Debug logging for detailed defer/skip/fail information:
@@ -356,7 +356,7 @@ pgdelta apply \
 
 ### `sync`
 
-Plan and apply in one step with an interactive confirmation prompt. This is the default command.
+Plan and apply in one step with an interactive confirmation prompt.
 
 #### Flags
 
@@ -426,11 +426,9 @@ pgdelta catalog-export \
 pgdelta plan \
   --source prod-baseline.json \
   --target postgresql://user:pass@localhost:5432/dev_db \
-  --output migration.sql \
-  --format sql \
-  --sql-format
+  --output migration.json
 
-# 3. Review the migration script, then apply
+# 3. Review the plan, then apply
 pgdelta apply \
   --plan migration.json \
   --source postgresql://user:pass@prod:5432/mydb \
