@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Effect, FileSystem, Layer } from "effect";
-import { analyzeAndSortFromFilesEffect } from "../src/from-files.ts";
+import { analyzeAndSortFromFiles } from "../src/from-files.ts";
 import { ParserServiceLive } from "../src/services/parser-live.ts";
 import { WorkingDirectory } from "../src/services/working-directory.ts";
 
@@ -39,16 +39,16 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(WorkingDirectory, { cwd: process.cwd() }),
 );
 
-describe("analyzeAndSortFromFilesEffect", () => {
+describe("analyzeAndSortFromFiles", () => {
   test("works with a FileSystem layer on real fixtures", async () => {
-    const result = await analyzeAndSortFromFilesEffect([
+    const result = await analyzeAndSortFromFiles([
       "./test/fixtures/diverse-schema",
     ]).pipe(Effect.provide(TestLayer), Effect.runPromise);
     expect(result.ordered.length).toBeGreaterThan(0);
   });
 
   test("reports missing roots", async () => {
-    const result = await analyzeAndSortFromFilesEffect([
+    const result = await analyzeAndSortFromFiles([
       "/nonexistent/path/does/not/exist",
     ]).pipe(Effect.provide(TestLayer), Effect.runPromise);
     expect(result.diagnostics.some((d) => d.code === "DISCOVERY_ERROR")).toBe(
@@ -57,7 +57,7 @@ describe("analyzeAndSortFromFilesEffect", () => {
   });
 
   test("empty roots returns discovery error", async () => {
-    const result = await analyzeAndSortFromFilesEffect([]).pipe(
+    const result = await analyzeAndSortFromFiles([]).pipe(
       Effect.provide(TestLayer),
       Effect.runPromise,
     );
@@ -68,7 +68,7 @@ describe("analyzeAndSortFromFilesEffect", () => {
   });
 
   test("resolves relative roots against injected working directory", async () => {
-    const result = await analyzeAndSortFromFilesEffect([
+    const result = await analyzeAndSortFromFiles([
       "fixtures/diverse-schema",
     ]).pipe(
       Effect.provide(

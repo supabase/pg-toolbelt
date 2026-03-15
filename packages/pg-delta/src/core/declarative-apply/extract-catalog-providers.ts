@@ -7,10 +7,8 @@
 
 import type { ObjectRef } from "@supabase/pg-topo";
 import { Effect } from "effect";
-import type { Pool } from "pg";
 import type { CatalogExtractionError } from "../errors.ts";
 import type { DatabaseApi } from "../services/database.ts";
-import { wrapPool } from "../services/database-live.ts";
 
 type FunctionRow = {
   name: string;
@@ -59,12 +57,6 @@ function addProvider(
  *   real schema and "public" (via addProvider's alsoUnderPublic) so
  *   unqualified references in SQL resolve the same way the parser does.
  */
-export async function extractCatalogProvidersFromPool(
-  pool: Pool,
-): Promise<ObjectRef[]> {
-  return extractCatalogProviders(wrapPool(pool)).pipe(Effect.runPromise);
-}
-
 export const extractCatalogProviders = (
   db: DatabaseApi,
 ): Effect.Effect<ObjectRef[], CatalogExtractionError> =>

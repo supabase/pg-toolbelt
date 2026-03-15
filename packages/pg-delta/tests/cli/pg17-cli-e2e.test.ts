@@ -138,7 +138,7 @@ Plan
    + sync_test
 
 + create   ~ alter   - drop
-Apply these changes (y/N) "
+Apply these changes? (y/N) "
 `);
       expect(cancelled.stderr).not.toContain("Cause(");
 

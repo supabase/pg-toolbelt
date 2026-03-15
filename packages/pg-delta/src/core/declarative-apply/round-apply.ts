@@ -9,16 +9,16 @@
  */
 
 import { Effect } from "effect";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import { DeclarativeApplyError } from "../errors.ts";
 import { getPgDeltaLogger } from "../logging.ts";
-import type { DatabaseApi } from "../services/database.ts";
+import type {
+  DatabaseApi,
+  DatabaseConnectionApi,
+} from "../services/database.ts";
+import { wrapPool } from "../services/database-live.ts";
 
 const logger = getPgDeltaLogger("declarative-apply");
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface StatementEntry {
   /** Unique identifier for the statement (e.g. "file:index") */
@@ -78,9 +78,7 @@ export interface ApplyResult {
   rounds: RoundResult[];
 }
 
-interface RoundApplyOptions {
-  /** Target database pool */
-  pool: Pool;
+interface RoundApplyBaseOptions {
   /** Ordered SQL statements to apply */
   statements: StatementEntry[];
   /** Max rounds before giving up (default: 100) */
@@ -93,15 +91,9 @@ interface RoundApplyOptions {
   onRoundComplete?: (round: RoundResult) => void;
 }
 
-interface QueryClient {
-  readonly query: <R = Record<string, unknown>>(
-    sql: string,
-  ) => Promise<{ rows: R[]; rowCount: number | null }>;
-}
-
-// ---------------------------------------------------------------------------
-// Dependency error classification
-// ---------------------------------------------------------------------------
+export type RoundApplyOptions =
+  | (RoundApplyBaseOptions & { db: DatabaseApi; pool?: never })
+  | (RoundApplyBaseOptions & { pool: Pool; db?: never });
 
 /**
  * SQLSTATE codes that indicate a missing dependency (object not yet created).
@@ -130,10 +122,8 @@ function isEnvironmentCapabilityError(
   message: string,
   statementClass: string | undefined,
 ): boolean {
-  // Feature not supported
   if (code === "0A000") return true;
 
-  // Extension not available
   if (
     code === "58P01" &&
     message.includes("extension") &&
@@ -142,7 +132,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Subscription / logical replication not available
   if (
     statementClass === "CREATE_SUBSCRIPTION" &&
     (code === "58P01" ||
@@ -152,7 +141,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Event trigger requires superuser
   if (
     statementClass === "CREATE_EVENT_TRIGGER" &&
     (code === "42501" || message.includes("must be superuser"))
@@ -160,7 +148,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Language does not exist (e.g. plv8)
   if (
     (statementClass === "CREATE_FUNCTION" ||
       statementClass === "CREATE_PROCEDURE") &&
@@ -170,7 +157,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Role already exists
   if (
     statementClass === "CREATE_ROLE" &&
     (code === "42710" || code === "23505") &&
@@ -182,7 +168,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Extension already exists
   if (
     statementClass === "CREATE_EXTENSION" &&
     code === "42710" &&
@@ -192,7 +177,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Sequence ownership constraint
   if (
     code === "55000" &&
     message.includes("sequence must have same owner as table it is linked to")
@@ -200,7 +184,6 @@ function isEnvironmentCapabilityError(
     return true;
   }
 
-  // Publication replica identity
   if (
     code === "55000" &&
     message.includes("does not have a replica identity") &&
@@ -234,10 +217,6 @@ function parsePgPosition(pos: string | number | undefined): number | undefined {
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Core round-based apply
-// ---------------------------------------------------------------------------
-
 /**
  * Apply SQL statements to a database using iterative rounds.
  *
@@ -252,63 +231,19 @@ function parsePgPosition(pos: string | number | undefined): number | undefined {
  * 4. If finalValidation is true, re-run CREATE FUNCTION/PROCEDURE
  *    with check_function_bodies = on
  */
-export async function roundApply(
+export const roundApply = (
   options: RoundApplyOptions,
-): Promise<ApplyResult> {
-  const { pool } = options;
-  const client: PoolClient = await pool.connect();
-
-  try {
-    return await roundApplyWithClient(
-      {
-        query: ((sql: string) => client.query(sql)) as QueryClient["query"],
-      },
-      options,
-    );
-  } finally {
-    client.release();
-  }
-}
-
-export const roundApplyEffect = (
-  db: DatabaseApi,
-  options: Omit<RoundApplyOptions, "pool">,
 ): Effect.Effect<ApplyResult, DeclarativeApplyError> =>
-  db
+  resolveDatabase(options)
     .withConnection((connection) =>
-      Effect.tryPromise({
-        try: () =>
-          roundApplyWithClient(
-            {
-              query: ((sql: string) =>
-                connection
-                  .query(sql)
-                  .pipe(Effect.runPromise)) as QueryClient["query"],
-            },
-            options,
-          ),
-        catch: (error) =>
-          new DeclarativeApplyError({
-            message: `roundApply failed: ${error instanceof Error ? error.message : String(error)}`,
-            cause: error,
-          }),
-      }),
+      roundApplyWithClient(connection, stripDatabaseOptions(options)),
     )
-    .pipe(
-      Effect.mapError((error) =>
-        error instanceof DeclarativeApplyError
-          ? error
-          : new DeclarativeApplyError({
-              message: error.message,
-              cause: error,
-            }),
-      ),
-    );
+    .pipe(Effect.mapError(toDeclarativeApplyError));
 
-async function roundApplyWithClient(
-  client: QueryClient,
-  options: Omit<RoundApplyOptions, "pool">,
-): Promise<ApplyResult> {
+function roundApplyWithClient(
+  client: DatabaseConnectionApi,
+  options: RoundApplyBaseOptions,
+): Effect.Effect<ApplyResult, DeclarativeApplyError> {
   const {
     statements,
     maxRounds = 100,
@@ -317,28 +252,16 @@ async function roundApplyWithClient(
     onRoundComplete,
   } = options;
 
-  const rounds: RoundResult[] = [];
-  const allErrors: StatementError[] = [];
-  let totalApplied = 0;
-  let totalSkipped = 0;
+  const program = Effect.gen(function* () {
+    const rounds: RoundResult[] = [];
+    let totalApplied = 0;
+    let totalSkipped = 0;
 
-  // Track which statements still need to be applied
-  let pending: StatementEntry[] = [...statements];
-  // Track statements that failed with non-dependency errors
-  const hardFailed: StatementError[] = [];
-  // Track skipped (environment) statements
-  const skipped: StatementEntry[] = [];
-  // Track applied function/procedure statements for final validation
-  const appliedFunctions: StatementEntry[] = [];
+    let pending: StatementEntry[] = [...statements];
+    const hardFailed: StatementError[] = [];
+    const appliedFunctions: StatementEntry[] = [];
 
-  // Disable function body checks to avoid false failures from
-  // functions referencing not-yet-created objects
-  if (disableCheckFunctionBodies) {
-    await client.query("SET check_function_bodies = off");
-  }
-
-  try {
-    for (let round = 1; round <= maxRounds && pending.length > 0; round++) {
+    for (let round = 1; round <= maxRounds && pending.length > 0; round += 1) {
       logger.debug("round {round}: {pending} pending", {
         round,
         pending: pending.length,
@@ -349,64 +272,36 @@ async function roundApplyWithClient(
       let failedThisRound = 0;
 
       for (const stmt of pending) {
-        try {
-          await client.query(stmt.sql);
-          appliedThisRound++;
-          totalApplied++;
+        const queryResult = yield* client.query(stmt.sql).pipe(Effect.result);
 
-          // Track functions for final validation
+        if (queryResult._tag === "Success") {
+          appliedThisRound += 1;
+          totalApplied += 1;
+
           if (
             stmt.statementClass === "CREATE_FUNCTION" ||
             stmt.statementClass === "CREATE_PROCEDURE"
           ) {
             appliedFunctions.push(stmt);
           }
-        } catch (err) {
-          const pgErr = err as PgError;
-          const code = pgErr.code ?? "";
-          const message = (pgErr.message ?? "").toLowerCase();
+          continue;
+        }
 
-          // Check if this is an environment/capability limitation
-          if (
-            isEnvironmentCapabilityError(code, message, stmt.statementClass)
-          ) {
-            logger.debug("skipped {statementId}: {reason}", {
-              statementId: stmt.id,
-              reason: pgErr.message ?? code ?? "environment/capability",
-            });
-            skipped.push(stmt);
-            totalSkipped++;
-            continue;
-          }
+        const pgErr = unwrapPgError(queryResult.failure);
+        const code = pgErr.code ?? "";
+        const message = (pgErr.message ?? "").toLowerCase();
 
-          // Check if this is a dependency error (retryable)
-          if (isDependencyError(code)) {
-            logger.debug("deferred {statementId}: {code} - {message}", {
-              statementId: stmt.id,
-              code,
-              message: pgErr.message ?? "Unknown error",
-            });
-            if (pgErr.detail) {
-              logger.debug("  detail: {detail}", { detail: pgErr.detail });
-            }
-            if (pgErr.hint)
-              logger.debug("  hint: {hint}", { hint: pgErr.hint });
-            deferred.push(stmt);
-            roundErrors.push({
-              statement: stmt,
-              code,
-              message: pgErr.message ?? "Unknown error",
-              isDependencyError: true,
-              position: parsePgPosition(pgErr.position),
-              detail: pgErr.detail,
-              hint: pgErr.hint,
-            });
-            continue;
-          }
+        if (isEnvironmentCapabilityError(code, message, stmt.statementClass)) {
+          logger.debug("skipped {statementId}: {reason}", {
+            statementId: stmt.id,
+            reason: pgErr.message ?? code ?? "environment/capability",
+          });
+          totalSkipped += 1;
+          continue;
+        }
 
-          // Hard failure - non-dependency, non-environment error
-          failedThisRound++;
-          logger.debug("failed {statementId}: {code} - {message}", {
+        if (isDependencyError(code)) {
+          logger.debug("deferred {statementId}: {code} - {message}", {
             statementId: stmt.id,
             code,
             message: pgErr.message ?? "Unknown error",
@@ -414,20 +309,45 @@ async function roundApplyWithClient(
           if (pgErr.detail) {
             logger.debug("  detail: {detail}", { detail: pgErr.detail });
           }
-          if (pgErr.hint) logger.debug("  hint: {hint}", { hint: pgErr.hint });
-          const stmtError: StatementError = {
+          if (pgErr.hint) {
+            logger.debug("  hint: {hint}", { hint: pgErr.hint });
+          }
+          deferred.push(stmt);
+          roundErrors.push({
             statement: stmt,
             code,
             message: pgErr.message ?? "Unknown error",
-            isDependencyError: false,
+            isDependencyError: true,
             position: parsePgPosition(pgErr.position),
             detail: pgErr.detail,
             hint: pgErr.hint,
-          };
-          roundErrors.push(stmtError);
-          hardFailed.push(stmtError);
-          allErrors.push(stmtError);
+          });
+          continue;
         }
+
+        failedThisRound += 1;
+        logger.debug("failed {statementId}: {code} - {message}", {
+          statementId: stmt.id,
+          code,
+          message: pgErr.message ?? "Unknown error",
+        });
+        if (pgErr.detail) {
+          logger.debug("  detail: {detail}", { detail: pgErr.detail });
+        }
+        if (pgErr.hint) {
+          logger.debug("  hint: {hint}", { hint: pgErr.hint });
+        }
+        const stmtError: StatementError = {
+          statement: stmt,
+          code,
+          message: pgErr.message ?? "Unknown error",
+          isDependencyError: false,
+          position: parsePgPosition(pgErr.position),
+          detail: pgErr.detail,
+          hint: pgErr.hint,
+        };
+        roundErrors.push(stmtError);
+        hardFailed.push(stmtError);
       }
 
       if (logger.isEnabledFor("debug") && deferred.length > 0) {
@@ -440,15 +360,18 @@ async function roundApplyWithClient(
             failed: failedThisRound,
           },
         );
-        for (const e of roundErrors.filter((er) => er.isDependencyError)) {
+        for (const error of roundErrors.filter((entry) => entry.isDependencyError)) {
           logger.debug("  deferred {statementId}: {code} - {message}", {
-            statementId: e.statement.id,
-            code: e.code,
-            message: e.message,
+            statementId: error.statement.id,
+            code: error.code,
+            message: error.message,
           });
-          if (e.detail)
-            logger.debug("    detail: {detail}", { detail: e.detail });
-          if (e.hint) logger.debug("    hint: {hint}", { hint: e.hint });
+          if (error.detail) {
+            logger.debug("    detail: {detail}", { detail: error.detail });
+          }
+          if (error.hint) {
+            logger.debug("    hint: {hint}", { hint: error.hint });
+          }
         }
       }
 
@@ -462,11 +385,11 @@ async function roundApplyWithClient(
       rounds.push(roundResult);
       onRoundComplete?.(roundResult);
 
-      // No progress this round - we're stuck
       if (appliedThisRound === 0 && deferred.length > 0) {
-        // Collect the latest error for each stuck statement
         const stuckStatements = deferred.map((stmt) => {
-          const lastError = roundErrors.find((e) => e.statement.id === stmt.id);
+          const lastError = roundErrors.find(
+            (error) => error.statement.id === stmt.id,
+          );
           return (
             lastError ?? {
               statement: stmt,
@@ -478,7 +401,7 @@ async function roundApplyWithClient(
         });
 
         return {
-          status: "stuck",
+          status: "stuck" as const,
           totalRounds: round,
           totalApplied,
           totalSkipped,
@@ -491,10 +414,9 @@ async function roundApplyWithClient(
       pending = deferred;
     }
 
-    // If we exhausted maxRounds but still have pending, report stuck
     if (pending.length > 0) {
       return {
-        status: "stuck",
+        status: "stuck" as const,
         totalRounds: maxRounds,
         totalApplied,
         totalSkipped,
@@ -509,10 +431,10 @@ async function roundApplyWithClient(
       };
     }
 
-    let validationErrors: StatementError[] | undefined;
-    if (finalValidation && appliedFunctions.length > 0) {
-      validationErrors = await validateFunctionBodies(client, appliedFunctions);
-    }
+    const validationErrors =
+      finalValidation && appliedFunctions.length > 0
+        ? yield* validateFunctionBodies(client, appliedFunctions)
+        : undefined;
 
     return {
       status:
@@ -530,20 +452,22 @@ async function roundApplyWithClient(
           ? validationErrors
           : undefined,
       rounds,
-    };
-  } finally {
-    if (disableCheckFunctionBodies) {
-      try {
-        // Restore check_function_bodies for the connection being returned to the pool.
-        // validateFunctionBodies uses SET LOCAL inside a rolled-back transaction so it
-        // never changes the session-level value, but the SET at the start of rounds still
-        // needs to be undone here.
-        await client.query("SET check_function_bodies = on");
-      } catch {
-        // Best-effort restore; connection is being released anyway
-      }
-    }
+    } satisfies ApplyResult;
+  });
+
+  if (!disableCheckFunctionBodies) {
+    return program;
   }
+
+  return client.query("SET check_function_bodies = off").pipe(
+    Effect.mapError(toDeclarativeApplyError),
+    Effect.flatMap(() => program),
+    Effect.ensuring(
+      client.query("SET check_function_bodies = on").pipe(
+        Effect.catch(() => Effect.void),
+      ),
+    ),
+  );
 }
 
 /**
@@ -570,60 +494,150 @@ export function rewriteAsOrReplace(sql: string): string {
  * - SAVEPOINTs around each statement prevent an aborted-transaction error from
  *   blocking validation of the remaining functions.
  */
-async function validateFunctionBodies(
-  client: QueryClient,
+function validateFunctionBodies(
+  client: DatabaseConnectionApi,
   functions: StatementEntry[],
-): Promise<StatementError[]> {
-  const errors: StatementError[] = [];
+): Effect.Effect<StatementError[], DeclarativeApplyError> {
+  const program = Effect.gen(function* () {
+    const errors: StatementError[] = [];
 
-  await client.query("BEGIN");
-  try {
-    // Auto-detect all user schemas so unqualified names in function bodies
-    // resolve correctly, regardless of the session's default search_path.
-    const { rows } = await client.query<{ schemas: string | null }>(`
+    const { rows } = yield* client.query<{ schemas: string | null }>(`
       SELECT string_agg(quote_ident(nspname), ', ' ORDER BY nspname) AS schemas
       FROM pg_namespace
       WHERE nspname NOT LIKE 'pg_%'
         AND nspname <> 'information_schema'
-    `);
+    `).pipe(Effect.mapError(toDeclarativeApplyError));
     const detectedSchemas = rows[0]?.schemas;
     if (detectedSchemas) {
       logger.debug("validation search_path: {schemas}, pg_catalog", {
         schemas: detectedSchemas,
       });
-      await client.query(
+      yield* client.query(
         `SET LOCAL search_path = ${detectedSchemas}, pg_catalog`,
-      );
+      ).pipe(Effect.mapError(toDeclarativeApplyError));
     }
 
-    await client.query("SET LOCAL check_function_bodies = on");
+    yield* client.query("SET LOCAL check_function_bodies = on").pipe(
+      Effect.mapError(toDeclarativeApplyError),
+    );
 
     for (const stmt of functions) {
       const replaceSql = rewriteAsOrReplace(stmt.sql);
 
-      await client.query("SAVEPOINT validate_fn");
-      try {
-        await client.query(replaceSql);
-        await client.query("RELEASE SAVEPOINT validate_fn");
-      } catch (err) {
-        await client.query("ROLLBACK TO SAVEPOINT validate_fn");
-        const pgErr = err as PgError;
-        errors.push({
-          statement: stmt,
-          code: pgErr.code ?? "",
-          message: pgErr.message ?? "Unknown validation error",
-          isDependencyError: false,
-          position: parsePgPosition(pgErr.position),
-          detail: pgErr.detail,
-          hint: pgErr.hint,
-        });
+      yield* client.query("SAVEPOINT validate_fn").pipe(
+        Effect.mapError(toDeclarativeApplyError),
+      );
+      const validationResult = yield* client.query(replaceSql).pipe(
+        Effect.result,
+      );
+
+      if (validationResult._tag === "Success") {
+        yield* client.query("RELEASE SAVEPOINT validate_fn").pipe(
+          Effect.mapError(toDeclarativeApplyError),
+        );
+        continue;
       }
+
+      yield* client.query("ROLLBACK TO SAVEPOINT validate_fn").pipe(
+        Effect.mapError(toDeclarativeApplyError),
+      );
+      const pgErr = unwrapPgError(validationResult.failure);
+      errors.push({
+        statement: stmt,
+        code: pgErr.code ?? "",
+        message: pgErr.message ?? "Unknown validation error",
+        isDependencyError: false,
+        position: parsePgPosition(pgErr.position),
+        detail: pgErr.detail,
+        hint: pgErr.hint,
+      });
     }
-  } finally {
-    // Always roll back: undoes all CREATE OR REPLACE changes and reverts the
-    // SET LOCAL search_path / check_function_bodies so nothing leaks.
-    await client.query("ROLLBACK");
+
+    return errors;
+  });
+
+  return client.query("BEGIN").pipe(
+    Effect.mapError(toDeclarativeApplyError),
+    Effect.flatMap(() => program),
+    Effect.ensuring(
+      client.query("ROLLBACK").pipe(
+        Effect.mapError(toDeclarativeApplyError),
+        Effect.catch(() => Effect.void),
+      ),
+    ),
+  );
+}
+
+const resolveDatabase = (options: RoundApplyOptions): DatabaseApi => {
+  if ("db" in options && options.db !== undefined) {
+    return options.db;
   }
 
-  return errors;
+  return wrapPool(options.pool);
+};
+
+const stripDatabaseOptions = (
+  options: RoundApplyOptions,
+): RoundApplyBaseOptions => {
+  const {
+    statements,
+    maxRounds,
+    disableCheckFunctionBodies,
+    finalValidation,
+    onRoundComplete,
+  } = options;
+
+  return {
+    statements,
+    maxRounds,
+    disableCheckFunctionBodies,
+    finalValidation,
+    onRoundComplete,
+  };
+};
+
+const toDeclarativeApplyError = (error: unknown): DeclarativeApplyError =>
+  error instanceof DeclarativeApplyError
+    ? error
+    : new DeclarativeApplyError({
+        message:
+          error instanceof Error
+            ? error.message
+            : `roundApply failed: ${String(error)}`,
+        cause: error,
+      });
+
+function unwrapPgError(error: unknown): PgError {
+  let candidate = error;
+  const seen = new Set<unknown>();
+
+  while (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    !seen.has(candidate)
+  ) {
+    seen.add(candidate);
+    const pgCandidate = candidate as PgError & { cause?: unknown };
+    if (
+      pgCandidate.code !== undefined ||
+      pgCandidate.position !== undefined ||
+      pgCandidate.detail !== undefined ||
+      pgCandidate.hint !== undefined
+    ) {
+      return pgCandidate;
+    }
+    if (pgCandidate.cause === undefined) {
+      return pgCandidate;
+    }
+    candidate = pgCandidate.cause;
+  }
+
+  if (typeof candidate === "object" && candidate !== null) {
+    return candidate as PgError;
+  }
+
+  return {
+    name: "PgError",
+    message: String(candidate),
+  };
 }

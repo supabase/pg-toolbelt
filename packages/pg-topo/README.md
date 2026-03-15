@@ -44,13 +44,14 @@ bun install
 The core API accepts a list of SQL content strings (each string can contain multiple statements):
 
 ```ts
+import { Effect } from "effect";
 import { analyzeAndSort } from "@supabase/pg-topo";
 
 const result = await analyzeAndSort([
   "create schema app;",
   "create table app.users(id int primary key, email text not null);",
   "create view app.user_emails as select email from app.users;",
-]);
+]).pipe(Effect.runPromise);
 
 if (result.diagnostics.length > 0) {
   for (const diagnostic of result.diagnostics) {
@@ -67,20 +68,30 @@ console.log(sortedSql);
 If you want to point at directories or `.sql` files on disk, use the filesystem adapter:
 
 ```ts
+import { Effect } from "effect";
 import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
 
-const result = await analyzeAndSortFromFiles(["./schema"]);
+const result = await analyzeAndSortFromFiles(["./schema"]).pipe(
+  Effect.runPromise,
+);
 ```
 
-`analyzeAndSortFromFiles` discovers `.sql` files, reads them, and delegates to the core `analyzeAndSort`. This is the only part of the package that uses Node `fs`.
+`analyzeAndSortFromFiles` discovers `.sql` files, reads them, and delegates to the core `analyzeAndSort`.
+
+If you want Promise-returning wrappers instead, use the explicit runtime entrypoints:
+
+```ts
+import { analyzeAndSort } from "@supabase/pg-topo/node";
+import { analyzeAndSortFromFiles } from "@supabase/pg-topo/bun";
+```
 
 ## Public API
 
-### `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>`
+### `analyzeAndSort(sql: string[]): Effect<AnalyzeResult, ParseError>`
 
 Pure library function. Accepts an array of SQL content strings. No filesystem access.
 
-### `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>`
+### `analyzeAndSortFromFiles(roots: string[]): Effect<AnalyzeResult, ParseError | DiscoveryError>`
 
 Filesystem adapter. Accepts file paths and/or directory paths. Discovers `.sql` files, reads them, and calls `analyzeAndSort` internally.
 

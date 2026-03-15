@@ -1,18 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { analyzeAndSortEffect } from "../src/analyze-and-sort.ts";
+import { analyzeAndSort } from "../src/analyze-and-sort.ts";
 import { ParseError, ValidationError } from "../src/errors.ts";
 import type { Diagnostic } from "../src/model/types.ts";
 import { ParserService } from "../src/services/parser.ts";
 import { ParserServiceLive } from "../src/services/parser-live.ts";
-import {
-  validateSqlSyntax,
-  validateSqlSyntaxEffect,
-} from "../src/validate-sql.ts";
+import { validateSqlSyntax } from "../src/validate-sql.ts";
 
 describe("ParserService", () => {
   test("ParserServiceLive loads and parses SQL", async () => {
-    const result = await analyzeAndSortEffect([
+    const result = await analyzeAndSort([
       "CREATE TABLE foo (id int);",
     ]).pipe(Effect.provide(ParserServiceLive), Effect.runPromise);
     expect(result.ordered.length).toBe(1);
@@ -20,7 +17,7 @@ describe("ParserService", () => {
   });
 
   test("ParserServiceLive handles multiple SQL inputs", async () => {
-    const result = await analyzeAndSortEffect([
+    const result = await analyzeAndSort([
       "CREATE TABLE foo (id int);",
       "CREATE VIEW foo_view AS SELECT id FROM foo;",
     ]).pipe(Effect.provide(ParserServiceLive), Effect.runPromise);
@@ -46,7 +43,7 @@ describe("ParserService", () => {
         }),
     });
 
-    const result = await analyzeAndSortEffect(["mock sql"]).pipe(
+    const result = await analyzeAndSort(["mock sql"]).pipe(
       Effect.provide(MockParser),
       Effect.runPromise,
     );
@@ -59,7 +56,7 @@ describe("ParserService", () => {
         Effect.fail(new ParseError({ message: "parser crashed" })),
     });
 
-    const result = await analyzeAndSortEffect(["bad sql"]).pipe(
+    const result = await analyzeAndSort(["bad sql"]).pipe(
       Effect.provide(FailingParser),
       Effect.result,
       Effect.runPromise,
@@ -73,7 +70,7 @@ describe("ParserService", () => {
   });
 
   test("empty input returns discovery error diagnostic", async () => {
-    const result = await analyzeAndSortEffect([]).pipe(
+    const result = await analyzeAndSort([]).pipe(
       Effect.provide(ParserServiceLive),
       Effect.runPromise,
     );
@@ -83,14 +80,8 @@ describe("ParserService", () => {
     );
   });
 
-  test("validateSqlSyntax rejects invalid SQL", async () => {
-    await expect(validateSqlSyntax("CREATE TABLE")).rejects.toBeInstanceOf(
-      ValidationError,
-    );
-  });
-
-  test("validateSqlSyntaxEffect fails with ValidationError for invalid SQL", async () => {
-    const result = await validateSqlSyntaxEffect("CREATE TABLE").pipe(
+  test("validateSqlSyntax fails with ValidationError for invalid SQL", async () => {
+    const result = await validateSqlSyntax("CREATE TABLE").pipe(
       Effect.provide(ParserServiceLive),
       Effect.result,
       Effect.runPromise,
@@ -99,6 +90,7 @@ describe("ParserService", () => {
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure._tag).toBe("ValidationError");
+      expect(result.failure).toBeInstanceOf(ValidationError);
     }
   });
 });

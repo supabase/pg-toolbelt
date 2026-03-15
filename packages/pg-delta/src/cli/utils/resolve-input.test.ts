@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import { Effect } from "effect";
 import { isPostgresUrl, loadCatalogFromFile } from "./resolve-input.ts";
 
 describe("isPostgresUrl", () => {
@@ -28,7 +30,10 @@ describe("loadCatalogFromFile", () => {
       import.meta.dir,
       "../../core/fixtures/empty-catalogs/postgres-15-16-baseline.json",
     );
-    const catalog = await loadCatalogFromFile(fixturePath);
+    const catalog = await loadCatalogFromFile(fixturePath).pipe(
+      Effect.provide(NodeFileSystem.layer),
+      Effect.runPromise,
+    );
     expect(catalog).toBeDefined();
     expect(catalog.version).toBeGreaterThan(0);
     expect(typeof catalog.currentUser).toBe("string");

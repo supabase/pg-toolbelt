@@ -1,6 +1,7 @@
 import { analyzeAndSort } from "../../src/analyze-and-sort";
 import type { AnalyzeResult } from "../../src/model/types";
 import { collectStatementsFromRoots } from "./randomized-input";
+import { runPgTopoEffect } from "./run-effect";
 
 const seededRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;
@@ -34,5 +35,5 @@ export const analyzeAndSortFromRandomizedStatements = async (
   const statements = await collectStatementsFromRoots(roots);
   const shuffled = shuffleDeterministic(statements, seed);
 
-  return await analyzeAndSort(shuffled);
+  return await runPgTopoEffect(analyzeAndSort(shuffled));
 };

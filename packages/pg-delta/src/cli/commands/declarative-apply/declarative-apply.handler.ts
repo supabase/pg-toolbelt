@@ -109,9 +109,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
         statementId.filePath &&
         !fileContentCache.has(statementId.filePath)
       ) {
-        yield* Effect.tryPromise(() =>
-          resolveSqlFilePath(flags.path, statementId.filePath),
-        ).pipe(
+        yield* resolveSqlFilePath(flags.path, statementId.filePath).pipe(
           Effect.flatMap((fullPath) =>
             fs
               .readFileString(fullPath)
@@ -184,14 +182,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
           `${apply.validationErrors.length} function body validation error(s):`,
         ];
         for (const error of apply.validationErrors) {
-          const formatted = yield* Effect.tryPromise({
-            try: () => formatStatementError(error, flags.path),
-            catch: () =>
-              new CliExitError({
-                exitCode: 1,
-                message: `Error formatting statement: ${error.message}`,
-              }),
-          });
+          const formatted = yield* formatStatementError(error, flags.path);
           errorLines.push(colorStatementError(formatted, "warning", useColors));
           errorLines.push("");
         }
@@ -200,6 +191,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
           new CliExitError({
             exitCode: 1,
             message: `${apply.validationErrors.length} function body validation error(s)`,
+            alreadyReported: true,
           }),
         );
       }
@@ -211,14 +203,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
       ];
       if (apply.stuckStatements) {
         for (const stuck of apply.stuckStatements) {
-          const formatted = yield* Effect.tryPromise({
-            try: () => formatStatementError(stuck, flags.path),
-            catch: () =>
-              new CliExitError({
-                exitCode: 1,
-                message: `Error formatting statement: ${stuck.message}`,
-              }),
-          });
+          const formatted = yield* formatStatementError(stuck, flags.path);
           errorLines.push(colorStatementError(formatted, "error", useColors));
           errorLines.push("");
         }
@@ -228,14 +213,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
           `\nAdditionally, ${apply.errors.length} statement(s) had non-dependency errors:`,
         );
         for (const error of apply.errors) {
-          const formatted = yield* Effect.tryPromise({
-            try: () => formatStatementError(error, flags.path),
-            catch: () =>
-              new CliExitError({
-                exitCode: 1,
-                message: `Error formatting statement: ${error.message}`,
-              }),
-          });
+          const formatted = yield* formatStatementError(error, flags.path);
           errorLines.push(colorStatementError(formatted, "error", useColors));
           errorLines.push("");
         }
@@ -245,6 +223,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
         new CliExitError({
           exitCode: 2,
           message: `Stuck after ${apply.totalRounds} round(s) with ${apply.stuckStatements?.length ?? 0} unresolvable statement(s)`,
+          alreadyReported: true,
         }),
       );
     }
@@ -254,14 +233,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
       ];
       if (apply.errors) {
         for (const error of apply.errors) {
-          const formatted = yield* Effect.tryPromise({
-            try: () => formatStatementError(error, flags.path),
-            catch: () =>
-              new CliExitError({
-                exitCode: 1,
-                message: `Error formatting statement: ${error.message}`,
-              }),
-          });
+          const formatted = yield* formatStatementError(error, flags.path);
           errorLines.push(colorStatementError(formatted, "error", useColors));
           errorLines.push("");
         }
@@ -271,14 +243,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
           `\n${apply.validationErrors.length} function body validation error(s):`,
         );
         for (const error of apply.validationErrors) {
-          const formatted = yield* Effect.tryPromise({
-            try: () => formatStatementError(error, flags.path),
-            catch: () =>
-              new CliExitError({
-                exitCode: 1,
-                message: `Error formatting statement: ${error.message}`,
-              }),
-          });
+          const formatted = yield* formatStatementError(error, flags.path);
           errorLines.push(colorStatementError(formatted, "warning", useColors));
           errorLines.push("");
         }
@@ -288,6 +253,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
         new CliExitError({
           exitCode: 1,
           message: `Declarative apply completed with ${apply.errors?.length ?? 0} error(s)`,
+          alreadyReported: true,
         }),
       );
     }

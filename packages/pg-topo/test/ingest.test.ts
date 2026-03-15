@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import path from "node:path";
 import { discoverSqlFiles } from "../src/ingest/discover.ts";
 import { parseSqlContent } from "../src/ingest/parse.ts";
+import { runPgTopoEffect } from "./support/run-effect";
 import { createTempFixtureHarness } from "./support/temp-fixture";
 
 describe("discoverSqlFiles", () => {
@@ -12,13 +13,13 @@ describe("discoverSqlFiles", () => {
   });
 
   test("empty roots returns empty files and missingRoots", async () => {
-    const result = await discoverSqlFiles([]);
+    const result = await runPgTopoEffect(discoverSqlFiles([]));
     expect(result.files).toEqual([]);
     expect(result.missingRoots).toEqual([]);
   });
 
   test("missing root is reported in missingRoots", async () => {
-    const result = await discoverSqlFiles(["/nonexistent/path/12345"]);
+    const result = await runPgTopoEffect(discoverSqlFiles(["/nonexistent/path/12345"]));
     expect(result.files).toEqual([]);
     expect(result.missingRoots).toHaveLength(1);
     expect(result.missingRoots[0]).toContain("nonexistent");
@@ -29,7 +30,7 @@ describe("discoverSqlFiles", () => {
       "only.sql": "create schema app;",
     });
     const filePath = path.join(dir, "only.sql");
-    const result = await discoverSqlFiles([filePath]);
+    const result = await runPgTopoEffect(discoverSqlFiles([filePath]));
     expect(result.missingRoots).toEqual([]);
     expect(result.files).toHaveLength(1);
     expect(result.files[0]).toBe(path.resolve(filePath));
@@ -40,7 +41,7 @@ describe("discoverSqlFiles", () => {
       "nested/schema.sql": "create schema nested;",
       "top.sql": "create schema top;",
     });
-    const result = await discoverSqlFiles([dir]);
+    const result = await runPgTopoEffect(discoverSqlFiles([dir]));
     expect(result.missingRoots).toEqual([]);
     expect(result.files.length).toBeGreaterThanOrEqual(2);
     expect(result.files.some((f) => f.endsWith("top.sql"))).toBe(true);
@@ -51,7 +52,9 @@ describe("discoverSqlFiles", () => {
     const dir = await harness.createSqlFixture({
       "a.sql": "create schema a;",
     });
-    const result = await discoverSqlFiles(["/nonexistent/missing/root", dir]);
+    const result = await runPgTopoEffect(
+      discoverSqlFiles(["/nonexistent/missing/root", dir]),
+    );
     expect(result.missingRoots).toHaveLength(1);
     expect(result.missingRoots[0]).toContain("nonexistent");
     expect(result.files.length).toBeGreaterThanOrEqual(1);
@@ -61,12 +64,12 @@ describe("discoverSqlFiles", () => {
 
 describe("parseSqlContent", () => {
   test("empty content returns empty statements", async () => {
-    const result = await parseSqlContent("", "empty.sql");
+    const result = await runPgTopoEffect(parseSqlContent("", "empty.sql"));
     expect(result.statements).toHaveLength(0);
   });
 
   test("whitespace-only content returns empty statements", async () => {
-    const result = await parseSqlContent("   \n\t  ", "ws.sql");
+    const result = await runPgTopoEffect(parseSqlContent("   \n\t  ", "ws.sql"));
     expect(result.statements).toHaveLength(0);
     expect(result.diagnostics).toHaveLength(0);
   });

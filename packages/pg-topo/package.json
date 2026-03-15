@@ -9,6 +9,27 @@
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./effect": {
+      "bun": "./src/effect.ts",
+      "import": "./dist/effect.js",
+      "require": "./dist/effect.js",
+      "types": "./dist/effect.d.ts",
+      "default": "./dist/effect.js"
+    },
+    "./node": {
+      "bun": "./src/node.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.js",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./bun": {
+      "bun": "./src/bun.ts",
+      "import": "./dist/bun.js",
+      "require": "./dist/bun.js",
+      "types": "./dist/bun.d.ts",
+      "default": "./dist/bun.js"
     }
   },
   "main": "./dist/index.js",
@@ -27,7 +48,7 @@
   },
   "bugs": "https://github.com/supabase/pg-toolbelt/issues",
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external plpgsql-parser --external @libpg-query/parser --external @pgsql/traverse && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
+    "build": "bun build src/index.ts src/effect.ts src/node.ts src/bun.ts --outdir dist --target node --format esm --external plpgsql-parser --external @libpg-query/parser --external @pgsql/traverse && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
     "test": "bun scripts/run-tests.ts test/",
     "check-types": "tsc --noEmit",
     "format-and-lint": "biome check . --error-on-warnings",

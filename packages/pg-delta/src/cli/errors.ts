@@ -10,6 +10,9 @@ import { Data } from "effect";
 export class CliExitError extends Data.TaggedError("CliExitError")<{
   readonly exitCode: number;
   readonly message: string;
+  readonly detail?: string;
+  readonly suggestion?: string;
+  readonly alreadyReported?: boolean;
 }> {}
 
 /**

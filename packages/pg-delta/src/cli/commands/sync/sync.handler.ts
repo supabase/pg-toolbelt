@@ -110,7 +110,9 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
       return yield* Effect.fail(
         new CliExitError({
           exitCode: 1,
-          message: "Target database does not match plan source fingerprint.",
+          message:
+            "Target database does not match plan source fingerprint. Aborting.",
+          alreadyReported: true,
         }),
       );
     case "InvalidPlanError":

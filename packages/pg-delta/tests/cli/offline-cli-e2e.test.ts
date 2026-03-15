@@ -71,12 +71,11 @@ describe("pgdelta CLI entrypoint", () => {
   pgdelta <subcommand> [flags]
 
 GLOBAL FLAGS
-  --help, -h              Show help information
-  --version               Show version information
-  --completions <bash|zsh|fish|sh>
-                          Print shell completion script
-  --log-level <all|trace|debug|info|warn|warning|error|fatal|none>
-                          Sets the minimum log level
+  --help, -h                Show help information
+  --version                 Show version information
+  --completions choice      Print shell completion script
+  --log-level choice        Sets the minimum log level
+  --output-format choice    Output format: text (default), json, or stream-json (NDJSON)
 
 SUBCOMMANDS
   plan              
@@ -363,7 +362,7 @@ ERROR
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toMatchInlineSnapshot(`""`);
-    expect(result.stderr).toContain("Error loading target catalog:");
+    expect(result.stderr).toContain("Error loading catalog file");
     expect(result.stderr).toContain("missing.snapshot.json");
   });
 

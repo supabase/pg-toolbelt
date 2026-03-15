@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { analyzeAndSort } from "../src/analyze-and-sort";
+import { runPgTopoEffect } from "./support/run-effect";
 
 describe("analyzeAndSort", () => {
   test("orders table before dependent view deterministically", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create view public.user_emails as select email from public.users;",
       "create table public.users(id int primary key, email text not null);",
-    ]);
+      ]),
+    );
     const orderedClasses = result.ordered.map(
       (statement) => statement.statementClass,
     );
@@ -20,10 +23,12 @@ describe("analyzeAndSort", () => {
   });
 
   test("statically orders SQL functions by body dependencies", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create function public.fn_a() returns int language sql as $$ select public.fn_b() $$;",
       "create function public.fn_b() returns int language sql as $$ select 1 $$;",
-    ]);
+      ]),
+    );
     const orderedSql = result.ordered.map((statement) =>
       statement.sql.toLowerCase(),
     );
@@ -33,10 +38,12 @@ describe("analyzeAndSort", () => {
   });
 
   test("statically orders PLpgSQL functions by qualified body dependencies", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create function public.fn_a() returns int language plpgsql as $$ begin return public.fn_b(); end; $$;",
       "create function public.fn_b() returns int language sql as $$ select 1 $$;",
-    ]);
+      ]),
+    );
     const orderedSql = result.ordered.map((statement) =>
       statement.sql.toLowerCase(),
     );
@@ -56,8 +63,8 @@ describe("analyzeAndSort", () => {
       "create view app.account_ids as select id from app.accounts;",
     ];
 
-    const first = await analyzeAndSort(sql);
-    const second = await analyzeAndSort(sql);
+    const first = await runPgTopoEffect(analyzeAndSort(sql));
+    const second = await runPgTopoEffect(analyzeAndSort(sql));
 
     const firstIds = first.ordered.map(
       (statement) => `${statement.id.filePath}:${statement.id.statementIndex}`,
@@ -69,12 +76,14 @@ describe("analyzeAndSort", () => {
   });
 
   test("orders domain with CHECK function call after the referenced function", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create domain app.semver as app.semver_struct check (app.is_valid(VALUE));",
       "create type app.semver_struct as (major smallint, minor smallint, patch smallint);",
       "create function app.is_valid(app.semver_struct) returns boolean language sql immutable as $$ select ($1).major is not null $$;",
       "create schema app;",
-    ]);
+      ]),
+    );
     const orderedClasses = result.ordered.map(
       (statement) => statement.statementClass,
     );
@@ -93,10 +102,12 @@ describe("analyzeAndSort", () => {
   });
 
   test("statement ids include sourceOffset when parser provides location", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create table public.t1(id int);",
       "create table public.t2(id int);",
-    ]);
+      ]),
+    );
     expect(result.ordered.length).toBeGreaterThanOrEqual(1);
     const first = result.ordered[0];
     expect(first?.id).toBeDefined();

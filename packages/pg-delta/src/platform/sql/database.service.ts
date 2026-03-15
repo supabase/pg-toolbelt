@@ -49,6 +49,9 @@ export const fromPgClient = (
   options?: {
     readonly queryError?: (error: unknown) => CatalogExtractionError;
     readonly connectionError?: (error: unknown) => ConnectionError;
+    readonly prepareConnection?: (
+      connection: DatabaseConnectionApi,
+    ) => Effect.Effect<void, CatalogExtractionError>;
   },
 ): DatabaseApi => {
   const queryError =
@@ -61,6 +64,7 @@ export const fromPgClient = (
     ((error: unknown) => {
       throw error;
     });
+  const prepareConnection = options?.prepareConnection ?? (() => Effect.void);
 
   return {
     query: <R = Record<string, unknown>>(
@@ -73,6 +77,7 @@ export const fromPgClient = (
             Effect.mapError(queryError),
           );
           const dbConnection = makeDatabaseConnection(connection, queryError);
+          yield* prepareConnection(dbConnection);
           return yield* dbConnection.query<R>(query, values);
         }),
       ),
@@ -84,7 +89,9 @@ export const fromPgClient = (
           const connection = yield* client.reserve.pipe(
             Effect.mapError(connectionError),
           );
-          return yield* use(makeDatabaseConnection(connection, queryError));
+          const dbConnection = makeDatabaseConnection(connection, queryError);
+          yield* prepareConnection(dbConnection);
+          return yield* use(dbConnection);
         }),
       ),
   };

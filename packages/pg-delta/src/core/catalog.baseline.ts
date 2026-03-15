@@ -6,18 +6,17 @@ import { Schema } from "./objects/schema/schema.model.ts";
 let _pg1516Baseline: Catalog | null = null;
 let _pg17Baseline: Catalog | null = null;
 
-const loadBaselineJson = Effect.promise(async () => {
-  const mod = await import(
-    "./fixtures/empty-catalogs/postgres-15-16-baseline.json"
-  );
-  return mod.default as Record<string, unknown>;
-});
+const loadBaselineJson = Effect.promise(() =>
+  import("./fixtures/empty-catalogs/postgres-15-16-baseline.json").then(
+    (mod) => mod.default as Record<string, unknown>,
+  ),
+);
 
 const getPg1516Baseline: Effect.Effect<Catalog> = Effect.suspend(() => {
   if (_pg1516Baseline) return Effect.succeed(_pg1516Baseline);
   return Effect.gen(function* () {
-    const { deserializeCatalog } = yield* Effect.promise(
-      () => import("./catalog.snapshot.ts"),
+    const { deserializeCatalog } = yield* Effect.promise(() =>
+      import("./catalog.snapshot.ts"),
     );
     const json = yield* loadBaselineJson;
     _pg1516Baseline = deserializeCatalog(json);
@@ -28,8 +27,8 @@ const getPg1516Baseline: Effect.Effect<Catalog> = Effect.suspend(() => {
 const getPg17Baseline: Effect.Effect<Catalog> = Effect.suspend(() => {
   if (_pg17Baseline) return Effect.succeed(_pg17Baseline);
   return Effect.gen(function* () {
-    const { deserializeCatalog } = yield* Effect.promise(
-      () => import("./catalog.snapshot.ts"),
+    const { deserializeCatalog } = yield* Effect.promise(() =>
+      import("./catalog.snapshot.ts"),
     );
     // PG 17 is identical to PG 15-16 except for a single addition:
     // the MAINTAIN privilege on default relation (objtype "r") privileges.

@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import { deparseSql, parseSql } from "plpgsql-parser";
 import { parseAnnotations } from "../annotations/parse-annotations.ts";
 import type {
@@ -7,7 +7,6 @@ import type {
   StatementId,
 } from "../model/types.ts";
 import { ParserService } from "../services/parser.ts";
-import { ParserServiceLive } from "../services/parser-live.ts";
 
 type RawParserStatement = {
   stmt?: unknown;
@@ -56,7 +55,6 @@ const extractStatementSql = async (
           return candidate;
         }
       } catch {
-        // Fallback to deparse below when stmt_location slice is not executable.
       }
     }
   }
@@ -71,7 +69,7 @@ const extractStatementSql = async (
 
 /**
  * Core implementation — assumes the parser WASM module is already loaded.
- * Used by `ParserServiceLive` which handles module loading via `Effect.once`.
+ * Used by ParserServiceLive, which owns the only Promise/WASM boundary.
  */
 export const parseSqlContentImpl = async (
   content: string,
@@ -114,9 +112,6 @@ export const parseSqlContentImpl = async (
     const sql = await extractStatementSql(content, statement);
     const annotationResult = parseAnnotations(sql);
 
-    // Advance past leading whitespace so sourceOffset points to the first character
-    // of the statement (e.g. "CREATE"); statement IDs and diagnostics then refer to
-    // the real start of the statement for display and editor jump-to.
     let sourceOffset = statement.stmt_location ?? 0;
     while (
       sourceOffset < content.length &&
@@ -124,6 +119,7 @@ export const parseSqlContentImpl = async (
     ) {
       sourceOffset += 1;
     }
+
     statements.push({
       id: {
         filePath: sourceLabel,
@@ -150,25 +146,10 @@ export const parseSqlContentImpl = async (
   return { statements, diagnostics };
 };
 
-/**
- * Module-level managed runtime — lazily builds ParserServiceLive on first use
- * and reuses it for all subsequent calls. WASM loading happens exactly once
- * through Effect.once inside ParserServiceLive.
- */
-const parserRuntime = ManagedRuntime.make(ParserServiceLive);
-
-/**
- * Backward-compatible wrapper that routes through ParserService.
- * New code should use `ParserService` from `../services/parser.ts` directly.
- */
-export const parseSqlContent = async (
+export const parseSqlContent = Effect.fnUntraced(function* (
   content: string,
   sourceLabel: string,
-): Promise<ParseContentResult> => {
-  return parserRuntime.runPromise(
-    Effect.gen(function* () {
-      const parser = yield* ParserService;
-      return yield* parser.parseSqlContent(content, sourceLabel);
-    }),
-  );
-};
+) {
+  const parser = yield* ParserService;
+  return yield* parser.parseSqlContent(content, sourceLabel);
+});

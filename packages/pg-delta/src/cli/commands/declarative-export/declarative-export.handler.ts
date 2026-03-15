@@ -2,6 +2,7 @@ import path from "node:path";
 import { Effect, FileSystem, Option } from "effect";
 import { exportDeclarativeSchema } from "../../../core/export/index.ts";
 import type { Grouping, GroupingPattern } from "../../../core/export/types.ts";
+import { compileSerializeDSL } from "../../../core/integrations/serialize/dsl.ts";
 import type { SqlFormatOptions } from "../../../core/plan/sql-format.ts";
 import { createPlan } from "../../../effect.ts";
 import { CliExitError } from "../../errors.ts";
@@ -19,7 +20,7 @@ import {
   resolveTargetInput,
 } from "../../utils/resolve-input.ts";
 import { resolveIntegration } from "../../utils/resolve-integration.ts";
-import { parseOptionalJson, tryCliPromise } from "../../utils.ts";
+import { parseOptionalJson } from "../../utils.ts";
 
 export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   readonly source: Option.Option<string>;
@@ -40,10 +41,6 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   const fs = yield* FileSystem.FileSystem;
   const output = yield* Output;
   const useColors = output.format === "text";
-  const { compileSerializeDSL } = yield* tryCliPromise(
-    "Error loading serialize DSL support",
-    () => import("../../../core/integrations/serialize/dsl.ts"),
-  );
 
   const groupPatternsParsed = Option.isSome(flags.groupPatterns)
     ? yield* parseOptionalJson<GroupingPattern[]>(
@@ -145,9 +142,7 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   const outputDir = path.resolve(flags.output);
   const applyTip = (dir: string) =>
     `\nTip: To apply this schema to an empty database, run:\n  pgdelta declarative apply --path ${dir} --target <database_url>`;
-  const diff = yield* tryCliPromise("Error comparing output directory", () =>
-    computeFileDiff(outputDir, exportOutput.files),
-  );
+  const diff = yield* computeFileDiff(outputDir, exportOutput.files);
 
   const treeOutput = buildFileTree(
     exportOutput.files.map((file) => file.path),

@@ -2,14 +2,10 @@
  * CLI helpers for declarative export: file tree, diff, and summary formatting.
  */
 
-import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
+import { Effect, FileSystem } from "effect";
 import type { FileEntry } from "../../core/export/types.ts";
-
-// ============================================================================
-// Path safety
-// ============================================================================
 
 /**
  * Ensure a relative file path does not escape the output directory.
@@ -28,10 +24,6 @@ export function assertSafePath(filePath: string, outputDir: string): void {
   }
 }
 
-// ============================================================================
-// Types
-// ============================================================================
-
 interface FileDiffResult {
   created: string[];
   updated: string[];
@@ -39,16 +31,9 @@ interface FileDiffResult {
   unchanged: string[];
 }
 
-// ============================================================================
-// File tree
-// ============================================================================
-
 interface BuildFileTreeOptions {
-  /** When provided, leaf paths are prefixed with + / ~ / - and colorized (created / updated / deleted). */
   diff?: FileDiffResult;
-  /** When true, only paths that are created, updated, or deleted are shown; unchanged are omitted. Includes diff.deleted in the tree. */
   diffFocus?: boolean;
-  /** When false, disables chalk coloring. Defaults to true. */
   useColors?: boolean;
 }
 
@@ -90,16 +75,6 @@ function formatLeafSegment(
   }
 }
 
-/**
- * Build a directory tree string from file paths.
- * Groups by directory, shows files as leaves with indentation.
- * When options.diff is provided, leaf names are prefixed with + (created), ~ (updated), - (deleted) and colorized.
- * When options.diffFocus is true, only changed paths (and their ancestors) are shown; unchanged files are omitted.
- *
- * @param files - Array of relative file paths (e.g. ["schemas/public/schema.sql", "schemas/public/tables/users.sql"])
- * @param outputDir - Display name for the root (e.g. "declarative-schemas")
- * @param options - Optional diff and diffFocus for symbols and filtering
- */
 export function buildFileTree(
   files: string[],
   outputDir: string,
@@ -165,98 +140,85 @@ export function buildFileTree(
   return lines.join("\n");
 }
 
-// ============================================================================
-// File diff
-// ============================================================================
-
-/**
- * Recursively collect relative paths of managed (.sql) files under a directory.
- * Non-SQL files (README, .gitkeep, etc.) are intentionally excluded so they
- * are never flagged as "deleted" during diff.
- */
-async function collectExistingFiles(dir: string, base = ""): Promise<string[]> {
-  const entries = await readdir(path.join(dir, base), { withFileTypes: true });
-  const files: string[] = [];
-  for (const e of entries) {
-    const rel = base ? `${base}/${e.name}` : e.name;
-    if (e.isFile() && e.name.endsWith(".sql")) {
-      files.push(rel);
-    } else if (e.isDirectory()) {
-      files.push(...(await collectExistingFiles(dir, rel)));
-    }
-  }
-  return files;
-}
-
-/**
- * Compare existing output directory with new file set.
- * Returns created, updated, deleted, and unchanged paths.
- */
-export async function computeFileDiff(
-  outputDir: string,
-  newFiles: FileEntry[],
-): Promise<FileDiffResult> {
-  const newPaths = new Set(newFiles.map((f) => f.path));
-  const newByPath = new Map(newFiles.map((f) => [f.path, f]));
-
-  let existingPaths: string[] = [];
-  try {
-    existingPaths = await collectExistingFiles(outputDir);
-  } catch {
-    // Directory doesn't exist or not readable
-    return {
-      created: [...newPaths],
-      updated: [],
-      deleted: [],
-      unchanged: [],
-    };
-  }
-
-  const existingSet = new Set(existingPaths);
-  const created: string[] = [];
-  const updated: string[] = [];
-  const deleted: string[] = [];
-  const unchanged: string[] = [];
-
-  for (const p of newPaths) {
-    if (!existingSet.has(p)) {
-      created.push(p);
-    } else {
-      const entry = newByPath.get(p);
-      if (!entry) continue;
-      try {
-        const existingContent = await readFile(
-          path.join(outputDir, p),
-          "utf-8",
-        );
-        if (existingContent.trim() !== entry.sql.trim()) {
-          updated.push(p);
-        } else {
-          unchanged.push(p);
-        }
-      } catch {
-        updated.push(p);
+const collectExistingFiles = (
+  dir: string,
+  base = "",
+): Effect.Effect<string[], never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const entries = yield* fs
+      .readDirectory(path.join(dir, base))
+      .pipe(Effect.orElseSucceed(() => []));
+    const files: string[] = [];
+    for (const entry of entries) {
+      const rel = base ? `${base}/${entry}` : entry;
+      const fullPath = path.join(dir, rel);
+      const info = yield* fs.stat(fullPath).pipe(Effect.orElseSucceed(() => undefined));
+      if (info?.type === "File" && entry.endsWith(".sql")) {
+        files.push(rel);
+      } else if (info?.type === "Directory") {
+        files.push(...(yield* collectExistingFiles(dir, rel)));
       }
     }
-  }
+    return files;
+  });
 
-  for (const p of existingPaths) {
-    if (!newPaths.has(p)) {
-      deleted.push(p);
+export const computeFileDiff = (
+  outputDir: string,
+  newFiles: FileEntry[],
+): Effect.Effect<FileDiffResult, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const newPaths = new Set(newFiles.map((file) => file.path));
+    const newByPath = new Map(newFiles.map((file) => [file.path, file]));
+
+    const existingPaths = yield* collectExistingFiles(outputDir);
+    if (existingPaths.length === 0) {
+      return {
+        created: [...newPaths],
+        updated: [],
+        deleted: [],
+        unchanged: [],
+      };
     }
-  }
 
-  return { created, updated, deleted, unchanged };
-}
+    const existingSet = new Set(existingPaths);
+    const created: string[] = [];
+    const updated: string[] = [];
+    const deleted: string[] = [];
+    const unchanged: string[] = [];
 
-// ============================================================================
-// Summary formatting
-// ============================================================================
+    for (const filePath of newPaths) {
+      if (!existingSet.has(filePath)) {
+        created.push(filePath);
+        continue;
+      }
 
-/**
- * Format the created/deleted/updated summary with colors.
- * In dry-run mode, uses "would create/delete/update" phrasing.
- */
+      const entry = newByPath.get(filePath);
+      if (!entry) continue;
+
+      const existingContent = yield* fs
+        .readFileString(path.join(outputDir, filePath), "utf-8")
+        .pipe(Effect.orElseSucceed(() => undefined));
+
+      if (existingContent === undefined) {
+        updated.push(filePath);
+      } else if (existingContent.trim() !== entry.sql.trim()) {
+        updated.push(filePath);
+      } else {
+        unchanged.push(filePath);
+      }
+    }
+
+    for (const filePath of existingPaths) {
+      if (!newPaths.has(filePath)) {
+        deleted.push(filePath);
+      }
+    }
+
+    return { created, updated, deleted, unchanged };
+  });
+
 export function formatExportSummary(
   diff: FileDiffResult,
   dryRun: boolean,
@@ -297,15 +259,8 @@ export function formatExportSummary(
   return lines.length > 0 ? lines.join("\n") : "";
 }
 
-// ============================================================================
-// Color-aware formatting (presentation boundary)
-// ============================================================================
+const identity = (value: string) => value;
 
-const identity = (s: string) => s;
-
-/**
- * Format the file legend line (+ created  ~ updated  - deleted).
- */
 export function formatFileLegend(useColors: boolean): string {
   if (!useColors) {
     return "+ created   ~ updated   - deleted";
@@ -313,9 +268,6 @@ export function formatFileLegend(useColors: boolean): string {
   return `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted`;
 }
 
-/**
- * Format the dry-run notice and tip.
- */
 export function formatDryRunNotice(
   applyTip: string,
   useColors: boolean,

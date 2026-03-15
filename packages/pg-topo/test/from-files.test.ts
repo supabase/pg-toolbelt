@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import path from "node:path";
 import { analyzeAndSortFromFiles } from "../src/from-files";
 import { discoverSqlFiles } from "../src/ingest/discover.ts";
+import { runPgTopoEffect } from "./support/run-effect";
 import { createTempFixtureHarness } from "./support/temp-fixture";
 
 describe("analyzeAndSortFromFiles", () => {
@@ -12,7 +13,7 @@ describe("analyzeAndSortFromFiles", () => {
   });
 
   test("returns DISCOVERY_ERROR when no roots provided", async () => {
-    const result = await analyzeAndSortFromFiles([]);
+    const result = await runPgTopoEffect(analyzeAndSortFromFiles([]));
     expect(result.ordered).toEqual([]);
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0]?.code).toBe("DISCOVERY_ERROR");
@@ -22,7 +23,9 @@ describe("analyzeAndSortFromFiles", () => {
   });
 
   test("reports DISCOVERY_ERROR for missing root", async () => {
-    const result = await analyzeAndSortFromFiles(["/nonexistent/path/12345"]);
+    const result = await runPgTopoEffect(
+      analyzeAndSortFromFiles(["/nonexistent/path/12345"]),
+    );
     const discoveryErrors = result.diagnostics.filter(
       (d) => d.code === "DISCOVERY_ERROR",
     );
@@ -37,7 +40,7 @@ describe("analyzeAndSortFromFiles", () => {
       "single.sql": "create schema app;",
     });
     const filePath = path.join(dir, "single.sql");
-    const result = await analyzeAndSortFromFiles([filePath]);
+    const result = await runPgTopoEffect(analyzeAndSortFromFiles([filePath]));
     expect(
       result.diagnostics.filter((d) => d.code === "DISCOVERY_ERROR"),
     ).toHaveLength(0);
@@ -52,7 +55,7 @@ describe("analyzeAndSortFromFiles", () => {
     });
     const rootA = path.join(dir, "a");
     const rootB = path.join(dir, "b");
-    const result = await analyzeAndSortFromFiles([rootA, rootB]);
+    const result = await runPgTopoEffect(analyzeAndSortFromFiles([rootA, rootB]));
     expect(
       result.diagnostics.filter((d) => d.code === "DISCOVERY_ERROR"),
     ).toHaveLength(0);
@@ -67,7 +70,7 @@ describe("analyzeAndSortFromFiles", () => {
       "v1.sql": "create view public.v1 as select * from public.v2;",
       "v2.sql": "create view public.v2 as select * from public.v1;",
     });
-    const result = await analyzeAndSortFromFiles([dir]);
+    const result = await runPgTopoEffect(analyzeAndSortFromFiles([dir]));
     expect(result.graph.cycleGroups.length).toBeGreaterThan(0);
     for (const group of result.graph.cycleGroups) {
       for (const statementId of group) {
@@ -87,7 +90,9 @@ describe("analyzeAndSortFromFiles", () => {
       "nested/schema.sql": "create schema app;",
     });
 
-    const discovery = await discoverSqlFiles(["nested"], fixtureRoot);
+    const discovery = await runPgTopoEffect(discoverSqlFiles(["nested"]), {
+      cwd: fixtureRoot,
+    });
 
     expect(discovery.missingRoots).toEqual([]);
     expect(discovery.files).toHaveLength(1);

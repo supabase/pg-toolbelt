@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Diagnostic, DiagnosticCode } from "@supabase/pg-topo";
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import { Effect } from "effect";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
 import {
   buildDiagnosticDisplayItems,
@@ -16,6 +18,13 @@ import {
   requiredObjectKeyFromDiagnostic,
   resolveSqlFilePath,
 } from "./apply-display.ts";
+
+const runFs = <A>(effect: Effect.Effect<A, never, any>) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ) as Effect.Effect<A, never, never>,
+  );
 
 describe("positionToLineColumn", () => {
   test("single line, position at start", () => {
@@ -189,7 +198,7 @@ describe("resolveSqlFilePath", () => {
   test("schemaPath is a directory", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "pgd-apply-test-"));
     try {
-      const result = await resolveSqlFilePath(dir, "schemas/table.sql");
+      const result = await runFs(resolveSqlFilePath(dir, "schemas/table.sql"));
       expect(result).toBe(path.join(dir, "schemas/table.sql"));
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -201,7 +210,9 @@ describe("resolveSqlFilePath", () => {
     try {
       const filePath = path.join(dir, "schema.sql");
       await writeFile(filePath, "");
-      const result = await resolveSqlFilePath(filePath, "schemas/table.sql");
+      const result = await runFs(
+        resolveSqlFilePath(filePath, "schemas/table.sql"),
+      );
       expect(result).toBe(path.join(dir, "schemas/table.sql"));
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -209,7 +220,9 @@ describe("resolveSqlFilePath", () => {
   });
 
   test("stat throws falls back to joining schemaPath as dir", async () => {
-    const result = await resolveSqlFilePath("/nonexistent/path", "table.sql");
+    const result = await runFs(
+      resolveSqlFilePath("/nonexistent/path", "table.sql"),
+    );
     expect(result).toBe(path.join("/nonexistent/path", "table.sql"));
   });
 });
@@ -232,9 +245,8 @@ describe("formatStatementError", () => {
   }
 
   test("minimal error with unparseable id", async () => {
-    const result = await formatStatementError(
-      makeErr({ id: "no-colon-here" }),
-      "/tmp",
+    const result = await runFs(
+      formatStatementError(makeErr({ id: "no-colon-here" }), "/tmp"),
     );
     expect(result).toContain("ERROR:  something failed");
     expect(result).toContain("SQL state: 42601");
@@ -245,9 +257,11 @@ describe("formatStatementError", () => {
   });
 
   test("includes detail and hint when present", async () => {
-    const result = await formatStatementError(
-      makeErr({ detail: "some detail", hint: "try this" }),
-      "/tmp",
+    const result = await runFs(
+      formatStatementError(
+        makeErr({ detail: "some detail", hint: "try this" }),
+        "/tmp",
+      ),
     );
     expect(result).toContain("Detail: some detail");
     expect(result).toContain("Hint: try this");
@@ -255,9 +269,11 @@ describe("formatStatementError", () => {
 
   test("includes Character and Context when position is set", async () => {
     const sql = "SELECT * FROM missing_table WHERE id = 1";
-    const result = await formatStatementError(
-      makeErr({ position: 15, sql, id: "raw-id" }),
-      "/tmp",
+    const result = await runFs(
+      formatStatementError(
+        makeErr({ position: 15, sql, id: "raw-id" }),
+        "/tmp",
+      ),
     );
     expect(result).toContain("Character: 15");
     expect(result).toContain("Context:");
@@ -270,9 +286,11 @@ describe("formatStatementError", () => {
       const fileContent = `-- header\n\n${sql}\n`;
       await writeFile(path.join(dir, "tables.sql"), fileContent);
 
-      const result = await formatStatementError(
-        makeErr({ id: "tables.sql:0", sql, position: 14 }),
-        dir,
+      const result = await runFs(
+        formatStatementError(
+          makeErr({ id: "tables.sql:0", sql, position: 14 }),
+          dir,
+        ),
       );
       expect(result).toMatch(/Location: tables\.sql:\d+:\d+/);
     } finally {
@@ -287,9 +305,8 @@ describe("formatStatementError", () => {
       const fileContent = `-- header\n${sql}\n`;
       await writeFile(path.join(dir, "tables.sql"), fileContent);
 
-      const result = await formatStatementError(
-        makeErr({ id: "tables.sql:0", sql }),
-        dir,
+      const result = await runFs(
+        formatStatementError(makeErr({ id: "tables.sql:0", sql }), dir),
       );
       expect(result).toMatch(/Location: tables\.sql:\d+$/m);
       expect(result).not.toMatch(/Location: tables\.sql:\d+:\d+/);
@@ -306,12 +323,14 @@ describe("formatStatementError", () => {
         "-- completely different content",
       );
 
-      const result = await formatStatementError(
-        makeErr({
-          id: "tables.sql:2",
-          sql: "DROP TABLE nonexistent;",
-        }),
-        dir,
+      const result = await runFs(
+        formatStatementError(
+          makeErr({
+            id: "tables.sql:2",
+            sql: "DROP TABLE nonexistent;",
+          }),
+          dir,
+        ),
       );
       expect(result).toContain("Location: tables.sql (statement 2)");
     } finally {
@@ -321,9 +340,11 @@ describe("formatStatementError", () => {
 
   test("parseable id with position but file read fails uses SQL-based line/col", async () => {
     const sql = "SELECT\n  1\n  + bad_col";
-    const result = await formatStatementError(
-      makeErr({ id: "missing/file.sql:0", sql, position: 14 }),
-      "/nonexistent",
+    const result = await runFs(
+      formatStatementError(
+        makeErr({ id: "missing/file.sql:0", sql, position: 14 }),
+        "/nonexistent",
+      ),
     );
     expect(result).toMatch(
       /Location: missing\/file\.sql \(statement 0, line \d+, column \d+\)/,
@@ -331,9 +352,8 @@ describe("formatStatementError", () => {
   });
 
   test("parseable id without position and file read fails shows statement index only", async () => {
-    const result = await formatStatementError(
-      makeErr({ id: "missing/file.sql:1" }),
-      "/nonexistent",
+    const result = await runFs(
+      formatStatementError(makeErr({ id: "missing/file.sql:1" }), "/nonexistent"),
     );
     expect(result).toContain("Location: missing/file.sql (statement 1)");
     expect(result).not.toContain("line");
@@ -341,9 +361,11 @@ describe("formatStatementError", () => {
   });
 
   test("all output lines are indented with two spaces", async () => {
-    const result = await formatStatementError(
-      makeErr({ detail: "d", hint: "h", position: 1, sql: "SELECT 1" }),
-      "/tmp",
+    const result = await runFs(
+      formatStatementError(
+        makeErr({ detail: "d", hint: "h", position: 1, sql: "SELECT 1" }),
+        "/tmp",
+      ),
     );
     for (const line of result.split("\n")) {
       expect(line).toMatch(/^ {2}/);

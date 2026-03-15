@@ -3,14 +3,14 @@
  * Used by plan, sync, and declarative-export handlers.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
-import type { CliExitError } from "../errors.ts";
-import { parseJsonEffect, tryCliPromise } from "../utils.ts";
+import { CliExitError } from "../errors.ts";
+import { parseJsonEffect } from "../utils.ts";
 import { loadIntegrationDSL } from "./integrations.ts";
 
 export interface ResolvedIntegration {
@@ -23,7 +23,7 @@ export const resolveIntegration = (opts: {
   readonly filter: Option.Option<string>;
   readonly serialize: Option.Option<string>;
   readonly integration: Option.Option<string>;
-}): Effect.Effect<ResolvedIntegration, CliExitError> =>
+}): Effect.Effect<ResolvedIntegration, CliExitError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const filterParsed: FilterDSL | undefined = Option.isSome(opts.filter)
       ? yield* parseJsonEffect<FilterDSL>("filter", opts.filter.value)
@@ -41,9 +41,14 @@ export const resolveIntegration = (opts: {
 
     if (Option.isSome(opts.integration)) {
       const integrationName = opts.integration.value;
-      const integrationDSL = yield* tryCliPromise(
-        "Error loading integration",
-        () => loadIntegrationDSL(integrationName),
+      const integrationDSL = yield* loadIntegrationDSL(integrationName).pipe(
+        Effect.mapError(
+          (error) =>
+            new CliExitError({
+              exitCode: 1,
+              message: `Error loading integration: ${error.message}`,
+            }),
+        ),
       );
       filter = filter ?? integrationDSL.filter;
       serialize = serialize ?? integrationDSL.serialize;

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { Pool, PoolClient, QueryResult } from "pg";
+import { Effect } from "effect";
+import { CatalogExtractionError } from "../errors.ts";
 import { configurePgDeltaLogging } from "../logging.ts";
+import type { DatabaseApi } from "../services/database.ts";
 import {
+  type RoundApplyOptions,
   type RoundResult,
   rewriteAsOrReplace,
   roundApply,
@@ -12,28 +15,42 @@ import {
 // Mock helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Create a mock PoolClient that executes queries against a provided handler.
- * The handler receives the SQL and can either resolve or throw a pg-style error.
- */
-function createMockClient(queryHandler: (sql: string) => void): PoolClient {
+function createMockDatabase(queryHandler: (sql: string) => void): DatabaseApi {
   return {
-    query: async (sql: string) => {
-      queryHandler(sql);
-      return { rows: [], rowCount: 0 } as unknown as QueryResult;
-    },
-    release: () => {},
-  } as unknown as PoolClient;
-}
-
-/**
- * Create a mock Pool that returns the provided mock client.
- */
-function createMockPool(client: PoolClient): Pool {
-  return {
-    connect: async () => client,
-    end: () => {},
-  } as unknown as Pool;
+    query: (sql) =>
+      Effect.try({
+        try: () => {
+          queryHandler(typeof sql === "string" ? sql : sql.text);
+          return { rows: [], rowCount: 0 };
+        },
+        catch: (error) =>
+          new CatalogExtractionError({
+            message:
+              error instanceof Error
+                ? error.message
+                : String(error),
+            cause: error,
+          }),
+      }),
+    withConnection: (use) =>
+      use({
+        query: (sql) =>
+          Effect.try({
+            try: () => {
+              queryHandler(typeof sql === "string" ? sql : sql.text);
+              return { rows: [], rowCount: 0 };
+            },
+            catch: (error) =>
+              new CatalogExtractionError({
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : String(error),
+                cause: error,
+              }),
+          }),
+      }),
+  };
 }
 
 /**
@@ -44,6 +61,10 @@ function pgError(code: string, message: string): Error & { code: string } {
   err.code = code;
   return err;
 }
+
+const runRoundApply = (
+  options: Omit<RoundApplyOptions, "pool" | "db"> & { db: DatabaseApi },
+) => roundApply(options).pipe(Effect.runPromise);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -56,12 +77,10 @@ describe("roundApply", () => {
       { id: "2", sql: "CREATE TABLE test.users (id int);" },
     ];
 
-    const client = createMockClient(() => {
+    const db = createMockDatabase(() => {
       // All queries succeed
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
 
     expect(result.status).toBe("success");
     expect(result.totalRounds).toBe(1);
@@ -80,7 +99,7 @@ describe("roundApply", () => {
     // Track which round we're on
     const appliedSet = new Set<string>();
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return; // Allow SET statements
 
       if (sql.includes("CREATE TABLE") && !appliedSet.has("schema")) {
@@ -90,9 +109,7 @@ describe("roundApply", () => {
       // Track successful applies
       if (sql.includes("CREATE SCHEMA")) appliedSet.add("schema");
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
 
     expect(result.status).toBe("success");
     expect(result.totalRounds).toBe(2);
@@ -111,14 +128,12 @@ describe("roundApply", () => {
       { id: "2", sql: "CREATE TABLE b (id int REFERENCES a(id));" },
     ];
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
       // Both always fail with dependency errors (circular)
       throw pgError("42P01", "relation does not exist");
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements, maxRounds: 5 });
+    const result = await runRoundApply({ db, statements, maxRounds: 5 });
 
     expect(result.status).toBe("stuck");
     expect(result.stuckStatements).toHaveLength(2);
@@ -135,15 +150,13 @@ describe("roundApply", () => {
       { id: "schema", sql: "CREATE SCHEMA test;" },
     ];
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
       if (sql.includes("CREATE EXTENSION")) {
         throw pgError("58P01", "extension pgaudit control file not found");
       }
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
 
     expect(result.status).toBe("success");
     expect(result.totalApplied).toBe(1);
@@ -156,15 +169,13 @@ describe("roundApply", () => {
       { id: "2", sql: "INVALID SQL;" },
     ];
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
       if (sql.includes("INVALID")) {
         throw pgError("42601", "syntax error");
       }
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
 
     expect(result.status).toBe("error");
     expect(result.totalApplied).toBe(1);
@@ -177,14 +188,12 @@ describe("roundApply", () => {
       { id: "1", sql: "CREATE SCHEMA test;" },
     ];
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
     });
-    const pool = createMockPool(client);
-
     const rounds: RoundResult[] = [];
-    const result = await roundApply({
-      pool,
+    const result = await runRoundApply({
+      db,
       statements,
       onRoundComplete: (round) => rounds.push(round),
     });
@@ -201,12 +210,10 @@ describe("roundApply", () => {
     ];
 
     const queryCalls: string[] = [];
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       queryCalls.push(sql);
     });
-    const pool = createMockPool(client);
-
-    await roundApply({ pool, statements });
+    await runRoundApply({ db, statements });
 
     expect(queryCalls[0]).toBe("SET check_function_bodies = off");
   });
@@ -221,13 +228,11 @@ describe("roundApply", () => {
     ];
 
     const queryCalls: string[] = [];
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       queryCalls.push(sql);
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({
-      pool,
+    const result = await runRoundApply({
+      db,
       statements,
       finalValidation: true,
     });
@@ -251,13 +256,11 @@ describe("roundApply", () => {
     ];
 
     const queryCalls: string[] = [];
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       queryCalls.push(sql);
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({
-      pool,
+    const result = await runRoundApply({
+      db,
       statements,
       finalValidation: true,
     });
@@ -283,7 +286,7 @@ describe("roundApply", () => {
 
     let _appliedCount = 0;
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
       if (sql.includes("stuck")) {
         // Always fails with dependency error
@@ -292,14 +295,12 @@ describe("roundApply", () => {
       // Each non-stuck statement succeeds once
       _appliedCount++;
     });
-    const pool = createMockPool(client);
-
     // With maxRounds=2, we apply a1,a2,a3 in rounds 1-2 but "stuck" never resolves
     // Actually with 4 statements: round 1 applies 3, defers 1. Round 2: stuck (0 applied, 1 deferred)
     // So stuck detection kicks in at round 2, not maxRounds
     // To test maxRounds limit, we need a scenario where we can't detect stuck early.
     // Instead, test that stuck detection happens correctly with a single deferred statement.
-    const result = await roundApply({ pool, statements, maxRounds: 2 });
+    const result = await runRoundApply({ db, statements, maxRounds: 2 });
 
     expect(result.status).toBe("stuck");
     // Round 1: 3 applied, 1 deferred. Round 2: 0 applied, 1 deferred -> stuck
@@ -319,7 +320,7 @@ describe("roundApply", () => {
 
     const appliedSet = new Set<string>();
 
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
 
       if (sql.includes("CREATE INDEX") && !appliedSet.has("table")) {
@@ -333,9 +334,7 @@ describe("roundApply", () => {
       if (sql.includes("CREATE TABLE")) appliedSet.add("table");
       if (sql.includes("CREATE INDEX")) appliedSet.add("idx");
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
 
     expect(result.status).toBe("success");
     expect(result.totalRounds).toBe(3);
@@ -347,12 +346,10 @@ describe("roundApply", () => {
       { id: "1", sql: "CREATE SCHEMA test;" },
     ];
     const queryCalls: string[] = [];
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       queryCalls.push(sql);
     });
-    const pool = createMockPool(client);
-
-    await roundApply({ pool, statements, finalValidation: false });
+    await runRoundApply({ db, statements, finalValidation: false });
 
     // Should see: SET off, CREATE SCHEMA, SET on (restore)
     expect(queryCalls).toContain("SET check_function_bodies = off");
@@ -368,15 +365,13 @@ describe("roundApply", () => {
       { id: "1", sql: "CREATE TABLE a (id int REFERENCES b(id));" },
     ];
     const queryCalls: string[] = [];
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       queryCalls.push(sql);
       if (!sql.startsWith("SET ")) {
         throw pgError("42P01", "relation does not exist");
       }
     });
-    const pool = createMockPool(client);
-
-    const result = await roundApply({ pool, statements, maxRounds: 2 });
+    const result = await runRoundApply({ db, statements, maxRounds: 2 });
     expect(result.status).toBe("stuck");
     expect(
       queryCalls.filter((s) => s === "SET check_function_bodies = on"),
@@ -390,14 +385,13 @@ describe("roundApply", () => {
     ];
 
     const appliedSet = new Set<string>();
-    const client = createMockClient((sql: string) => {
+    const db = createMockDatabase((sql: string) => {
       if (sql.startsWith("SET ")) return;
       if (sql.includes("CREATE TABLE") && !appliedSet.has("schema")) {
         throw pgError("3F000", 'schema "test" does not exist');
       }
       if (sql.includes("CREATE SCHEMA")) appliedSet.add("schema");
     });
-    const pool = createMockPool(client);
 
     const logs: Array<{
       level: string;
@@ -411,7 +405,7 @@ describe("roundApply", () => {
         logs.push(entry);
       },
     });
-    const result = await roundApply({ pool, statements });
+    const result = await runRoundApply({ db, statements });
     expect(result.status).toBe("success");
     expect(result.rounds[0].deferred).toBe(1);
 

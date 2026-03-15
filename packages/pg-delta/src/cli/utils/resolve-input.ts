@@ -3,34 +3,52 @@
  * can be either a PostgreSQL connection URL or a catalog snapshot file path.
  */
 
-import { readFile } from "node:fs/promises";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import type { Catalog } from "../../core/catalog.model.ts";
 import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
-import { deserializeCatalog } from "../../core/catalog.snapshot.ts";
-import type { CliExitError } from "../errors.ts";
-import { deserializeCatalogSnapshotEffect, tryCliPromise } from "../utils.ts";
+import { CliExitError } from "../errors.ts";
+import { deserializeCatalogSnapshotEffect } from "../utils.ts";
 
 export function isPostgresUrl(input: string): boolean {
   return input.startsWith("postgres://") || input.startsWith("postgresql://");
 }
 
-export async function loadCatalogFromFile(path: string): Promise<Catalog> {
-  const json = await readFile(path, "utf-8");
-  return deserializeCatalog(JSON.parse(json));
-}
+export const loadCatalogFromFile = (
+  path: string,
+): Effect.Effect<Catalog, CliExitError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const json = yield* fs.readFileString(path).pipe(
+      Effect.mapError(
+        (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Error loading catalog file '${path}': ${error.message}`,
+          }),
+      ),
+    );
+
+    const snapshot = yield* Effect.try({
+      try: () => JSON.parse(json) as CatalogSnapshot,
+      catch: (error) =>
+        new CliExitError({
+          exitCode: 1,
+          message: `Error parsing catalog file '${path}': ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    });
+
+    return yield* deserializeCatalogSnapshotEffect(snapshot);
+  });
 
 export const resolveSourceInput = (
   source: Option.Option<string>,
   integrationEmptyCatalog: CatalogSnapshot | undefined,
-): Effect.Effect<string | Catalog | null, CliExitError> =>
+): Effect.Effect<string | Catalog | null, CliExitError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     if (Option.isSome(source)) {
       return isPostgresUrl(source.value)
         ? source.value
-        : yield* tryCliPromise("Error loading source catalog", () =>
-            loadCatalogFromFile(source.value),
-          );
+        : yield* loadCatalogFromFile(source.value);
     }
     if (integrationEmptyCatalog) {
       return yield* deserializeCatalogSnapshotEffect(integrationEmptyCatalog);
@@ -40,9 +58,5 @@ export const resolveSourceInput = (
 
 export const resolveTargetInput = (
   target: string,
-): Effect.Effect<string | Catalog, CliExitError> =>
-  isPostgresUrl(target)
-    ? Effect.succeed(target)
-    : tryCliPromise("Error loading target catalog", () =>
-        loadCatalogFromFile(target),
-      );
+): Effect.Effect<string | Catalog, CliExitError, FileSystem.FileSystem> =>
+  isPostgresUrl(target) ? Effect.succeed(target) : loadCatalogFromFile(target);

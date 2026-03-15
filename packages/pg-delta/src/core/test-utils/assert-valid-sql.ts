@@ -1,4 +1,4 @@
-import { validateSqlSyntax } from "@supabase/pg-topo";
+import { validateSqlSyntax } from "../../../../pg-topo/src/node.ts";
 
 /**
  * Assert that the given SQL string is syntactically valid PostgreSQL.

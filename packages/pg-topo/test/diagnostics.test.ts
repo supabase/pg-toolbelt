@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { analyzeAndSort } from "../src/analyze-and-sort";
+import { runPgTopoEffect } from "./support/run-effect";
 
 describe("diagnostics", () => {
   test("reports duplicate producers with candidate details", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create schema app;",
       "create table app.users(id int primary key);",
       "create table app.users(id int primary key, email text not null);",
       "create view app.user_ids as select id from app.users;",
-    ]);
+      ]),
+    );
     const duplicateDiagnostics = result.diagnostics.filter(
       (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
     );
@@ -24,11 +27,13 @@ describe("diagnostics", () => {
   });
 
   test("includes candidate producers for unresolved dependencies", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create schema analytics;",
       "create table analytics.accounts(id int primary key);",
       "create view public.account_ids as select id from public.accounts;",
-    ]);
+      ]),
+    );
     const unresolved = result.diagnostics.find(
       (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
     );
@@ -41,10 +46,12 @@ describe("diagnostics", () => {
   });
 
   test("cycle diagnostics include statement participants", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create view public.v1 as select * from public.v2;",
       "create view public.v2 as select * from public.v1;",
-    ]);
+      ]),
+    );
     const cycleDiagnostic = result.diagnostics.find(
       (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
     );
@@ -61,7 +68,7 @@ describe("diagnostics", () => {
       "create table analytics.accounts(id int primary key);",
       "create view public.account_ids as select id from public.accounts;",
     ];
-    const withoutProviders = await analyzeAndSort(sql);
+    const withoutProviders = await runPgTopoEffect(analyzeAndSort(sql));
     const unresolvedWithout = withoutProviders.diagnostics.filter(
       (d) => d.code === "UNRESOLVED_DEPENDENCY",
     );
@@ -70,7 +77,9 @@ describe("diagnostics", () => {
     const externalProviders = [
       { kind: "table" as const, schema: "public", name: "accounts" },
     ];
-    const withProviders = await analyzeAndSort(sql, { externalProviders });
+    const withProviders = await runPgTopoEffect(
+      analyzeAndSort(sql, { externalProviders }),
+    );
     const unresolvedWith = withProviders.diagnostics.filter(
       (d) => d.code === "UNRESOLVED_DEPENDENCY",
     );
@@ -81,7 +90,7 @@ describe("diagnostics", () => {
     const sql = [
       "create table public.events(ts timestamptz default timezone('utc'::text, now()) not null);",
     ];
-    const withoutProviders = await analyzeAndSort(sql);
+    const withoutProviders = await runPgTopoEffect(analyzeAndSort(sql));
     const timezoneUnresolved = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -97,7 +106,9 @@ describe("diagnostics", () => {
         signature: "(text,timestamp with time zone)",
       },
     ];
-    const withProviders = await analyzeAndSort(sql, { externalProviders });
+    const withProviders = await runPgTopoEffect(
+      analyzeAndSort(sql, { externalProviders }),
+    );
     const timezoneUnresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -111,7 +122,7 @@ describe("diagnostics", () => {
       "create table public.accounts(id int);",
       "create view public.max_account as select max(id) from public.accounts;",
     ];
-    const withoutProviders = await analyzeAndSort(sql);
+    const withoutProviders = await runPgTopoEffect(analyzeAndSort(sql));
     const unresolvedWithout = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -119,16 +130,18 @@ describe("diagnostics", () => {
     );
     expect(unresolvedWithout.length).toBeGreaterThan(0);
 
-    const withProviders = await analyzeAndSort(sql, {
-      externalProviders: [
-        {
-          kind: "aggregate",
-          schema: "public",
-          name: "max",
-          signature: "(integer)",
-        },
-      ],
-    });
+    const withProviders = await runPgTopoEffect(
+      analyzeAndSort(sql, {
+        externalProviders: [
+          {
+            kind: "aggregate",
+            schema: "public",
+            name: "max",
+            signature: "(integer)",
+          },
+        ],
+      }),
+    );
     const unresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -141,7 +154,7 @@ describe("diagnostics", () => {
     const sql = [
       "create table public.events(meta jsonb default json_build_object('a', 1));",
     ];
-    const withoutProviders = await analyzeAndSort(sql);
+    const withoutProviders = await runPgTopoEffect(analyzeAndSort(sql));
     const unresolvedWithout = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -149,16 +162,18 @@ describe("diagnostics", () => {
     );
     expect(unresolvedWithout.length).toBeGreaterThan(0);
 
-    const withProviders = await analyzeAndSort(sql, {
-      externalProviders: [
-        {
-          kind: "function",
-          schema: "public",
-          name: "json_build_object",
-          signature: "(VARIADIC any)",
-        },
-      ],
-    });
+    const withProviders = await runPgTopoEffect(
+      analyzeAndSort(sql, {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "public",
+            name: "json_build_object",
+            signature: "(VARIADIC any)",
+          },
+        ],
+      }),
+    );
     const unresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -171,16 +186,18 @@ describe("diagnostics", () => {
     const sql = [
       "create table public.ids(id uuid default extensions.uuid_generate_v4());",
     ];
-    const withMismatchedProvider = await analyzeAndSort(sql, {
-      externalProviders: [
-        {
-          kind: "function",
-          schema: "public",
-          name: "uuid_generate_v4",
-          signature: "()",
-        },
-      ],
-    });
+    const withMismatchedProvider = await runPgTopoEffect(
+      analyzeAndSort(sql, {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "public",
+            name: "uuid_generate_v4",
+            signature: "()",
+          },
+        ],
+      }),
+    );
     const unresolved = withMismatchedProvider.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
@@ -192,12 +209,14 @@ describe("diagnostics", () => {
   });
 
   test("multiple producers for same constraint add requires_constraint_key edges", async () => {
-    const result = await analyzeAndSort([
+    const result = await runPgTopoEffect(
+      analyzeAndSort([
       "create schema app;",
       "create table app.t(id int primary key);",
       "create table app.t(id int primary key, x int);",
       "create table app.ref(id int references app.t(id));",
-    ]);
+      ]),
+    );
     const duplicateTable = result.diagnostics.filter(
       (d) => d.code === "DUPLICATE_PRODUCER",
     );
@@ -218,7 +237,7 @@ describe("diagnostics", () => {
       "comment on policy users_select_policy on auth.users is 'policy docs';",
     ];
 
-    const result = await analyzeAndSort(sql);
+    const result = await runPgTopoEffect(analyzeAndSort(sql));
     const unresolved = result.diagnostics.filter(
       (diagnostic) =>
         diagnostic.code === "UNRESOLVED_DEPENDENCY" &&

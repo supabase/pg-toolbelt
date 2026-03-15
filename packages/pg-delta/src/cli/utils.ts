@@ -45,23 +45,6 @@ export const parseOptionalJson = <T>(
     ? parseJsonEffect<T>(label, value.value)
     : Effect.succeed(undefined as T | undefined);
 
-/**
- * Wrap a Promise-returning CLI operation and normalize thrown errors into a
- * tagged CLI exit error with a user-facing message.
- */
-export const tryCliPromise = <T>(
-  label: string,
-  operation: () => Promise<T>,
-): Effect.Effect<T, CliExitError> =>
-  Effect.tryPromise({
-    try: operation,
-    catch: (error) =>
-      new CliExitError({
-        exitCode: 1,
-        message: `${label}: ${error instanceof Error ? error.message : String(error)}`,
-      }),
-  });
-
 export const deserializeCatalogSnapshotEffect = (
   snapshot: unknown,
 ): Effect.Effect<ReturnType<typeof deserializeCatalog>, CliExitError> =>

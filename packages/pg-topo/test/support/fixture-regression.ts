@@ -2,6 +2,7 @@ import { expect } from "bun:test";
 import { analyzeAndSort } from "../../src/analyze-and-sort";
 import { validateAnalyzeResultWithPostgres } from "./postgres-validation";
 import { collectStatementsFromRoots } from "./randomized-input";
+import { runPgTopoEffect } from "./run-effect";
 
 const seededRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;
@@ -41,7 +42,7 @@ export const expectRandomizedRuntimeOutcomeEnvelope = async (
 
   for (const seed of seeds) {
     const shuffled = shuffleDeterministic(sourceStatements, seed);
-    const result = await analyzeAndSort(shuffled);
+    const result = await runPgTopoEffect(analyzeAndSort(shuffled));
     const validation = await validateAnalyzeResultWithPostgres(result, {
       initialMigrationSql,
     });

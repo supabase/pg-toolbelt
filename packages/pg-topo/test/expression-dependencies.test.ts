@@ -5,12 +5,12 @@ import {
 } from "../src/extract/expression-dependencies";
 import { parseSqlContent } from "../src/ingest/parse";
 import type { ObjectRef } from "../src/model/types";
+import { runPgTopoEffect } from "./support/run-effect";
 
 describe("addExpressionDependencies", () => {
   test("extracts function dependency from select with schema-qualified call", async () => {
-    const { statements } = await parseSqlContent(
-      "select app.my_func(1);",
-      "test.sql",
+    const { statements } = await runPgTopoEffect(
+      parseSqlContent("select app.my_func(1);", "test.sql"),
     );
     const stmt = statements[0];
     expect(stmt).toBeDefined();
@@ -26,9 +26,8 @@ describe("addExpressionDependencies", () => {
   });
 
   test("processes cast expression without throwing", async () => {
-    const { statements } = await parseSqlContent(
-      "select 1::app.user_role;",
-      "test.sql",
+    const { statements } = await runPgTopoEffect(
+      parseSqlContent("select 1::app.user_role;", "test.sql"),
     );
     const stmt = statements[0];
     expect(stmt).toBeDefined();
@@ -41,9 +40,8 @@ describe("addExpressionDependencies", () => {
   });
 
   test("extracts table dependency from qualified table ref in expression", async () => {
-    const { statements } = await parseSqlContent(
-      "select * from app.users;",
-      "test.sql",
+    const { statements } = await runPgTopoEffect(
+      parseSqlContent("select * from app.users;", "test.sql"),
     );
     const stmt = statements[0];
     expect(stmt).toBeDefined();
@@ -61,9 +59,11 @@ describe("addExpressionDependencies", () => {
 
 describe("addRoutineBodyDependencies", () => {
   test("no-op for non-SQL/plpgsql language", async () => {
-    const { statements } = await parseSqlContent(
-      "create function public.f() returns int language c as 'symbol';",
-      "test.sql",
+    const { statements } = await runPgTopoEffect(
+      parseSqlContent(
+        "create function public.f() returns int language c as 'symbol';",
+        "test.sql",
+      ),
     );
     const stmt = statements[0];
     expect(stmt).toBeDefined();
@@ -76,9 +76,11 @@ describe("addRoutineBodyDependencies", () => {
   });
 
   test("extracts dependencies from SQL function body", async () => {
-    const { statements } = await parseSqlContent(
-      "create function public.f() returns int language sql as $$ select 1 from app.t $$;",
-      "test.sql",
+    const { statements } = await runPgTopoEffect(
+      parseSqlContent(
+        "create function public.f() returns int language sql as $$ select 1 from app.t $$;",
+        "test.sql",
+      ),
     );
     const stmt = statements[0];
     expect(stmt).toBeDefined();

@@ -111,6 +111,8 @@ export async function roundtripFidelityTest(
   } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
+  const mainDb = wrapPool(mainSession);
+  const branchDb = wrapPool(branchSession);
   // Set up initial schema in BOTH databases
   if (initialSetup) {
     await expect(
@@ -130,13 +132,9 @@ export async function roundtripFidelityTest(
 
   // Extract catalogs from both databases
   debugTest("mainCatalog: ");
-  const mainCatalog = await Effect.runPromise(
-    extractCatalog(wrapPool(mainSession)),
-  );
+  const mainCatalog = await Effect.runPromise(extractCatalog(mainDb));
   debugTest("branchCatalog: ");
-  const branchCatalog = await Effect.runPromise(
-    extractCatalog(wrapPool(branchSession)),
-  );
+  const branchCatalog = await Effect.runPromise(extractCatalog(branchDb));
 
   if (expectedMainDependencies && expectedBranchDependencies) {
     validateDependencies(
@@ -148,7 +146,7 @@ export async function roundtripFidelityTest(
   }
 
   // Generate plan using core workflow
-  const planResult = await createPlan(mainSession, branchSession, {
+  const planResult = await createPlan(mainDb, branchDb, {
     filter: integration?.filter,
     serialize: integration?.serialize,
   });
@@ -211,7 +209,7 @@ export async function roundtripFidelityTest(
   debugTest("migrationScript: %s", migrationScript);
 
   // Apply migration using core apply
-  const applyResult = await applyPlan(plan, mainSession, branchSession, {
+  const applyResult = await applyPlan(plan, mainDb, branchDb, {
     verifyPostApply: true,
   });
   if (applyResult.status !== "applied") {
@@ -226,9 +224,7 @@ export async function roundtripFidelityTest(
     });
   }
 
-  const debugMainCatalogAfter = await Effect.runPromise(
-    extractCatalog(wrapPool(mainSession)),
-  );
+  const debugMainCatalogAfter = await Effect.runPromise(extractCatalog(mainDb));
   const postApplyFingerprint = hashStableIds(debugMainCatalogAfter, stableIds);
 
   if (applyResult.warnings?.length) {
@@ -269,7 +265,7 @@ export async function roundtripFidelityTest(
   expect(applyResult.warnings ?? []).toEqual([]);
 
   await verifyNoRemainingChanges(
-    mainSession,
+    mainDb,
     branchCatalog,
     integrationFilter,
     migrationScript,
@@ -289,6 +285,8 @@ export async function testDeclarativeExport(
   } = options;
   // Silent warnings from PostgreSQL such as subscriptions created without a slot.
   const sessionConfig = ["SET LOCAL client_min_messages = error"];
+  const mainDb = wrapPool(mainSession);
+  const branchDb = wrapPool(branchSession);
 
   if (initialSetup) {
     await expect(
@@ -306,7 +304,7 @@ export async function testDeclarativeExport(
   }
 
   // Use createPlan to get the plan result, then export declarative schema
-  const planResult = await createPlan(mainSession, branchSession, {
+  const planResult = await createPlan(mainDb, branchDb, {
     filter: integration?.filter,
     serialize: integration?.serialize,
   });
@@ -414,15 +412,13 @@ export async function testDeclarativeExport(
 }
 
 async function verifyNoRemainingChanges(
-  mainSession: Pool,
+  mainDb: ReturnType<typeof wrapPool>,
   branchCatalog: Catalog,
   integrationFilter: Integration["filter"] | undefined,
   migrationScript: string,
 ): Promise<void> {
   debugTest("mainCatalogAfter: ");
-  const mainCatalogAfter = await Effect.runPromise(
-    extractCatalog(wrapPool(mainSession)),
-  );
+  const mainCatalogAfter = await Effect.runPromise(extractCatalog(mainDb));
 
   // Verify semantic equality by diffing the catalogs again
   // This ensures the migration produced a database state identical to the target

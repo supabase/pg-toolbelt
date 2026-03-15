@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { analyzeAndSort } from "../src/analyze-and-sort";
+import { runPgTopoEffect } from "./support/run-effect";
 import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
 
 const complexFunctionChainStatements = [
@@ -159,7 +160,7 @@ const cascadingViewTriggerStatements = [
 describe("function body dependency chains", () => {
   test("randomized function/table dependency chains still execute at runtime", async () => {
     const shuffled = shuffleDeterministic(complexFunctionChainStatements, 47);
-    const result = await analyzeAndSort(shuffled);
+    const result = await runPgTopoEffect(analyzeAndSort(shuffled));
     const validation = await validateAnalyzeResultWithPostgres(result);
     const executionErrors = validation.diagnostics.filter(
       (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
@@ -170,7 +171,7 @@ describe("function body dependency chains", () => {
 
   test("function with default params and overloads called by view executes at runtime", async () => {
     const shuffled = shuffleDeterministic(defaultParamOverloadStatements, 99);
-    const result = await analyzeAndSort(shuffled);
+    const result = await runPgTopoEffect(analyzeAndSort(shuffled));
     const validation = await validateAnalyzeResultWithPostgres(result);
     const executionErrors = validation.diagnostics.filter(
       (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
@@ -181,7 +182,7 @@ describe("function body dependency chains", () => {
 
   test("cascading view-trigger chain with default-param function executes at runtime", async () => {
     const shuffled = shuffleDeterministic(cascadingViewTriggerStatements, 42);
-    const result = await analyzeAndSort(shuffled);
+    const result = await runPgTopoEffect(analyzeAndSort(shuffled));
     const validation = await validateAnalyzeResultWithPostgres(result);
     const executionErrors = validation.diagnostics.filter(
       (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",

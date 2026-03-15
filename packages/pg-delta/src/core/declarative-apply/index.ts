@@ -9,7 +9,7 @@
  */
 
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
-import { analyzeAndSort } from "@supabase/pg-topo";
+import { analyzeAndSort, ParserServiceLive } from "@supabase/pg-topo";
 import { Effect } from "effect";
 import type { Pool } from "pg";
 import { DeclarativeApplyError } from "../errors.ts";
@@ -19,7 +19,7 @@ import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
   type ApplyResult,
   type RoundResult,
-  roundApplyEffect,
+  roundApply,
   type StatementEntry,
 } from "./round-apply.ts";
 
@@ -100,85 +100,97 @@ export { loadDeclarativeSchema } from "./discover-sql.ts";
 // Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
 export type { ApplyResult, RoundResult } from "./round-apply.ts";
 
+type DatabaseResolvers = {
+  readonly makeScopedPool: typeof makeScopedPool;
+  readonly wrapPool: typeof wrapPool;
+};
+
+const defaultDatabaseResolvers: DatabaseResolvers = {
+  makeScopedPool,
+  wrapPool,
+};
+
 export const applyDeclarativeSchema = (
   options: DeclarativeApplyOptions,
-): Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> =>
-  Effect.gen(function* () {
-    const {
-      content,
-      targetUrl,
-      pool: providedPool,
-      maxRounds = 100,
-      validateFunctionBodies = true,
-      disableCheckFunctionBodies = true,
-      onRoundComplete,
-    } = options;
+) : Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> => {
+  const {
+    content,
+    maxRounds = 100,
+    validateFunctionBodies = true,
+    disableCheckFunctionBodies = true,
+    onRoundComplete,
+  } = options;
 
-    if (content.length === 0) {
-      return emptyApplyResult([]);
-    }
+  if (content.length === 0) {
+    return Effect.succeed(emptyApplyResult([]));
+  }
 
-    const db = yield* resolveDatabase(targetUrl, providedPool);
-    const externalProviders = yield* extractCatalogProviders(db).pipe(
-      Effect.mapError(
-        (error) =>
-          new DeclarativeApplyError({
-            message: error.message,
-            cause: error,
-          }),
-      ),
-    );
-
-    const analyzeResult = yield* Effect.tryPromise({
-      try: () =>
-        analyzeAndSort(
-          content.map((entry) => entry.sql),
-          { externalProviders },
+  return withResolvedDatabase(options, (db) =>
+    Effect.gen(function* () {
+      const externalProviders = yield* extractCatalogProviders(db).pipe(
+        Effect.mapError(
+          (error) =>
+            new DeclarativeApplyError({
+              message: error.message,
+              cause: error,
+            }),
         ),
-      catch: (error) =>
-        new DeclarativeApplyError({
-          message: `Failed to analyze declarative SQL: ${error instanceof Error ? error.message : String(error)}`,
-          cause: error,
-        }),
-    });
+      );
 
-    const { ordered, diagnostics } = analyzeResult;
-    const filePathMap = new Map<string, string>();
-    for (let i = 0; i < content.length; i += 1) {
-      filePathMap.set(`<input:${i}>`, content[i].filePath);
-    }
+      const analyzeResult = yield* analyzeAndSort(
+        content.map((entry) => entry.sql),
+        { externalProviders },
+      ).pipe(
+        Effect.provide(ParserServiceLive),
+        Effect.mapError(
+          (error) =>
+            new DeclarativeApplyError({
+              message: `Failed to analyze declarative SQL: ${error.message}`,
+              cause: error,
+            }),
+        ),
+      );
 
-    const remappedOrdered = ordered.map((node) => ({
-      ...node,
-      id: {
-        ...node.id,
-        filePath: filePathMap.get(node.id.filePath) ?? node.id.filePath,
-      },
-    }));
+      const { ordered, diagnostics } = analyzeResult;
+      const filePathMap = new Map<string, string>();
+      for (let i = 0; i < content.length; i += 1) {
+        filePathMap.set(`<input:${i}>`, content[i].filePath);
+      }
 
-    const remappedDiagnostics = diagnostics.map((diagnostic) => ({
-      ...diagnostic,
-      statementId: remapStatementId(diagnostic.statementId, filePathMap),
-    }));
+      const remappedOrdered = ordered.map((node) => ({
+        ...node,
+        id: {
+          ...node.id,
+          filePath: filePathMap.get(node.id.filePath) ?? node.id.filePath,
+        },
+      }));
 
-    if (ordered.length === 0) {
-      return emptyApplyResult(remappedDiagnostics);
-    }
+      const remappedDiagnostics = diagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        statementId: remapStatementId(diagnostic.statementId, filePathMap),
+      }));
 
-    const applyResult = yield* roundApplyEffect(db, {
-      statements: toStatementEntries(remappedOrdered),
-      maxRounds,
-      disableCheckFunctionBodies,
-      finalValidation: validateFunctionBodies,
-      onRoundComplete,
-    });
+      if (ordered.length === 0) {
+        return emptyApplyResult(remappedDiagnostics);
+      }
 
-    return {
-      apply: applyResult,
-      diagnostics: remappedDiagnostics,
-      totalStatements: remappedOrdered.length,
-    };
-  });
+      const applyResult = yield* roundApply({
+        db,
+        statements: toStatementEntries(remappedOrdered),
+        maxRounds,
+        disableCheckFunctionBodies,
+        finalValidation: validateFunctionBodies,
+        onRoundComplete,
+      });
+
+      return {
+        apply: applyResult,
+        diagnostics: remappedDiagnostics,
+        totalStatements: remappedOrdered.length,
+      };
+    }),
+  );
+};
 
 const emptyApplyResult = (
   diagnostics: Diagnostic[],
@@ -194,13 +206,18 @@ const emptyApplyResult = (
   totalStatements: 0,
 });
 
-const resolveDatabase = (
-  targetUrl: string | undefined,
-  providedPool: Pool | DatabaseApi | undefined,
-): Effect.Effect<DatabaseApi, DeclarativeApplyError> => {
+export const withResolvedDatabase = <A, E, R>(
+  options: DeclarativeApplyOptions,
+  use: (database: DatabaseApi) => Effect.Effect<A, E, R>,
+  resolvers: DatabaseResolvers = defaultDatabaseResolvers,
+): Effect.Effect<A, DeclarativeApplyError | E, R> => {
+  const { targetUrl, pool: providedPool } = options;
+
   if (providedPool) {
-    return Effect.succeed(
-      "withConnection" in providedPool ? providedPool : wrapPool(providedPool),
+    return use(
+      "withConnection" in providedPool
+        ? providedPool
+        : resolvers.wrapPool(providedPool),
     );
   }
 
@@ -212,13 +229,20 @@ const resolveDatabase = (
     );
   }
 
-  return Effect.scoped(makeScopedPool(targetUrl, { label: "target" })).pipe(
-    Effect.mapError(
-      (error) =>
-        new DeclarativeApplyError({
-          message: error.message,
-          cause: error,
-        }),
-    ),
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const database = yield* resolvers
+        .makeScopedPool(targetUrl, { label: "target" })
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new DeclarativeApplyError({
+                message: error.message,
+                cause: error,
+              }),
+          ),
+        );
+      return yield* use(database);
+    }),
   );
 };

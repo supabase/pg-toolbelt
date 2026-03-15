@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
 
 const require = createRequire(import.meta.url);
 
@@ -34,9 +35,7 @@ interface InternalCompletionModules {
   ) => string;
 }
 
-let internalCompletionModulesPromise:
-  | Promise<InternalCompletionModules>
-  | undefined;
+let internalCompletionModules: InternalCompletionModules | undefined;
 
 export function parseCompletionShell(
   argv: readonly string[],
@@ -64,13 +63,13 @@ export function isSupportedCompletionShell(
   );
 }
 
-export async function generateCompletionScript(
+export const generateCompletionScript = (
   shell: SupportedCompletionShell,
   command: unknown,
   executableName = "pgdelta",
-): Promise<{ script?: string; error?: string }> {
-  try {
-    const modules = await loadInternalCompletionModules();
+): Effect.Effect<string, Error> =>
+  Effect.gen(function* () {
+    const modules = yield* loadInternalCompletionModules();
     const descriptor = modules.fromCommand(command);
     const generatorShell = shell === "sh" ? "bash" : shell;
     const rawScript =
@@ -80,18 +79,8 @@ export async function generateCompletionScript(
           ? modules.generateZsh(executableName, descriptor)
           : modules.generateFish(executableName, descriptor);
 
-    return {
-      script: sanitizeCompletionScript(rawScript, generatorShell),
-    };
-  } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Failed to generate completion script.",
-    };
-  }
-}
+    return sanitizeCompletionScript(rawScript, generatorShell);
+  });
 
 export function sanitizeCompletionScript(
   script: string,
@@ -107,9 +96,13 @@ export function sanitizeCompletionScript(
   }
 }
 
-async function loadInternalCompletionModules(): Promise<InternalCompletionModules> {
-  if (!internalCompletionModulesPromise) {
-    internalCompletionModulesPromise = (async () => {
+function loadInternalCompletionModules(): Effect.Effect<InternalCompletionModules, Error> {
+  if (internalCompletionModules) {
+    return Effect.succeed(internalCompletionModules);
+  }
+
+  return Effect.tryPromise({
+    try: () => {
       const commandModulePath = require.resolve("effect/unstable/cli/Command");
       const completionsDir = join(
         dirname(commandModulePath),
@@ -117,7 +110,7 @@ async function loadInternalCompletionModules(): Promise<InternalCompletionModule
         "completions",
       );
 
-      const [{ fromCommand }, bash, zsh, fish] = await Promise.all([
+      return Promise.all([
         import(
           pathToFileURL(join(completionsDir, "CommandDescriptor.js")).href
         ) as Promise<Pick<InternalCompletionModules, "fromCommand">>,
@@ -130,18 +123,24 @@ async function loadInternalCompletionModules(): Promise<InternalCompletionModule
         import(pathToFileURL(join(completionsDir, "fish.js")).href) as Promise<{
           readonly generate: InternalCompletionModules["generateFish"];
         }>,
-      ]);
+      ]).then(([{ fromCommand }, bash, zsh, fish]) => {
+        internalCompletionModules = {
+          fromCommand,
+          generateBash: bash.generate,
+          generateZsh: zsh.generate,
+          generateFish: fish.generate,
+        };
 
-      return {
-        fromCommand,
-        generateBash: bash.generate,
-        generateZsh: zsh.generate,
-        generateFish: fish.generate,
-      };
-    })();
-  }
-
-  return internalCompletionModulesPromise;
+        return internalCompletionModules;
+      });
+    },
+    catch: (error) =>
+      new Error(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate completion script.",
+      ),
+  });
 }
 
 function sanitizeBashCompletionScript(script: string): string {

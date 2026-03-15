@@ -3,24 +3,8 @@ import { Effect } from "effect";
 import type { Plan } from "../core/plan/types.ts";
 import {
   deserializeCatalogSnapshotEffect,
-  tryCliPromise,
   validatePlanRisk,
 } from "./utils.ts";
-
-describe("tryCliPromise", () => {
-  test("maps thrown errors into CliExitError", async () => {
-    const result = await tryCliPromise("load catalog", async () => {
-      throw new Error("missing file");
-    }).pipe(Effect.result, Effect.runPromise);
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure._tag).toBe("CliExitError");
-      expect(result.failure.exitCode).toBe(1);
-      expect(result.failure.message).toBe("load catalog: missing file");
-    }
-  });
-});
 
 describe("validatePlanRisk", () => {
   test("returns a specific message when risk metadata is missing", () => {

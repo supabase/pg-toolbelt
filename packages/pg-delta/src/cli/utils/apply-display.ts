@@ -1,24 +1,14 @@
 /**
  * Display utilities for the declarative-apply command.
- *
- * Pure formatting and location-resolution functions — no CLI framework dependency.
- * Used to:
- * - Map pg-topo diagnostics into display items (optionally grouped by message/code).
- * - Resolve statement IDs to file paths and line/column for error output.
- * - Format StatementErrors in a pgAdmin-style multi-line block.
  */
 
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Diagnostic } from "@supabase/pg-topo";
 import chalk from "chalk";
+import { Effect, FileSystem } from "effect";
 import type { RoundResult } from "../../core/declarative-apply/index.ts";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
 
-/**
- * Convert a 1-based character offset in a string to 1-based line and column.
- * Used when mapping PostgreSQL error positions (in SQL) to file locations.
- */
 export function positionToLineColumn(
   sql: string,
   position: number,
@@ -37,11 +27,6 @@ export function positionToLineColumn(
   return { line: last, column: lastLineLen + 1 };
 }
 
-/**
- * Parse a statement id in the form "filePath:statementIndex" into components.
- * The last colon separates path from index (paths may contain colons).
- * Returns null if the format is invalid.
- */
 function parseStatementId(
   id: string,
 ): { filePath: string; statementIndex: number } | null {
@@ -53,14 +38,12 @@ function parseStatementId(
   return { filePath, statementIndex: n };
 }
 
-/** Input to buildDiagnosticDisplayItems: a pg-topo diagnostic plus optional location and object key. */
 export type DiagnosticDisplayEntry = {
   diagnostic: Diagnostic;
   location?: string;
   requiredObjectKey?: string;
 };
 
-/** One display row for a diagnostic (or a group of same-code diagnostics with multiple locations). */
 export type DiagnosticDisplayItem = {
   code: string;
   message: string;
@@ -69,7 +52,6 @@ export type DiagnosticDisplayItem = {
   locations: string[];
 };
 
-/** Extract requiredObjectKey from a pg-topo diagnostic if present and non-empty. */
 export const requiredObjectKeyFromDiagnostic = (
   diagnostic: Diagnostic,
 ): string | undefined => {
@@ -77,7 +59,6 @@ export const requiredObjectKeyFromDiagnostic = (
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
-/** Build a stable key for grouping diagnostics with the same code, message, and suggested fix. */
 const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
   [
     entry.diagnostic.code,
@@ -86,10 +67,6 @@ const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
     entry.requiredObjectKey ?? "",
   ].join("\u0000");
 
-/**
- * Turn diagnostic entries into display items. If grouped is true, entries with
- * the same code/message/suggestedFix are merged into one item with multiple locations.
- */
 export const buildDiagnosticDisplayItems = (
   entries: DiagnosticDisplayEntry[],
   grouped: boolean,
@@ -125,28 +102,20 @@ export const buildDiagnosticDisplayItems = (
   return [...groupedItems.values()];
 };
 
-/**
- * Resolve the full path to a .sql file from the schema path (directory or single file)
- * and a relative file path (e.g. from a statement id). If schemaPath is a file, its
- * directory is used as the base.
- */
-export async function resolveSqlFilePath(
+export const resolveSqlFilePath = (
   schemaPath: string,
   relativeFilePath: string,
-): Promise<string> {
-  try {
-    const statResult = await stat(schemaPath);
-    const baseDir = statResult.isFile() ? path.dirname(schemaPath) : schemaPath;
+): Effect.Effect<string, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const statResult = yield* fs.stat(schemaPath).pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
+    const baseDir =
+      statResult?.type === "File" ? path.dirname(schemaPath) : schemaPath;
     return path.join(baseDir, relativeFilePath);
-  } catch {
-    return path.join(schemaPath, relativeFilePath);
-  }
-}
+  });
 
-/**
- * Find the 0-based start offset of statementSql in fileContent.
- * Tries exact match first, then trimmed match. Returns -1 if not found.
- */
 function findStatementStartInFile(
   fileContent: string,
   statementSql: string,
@@ -160,69 +129,64 @@ function findStatementStartInFile(
   return -1;
 }
 
-/**
- * Format a StatementError in pgAdmin-style: ERROR, Detail, SQL state, optional
- * Context, Hint, and Location (resolving the .sql file and line/column when possible).
- */
-export async function formatStatementError(
+export const formatStatementError = (
   err: StatementError,
   schemaPath: string,
-): Promise<string> {
-  const lines: string[] = [];
-  lines.push(`ERROR:  ${err.message}`);
-  if (err.detail) {
-    lines.push(`Detail: ${err.detail}`);
-  }
-  lines.push(`SQL state: ${err.code}`);
-  if (err.position !== undefined && err.statement.sql.length > 0) {
-    lines.push(`Character: ${err.position}`);
-    const pos = Math.max(
-      0,
-      Math.min(err.position - 1, err.statement.sql.length),
-    );
-    const contextStart = Math.max(0, pos - 40);
-    const contextEnd = Math.min(err.statement.sql.length, pos + 40);
-    const snippet = err.statement.sql.slice(contextStart, contextEnd);
-    const oneLine = snippet.replace(/\s+/g, " ").trim();
-    lines.push(`Context: ${oneLine || "(empty)"}`);
-  }
-  if (err.hint) {
-    lines.push(`Hint: ${err.hint}`);
-  }
-  const parsed = parseStatementId(err.statement.id);
-  if (parsed) {
-    let locationLine: string;
-    try {
-      const fullPath = await resolveSqlFilePath(schemaPath, parsed.filePath);
-      const fileContent = await readFile(fullPath, "utf-8");
-      const statementStart = findStatementStartInFile(
-        fileContent,
-        err.statement.sql,
-      );
-      if (statementStart !== -1) {
-        if (err.position !== undefined && err.statement.sql.length > 0) {
-          const fileErrorOffset = statementStart + (err.position - 1);
-          const fileErrorPosition = Math.min(
-            fileErrorOffset + 1,
-            fileContent.length,
-          );
-          const { line, column } = positionToLineColumn(
-            fileContent,
-            Math.max(1, fileErrorPosition),
-          );
-          locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
+): Effect.Effect<string, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const lines: string[] = [];
+    lines.push(`ERROR:  ${err.message}`);
+    if (err.detail) {
+      lines.push(`Detail: ${err.detail}`);
+    }
+    lines.push(`SQL state: ${err.code}`);
+    if (err.position !== undefined && err.statement.sql.length > 0) {
+      lines.push(`Character: ${err.position}`);
+      const pos = Math.max(0, Math.min(err.position - 1, err.statement.sql.length));
+      const contextStart = Math.max(0, pos - 40);
+      const contextEnd = Math.min(err.statement.sql.length, pos + 40);
+      const snippet = err.statement.sql.slice(contextStart, contextEnd);
+      const oneLine = snippet.replace(/\s+/g, " ").trim();
+      lines.push(`Context: ${oneLine || "(empty)"}`);
+    }
+    if (err.hint) {
+      lines.push(`Hint: ${err.hint}`);
+    }
+
+    const parsed = parseStatementId(err.statement.id);
+    if (parsed) {
+      let locationLine: string;
+      const fullPath = yield* resolveSqlFilePath(schemaPath, parsed.filePath);
+      const fileContent = yield* fs
+        .readFileString(fullPath, "utf-8")
+        .pipe(Effect.orElseSucceed(() => undefined));
+
+      if (fileContent !== undefined) {
+        const statementStart = findStatementStartInFile(
+          fileContent,
+          err.statement.sql,
+        );
+        if (statementStart !== -1) {
+          if (err.position !== undefined && err.statement.sql.length > 0) {
+            const fileErrorOffset = statementStart + (err.position - 1);
+            const fileErrorPosition = Math.min(
+              fileErrorOffset + 1,
+              fileContent.length,
+            );
+            const { line, column } = positionToLineColumn(
+              fileContent,
+              Math.max(1, fileErrorPosition),
+            );
+            locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
+          } else {
+            const { line } = positionToLineColumn(fileContent, statementStart + 1);
+            locationLine = `Location: ${parsed.filePath}:${line}`;
+          }
         } else {
-          const { line } = positionToLineColumn(
-            fileContent,
-            statementStart + 1,
-          );
-          locationLine = `Location: ${parsed.filePath}:${line}`;
+          locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
         }
-      } else {
-        locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
-      }
-    } catch {
-      if (err.position !== undefined && err.statement.sql.length > 0) {
+      } else if (err.position !== undefined && err.statement.sql.length > 0) {
         const { line, column } = positionToLineColumn(
           err.statement.sql,
           err.position,
@@ -231,23 +195,16 @@ export async function formatStatementError(
       } else {
         locationLine = `Location: ${parsed.filePath} (statement ${parsed.statementIndex})`;
       }
+      lines.push(locationLine);
+    } else {
+      lines.push(`Location: ${err.statement.id}`);
     }
-    lines.push(locationLine);
-  } else {
-    lines.push(`Location: ${err.statement.id}`);
-  }
-  return lines.map((l) => `  ${l}`).join("\n");
-}
 
-// ============================================================================
-// Color-aware formatting (presentation boundary)
-// ============================================================================
+    return lines.map((line) => `  ${line}`).join("\n");
+  });
 
-const identity = (s: string) => s;
+const identity = (value: string) => value;
 
-/**
- * Format a round result line with colored applied/deferred/failed counts.
- */
 export function formatRoundStatus(
   round: RoundResult,
   useColors: boolean,
@@ -261,17 +218,12 @@ export function formatRoundStatus(
   return parts.join("  ");
 }
 
-/** Diagnostic code → color function mapping for display. */
-const diagnosticColorMap: Record<string, (s: string) => string> = {
+const diagnosticColorMap: Record<string, (value: string) => string> = {
   DUPLICATE_PRODUCER: chalk.yellow,
   CYCLE_EDGE_SKIPPED: chalk.red,
   UNRESOLVED_DEPENDENCY: chalk.dim,
 };
 
-/**
- * Render a block of diagnostic display items into a formatted string.
- * Handles grouping, location preview, object keys, and suggested fixes.
- */
 export function formatDiagnosticsBlock(
   items: DiagnosticDisplayItem[],
   warningCount: number,
@@ -283,7 +235,6 @@ export function formatDiagnosticsBlock(
 ): string {
   const { useColors, ungroupDiagnostics, previewLimit = 5 } = options;
   const defaultColor = useColors ? chalk.yellow : identity;
-
   const lines: string[] = [
     `\n${warningCount} diagnostic(s) from static analysis:\n`,
   ];
@@ -329,9 +280,6 @@ export function formatDiagnosticsBlock(
   return lines.join("");
 }
 
-/**
- * Apply error/warning coloring to a formatted statement error string.
- */
 export function colorStatementError(
   formatted: string,
   severity: "error" | "warning",

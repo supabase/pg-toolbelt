@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import { Effect } from "effect";
 import type { FileEntry } from "../../core/export/types.ts";
 import {
   assertSafePath,
@@ -11,6 +13,13 @@ import {
   formatExportSummary,
   formatFileLegend,
 } from "./export-display.ts";
+
+const runFs = <A>(effect: Effect.Effect<A, never, any>) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ) as Effect.Effect<A, never, never>,
+  );
 
 // ============================================================================
 // assertSafePath
@@ -75,7 +84,7 @@ describe("computeFileDiff", () => {
       await writeFile(path.join(dir, ".gitkeep"), "");
 
       const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
-      const diff = await computeFileDiff(dir, newFiles);
+      const diff = await runFs(computeFileDiff(dir, newFiles));
 
       expect(diff.deleted).not.toContain("README.md");
       expect(diff.deleted).not.toContain(".gitkeep");
@@ -99,7 +108,7 @@ describe("computeFileDiff", () => {
       );
 
       const newFiles = [makeFileEntry("schemas/public/tables/users.sql")];
-      const diff = await computeFileDiff(dir, newFiles);
+      const diff = await runFs(computeFileDiff(dir, newFiles));
 
       expect(diff.deleted).toContain("schemas/public/tables/old_table.sql");
       expect(diff.deleted).toHaveLength(1);

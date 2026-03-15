@@ -106,11 +106,14 @@ pgdelta sync --source <source> --target <target> --integration ./my-integration.
 ### Programmatic Usage
 
 ```typescript
+import { Effect } from "effect";
 import { applyPlan, createPlan } from "@supabase/pg-delta";
 
 const planResult = await createPlan(
   "postgresql://source",
   "postgresql://target",
+).pipe(
+  Effect.runPromise,
 );
 
 if (planResult) {
@@ -120,6 +123,8 @@ if (planResult) {
     planResult.plan,
     "postgresql://source",
     "postgresql://target",
+  ).pipe(
+    Effect.runPromise,
   );
 
   if (applyResult.status === "applied") {
@@ -128,49 +133,18 @@ if (planResult) {
 }
 ```
 
-Runtime-specific entrypoints are available when you want a more explicit API split:
+Promise facades are still available from explicit runtime entrypoints:
 
 ```typescript
 import { createPlan, applyPlan } from "@supabase/pg-delta/node";
-import { Effect } from "effect";
-import { createPlan as createPlanEffect } from "@supabase/pg-delta/effect";
-```
 
-For plan-based workflow:
-
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
-
-// Create a plan
 const planResult = await createPlan(sourceUrl, targetUrl, {
   filter: { schema: "public" },
-  serialize: [{ when: { type: "schema" }, options: { skipAuthorization: true } }]
+  serialize: [{ when: { type: "schema" }, options: { skipAuthorization: true } }],
 });
 
 if (planResult) {
-  // Apply the plan
-  const result = await applyPlan(
-    planResult.plan,
-    sourceUrl,
-    targetUrl
-  );
-}
-```
-
-The canonical Effect-native surface now lives under `@supabase/pg-delta/effect`:
-
-```typescript
-import { Effect } from "effect";
-import { applyPlan, createPlan } from "@supabase/pg-delta/effect";
-
-const result = await createPlan(sourceUrl, targetUrl).pipe(
-  Effect.runPromise,
-);
-
-if (result) {
-  await applyPlan(result.plan, sourceUrl, targetUrl).pipe(
-    Effect.runPromise,
-  );
+  const result = await applyPlan(planResult.plan, sourceUrl, targetUrl);
 }
 ```
 

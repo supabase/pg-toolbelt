@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 
 const ROOT_CATEGORY = "pg-delta";
 
@@ -49,7 +49,6 @@ interface PgDeltaLoggingState {
   captureLogger?: (event: PgDeltaLogEvent) => void;
 }
 
-const loggingRuntime = ManagedRuntime.make(Layer.empty);
 let loggingState: PgDeltaLoggingState = {
   rootLevel: DEFAULT_LEVEL,
   debugCategories: [],
@@ -107,11 +106,11 @@ export function resolvePgDeltaLogLevel(
   return DEFAULT_LEVEL;
 }
 
-export async function configurePgDeltaLogging(options?: {
+export function configurePgDeltaLogging(options?: {
   debug?: string;
   level?: string;
   captureLogger?: (event: PgDeltaLogEvent) => void;
-}): Promise<void> {
+}): void {
   loggingState = {
     rootLevel: resolvePgDeltaLogLevel(options?.level),
     debugCategories: parseDebugCategories(options?.debug),
@@ -217,7 +216,7 @@ function emitLog(
   if (loggingState.captureLogger) return;
 
   try {
-    loggingRuntime.runSync(
+    Effect.runSync(
       toEffectLog(level, rawMessage).pipe(
         Effect.annotateLogs({
           category: category.join(":"),
