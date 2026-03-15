@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeAndSort } from "../src/analyze-and-sort";
-import { runPgTopoEffect } from "./support/run-effect";
+import { analyzeAndSort } from "../src/analyze-and-sort.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
 
 describe("statement coverage", () => {
   test("orders enum type before table using it", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create table app.users(id int primary key, role app.user_role not null);",
-      "create type app.user_role as enum ('admin', 'user');",
-      "create schema app;",
+        "create table app.users(id int primary key, role app.user_role not null);",
+        "create type app.user_role as enum ('admin', 'user');",
+        "create schema app;",
       ]),
     );
     const unknownCount = result.diagnostics.filter(
@@ -31,9 +31,9 @@ describe("statement coverage", () => {
   test("orders create role/schema before schema grant", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "grant usage on schema app to app_user;",
-      "create schema app;",
-      "create role app_user;",
+        "grant usage on schema app to app_user;",
+        "create schema app;",
+        "create role app_user;",
       ]),
     );
     const unknownCount = result.diagnostics.filter(
@@ -56,12 +56,12 @@ describe("statement coverage", () => {
   test("orders table before publication, comment, and owner changes", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create publication pub_users for table app.users;",
-      "comment on table app.users is 'users table';",
-      "alter table app.users owner to app_user;",
-      "create table app.users(id int primary key);",
-      "create schema app;",
-      "create role app_user;",
+        "create publication pub_users for table app.users;",
+        "comment on table app.users is 'users table';",
+        "alter table app.users owner to app_user;",
+        "create table app.users(id int primary key);",
+        "create schema app;",
+        "create role app_user;",
       ]),
     );
     const unknownCount = result.diagnostics.filter(
@@ -98,9 +98,9 @@ describe("statement coverage", () => {
   test("orders referenced unique key provider before foreign key consumers", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create table public.oauth_apps(id uuid primary key, created_by uuid references public.users(gotrue_id));",
-      "create table public.users(id bigint primary key, gotrue_id uuid not null);",
-      "create unique index users_gotrue_id_key on public.users using btree (gotrue_id);",
+        "create table public.oauth_apps(id uuid primary key, created_by uuid references public.users(gotrue_id));",
+        "create table public.users(id bigint primary key, gotrue_id uuid not null);",
+        "create unique index users_gotrue_id_key on public.users using btree (gotrue_id);",
       ]),
     );
     const unresolvedCount = result.diagnostics.filter(
@@ -128,11 +128,11 @@ describe("statement coverage", () => {
   test("prioritizes foundational bootstrap classes before generic bootstrap statements", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "do $$ begin perform 1; end $$;",
-      "set check_function_bodies = off;",
-      'create extension if not exists "uuid-ossp";',
-      "create schema app;",
-      "create role app_user;",
+        "do $$ begin perform 1; end $$;",
+        "set check_function_bodies = off;",
+        'create extension if not exists "uuid-ossp";',
+        "create schema app;",
+        "create role app_user;",
       ]),
     );
     const orderedClasses = result.ordered.map(
@@ -151,11 +151,11 @@ describe("statement coverage", () => {
   test("orders function with default params before view that calls it with fewer args", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create type app.action as enum ('read', 'write');",
-      "create function app.check_access(org_id bigint, resource text, action app.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
-      "create table app.items(org_id bigint, name text);",
-      "create view app.visible_items as select * from app.items where app.check_access(org_id, 'items', 'read'::app.action);",
+        "create schema app;",
+        "create type app.action as enum ('read', 'write');",
+        "create function app.check_access(org_id bigint, resource text, action app.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
+        "create table app.items(org_id bigint, name text);",
+        "create view app.visible_items as select * from app.items where app.check_access(org_id, 'items', 'read'::app.action);",
       ]),
     );
     const unresolvedDeps = result.diagnostics.filter(
@@ -175,12 +175,12 @@ describe("statement coverage", () => {
   test("resolves correct overload when multiple overloads have defaults", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema auth;",
-      "create type auth.action as enum ('read', 'write');",
-      "create function auth.can(org_id bigint, resource text, action auth.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
-      "create function auth.can(org_id bigint, project_id bigint, resource text, action auth.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
-      "create table public.orgs(id bigint primary key, name text);",
-      "create view public.billing as select * from public.orgs where auth.can(id, 'billing', 'read'::auth.action);",
+        "create schema auth;",
+        "create type auth.action as enum ('read', 'write');",
+        "create function auth.can(org_id bigint, resource text, action auth.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
+        "create function auth.can(org_id bigint, project_id bigint, resource text, action auth.action, data json default null, subject uuid default gen_random_uuid()) returns boolean language sql stable as $$ select true $$;",
+        "create table public.orgs(id bigint primary key, name text);",
+        "create view public.billing as select * from public.orgs where auth.can(id, 'billing', 'read'::auth.action);",
       ]),
     );
     const unresolvedDeps = result.diagnostics.filter(
@@ -205,11 +205,11 @@ describe("statement coverage", () => {
   test("creates edges to all matching overloads with prefix matching", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create function app.do_thing(a int) returns void language sql as $$ select null $$;",
-      "create function app.do_thing(a int, b text) returns void language sql as $$ select null $$;",
-      "create table app.items(val int);",
-      "create view app.processed as select app.do_thing(val) from app.items;",
+        "create schema app;",
+        "create function app.do_thing(a int) returns void language sql as $$ select null $$;",
+        "create function app.do_thing(a int, b text) returns void language sql as $$ select null $$;",
+        "create table app.items(val int);",
+        "create view app.processed as select app.do_thing(val) from app.items;",
       ]),
     );
     const orderedSql = result.ordered.map((s) => s.sql.toLowerCase());
@@ -235,11 +235,11 @@ describe("statement coverage", () => {
   test("resolves overloads from explicit casted call-site signatures", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create function app.normalize(value text) returns text language sql as $$ select lower(value) $$;",
-      "create function app.normalize(value jsonb) returns text language sql as $$ select value::text $$;",
-      "create table app.events(payload jsonb not null);",
-      "create view app.normalized_payload as select app.normalize(payload::jsonb) as normalized from app.events;",
+        "create schema app;",
+        "create function app.normalize(value text) returns text language sql as $$ select lower(value) $$;",
+        "create function app.normalize(value jsonb) returns text language sql as $$ select value::text $$;",
+        "create table app.events(payload jsonb not null);",
+        "create view app.normalized_payload as select app.normalize(payload::jsonb) as normalized from app.events;",
       ]),
     );
     const ambiguousDiagnostics = result.diagnostics.filter(
@@ -268,14 +268,14 @@ describe("statement coverage", () => {
     // avoiding false-positive cycle detection on overloaded functions.
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create table app.items(id int);",
-      "create function app.do_work(a int, b uuid) returns void language sql as $$ select null $$;",
-      "create function app.do_work(a text, b uuid) returns void language sql as $$ select null $$;",
-      // Annotation pins the dependency to the (int,uuid) overload.
-      // Without annotation, the body call `app.do_work(...)` extracts as
-      // (unknown,unknown) which matches both overloads and could trigger cycles.
-      "-- pg-topo:requires function:app.do_work(int,uuid)\ncreate function app.caller() returns void language sql as $$ select app.do_work(1, gen_random_uuid()) $$;",
+        "create schema app;",
+        "create table app.items(id int);",
+        "create function app.do_work(a int, b uuid) returns void language sql as $$ select null $$;",
+        "create function app.do_work(a text, b uuid) returns void language sql as $$ select null $$;",
+        // Annotation pins the dependency to the (int,uuid) overload.
+        // Without annotation, the body call `app.do_work(...)` extracts as
+        // (unknown,unknown) which matches both overloads and could trigger cycles.
+        "-- pg-topo:requires function:app.do_work(int,uuid)\ncreate function app.caller() returns void language sql as $$ select app.do_work(1, gen_random_uuid()) $$;",
       ]),
     );
 
@@ -306,14 +306,14 @@ describe("statement coverage", () => {
     // overloads would form a cycle and drop both from the ordered output.
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create table app.items(val int);",
-      // Overload 1: simple, no dependency on the view
-      "create function app.process(a int) returns int language sql as $$ select a $$;",
-      // Overload 2: its body selects from the view, creating view -> fn2 dependency
-      "create function app.process(a int, b text default 'x') returns int language sql as $$ select val from app.summary limit 1 $$;",
-      // View calls app.process(val) -- matches both overloads via prefix
-      "create view app.summary as select app.process(val) as result from app.items;",
+        "create schema app;",
+        "create table app.items(val int);",
+        // Overload 1: simple, no dependency on the view
+        "create function app.process(a int) returns int language sql as $$ select a $$;",
+        // Overload 2: its body selects from the view, creating view -> fn2 dependency
+        "create function app.process(a int, b text default 'x') returns int language sql as $$ select val from app.summary limit 1 $$;",
+        // View calls app.process(val) -- matches both overloads via prefix
+        "create view app.summary as select app.process(val) as result from app.items;",
       ]),
     );
 

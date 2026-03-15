@@ -19,7 +19,7 @@ const role = Flag.string("role").pipe(
   Flag.optional,
 );
 
-export const catalogExportFlags = { target, output, role } as const;
+const catalogExportFlags = { target, output, role } as const;
 
 export const catalogExportCommand = Command.make(
   "catalog-export",

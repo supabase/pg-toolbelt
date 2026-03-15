@@ -1,14 +1,14 @@
 # API Reference
 
-`@supabase/pg-delta` now exposes three library entrypoints:
+`@supabase/pg-delta` now exposes four library entrypoints:
 
-- `@supabase/pg-delta` — curated promise-friendly root surface
-- `@supabase/pg-delta/node` — explicit Node promise facade over the shared Effect core
-- `@supabase/pg-delta/effect` — canonical Effect-native API
+- `@supabase/pg-delta` — canonical Effect-native root surface
+- `@supabase/pg-delta/effect` — explicit Effect-native surface
+- `@supabase/pg-delta/node` — Node promise facade over the shared Effect core
+- `@supabase/pg-delta/adapters/node-pg` — explicit `pg` interop for pools and runtime layers
 
-The Effect-native implementation is backed by
-`@effect/sql-pg@4.0.0-beta.31`, with `pg-delta` keeping a thin adapter for
-its own SSL/session policy and error normalization.
+The Effect-native implementation is backed by `@effect/sql-pg@4.0.0-beta.31`,
+with `pg-delta` adding its own SSL, session, and error-mapping policy on top.
 
 ## Installation
 
@@ -18,123 +18,141 @@ npm install @supabase/pg-delta
 
 ## Quick Start
 
+### Effect-native
+
 ```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
+import { Effect } from "effect";
+import { applyPlan, createPlan } from "@supabase/pg-delta";
 import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
-// Create a migration plan
-const result = await createPlan(
+const planResult = await createPlan(
   "postgresql://localhost:5432/source_db",
   "postgresql://localhost:5432/target_db",
-  { filter: supabase.filter, serialize: supabase.serialize }
-);
+  { filter: supabase.filter, serialize: supabase.serialize },
+).pipe(Effect.runPromise);
 
-if (result) {
-  const { plan } = result;
-  console.log(plan.statements); // SQL statements to execute
-
-  // Apply the plan
+if (planResult) {
   const applyResult = await applyPlan(
-    plan,
+    planResult.plan,
     "postgresql://localhost:5432/source_db",
-    "postgresql://localhost:5432/target_db"
-  );
+    "postgresql://localhost:5432/target_db",
+  ).pipe(Effect.runPromise);
+
+  console.log(applyResult.status);
+}
+```
+
+### Node Promise Facade
+
+```typescript
+import { applyPlan, createPlan } from "@supabase/pg-delta/node";
+
+const planResult = await createPlan(sourceUrl, targetUrl);
+
+if (planResult) {
+  const applyResult = await applyPlan(planResult.plan, sourceUrl, targetUrl);
   console.log(applyResult.status);
 }
 ```
 
 ## Exports
 
-### Main Entry Point
+### Main / Effect Entry Points
 
 ```typescript
 import {
+  applyDeclarativeSchema,
   applyPlan,
   createPlan,
-  type Plan,
+  DatabaseResolver,
+  exportDeclarativeSchema,
+  loadDeclarativeSchema,
+  type CatalogInput,
   type CreatePlanOptions,
+  type DatabaseApi,
   type IntegrationDSL,
+  type Plan,
 } from "@supabase/pg-delta";
 ```
 
-### Effect Entry Point
+`@supabase/pg-delta` and `@supabase/pg-delta/effect` share the same contract:
 
-```typescript
-import {
-  applyPlan,
-  createPlan,
-  makeScopedDatabase,
-} from "@supabase/pg-delta/effect";
-```
+- They return `Effect.Effect` values.
+- They do not expose `pg.Pool` in public types.
+- URL-based helpers rely on the `DatabaseResolver` service at the boundary.
 
 ### Node Entry Point
 
 ```typescript
-import { applyPlan, createPlan } from "@supabase/pg-delta/node";
+import {
+  applyDeclarativeSchema,
+  applyPlan,
+  createPlan,
+  extractCatalog,
+  loadDeclarativeSchema,
+} from "@supabase/pg-delta/node";
 ```
 
-### Integrations
+`@supabase/pg-delta/node` adapts the shared Effect programs into Promise APIs
+and accepts `pg.Pool` inputs where appropriate.
+
+### Explicit `pg` Adapter
 
 ```typescript
-import { supabase } from "@supabase/pg-delta/integrations/supabase";
+import {
+  createManagedPool,
+  fromNodePgPool,
+  makeScopedDatabase,
+  makeScopedDatabaseEffect,
+  nodePgDatabaseResolverLayer,
+} from "@supabase/pg-delta/adapters/node-pg";
 ```
 
-## Functions
+Use this adapter when you need to:
+
+- wrap an existing `pg.Pool` as a `DatabaseApi`
+- provide the runtime resolver layer for URL-based Effect programs
+- create a managed pool explicitly at the boundary
+
+## Core Functions
 
 ### `createPlan(source, target, options?)`
 
-Create a migration plan by comparing two databases.
+Creates a migration plan by comparing two database states.
 
-#### applyPlan Parameters
+- `source`: `CatalogInput | null`
+- `target`: `CatalogInput`
+- `options`: `CreatePlanOptions | undefined`
 
-- `source` (`CatalogInput | null`): Source database connection URL, `pg` `Pool`, catalog snapshot, or `null` for an empty baseline
-- `target` (`CatalogInput`): Target database connection URL, `pg` `Pool`, or catalog snapshot
-- `options` (CreatePlanOptions, optional): Configuration options
+On the Effect-native entrypoints, `CatalogInput` is:
 
-#### applyPlan Returns
+- a connection string
+- a `DatabaseApi`
+- a catalog snapshot
 
-`Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null>`
+It is not a `pg.Pool`. Adapt pools with `fromNodePgPool(pool)` or use
+`@supabase/pg-delta/node`.
 
-- Returns an object with the plan and metadata if there are changes
-- Returns `null` if databases are identical
-
-#### applyPlan Example
+Effect-native return type:
 
 ```typescript
-import { createPlan } from "@supabase/pg-delta";
-
-const result = await createPlan(
-  process.env.SOURCE_DB_URL!,
-  process.env.TARGET_DB_URL!
-);
-
-if (result) {
-  console.log(`Found ${result.plan.statements.length} statements`);
-  console.log(result.plan.statements.join(";\n"));
-} else {
-  console.log("No differences found");
-}
+Effect.Effect<
+  { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
+  CreatePlanError,
+  DatabaseResolver
+>
 ```
-
----
 
 ### `applyPlan(plan, source, target, options?)`
 
-Apply a plan's SQL statements to a database with integrity checks. Validates fingerprints before and after application to ensure plan integrity.
+Applies a migration plan with fingerprint validation before and after execution.
 
-#### Parameters
+- `plan`: `Plan`
+- `source`: `string | DatabaseApi` on Effect surfaces, `string | DatabaseApi | Pool` on `/node`
+- `target`: `string | DatabaseApi` on Effect surfaces, `string | DatabaseApi | Pool` on `/node`
+- `options?.verifyPostApply`: `boolean`
 
-- `plan` (Plan): The migration plan to apply
-- `source` (`string | Pool`): Source database connection URL or `pg` `Pool`
-- `target` (`string | Pool`): Target database connection URL or `pg` `Pool`
-- `options` (ApplyPlanOptions, optional): Configuration options
-  - `verifyPostApply` (boolean, default: true): Verify fingerprint after applying
-
-#### Returns
-
-`Promise<ApplyPlanResult>`
-
-The result is a discriminated union with the following possible statuses:
+Node return type:
 
 ```typescript
 type ApplyPlanResult =
@@ -145,229 +163,55 @@ type ApplyPlanResult =
   | { status: "failed"; error: unknown; script: string };
 ```
 
-#### Example
+### `applyDeclarativeSchema(options)`
 
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
+Loads declarative SQL files, sorts them with `pg-topo`, plans the diff, and
+applies the result to the target database.
 
-const result = await createPlan(sourceUrl, targetUrl);
+On the Effect-native surface, filesystem and path access are injected services.
+The `/node` entrypoint provides those layers automatically.
 
-if (result) {
-  const applyResult = await applyPlan(result.plan, sourceUrl, targetUrl);
+### `exportDeclarativeSchema(planResult, options?)`
 
-  switch (applyResult.status) {
-    case "applied":
-      console.log(`Applied ${applyResult.statements} statements`);
-      break;
-    case "already_applied":
-      console.log("Plan already applied");
-      break;
-    case "fingerprint_mismatch":
-      console.error("Source database has changed since plan was created");
-      break;
-    case "failed":
-      console.error("Failed to apply:", applyResult.error);
-      break;
-  }
-}
-```
+Builds a declarative file layout from a non-null `createPlan` result.
 
-## Types
+## Migration Notes
 
-### Effect-native APIs
+### Moving off Effect-native `pg.Pool` usage
 
-The package also exports Effect entrypoints for consumers that want typed
-errors, scoped database resources, and dependency injection.
+If older code passed `pg.Pool` directly into Effect-native APIs, switch to the
+explicit adapter boundary:
 
 ```typescript
 import { Effect } from "effect";
-import {
-  applyPlanEffect,
-  createPlanEffect,
-  DatabaseService,
-  makeScopedPool,
-} from "@supabase/pg-delta";
+import { createPlan } from "@supabase/pg-delta";
+import { fromNodePgPool } from "@supabase/pg-delta/adapters/node-pg";
 
-const result = await Effect.scoped(
-  Effect.gen(function* () {
-    const source = yield* makeScopedPool(sourceUrl, { label: "source" });
-    const target = yield* makeScopedPool(targetUrl, { label: "target" });
-
-    const plan = yield* createPlanEffect(source.getPool(), target.getPool());
-    if (!plan) {
-      return null;
-    }
-
-    return yield* applyPlanEffect(plan.plan, source.getPool(), target.getPool());
-  }),
+const result = await createPlan(
+  fromNodePgPool(sourcePool),
+  fromNodePgPool(targetPool),
 ).pipe(Effect.runPromise);
 ```
 
-### `Plan`
+### Moving off mixed runtime exports
 
-A migration plan containing all changes to transform one database schema into another.
+Runtime-specific helpers no longer belong to `@supabase/pg-delta/effect` or
+`@supabase/pg-delta/catalog-export`. Use `@supabase/pg-delta/adapters/node-pg`
+for `pg` interop instead.
 
-```typescript
-interface Plan {
-  version: number;
-  toolVersion?: string;
-  source: { fingerprint: string };
-  target: { fingerprint: string };
-  statements: string[];
-  role?: string;
-  filter?: FilterDSL;
-  serialize?: SerializeDSL;
-  risk?: { level: "safe" } | { level: "data_loss"; statements: string[] };
-}
-```
+## Integrations
 
-### `CreatePlanOptions`
-
-Options for creating a plan.
+Integrations provide preconfigured filter and serialization rules:
 
 ```typescript
-interface CreatePlanOptions {
-  /** Filter - either FilterDSL (stored in plan) or ChangeFilter function (not stored) */
-  filter?: FilterDSL | ChangeFilter;
-  /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
-  serialize?: SerializeDSL | ChangeSerializer;
-  /** Role to use when executing the migration (SET ROLE will be added to statements) */
-  role?: string;
-}
-```
+import { Effect } from "effect";
+import { createPlan } from "@supabase/pg-delta";
+import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
-### `IntegrationDSL`
-
-A serializable representation of an integration combining filter and serialization options.
-
-```typescript
-type IntegrationDSL = {
-  /** Filter DSL - determines which changes to include/exclude */
-  filter?: FilterDSL;
-  /** Serialization DSL - customizes how changes are serialized */
-  serialize?: SerializeDSL;
-};
+const result = await createPlan(sourceUrl, targetUrl, {
+  filter: supabase.filter,
+  serialize: supabase.serialize,
+}).pipe(Effect.runPromise);
 ```
 
 See [Integrations](./integrations.md) for the full DSL documentation.
-
-## Using Integrations
-
-Integrations provide pre-configured filter and serialize options. Use them by spreading their properties into `CreatePlanOptions`:
-
-```typescript
-import { createPlan } from "@supabase/pg-delta";
-import { supabase } from "@supabase/pg-delta/integrations/supabase";
-
-// Use the supabase integration
-const result = await createPlan(sourceUrl, targetUrl, {
-  filter: supabase.filter,
-  serialize: supabase.serialize,
-});
-```
-
-### Custom Integration
-
-You can create your own integration using the `IntegrationDSL` type:
-
-```typescript
-import { createPlan, type IntegrationDSL } from "@supabase/pg-delta";
-
-const myIntegration: IntegrationDSL = {
-  filter: {
-    schema: "public",
-  },
-  serialize: [
-    {
-      when: { type: "schema", operation: "create" },
-      options: { skipAuthorization: true },
-    },
-  ],
-};
-
-const result = await createPlan(sourceUrl, targetUrl, {
-  filter: myIntegration.filter,
-  serialize: myIntegration.serialize,
-});
-```
-
-## Error Handling
-
-Both `createPlan` and `applyPlan` may throw errors for connection failures or database query errors. Always wrap calls in try-catch blocks:
-
-```typescript
-try {
-  const result = await createPlan(sourceUrl, targetUrl);
-  // Handle result
-} catch (error) {
-  console.error("Failed to create plan:", error);
-  process.exit(1);
-}
-```
-
-## Examples
-
-### Basic Migration
-
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
-
-async function migrate() {
-  const sourceUrl = process.env.SOURCE_DB_URL!;
-  const targetUrl = process.env.TARGET_DB_URL!;
-
-  const result = await createPlan(sourceUrl, targetUrl);
-
-  if (!result) {
-    console.log("No differences found");
-    return;
-  }
-
-  console.log("Migration plan:");
-  console.log(result.plan.statements.join(";\n"));
-
-  const applyResult = await applyPlan(result.plan, sourceUrl, targetUrl);
-
-  if (applyResult.status === "applied") {
-    console.log(`Successfully applied ${applyResult.statements} statements`);
-  }
-}
-```
-
-### With Supabase Integration
-
-```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
-import { supabase } from "@supabase/pg-delta/integrations/supabase";
-
-const result = await createPlan(sourceUrl, targetUrl, {
-  filter: supabase.filter,
-  serialize: supabase.serialize,
-});
-
-if (result) {
-  await applyPlan(result.plan, sourceUrl, targetUrl);
-}
-```
-
-### With Role
-
-```typescript
-import { createPlan } from "@supabase/pg-delta";
-
-// SET ROLE will be added to the beginning of the migration
-const result = await createPlan(sourceUrl, targetUrl, {
-  role: "postgres",
-});
-```
-
-### Filtering by Schema
-
-```typescript
-import { createPlan } from "@supabase/pg-delta";
-
-// Only include changes in the public schema
-const result = await createPlan(sourceUrl, targetUrl, {
-  filter: { schema: "public" },
-});
-```

@@ -8,7 +8,7 @@ import {
   objectKindFromObjType,
   relationFromRangeVarNode,
   typeFromTypeNameNode,
-} from "../src/extract/shared-refs";
+} from "../src/extract/shared-refs.ts";
 
 describe("extractStringValue", () => {
   test("returns undefined for null or non-object", () => {

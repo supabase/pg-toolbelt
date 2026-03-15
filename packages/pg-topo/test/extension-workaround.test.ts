@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { analyzeAndSort } from "../src/analyze-and-sort";
-import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
-import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-runtime-analysis";
-import { runPgTopoEffect } from "./support/run-effect";
-import { createTempFixtureHarness } from "./support/temp-fixture";
+import { analyzeAndSort } from "../src/analyze-and-sort.ts";
+import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation.ts";
+import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-runtime-analysis.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
+import { createTempFixtureHarness } from "./support/temp-fixture.ts";
 
 const fixtures = createTempFixtureHarness("pg-topo-ext-");
 const createSqlFixture = fixtures.createSqlFixture;
@@ -14,9 +14,9 @@ describe("postgres runtime validation", () => {
   test("keeps extension object dependencies unresolved in static analysis", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create table public.demo(id uuid default extensions.uuid_generate_v4() primary key);",
-      "create schema extensions;",
-      'create extension if not exists "uuid-ossp" with schema extensions;',
+        "create table public.demo(id uuid default extensions.uuid_generate_v4() primary key);",
+        "create schema extensions;",
+        'create extension if not exists "uuid-ossp" with schema extensions;',
       ]),
     );
     const unresolved = result.diagnostics.filter(

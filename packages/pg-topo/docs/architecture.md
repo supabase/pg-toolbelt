@@ -21,10 +21,12 @@ Package entrypoint:
 
 Function exports:
 
-- `analyzeAndSort(sql: string[]): Promise<AnalyzeResult>` — pure library, no filesystem
+- `analyzeAndSort(sql: string[]): Effect<AnalyzeResult, ParseError, ParserService>` — pure library, no filesystem
   - implemented in `src/analyze-and-sort.ts`
-- `analyzeAndSortFromFiles(roots: string[]): Promise<AnalyzeResult>` — filesystem adapter
+- `analyzeAndSortFromFiles(roots: string[]): Effect<AnalyzeResult, ParseError | DiscoveryError, ParserService | FileSystem | Path | WorkingDirectory>` — filesystem adapter
   - implemented in `src/from-files.ts`
+- `@supabase/pg-topo/node` / `@supabase/pg-topo/bun` — Promise facades that provide the runtime layers
+- `@supabase/pg-topo/adapters/node-filesystem` — explicit Node filesystem/path adapter layer for Effect callers
 
 Type exports from `src/index.ts`:
 
@@ -52,6 +54,7 @@ Behavior:
 
 - Static pipeline only (parse, classify, extract, graph, topo-sort, diagnostics)
 - Discovery is handled by the filesystem adapter (`src/from-files.ts`), not the core library
+- Runtime concerns are isolated to adapter/entrypoint modules; pure source files do not import `node:*`
 
 ## 3) Runtime and parser stack
 

@@ -9,9 +9,10 @@ import { validateSqlSyntax } from "../src/validate-sql.ts";
 
 describe("ParserService", () => {
   test("ParserServiceLive loads and parses SQL", async () => {
-    const result = await analyzeAndSort([
-      "CREATE TABLE foo (id int);",
-    ]).pipe(Effect.provide(ParserServiceLive), Effect.runPromise);
+    const result = await analyzeAndSort(["CREATE TABLE foo (id int);"]).pipe(
+      Effect.provide(ParserServiceLive),
+      Effect.runPromise,
+    );
     expect(result.ordered.length).toBe(1);
     expect(result.ordered[0].sql).toContain("CREATE TABLE");
   });

@@ -4,7 +4,7 @@
  */
 export {
   loadPgRuntimeConfig,
-  makePgRuntimeConfigLayer,
-  type PgRuntimeConfigApi,
+  
+  
   PgRuntimeConfigService,
 } from "../platform/sql/runtime-config.ts";

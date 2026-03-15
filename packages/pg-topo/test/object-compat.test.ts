@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isKindCompatible,
   signaturesCompatible,
-} from "../src/model/object-compat";
+} from "../src/model/object-compat.ts";
 
 describe("isKindCompatible", () => {
   test("type is compatible with view, table, domain, materialized_view", () => {

@@ -32,9 +32,9 @@ import { exportDeclarativeSchema } from "../../src/core/export/index.ts";
 import { compileFilterDSL } from "../../src/core/integrations/filter/dsl.ts";
 import { compileSerializeDSL } from "../../src/core/integrations/serialize/dsl.ts";
 import { supabase as supabaseIntegration } from "../../src/core/integrations/supabase.ts";
-import { createPool, endPool } from "../../src/core/postgres-config.ts";
 import { wrapPool } from "../../src/core/services/database-live.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
+import { createPool, endPool } from "../../src/platform/sql/pool.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,

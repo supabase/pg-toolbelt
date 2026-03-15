@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { normalizeCatalog } from "./catalog.normalize.ts";
 import { Catalog } from "./catalog.ts";
 import { extractCurrentUser, extractVersion } from "./context.ts";
-import { extractDepends, type PgDepend } from "./depend.ts";
+import { extractDepends } from "./depend.ts";
 import type { CatalogExtractionError } from "./errors.ts";
 import { extractAggregates } from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";

@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import path from "node:path";
-import { analyzeAndSortFromFiles } from "../src/from-files";
+import { analyzeAndSortFromFiles } from "../src/from-files.ts";
 import { discoverSqlFiles } from "../src/ingest/discover.ts";
-import { runPgTopoEffect } from "./support/run-effect";
-import { createTempFixtureHarness } from "./support/temp-fixture";
+import { runPgTopoEffect } from "./support/run-effect.ts";
+import { createTempFixtureHarness } from "./support/temp-fixture.ts";
 
 describe("analyzeAndSortFromFiles", () => {
   const harness = createTempFixtureHarness("pg-topo-from-files-");
@@ -55,7 +55,9 @@ describe("analyzeAndSortFromFiles", () => {
     });
     const rootA = path.join(dir, "a");
     const rootB = path.join(dir, "b");
-    const result = await runPgTopoEffect(analyzeAndSortFromFiles([rootA, rootB]));
+    const result = await runPgTopoEffect(
+      analyzeAndSortFromFiles([rootA, rootB]),
+    );
     expect(
       result.diagnostics.filter((d) => d.code === "DISCOVERY_ERROR"),
     ).toHaveLength(0);

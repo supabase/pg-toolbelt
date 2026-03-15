@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { Plan } from "../core/plan/types.ts";
-import {
-  deserializeCatalogSnapshotEffect,
-  validatePlanRisk,
-} from "./utils.ts";
+import { deserializeCatalogSnapshotEffect, validatePlanRisk } from "./utils.ts";
 
 describe("validatePlanRisk", () => {
   test("returns a specific message when risk metadata is missing", () => {

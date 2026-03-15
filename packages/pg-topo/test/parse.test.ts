@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseSqlContent } from "../src/ingest/parse";
-import { runPgTopoEffect } from "./support/run-effect";
+import { parseSqlContent } from "../src/ingest/parse.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
 
 describe("parseSqlContent", () => {
   test("sourceOffset skips leading whitespace so statement id points to first character", async () => {

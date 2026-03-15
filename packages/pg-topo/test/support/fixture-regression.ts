@@ -1,8 +1,8 @@
 import { expect } from "bun:test";
-import { analyzeAndSort } from "../../src/analyze-and-sort";
-import { validateAnalyzeResultWithPostgres } from "./postgres-validation";
-import { collectStatementsFromRoots } from "./randomized-input";
-import { runPgTopoEffect } from "./run-effect";
+import { analyzeAndSort } from "../../src/analyze-and-sort.ts";
+import { validateAnalyzeResultWithPostgres } from "./postgres-validation.ts";
+import { collectStatementsFromRoots } from "./randomized-input.ts";
+import { runPgTopoEffect } from "./run-effect.ts";
 
 const seededRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;

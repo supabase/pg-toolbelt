@@ -20,7 +20,11 @@ describe("@supabase/pg-topo entrypoints", () => {
   });
 
   test("node and bun entrypoints keep Promise facades", async () => {
-    await expect(NodeApi.validateSqlSyntax("SELECT 1;")).resolves.toBeUndefined();
-    await expect(BunApi.validateSqlSyntax("SELECT 1;")).resolves.toBeUndefined();
+    await expect(
+      NodeApi.validateSqlSyntax("SELECT 1;"),
+    ).resolves.toBeUndefined();
+    await expect(
+      BunApi.validateSqlSyntax("SELECT 1;"),
+    ).resolves.toBeUndefined();
   });
 });

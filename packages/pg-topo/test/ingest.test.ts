@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import path from "node:path";
 import { discoverSqlFiles } from "../src/ingest/discover.ts";
 import { parseSqlContent } from "../src/ingest/parse.ts";
-import { runPgTopoEffect } from "./support/run-effect";
-import { createTempFixtureHarness } from "./support/temp-fixture";
+import { runPgTopoEffect } from "./support/run-effect.ts";
+import { createTempFixtureHarness } from "./support/temp-fixture.ts";
 
 describe("discoverSqlFiles", () => {
   const harness = createTempFixtureHarness("pg-topo-ingest-");
@@ -19,7 +19,9 @@ describe("discoverSqlFiles", () => {
   });
 
   test("missing root is reported in missingRoots", async () => {
-    const result = await runPgTopoEffect(discoverSqlFiles(["/nonexistent/path/12345"]));
+    const result = await runPgTopoEffect(
+      discoverSqlFiles(["/nonexistent/path/12345"]),
+    );
     expect(result.files).toEqual([]);
     expect(result.missingRoots).toHaveLength(1);
     expect(result.missingRoots[0]).toContain("nonexistent");
@@ -69,7 +71,9 @@ describe("parseSqlContent", () => {
   });
 
   test("whitespace-only content returns empty statements", async () => {
-    const result = await runPgTopoEffect(parseSqlContent("   \n\t  ", "ws.sql"));
+    const result = await runPgTopoEffect(
+      parseSqlContent("   \n\t  ", "ws.sql"),
+    );
     expect(result.statements).toHaveLength(0);
     expect(result.diagnostics).toHaveLength(0);
   });

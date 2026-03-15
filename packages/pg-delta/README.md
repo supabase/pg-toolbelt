@@ -133,6 +133,10 @@ if (planResult) {
 }
 ```
 
+`@supabase/pg-delta` and `@supabase/pg-delta/effect` are now the Effect-native
+surfaces. They accept catalogs, abstract database adapters, and connection URLs,
+but they do not expose `pg.Pool` types directly.
+
 Promise facades are still available from explicit runtime entrypoints:
 
 ```typescript
@@ -146,6 +150,16 @@ const planResult = await createPlan(sourceUrl, targetUrl, {
 if (planResult) {
   const result = await applyPlan(planResult.plan, sourceUrl, targetUrl);
 }
+```
+
+If you need Effect-native `pg` interop explicitly, use the adapter boundary:
+
+```typescript
+import {
+  createManagedPool,
+  fromNodePgPool,
+  nodePgDatabaseResolverLayer,
+} from "@supabase/pg-delta/adapters/node-pg";
 ```
 
 Internally, the Effect-native path now uses the published

@@ -9,5 +9,5 @@
 
 export { createEmptyCatalog } from "./catalog.baseline.ts";
 export { extractCatalog } from "./catalog.extract.ts";
-export { normalizeCatalog } from "./catalog.normalize.ts";
-export { Catalog, type CatalogProps } from "./catalog.ts";
+;
+export { Catalog,  } from "./catalog.ts";

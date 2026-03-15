@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import type { Pool } from "pg";
 import * as EffectApi from "./effect.ts";
+
+type ExpectNever<T extends never> = T;
+
+type _CatalogInputDoesNotExposePool = ExpectNever<
+  Extract<EffectApi.CatalogInput, Pool>
+>;
+type _ApplyPlanDoesNotExposePool = ExpectNever<
+  Extract<Parameters<typeof EffectApi.applyPlan>[1], Pool>
+>;
 
 describe("@supabase/pg-delta/effect", () => {
   test("createPlan returns null for identical catalogs", async () => {

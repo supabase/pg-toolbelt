@@ -1,9 +1,10 @@
 import { Effect, FileSystem, Option } from "effect";
+import { makeScopedDatabase } from "../../../adapters/node-pg.ts";
 import {
   serializeCatalog,
   stringifyCatalogSnapshot,
 } from "../../../core/catalog.snapshot.ts";
-import { extractCatalog, makeScopedDatabase } from "../../../effect.ts";
+import { extractCatalog } from "../../../effect.ts";
 import { CliExitError } from "../../errors.ts";
 import { Output } from "../../output/output.service.ts";
 
@@ -23,7 +24,7 @@ export const handleCatalogExport = Effect.fnUntraced(function* (flags: {
       (error) =>
         new CliExitError({
           exitCode: 1,
-          message: `Error connecting to target database: ${error.message}`,
+          message: `Error connecting to target database: ${error instanceof Error ? error.message : String(error)}`,
         }),
     ),
   );

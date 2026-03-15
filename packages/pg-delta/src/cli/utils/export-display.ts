@@ -153,7 +153,9 @@ const collectExistingFiles = (
     for (const entry of entries) {
       const rel = base ? `${base}/${entry}` : entry;
       const fullPath = path.join(dir, rel);
-      const info = yield* fs.stat(fullPath).pipe(Effect.orElseSucceed(() => undefined));
+      const info = yield* fs
+        .stat(fullPath)
+        .pipe(Effect.orElseSucceed(() => undefined));
       if (info?.type === "File" && entry.endsWith(".sql")) {
         files.push(rel);
       } else if (info?.type === "Directory") {

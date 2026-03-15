@@ -8,8 +8,13 @@
  */
 
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodePath from "@effect/platform-node-shared/NodePath";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import type { Pool } from "pg";
+import {
+  fromNodePgPool,
+  nodePgDatabaseResolverLayer,
+} from "./adapters/node-pg.ts";
 import type { Catalog } from "./core/catalog.model.ts";
 import type { Change } from "./core/change.types.ts";
 import type { DiffContext } from "./core/context.ts";
@@ -24,10 +29,40 @@ import {
   createPlan as _createPlan,
   extractCatalog as _extractCatalog,
   loadDeclarativeSchema as _loadDeclarativeSchema,
-  fromPool,
 } from "./effect.ts";
 
-const runtime = ManagedRuntime.make(Layer.empty);
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(
+    nodePgDatabaseResolverLayer,
+    NodeFileSystem.layer,
+    NodePath.layer,
+  ),
+);
+
+export type NodeCatalogInput = CatalogInput | Pool;
+export type NodeConnectionInput = string | DatabaseApi | Pool;
+export type NodeDeclarativeApplyOptions = Omit<
+  Parameters<typeof _applyDeclarativeSchema>[0],
+  "pool"
+> & {
+  pool?: DatabaseApi | Pool;
+};
+
+const adaptCatalogInput = (input: NodeCatalogInput): CatalogInput =>
+  isPool(input) ? fromNodePgPool(input) : input;
+
+const adaptConnectionInput = (
+  input: NodeConnectionInput,
+): string | DatabaseApi => (isPool(input) ? fromNodePgPool(input) : input);
+
+const adaptPoolInput = (input: DatabaseApi | Pool): DatabaseApi =>
+  isPool(input) ? fromNodePgPool(input) : input;
+
+const isPool = (input: unknown): input is Pool =>
+  typeof input === "object" &&
+  input !== null &&
+  "connect" in input &&
+  typeof input.connect === "function";
 
 // ---------------------------------------------------------------------------
 // Promise wrappers
@@ -43,20 +78,31 @@ export const loadDeclarativeSchema = (
   );
 
 export const createPlan = (
-  source: CatalogInput | null,
-  target: CatalogInput,
+  source: NodeCatalogInput | null,
+  target: NodeCatalogInput,
   options?: CreatePlanOptions,
 ): Promise<{ plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null> =>
-  runtime.runPromise(_createPlan(source, target, options));
+  runtime.runPromise(
+    _createPlan(
+      source === null ? null : adaptCatalogInput(source),
+      adaptCatalogInput(target),
+      options,
+    ),
+  );
 
 export const applyPlan = async (
   plan: Plan,
-  source: string | Pool | DatabaseApi,
-  target: string | Pool | DatabaseApi,
+  source: NodeConnectionInput,
+  target: NodeConnectionInput,
   options?: { verifyPostApply?: boolean },
 ): Promise<ApplyPlanResult> => {
   const result = await runtime.runPromise(
-    _applyPlan(plan, source, target, options).pipe(Effect.result),
+    _applyPlan(
+      plan,
+      adaptConnectionInput(source),
+      adaptConnectionInput(target),
+      options,
+    ).pipe(Effect.result),
   );
 
   if (result._tag === "Success") {
@@ -91,13 +137,18 @@ export const applyPlan = async (
 };
 
 export const applyDeclarativeSchema = (
-  options: Parameters<typeof _applyDeclarativeSchema>[0],
+  options: NodeDeclarativeApplyOptions,
 ): Promise<DeclarativeApplyResult> =>
-  runtime.runPromise(_applyDeclarativeSchema(options));
+  runtime.runPromise(
+    _applyDeclarativeSchema({
+      ...options,
+      pool: options.pool ? adaptPoolInput(options.pool) : undefined,
+    }),
+  );
 
 export const extractCatalog = (input: Pool | DatabaseApi): Promise<Catalog> =>
   runtime.runPromise(
-    _extractCatalog("withConnection" in input ? input : fromPool(input)),
+    _extractCatalog(isPool(input) ? fromNodePgPool(input) : input),
   );
 
 // ---------------------------------------------------------------------------

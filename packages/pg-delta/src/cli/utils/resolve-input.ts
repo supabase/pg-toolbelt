@@ -43,7 +43,11 @@ export const loadCatalogFromFile = (
 export const resolveSourceInput = (
   source: Option.Option<string>,
   integrationEmptyCatalog: CatalogSnapshot | undefined,
-): Effect.Effect<string | Catalog | null, CliExitError, FileSystem.FileSystem> =>
+): Effect.Effect<
+  string | Catalog | null,
+  CliExitError,
+  FileSystem.FileSystem
+> =>
   Effect.gen(function* () {
     if (Option.isSome(source)) {
       return isPostgresUrl(source.value)

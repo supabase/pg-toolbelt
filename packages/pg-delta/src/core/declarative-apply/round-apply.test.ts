@@ -25,10 +25,7 @@ function createMockDatabase(queryHandler: (sql: string) => void): DatabaseApi {
         },
         catch: (error) =>
           new CatalogExtractionError({
-            message:
-              error instanceof Error
-                ? error.message
-                : String(error),
+            message: error instanceof Error ? error.message : String(error),
             cause: error,
           }),
       }),
@@ -42,10 +39,7 @@ function createMockDatabase(queryHandler: (sql: string) => void): DatabaseApi {
             },
             catch: (error) =>
               new CatalogExtractionError({
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : String(error),
+                message: error instanceof Error ? error.message : String(error),
                 cause: error,
               }),
           }),

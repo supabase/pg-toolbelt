@@ -3,8 +3,6 @@
  */
 
 import { Effect } from "effect";
-import type { Pool } from "pg";
-import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import {
   Catalog,
@@ -30,9 +28,10 @@ import {
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
 import type { DatabaseApi } from "../services/database.ts";
-import { makeScopedPool, wrapPool } from "../services/database-live.ts";
+import { DatabaseResolver } from "../services/database-resolver.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { PgDependRow } from "../sort/types.ts";
+import { quoteIdentifier } from "../sql-identifier.ts";
 import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
 
@@ -41,10 +40,11 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
 // ============================================================================
 
 /**
- * Input for source/target: a postgres connection URL, an existing Pool, or
- * an already-resolved Catalog (e.g. deserialized from a snapshot file).
+ * Input for source/target: a postgres connection URL, an existing database
+ * adapter, or an already-resolved Catalog (e.g. deserialized from a snapshot
+ * file).
  */
-export type CatalogInput = string | Pool | DatabaseApi | Catalog;
+export type CatalogInput = string | DatabaseApi | Catalog;
 
 /**
  * Build a plan (and supporting artifacts) from already extracted catalogs.
@@ -278,7 +278,7 @@ function generateStatements(
   const statements: string[] = [];
 
   if (options?.role) {
-    statements.push(`SET ROLE ${escapeIdentifier(options.role)}`);
+    statements.push(`SET ROLE ${quoteIdentifier(options.role)}`);
   }
 
   if (hasRoutineChanges(changes)) {
@@ -344,7 +344,8 @@ const resolveCatalog = (
   if (typeof input === "string") {
     return Effect.scoped(
       Effect.gen(function* () {
-        const db = yield* makeScopedPool(input, {
+        const databaseResolver = yield* DatabaseResolver;
+        const db = yield* databaseResolver.fromConnectionString(input, {
           role: options.role,
           label,
         });
@@ -356,6 +357,5 @@ const resolveCatalog = (
   if ("withConnection" in input) {
     return extractCatalog(input);
   }
-
-  return extractCatalog(wrapPool(input));
+  return extractCatalog(input);
 };

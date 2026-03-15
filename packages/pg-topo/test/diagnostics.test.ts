@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeAndSort } from "../src/analyze-and-sort";
-import { runPgTopoEffect } from "./support/run-effect";
+import { analyzeAndSort } from "../src/analyze-and-sort.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
 
 describe("diagnostics", () => {
   test("reports duplicate producers with candidate details", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create table app.users(id int primary key);",
-      "create table app.users(id int primary key, email text not null);",
-      "create view app.user_ids as select id from app.users;",
+        "create schema app;",
+        "create table app.users(id int primary key);",
+        "create table app.users(id int primary key, email text not null);",
+        "create view app.user_ids as select id from app.users;",
       ]),
     );
     const duplicateDiagnostics = result.diagnostics.filter(
@@ -29,9 +29,9 @@ describe("diagnostics", () => {
   test("includes candidate producers for unresolved dependencies", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema analytics;",
-      "create table analytics.accounts(id int primary key);",
-      "create view public.account_ids as select id from public.accounts;",
+        "create schema analytics;",
+        "create table analytics.accounts(id int primary key);",
+        "create view public.account_ids as select id from public.accounts;",
       ]),
     );
     const unresolved = result.diagnostics.find(
@@ -48,8 +48,8 @@ describe("diagnostics", () => {
   test("cycle diagnostics include statement participants", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create view public.v1 as select * from public.v2;",
-      "create view public.v2 as select * from public.v1;",
+        "create view public.v1 as select * from public.v2;",
+        "create view public.v2 as select * from public.v1;",
       ]),
     );
     const cycleDiagnostic = result.diagnostics.find(
@@ -211,10 +211,10 @@ describe("diagnostics", () => {
   test("multiple producers for same constraint add requires_constraint_key edges", async () => {
     const result = await runPgTopoEffect(
       analyzeAndSort([
-      "create schema app;",
-      "create table app.t(id int primary key);",
-      "create table app.t(id int primary key, x int);",
-      "create table app.ref(id int references app.t(id));",
+        "create schema app;",
+        "create table app.t(id int primary key);",
+        "create table app.t(id int primary key, x int);",
+        "create table app.ref(id int references app.t(id));",
       ]),
     );
     const duplicateTable = result.diagnostics.filter(

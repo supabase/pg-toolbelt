@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseAnnotations } from "../src/annotations/parse-annotations";
+import { parseAnnotations } from "../src/annotations/parse-annotations.ts";
 
 describe("annotation hardening", () => {
   test("parses only leading pg-topo comments for a statement", () => {

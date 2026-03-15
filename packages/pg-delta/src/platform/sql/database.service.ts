@@ -28,7 +28,7 @@ export class SqlDatabase extends ServiceMap.Service<SqlDatabase, DatabaseApi>()(
   "@pg-delta/platform/sql/SqlDatabase",
 ) {}
 
-export const makeDatabaseConnection = (
+const makeDatabaseConnection = (
   connection: SqlConnection,
   onError: (error: unknown) => CatalogExtractionError,
 ): DatabaseConnectionApi => ({

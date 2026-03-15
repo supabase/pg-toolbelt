@@ -1,18 +1,18 @@
-import type { GraphState } from "../../../src/graph/build-graph";
-import { topoSort } from "../../../src/graph/topo-sort";
-import { objectRefKey } from "../../../src/model/object-ref";
-import type { StatementNode } from "../../../src/model/types";
-import { withPostgresValidationDatabase } from "./postgres-container";
+import type { GraphState } from "../../../src/graph/build-graph.ts";
+import { topoSort } from "../../../src/graph/topo-sort.ts";
+import { objectRefKey } from "../../../src/model/object-ref.ts";
+import type { StatementNode } from "../../../src/model/types.ts";
+import { withPostgresValidationDatabase } from "./postgres-container.ts";
 import {
   isDependencyErrorCode,
   isEnvironmentCapabilityError,
   toDatabaseLikeError,
-} from "./postgres-errors";
+} from "./postgres-errors.ts";
 import {
   findProducerCandidates,
   inferMissingObjectRef,
-} from "./postgres-missing-ref";
-import type { RuntimeDiagnostic } from "./postgres-types";
+} from "./postgres-missing-ref.ts";
+import type { RuntimeDiagnostic } from "./postgres-types.ts";
 
 type ValidationResult = {
   orderedIndices: number[];

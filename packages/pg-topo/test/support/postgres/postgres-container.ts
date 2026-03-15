@@ -4,7 +4,7 @@ import {
 } from "@testcontainers/postgresql";
 import { SQL } from "bun";
 import { getContainerRuntimeClient, ImageName, Wait } from "testcontainers";
-import type { SqlExecutor } from "./postgres-types";
+import type { SqlExecutor } from "./postgres-types.ts";
 
 const POSTGRES_VALIDATION_IMAGE = "postgres:17-alpine";
 

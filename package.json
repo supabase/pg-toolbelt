@@ -9,9 +9,10 @@
   },
   "scripts": {
     "build": "bun run --filter '*' build",
+    "check-boundaries": "bun scripts/check-effect-boundaries.ts",
     "e2e": "./scripts/e2e-docker.sh",
     "coverage": "bun scripts/coverage.ts",
-    "check-types": "bun run --filter '*' check-types",
+    "check-types": "bun run --filter '*' check-types && bun run check-boundaries",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "bun run --filter '*' knip",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",

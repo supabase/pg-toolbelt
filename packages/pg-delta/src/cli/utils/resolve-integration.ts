@@ -3,7 +3,7 @@
  * Used by plan, sync, and declarative-export handlers.
  */
 
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, type FileSystem, Option } from "effect";
 import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
@@ -13,7 +13,7 @@ import { CliExitError } from "../errors.ts";
 import { parseJsonEffect } from "../utils.ts";
 import { loadIntegrationDSL } from "./integrations.ts";
 
-export interface ResolvedIntegration {
+interface ResolvedIntegration {
   readonly filter: FilterDSL | ChangeFilter | undefined;
   readonly serialize: SerializeDSL | ChangeSerializer | undefined;
   readonly emptyCatalog: CatalogSnapshot | undefined;

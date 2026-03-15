@@ -1,21 +1,19 @@
-import path from "node:path";
-import { Effect, FileSystem } from "effect";
-import { WorkingDirectory } from "../services/working-directory.ts";
+import { Effect, FileSystem, Path } from "effect";
+import { WorkingDirectory } from "../services/working-directory.service.ts";
 
-type DiscoveryResult = {
-  files: string[];
-  missingRoots: string[];
-};
-
-const resolveFromWorkingDirectory = (cwd: string, inputPath: string): string =>
-  path.resolve(cwd, inputPath);
+const resolveFromWorkingDirectory = (
+  pathService: Path.Path,
+  cwd: string,
+  inputPath: string,
+): string => pathService.resolve(cwd, inputPath);
 
 const readSqlFilesInDirectory = (
   directoryPath: string,
   outFiles: Set<string>,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
+): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const entries = yield* fs
       .readDirectory(directoryPath)
       .pipe(Effect.orElseSucceed(() => [] as string[]));
@@ -39,17 +37,17 @@ const readSqlFilesInDirectory = (
     }
   });
 
-export const discoverSqlFiles = Effect.fnUntraced(function* (
-  roots: string[],
-) {
+export const discoverSqlFiles = Effect.fnUntraced(function* (roots: string[]) {
   const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const workingDirectory = yield* WorkingDirectory;
   const files = new Set<string>();
   const missingRoots: string[] = [];
 
   for (const inputRoot of roots) {
     const resolvedRoot = resolveFromWorkingDirectory(
-      workingDirectory.cwd,
+      path,
+      workingDirectory,
       inputRoot,
     );
     const exists = yield* fs

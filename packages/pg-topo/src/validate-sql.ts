@@ -31,7 +31,8 @@ export const validateSqlSyntax = Effect.fnUntraced(function* (sql: string) {
     .parseSqlContent(sql, "<validation>")
     .pipe(
       Effect.mapError(
-        (error) => new ValidationError({ message: error.message, cause: error }),
+        (error) =>
+          new ValidationError({ message: error.message, cause: error }),
       ),
     );
   const validationError = toValidationError(sql, parsed);

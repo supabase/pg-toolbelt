@@ -1,4 +1,4 @@
-import type { ObjectRef, StatementId } from "../../../src/model/types";
+import type { ObjectRef, StatementId } from "../../../src/model/types.ts";
 
 export type DatabaseLikeError = {
   code?: string;

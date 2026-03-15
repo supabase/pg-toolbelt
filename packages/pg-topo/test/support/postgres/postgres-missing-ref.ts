@@ -1,13 +1,13 @@
 import {
   isKindCompatible,
   signaturesCompatible,
-} from "../../../src/model/object-compat";
+} from "../../../src/model/object-compat.ts";
 import {
   normalizeSignature,
   splitQualifiedName,
-} from "../../../src/model/object-ref";
-import type { ObjectRef, StatementNode } from "../../../src/model/types";
-import type { DatabaseLikeError } from "./postgres-types";
+} from "../../../src/model/object-ref.ts";
+import type { ObjectRef, StatementNode } from "../../../src/model/types.ts";
+import type { DatabaseLikeError } from "./postgres-types.ts";
 
 const relationKindPriority: ObjectRef["kind"][] = [
   "index",

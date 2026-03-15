@@ -93,7 +93,7 @@ const verbose = Flag.boolean("verbose").pipe(
   Flag.withDefault(false),
 );
 
-export const declarativeExportFlags = {
+const declarativeExportFlags = {
   source,
   target,
   output,

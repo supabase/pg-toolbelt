@@ -23,9 +23,6 @@ export type {
 } from "./model/types.ts";
 export { type ParserApi, ParserService } from "./services/parser.ts";
 export { ParserServiceLive } from "./services/parser-live.ts";
-export {
-  makeWorkingDirectoryLayer,
-  WorkingDirectory,
-  type WorkingDirectoryApi,
-} from "./services/working-directory.ts";
+export { withWorkingDirectory } from "./services/working-directory.layer.ts";
+export { WorkingDirectory } from "./services/working-directory.service.ts";
 export { validateSqlSyntax } from "./validate-sql.ts";

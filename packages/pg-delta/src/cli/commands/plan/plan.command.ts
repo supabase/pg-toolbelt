@@ -75,7 +75,7 @@ const sqlFormatOptions = Flag.string("sql-format-options").pipe(
   Flag.optional,
 );
 
-export const planFlags = {
+const planFlags = {
   source,
   target,
   format,

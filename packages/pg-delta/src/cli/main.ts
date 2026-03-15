@@ -9,6 +9,7 @@ import * as NodeTerminal from "@effect/platform-node-shared/NodeTerminal";
 import { Cause, Effect, Exit, Layer, Option, Stdio } from "effect";
 import { Command } from "effect/unstable/cli";
 import * as CliError from "effect/unstable/cli/CliError";
+import { nodePgDatabaseResolverLayer } from "../adapters/node-pg.ts";
 import { configurePgDeltaLogging } from "../core/logging.ts";
 import {
   generateCompletionScript,
@@ -21,21 +22,25 @@ import { normalizeCause, normalizeCliError } from "./output/normalize-error.ts";
 import { outputLayerFor } from "./output/output.layer.ts";
 import { Output } from "./output/output.service.ts";
 import type { OutputFormat } from "./output/types.ts";
+import { root } from "./root.ts";
 import { processControlLayer } from "./runtime/process-control.layer.ts";
 import { ProcessControl } from "./runtime/process-control.service.ts";
 import { ttyLayer } from "./runtime/tty.layer.ts";
-import { root } from "./root.ts";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../../package.json") as { version: string };
 
-const NodeServicesLive = NodeChildProcessSpawner.layer.pipe(
+const CliRuntimeLive = nodePgDatabaseResolverLayer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(
-      NodeFileSystem.layer,
-      NodePath.layer,
-      NodeStdio.layer,
-      NodeTerminal.layer,
+    NodeChildProcessSpawner.layer.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          NodeFileSystem.layer,
+          NodePath.layer,
+          NodeStdio.layer,
+          NodeTerminal.layer,
+        ),
+      ),
     ),
   ),
 );
@@ -104,7 +109,7 @@ function cliProgramFor(args: ReadonlyArray<string>) {
     Effect.provide(PgDeltaCliOutputLive),
     Effect.provide(processControlLayer),
     Effect.provide(ttyLayer),
-    Effect.provide(NodeServicesLive),
+    Effect.provide(CliRuntimeLive),
   );
 }
 
@@ -112,7 +117,7 @@ const args = await Effect.runPromise(
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
     return yield* stdio.args;
-  }).pipe(Effect.provide(NodeServicesLive)),
+  }).pipe(Effect.provide(CliRuntimeLive)),
 );
 
 const program = Effect.gen(function* () {
@@ -121,7 +126,9 @@ const program = Effect.gen(function* () {
 
   const rawCompletionMode =
     (yield* processControl.env("PGDELTA_INTERNAL_RAW_COMPLETIONS")) === "1";
-  const completionShell = rawCompletionMode ? undefined : parseCompletionShell(args);
+  const completionShell = rawCompletionMode
+    ? undefined
+    : parseCompletionShell(args);
 
   if (!rawCompletionMode && hasMissingCompletionsShell(args)) {
     return yield* Effect.fail(
@@ -162,12 +169,10 @@ const program = Effect.gen(function* () {
   Effect.provide(outputLayerFor(outputFormatFor(args))),
   Effect.provide(processControlLayer),
   Effect.provide(ttyLayer),
-  Effect.provide(NodeServicesLive),
+  Effect.provide(CliRuntimeLive),
 );
 
-const handledProgram = (
-  program: Effect.Effect<unknown, unknown, never>,
-): Effect.Effect<void, never, never> =>
+const handledProgram = <R>(program: Effect.Effect<unknown, unknown, R>) =>
   Effect.gen(function* () {
     const processControl = yield* ProcessControl;
     const output = yield* Output;
@@ -213,7 +218,7 @@ const handledProgram = (
     Effect.provide(PgDeltaCliOutputLive),
     Effect.provide(processControlLayer),
     Effect.provide(ttyLayer),
-    Effect.provide(NodeServicesLive),
+    Effect.provide(CliRuntimeLive),
   );
 
 export async function runPgDeltaCli(): Promise<void> {

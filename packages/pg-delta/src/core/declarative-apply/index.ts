@@ -11,10 +11,9 @@
 import type { Diagnostic, StatementNode } from "@supabase/pg-topo";
 import { analyzeAndSort, ParserServiceLive } from "@supabase/pg-topo";
 import { Effect } from "effect";
-import type { Pool } from "pg";
 import { DeclarativeApplyError } from "../errors.ts";
 import type { DatabaseApi } from "../services/database.ts";
-import { makeScopedPool, wrapPool } from "../services/database-live.ts";
+import { DatabaseResolver } from "../services/database-resolver.ts";
 import { extractCatalogProviders } from "./extract-catalog-providers.ts";
 import {
   type ApplyResult,
@@ -34,8 +33,8 @@ interface DeclarativeApplyOptions {
   content: SqlFileEntry[];
   /** Target database connection URL (required if pool is not provided) */
   targetUrl?: string;
-  /** Existing pool to use (caller owns it; not closed). If provided, targetUrl is ignored. */
-  pool?: Pool | DatabaseApi;
+  /** Existing database adapter to use. If provided, targetUrl is ignored. */
+  pool?: DatabaseApi;
   /** Max rounds before giving up (default: 100) */
   maxRounds?: number;
   /** Run final function body validation (default: true) */
@@ -100,19 +99,9 @@ export { loadDeclarativeSchema } from "./discover-sql.ts";
 // Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
 export type { ApplyResult, RoundResult } from "./round-apply.ts";
 
-type DatabaseResolvers = {
-  readonly makeScopedPool: typeof makeScopedPool;
-  readonly wrapPool: typeof wrapPool;
-};
-
-const defaultDatabaseResolvers: DatabaseResolvers = {
-  makeScopedPool,
-  wrapPool,
-};
-
 export const applyDeclarativeSchema = (
   options: DeclarativeApplyOptions,
-) : Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> => {
+): Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> => {
   const {
     content,
     maxRounds = 100,
@@ -209,16 +198,11 @@ const emptyApplyResult = (
 export const withResolvedDatabase = <A, E, R>(
   options: DeclarativeApplyOptions,
   use: (database: DatabaseApi) => Effect.Effect<A, E, R>,
-  resolvers: DatabaseResolvers = defaultDatabaseResolvers,
 ): Effect.Effect<A, DeclarativeApplyError | E, R> => {
   const { targetUrl, pool: providedPool } = options;
 
   if (providedPool) {
-    return use(
-      "withConnection" in providedPool
-        ? providedPool
-        : resolvers.wrapPool(providedPool),
-    );
+    return use(providedPool);
   }
 
   if (!targetUrl) {
@@ -231,8 +215,9 @@ export const withResolvedDatabase = <A, E, R>(
 
   return Effect.scoped(
     Effect.gen(function* () {
-      const database = yield* resolvers
-        .makeScopedPool(targetUrl, { label: "target" })
+      const databaseResolver = yield* DatabaseResolver;
+      const database = yield* databaseResolver
+        .fromConnectionString(targetUrl, { label: "target" })
         .pipe(
           Effect.mapError(
             (error) =>

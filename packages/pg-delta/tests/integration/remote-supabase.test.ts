@@ -14,9 +14,9 @@ import {
   RevokeRoleDefaultPrivileges,
   RevokeRoleMembership,
 } from "../../src/core/objects/role/changes/role.privilege.ts";
-import { createPool } from "../../src/core/postgres-config.ts";
 import { wrapPool } from "../../src/core/services/database-live.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
+import { createPool } from "../../src/platform/sql/pool.ts";
 import { withDb } from "../utils.ts";
 
 // Test to run manually.

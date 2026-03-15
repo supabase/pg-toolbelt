@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { Effect, FileSystem, Layer } from "effect";
+import { Effect, FileSystem, Layer, Path } from "effect";
 import { analyzeAndSortFromFiles } from "../src/from-files.ts";
 import { ParserServiceLive } from "../src/services/parser-live.ts";
-import { WorkingDirectory } from "../src/services/working-directory.ts";
+import { WorkingDirectory } from "../src/services/working-directory.service.ts";
 
 const TestFileSystem = Layer.succeed(FileSystem.FileSystem, {
   exists: (filePath: string) =>
@@ -36,7 +36,8 @@ const TestFileSystem = Layer.succeed(FileSystem.FileSystem, {
 const TestLayer = Layer.mergeAll(
   ParserServiceLive,
   TestFileSystem,
-  Layer.succeed(WorkingDirectory, { cwd: process.cwd() }),
+  Layer.succeed(WorkingDirectory, process.cwd()),
+  Path.layer,
 );
 
 describe("analyzeAndSortFromFiles", () => {
@@ -75,9 +76,8 @@ describe("analyzeAndSortFromFiles", () => {
         Layer.mergeAll(
           ParserServiceLive,
           TestFileSystem,
-          Layer.succeed(WorkingDirectory, {
-            cwd: path.join(process.cwd(), "test"),
-          }),
+          Layer.succeed(WorkingDirectory, path.join(process.cwd(), "test")),
+          Path.layer,
         ),
       ),
       Effect.runPromise,

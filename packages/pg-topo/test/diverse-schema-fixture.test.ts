@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import path from "node:path";
-import type { StatementClass } from "../src/classify/classify-statement";
-import { analyzeAndSortFromFiles } from "../src/effect";
-import type { AnalyzeResult } from "../src/model/types";
-import { analyzeResultFingerprint } from "./support/fingerprint";
-import { expectRandomizedRuntimeOutcomeEnvelope } from "./support/fixture-regression";
-import type { RuntimeDiagnostic } from "./support/postgres/postgres-types";
-import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
-import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-runtime-analysis";
-import { runPgTopoEffect } from "./support/run-effect";
+import type { StatementClass } from "../src/classify/classify-statement.ts";
+import { analyzeAndSortFromFiles } from "../src/effect.ts";
+import type { AnalyzeResult } from "../src/model/types.ts";
+import { analyzeResultFingerprint } from "./support/fingerprint.ts";
+import { expectRandomizedRuntimeOutcomeEnvelope } from "./support/fixture-regression.ts";
+import type { RuntimeDiagnostic } from "./support/postgres/postgres-types.ts";
+import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation.ts";
+import { analyzeAndSortFromRandomizedStatements } from "./support/randomized-runtime-analysis.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
 
 const fixtureRoot = path.resolve(import.meta.dir, "fixtures/diverse-schema");
 const baselineFingerprint =
@@ -36,7 +36,9 @@ const getLooseValidationDiagnostics = async (): Promise<
 
 describe("diverse schema fixture", () => {
   beforeAll(async () => {
-    baselineResult = await runPgTopoEffect(analyzeAndSortFromFiles([fixtureRoot]));
+    baselineResult = await runPgTopoEffect(
+      analyzeAndSortFromFiles([fixtureRoot]),
+    );
   });
 
   test("handles the diverse corpus without unknown statement classes", () => {

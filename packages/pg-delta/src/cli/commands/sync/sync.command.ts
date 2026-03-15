@@ -53,7 +53,7 @@ const integration = Flag.string("integration").pipe(
   Flag.optional,
 );
 
-export const syncFlags = {
+const syncFlags = {
   source,
   target,
   yes,

@@ -54,8 +54,7 @@ const extractStatementSql = async (
         if ((parsed.stmts ?? []).length > 0) {
           return candidate;
         }
-      } catch {
-      }
+      } catch {}
     }
   }
 

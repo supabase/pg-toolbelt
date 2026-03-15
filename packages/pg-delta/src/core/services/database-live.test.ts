@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer, Scope } from "effect";
+import { Effect, Layer, type Scope } from "effect";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { createDatabaseLayer } from "../../platform/sql/database.layer.ts";
 import { ConnectionTimeoutError, SslConfigError } from "../errors.ts";
@@ -86,21 +86,23 @@ describe("makeScopedPool", () => {
 
   test("passes injected runtime config through to SSL parsing", async () => {
     const harness = createHarness(DefaultRuntimeConfig);
-    harness.parseSslConfigMock.mockImplementationOnce(async (...args: unknown[]) => {
-      const [url, _label, runtimeConfig] = args as [
-        string,
-        "source" | "target",
-        { getEnv: (name: string) => string | undefined },
-      ];
+    harness.parseSslConfigMock.mockImplementationOnce(
+      async (...args: unknown[]) => {
+        const [url, _label, runtimeConfig] = args as [
+          string,
+          "source" | "target",
+          { getEnv: (name: string) => string | undefined },
+        ];
 
-      return {
-        cleanedUrl: url,
-        ssl: {
-          rejectUnauthorized: true,
-          ca: runtimeConfig.getEnv("PGDELTA_SOURCE_SSLROOTCERT"),
-        },
-      };
-    });
+        return {
+          cleanedUrl: url,
+          ssl: {
+            rejectUnauthorized: true,
+            ca: runtimeConfig.getEnv("PGDELTA_SOURCE_SSLROOTCERT"),
+          },
+        };
+      },
+    );
 
     const runtimeConfig = Layer.succeed(PgRuntimeConfigService, {
       poolMax: 5,
@@ -111,7 +113,9 @@ describe("makeScopedPool", () => {
     });
 
     await Effect.scoped(
-      harness.makeScopedPoolEffect("postgresql://example/db", { label: "source" }),
+      harness.makeScopedPoolEffect("postgresql://example/db", {
+        label: "source",
+      }),
     ).pipe(Effect.provide(runtimeConfig), Effect.runPromise);
 
     expect(harness.createPoolMock).toHaveBeenCalledWith(
@@ -142,7 +146,9 @@ describe("makeScopedPool", () => {
     );
 
     const result = await Effect.scoped(
-      harness.makeScopedPoolEffect("postgresql://example/db", { label: "target" }),
+      harness.makeScopedPoolEffect("postgresql://example/db", {
+        label: "target",
+      }),
     ).pipe(Effect.provide(TestRuntimeConfig), Effect.result, Effect.runPromise);
 
     expect(result._tag).toBe("Failure");
@@ -162,7 +168,8 @@ describe("makeScopedPool", () => {
       options?: Record<string, unknown>;
     };
 
-    const result = await harness.wrapPool(rawPool)
+    const result = await harness
+      .wrapPool(rawPool)
       .query<{ ok: number }>("select 1")
       .pipe(Effect.runPromise);
 
@@ -171,13 +178,18 @@ describe("makeScopedPool", () => {
     expect(harness.fromPoolPgClientMock).toHaveBeenCalledTimes(1);
     expect(harness.acquiredPools).toHaveLength(1);
     expect(
-      (
-        harness.acquiredPools[0] as Pool & { options?: Record<string, unknown> }
-      ).options,
+      (harness.acquiredPools[0] as Pool & { options?: Record<string, unknown> })
+        .options,
     ).toEqual(expect.any(Object));
 
+    const acquiredPool = harness.acquiredPools[0];
+    expect(acquiredPool).toBeDefined();
+    if (!acquiredPool) {
+      throw new Error("expected acquired pool");
+    }
+
     await new Promise<void>((resolve) => {
-      harness.acquiredPools[0]!.connect((error, client, release) => {
+      acquiredPool.connect((error, client, release) => {
         expect(error).toBeUndefined();
         expect(client).toBeDefined();
         expect(typeof client?.on).toBe("function");
@@ -199,8 +211,14 @@ describe("makeScopedPool", () => {
 
     expect(harness.acquiredPools).toHaveLength(1);
 
+    const acquiredPool = harness.acquiredPools[0];
+    expect(acquiredPool).toBeDefined();
+    if (!acquiredPool) {
+      throw new Error("expected acquired pool");
+    }
+
     await new Promise<void>((resolve) => {
-      harness.acquiredPools[0]!.connect((error, client, release) => {
+      acquiredPool.connect((error, client, release) => {
         expect(error).toBeInstanceOf(Error);
         expect(error?.message).toBe("connection reset");
         expect(client).toBeDefined();
@@ -241,39 +259,40 @@ describe("makeScopedPool", () => {
   });
 });
 
-function createHarness(defaultRuntimeConfig: Layer.Layer<PgRuntimeConfigService>) {
+function createHarness(
+  defaultRuntimeConfig: Layer.Layer<PgRuntimeConfigService>,
+) {
   const parseSslConfigMock = mock(
     async (...args: unknown[]): Promise<MockSslConfig> => ({
       cleanedUrl: args[0] as string,
       ssl: undefined,
     }),
   );
-  const createPoolMock = mock(
-    (() => makePool({ connect: () => Promise.resolve(makeClient()) })) as (
-      ...args: unknown[]
-    ) => Pool,
-  );
+  const createPoolMock = mock((() =>
+    makePool({ connect: () => Promise.resolve(makeClient()) })) as (
+    ...args: unknown[]
+  ) => Pool);
   const endPoolMock = mock(async (_pool: Pool) => {});
 
   const acquiredPools: Pool[] = [];
   let ownedPoolClientFinalizers = 0;
-  const fromPoolPgClientMock = mock(
-    ((options: { acquire: Effect.Effect<Pool, never, never> }) =>
-      options.acquire.pipe(
-        Effect.flatMap((pool) => {
-          acquiredPools.push(pool);
-          return Effect.acquireRelease(
-            Effect.succeed(makeSqlPgClientDouble()),
-            () =>
-              Effect.sync(() => {
-                ownedPoolClientFinalizers += 1;
-              }),
-          );
-        }),
-      )) as (options: {
-      acquire: Effect.Effect<Pool, never, never>;
-    }) => Effect.Effect<SqlPgClientDouble, never, Scope.Scope>,
-  );
+  const fromPoolPgClientMock = mock(((options: {
+    acquire: Effect.Effect<Pool, never, never>;
+  }) =>
+    options.acquire.pipe(
+      Effect.flatMap((pool) => {
+        acquiredPools.push(pool);
+        return Effect.acquireRelease(
+          Effect.succeed(makeSqlPgClientDouble()),
+          () =>
+            Effect.sync(() => {
+              ownedPoolClientFinalizers += 1;
+            }),
+        );
+      }),
+    )) as (options: {
+    acquire: Effect.Effect<Pool, never, never>;
+  }) => Effect.Effect<SqlPgClientDouble, never, Scope.Scope>);
 
   const databaseLayer = createDatabaseLayer({
     createPool: createPoolMock,
@@ -287,10 +306,13 @@ function createHarness(defaultRuntimeConfig: Layer.Layer<PgRuntimeConfigService>
     acquiredPools,
     createPoolMock,
     fromPoolPgClientMock,
-    makeScopedPool: (url: string, options?: { label?: "source" | "target"; role?: string }) =>
-      databaseLayer.makeScopedSqlDatabaseEffect(url, options).pipe(
-        Effect.provide(defaultRuntimeConfig),
-      ),
+    makeScopedPool: (
+      url: string,
+      options?: { label?: "source" | "target"; role?: string },
+    ) =>
+      databaseLayer
+        .makeScopedSqlDatabaseEffect(url, options)
+        .pipe(Effect.provide(defaultRuntimeConfig)),
     makeScopedPoolEffect: databaseLayer.makeScopedSqlDatabaseEffect,
     ownedPoolClientFinalizers: () => ownedPoolClientFinalizers,
     parseSslConfigMock,
@@ -352,7 +374,7 @@ function makePool(options?: {
       client: PoolClient,
       release: (destroy?: unknown) => void,
     ) => void,
-  ) => Promise<PoolClient> | void;
+  ) => Promise<PoolClient> | undefined;
 }): Pool {
   const connectImpl =
     options?.connect ?? (() => Promise.resolve(makeClient() as PoolClient));

@@ -5,7 +5,7 @@ import {
   normalizeIdentifier,
   normalizeSignature,
   splitQualifiedName,
-} from "../src/model/object-ref";
+} from "../src/model/object-ref.ts";
 
 describe("object reference normalization", () => {
   test("folds unquoted identifiers while preserving quoted identifiers", () => {

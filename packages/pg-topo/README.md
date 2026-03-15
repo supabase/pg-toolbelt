@@ -78,11 +78,21 @@ const result = await analyzeAndSortFromFiles(["./schema"]).pipe(
 
 `analyzeAndSortFromFiles` discovers `.sql` files, reads them, and delegates to the core `analyzeAndSort`.
 
+The Effect-native filesystem path is now explicit about its requirements:
+provide `FileSystem`, `Path`, and a working-directory value. The published
+runtime boundaries do that for you.
+
 If you want Promise-returning wrappers instead, use the explicit runtime entrypoints:
 
 ```ts
 import { analyzeAndSort } from "@supabase/pg-topo/node";
 import { analyzeAndSortFromFiles } from "@supabase/pg-topo/bun";
+```
+
+If you need the runtime layer directly, use the adapter boundary:
+
+```ts
+import { makeNodeFileSystemRuntimeLayer } from "@supabase/pg-topo/adapters/node-filesystem";
 ```
 
 ## Public API

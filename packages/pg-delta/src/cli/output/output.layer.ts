@@ -19,7 +19,7 @@ const writeLine = (
   message: string,
 ) => write(message.endsWith("\n") ? message : `${message}\n`);
 
-export const textOutputLayer = Layer.effect(
+const textOutputLayer = Layer.effect(
   Output,
   Effect.gen(function* () {
     const tty = yield* Tty;
@@ -132,7 +132,7 @@ export const textOutputLayer = Layer.effect(
   }),
 );
 
-export const jsonOutputLayer = Layer.effect(
+const jsonOutputLayer = Layer.effect(
   Output,
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;
@@ -167,7 +167,7 @@ export const jsonOutputLayer = Layer.effect(
   }),
 );
 
-export const streamJsonOutputLayer = Layer.effect(
+const streamJsonOutputLayer = Layer.effect(
   Output,
   Effect.gen(function* () {
     const stdio = yield* Stdio.Stdio;

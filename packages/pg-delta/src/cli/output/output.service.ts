@@ -3,7 +3,7 @@ import { ServiceMap } from "effect";
 import type { NonInteractiveError } from "./errors.ts";
 import type { OutputFormat, StreamEvent } from "./types.ts";
 
-export interface OutputApi {
+interface OutputApi {
   readonly format: OutputFormat;
   readonly interactive: boolean;
   readonly write: (message: string) => Effect.Effect<void>;

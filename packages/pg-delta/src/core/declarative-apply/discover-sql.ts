@@ -3,8 +3,7 @@
  * Matches pg-topo's discovery order for deterministic statement ordering.
  */
 
-import path from "node:path";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Path } from "effect";
 import { FileDiscoveryError } from "../errors.ts";
 
 export interface SqlFileEntry {
@@ -20,6 +19,7 @@ export interface SqlFileEntry {
  */
 const readSqlFilesInDirectory = (
   fs: FileSystem.FileSystem,
+  path: Path.Path,
   directoryPath: string,
   outFiles: Set<string>,
 ): Effect.Effect<void, FileDiscoveryError> =>
@@ -48,7 +48,7 @@ const readSqlFilesInDirectory = (
       );
 
       if (info.type === "Directory") {
-        yield* readSqlFilesInDirectory(fs, fullPath, outFiles);
+        yield* readSqlFilesInDirectory(fs, path, fullPath, outFiles);
         continue;
       }
 
@@ -61,7 +61,11 @@ const readSqlFilesInDirectory = (
 /**
  * Stable relative path: path.relative(basePath, absolutePath) with forward slashes.
  */
-function toStablePath(absolutePath: string, basePath: string): string {
+function toStablePath(
+  path: Path.Path,
+  absolutePath: string,
+  basePath: string,
+): string {
   return path.relative(basePath, absolutePath).split(path.sep).join("/");
 }
 
@@ -71,9 +75,14 @@ function toStablePath(absolutePath: string, basePath: string): string {
  */
 export const loadDeclarativeSchema = (
   schemaPath: string,
-): Effect.Effect<SqlFileEntry[], FileDiscoveryError, FileSystem.FileSystem> =>
+): Effect.Effect<
+  SqlFileEntry[],
+  FileDiscoveryError,
+  FileSystem.FileSystem | Path.Path
+> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const resolvedRoot = path.resolve(schemaPath);
 
     const rootStat = yield* fs.stat(resolvedRoot).pipe(
@@ -102,7 +111,7 @@ export const loadDeclarativeSchema = (
       basePath = path.dirname(resolvedRoot);
     } else if (rootStat.type === "Directory") {
       const fileSet = new Set<string>();
-      yield* readSqlFilesInDirectory(fs, resolvedRoot, fileSet);
+      yield* readSqlFilesInDirectory(fs, path, resolvedRoot, fileSet);
       files = [...fileSet].sort((a, b) => a.localeCompare(b));
       basePath = resolvedRoot;
     } else {
@@ -118,7 +127,7 @@ export const loadDeclarativeSchema = (
     for (const filePath of files) {
       const sql = yield* fs.readFileString(filePath).pipe(
         Effect.mapError((err) => {
-          const relative = toStablePath(filePath, basePath);
+          const relative = toStablePath(path, filePath, basePath);
           return new FileDiscoveryError({
             message: `Cannot read file '${relative}': ${err.message}`,
             path: relative,
@@ -126,7 +135,7 @@ export const loadDeclarativeSchema = (
         }),
       );
       entries.push({
-        filePath: toStablePath(filePath, basePath),
+        filePath: toStablePath(path, filePath, basePath),
         sql,
       });
     }

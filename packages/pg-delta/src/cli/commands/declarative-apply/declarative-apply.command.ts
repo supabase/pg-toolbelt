@@ -43,7 +43,7 @@ const ungroupDiagnostics = Flag.boolean("ungroup-diagnostics").pipe(
   Flag.withDefault(false),
 );
 
-export const declarativeApplyFlags = {
+const declarativeApplyFlags = {
   path: pathOpt,
   target,
   maxRounds,

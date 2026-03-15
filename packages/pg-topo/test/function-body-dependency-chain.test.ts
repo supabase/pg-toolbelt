@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { analyzeAndSort } from "../src/analyze-and-sort";
-import { runPgTopoEffect } from "./support/run-effect";
-import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
+import { analyzeAndSort } from "../src/analyze-and-sort.ts";
+import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation.ts";
+import { runPgTopoEffect } from "./support/run-effect.ts";
 
 const complexFunctionChainStatements = [
   `

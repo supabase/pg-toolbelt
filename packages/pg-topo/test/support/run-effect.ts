@@ -1,20 +1,21 @@
-import { Effect, Layer } from "effect";
-import { nodeFileSystemLayer } from "../../src/platform/node-filesystem.layer.ts";
+import { Effect, type FileSystem, Layer, type Path } from "effect";
+import { makeNodeFileSystemRuntimeLayer } from "../../src/adapters/node-filesystem.ts";
 import { ParserServiceLive } from "../../src/services/parser-live.ts";
-import { makeWorkingDirectoryLayer } from "../../src/services/working-directory.ts";
+import type { ParserService } from "../../src/services/parser.ts";
 
 const makeRuntimeLayer = (cwd: string) =>
-  Layer.mergeAll(
-    ParserServiceLive,
-    nodeFileSystemLayer,
-    makeWorkingDirectoryLayer(cwd),
-  );
+  Layer.mergeAll(ParserServiceLive, makeNodeFileSystemRuntimeLayer(cwd));
 
-export const runPgTopoEffect = <A, E, R>(
+export const runPgTopoEffect = <
+  A,
+  E,
+  R extends ParserService | FileSystem.FileSystem | Path.Path,
+>(
   effect: Effect.Effect<A, E, R>,
   options?: { cwd?: string },
 ) =>
-  effect.pipe(
-    Effect.provide(makeRuntimeLayer(options?.cwd ?? process.cwd())),
-    Effect.runPromise,
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(makeRuntimeLayer(options?.cwd ?? process.cwd())),
+    ) as Effect.Effect<A, E, never>,
   );

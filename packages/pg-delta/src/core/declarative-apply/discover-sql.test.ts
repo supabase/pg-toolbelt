@@ -3,12 +3,23 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodePath from "@effect/platform-node-shared/NodePath";
 import { Effect } from "effect";
 import { loadDeclarativeSchema } from "./discover-sql.ts";
 
 const run = <A>(
-  effect: Effect.Effect<A, unknown, import("effect").FileSystem.FileSystem>,
-) => Effect.runPromise(effect.pipe(Effect.provide(NodeFileSystem.layer)));
+  effect: Effect.Effect<
+    A,
+    unknown,
+    import("effect").FileSystem.FileSystem | import("effect").Path.Path
+  >,
+) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provide(NodeFileSystem.layer),
+      Effect.provide(NodePath.layer),
+    ),
+  );
 
 describe("loadDeclarativeSchema", () => {
   test("throws when path does not exist", async () => {

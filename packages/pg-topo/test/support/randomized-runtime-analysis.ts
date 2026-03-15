@@ -1,7 +1,7 @@
-import { analyzeAndSort } from "../../src/analyze-and-sort";
-import type { AnalyzeResult } from "../../src/model/types";
-import { collectStatementsFromRoots } from "./randomized-input";
-import { runPgTopoEffect } from "./run-effect";
+import { analyzeAndSort } from "../../src/analyze-and-sort.ts";
+import type { AnalyzeResult } from "../../src/model/types.ts";
+import { collectStatementsFromRoots } from "./randomized-input.ts";
+import { runPgTopoEffect } from "./run-effect.ts";
 
 const seededRandom = (seed: number): (() => number) => {
   let state = seed >>> 0;

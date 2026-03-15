@@ -1,6 +1,6 @@
 /**
  * Low-level pg Pool factory with custom type handlers.
- * Extracted from core/postgres-config.ts to keep platform self-contained.
+ * Shared pg pool factory kept in the runtime boundary.
  */
 
 import { ConfigProvider, Effect } from "effect";
@@ -186,3 +186,5 @@ export function endPool(pool: Pool): Promise<void> {
     pool.end().catch(reject);
   });
 }
+
+;

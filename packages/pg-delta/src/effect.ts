@@ -48,7 +48,4 @@ export type {
   DatabaseConnectionApi,
 } from "./core/services/database.ts";
 export { DatabaseService } from "./core/services/database.ts";
-export {
-  makeScopedPool as makeScopedDatabase,
-  wrapPool as fromPool,
-} from "./core/services/database-live.ts";
+export { DatabaseResolver } from "./core/services/database-resolver.ts";

@@ -1,6 +1,6 @@
 import { Cause, Option } from "effect";
 
-export type NormalizedCliError = {
+type NormalizedCliError = {
   readonly code: string;
   readonly message: string;
   readonly detail?: string;

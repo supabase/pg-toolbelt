@@ -1,36 +1,33 @@
-/**
- * PostgreSQL connection configuration.
- *
- * Low-level pool factory and type parsers live in `platform/sql/pool.ts`.
- * This module re-exports them and adds higher-level helpers (createManagedPool)
- * that depend on core modules (logging, SSL parsing).
- */
-
-import { escapeIdentifier, type Pool } from "pg";
-import { getPgDeltaLogger } from "./logging.ts";
-import { parseSslConfig } from "./plan/ssl-config.ts";
-import type { PgRuntimeConfigApi } from "./runtime-config.ts";
-
-// Re-export low-level pool primitives from platform
-export { createPool, endPool } from "../platform/sql/pool.ts";
-
-import { ConfigProvider, Effect } from "effect";
-// Re-import for local use
+import { ConfigProvider, Effect, Layer } from "effect";
+import type { Pool } from "pg";
+import { getPgDeltaLogger } from "../core/logging.ts";
+import type { DatabaseApi } from "../core/services/database.ts";
+import { DatabaseResolver } from "../core/services/database-resolver.ts";
+import { quoteIdentifier } from "../core/sql-identifier.ts";
+import {
+  fromPool,
+  makeScopedSqlDatabase,
+  makeScopedSqlDatabaseEffect,
+} from "../platform/sql/database.layer.ts";
 import { createPool, endPool } from "../platform/sql/pool.ts";
-import { loadPgRuntimeConfig } from "./runtime-config.ts";
+import {
+  loadPgRuntimeConfig,
+  type PgRuntimeConfigApi,
+} from "../platform/sql/runtime-config.ts";
+import { parseSslConfig } from "../platform/sql/ssl-config.ts";
 
 const logger = getPgDeltaLogger("postgres");
+
+export const nodePgDatabaseResolverLayer = Layer.succeed(DatabaseResolver, {
+  fromConnectionString: (connectionString, options) =>
+    makeScopedSqlDatabase(connectionString, options),
+});
+
+export const fromNodePgPool = (pool: Pool): DatabaseApi => fromPool(pool);
 
 const getDefaultRuntimeConfig = (): PgRuntimeConfigApi =>
   Effect.runSync(loadPgRuntimeConfig(ConfigProvider.fromEnv()));
 
-/**
- * Create a pool from a connection URL with standard session setup:
- * SSL parsing, search_path isolation, optional SET ROLE, and 57P01 suppression.
- *
- * Returns the pool and a `close` function that properly waits for all sockets
- * to close (via {@link endPool}).
- */
 export async function createManagedPool(
   url: string,
   options?: { role?: string; label?: "source" | "target" },
@@ -56,16 +53,13 @@ export async function createManagedPool(
       onConnect: async (client) => {
         await client.query("SET search_path = ''");
         if (options?.role) {
-          await client.query(`SET ROLE ${escapeIdentifier(options.role)}`);
+          await client.query(`SET ROLE ${quoteIdentifier(options.role)}`);
         }
       },
     },
     runtimeConfig,
   );
 
-  // Eagerly validate connectivity so SSL/auth failures surface immediately
-  // instead of hanging on the first real query. node-pg's connectionTimeoutMillis
-  // is not reliably enforced under Bun when SSL negotiation hangs.
   const label = options?.label ?? "target";
   const timeoutMs = runtimeConfig.connectTimeoutMs;
   try {
@@ -92,3 +86,11 @@ export async function createManagedPool(
 
   return { pool, close: () => endPool(pool) };
 }
+
+export {
+  fromPool,
+  makeScopedSqlDatabase as makeScopedDatabase,
+  makeScopedSqlDatabaseEffect as makeScopedDatabaseEffect,
+};
+
+export type { Pool };

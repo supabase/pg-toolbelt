@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 const require = createRequire(import.meta.url);
 
-export const SUPPORTED_COMPLETION_SHELLS = [
+const SUPPORTED_COMPLETION_SHELLS = [
   "bash",
   "zsh",
   "fish",
@@ -82,7 +82,7 @@ export const generateCompletionScript = (
     return sanitizeCompletionScript(rawScript, generatorShell);
   });
 
-export function sanitizeCompletionScript(
+function sanitizeCompletionScript(
   script: string,
   shell: GeneratorShell,
 ): string {
@@ -96,7 +96,10 @@ export function sanitizeCompletionScript(
   }
 }
 
-function loadInternalCompletionModules(): Effect.Effect<InternalCompletionModules, Error> {
+function loadInternalCompletionModules(): Effect.Effect<
+  InternalCompletionModules,
+  Error
+> {
   if (internalCompletionModules) {
     return Effect.succeed(internalCompletionModules);
   }

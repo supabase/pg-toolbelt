@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { discoverSqlFiles } from "../../src/ingest/discover";
-import { parseSqlContent } from "../../src/ingest/parse";
-import { runPgTopoEffect } from "./run-effect";
+import { discoverSqlFiles } from "../../src/ingest/discover.ts";
+import { parseSqlContent } from "../../src/ingest/parse.ts";
+import { runPgTopoEffect } from "./run-effect.ts";
 
 export const collectStatementsFromRoots = async (
   roots: string[],

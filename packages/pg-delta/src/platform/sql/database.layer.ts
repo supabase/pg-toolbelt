@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Option, Schedule, Scope } from "effect";
+import { Effect, Option, Schedule, type Scope } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import type { Pool, PoolClient } from "pg";
 import { escapeIdentifier } from "pg";
@@ -287,7 +287,11 @@ function createSqlPgCompatiblePool(pool: Pool): Pool {
           ) => void,
         ) => {
           if (callback) {
-            pool.connect(((error: unknown, client: PoolClient | undefined, release?: (destroy?: unknown) => void) =>
+            pool.connect(((
+              error: unknown,
+              client: PoolClient | undefined,
+              release?: (destroy?: unknown) => void,
+            ) =>
               callback(
                 error ? toSqlPgError(error) : undefined,
                 client
@@ -316,8 +320,7 @@ function createSqlPgCompatiblePool(pool: Pool): Pool {
 }
 
 const prepareConnection =
-  (role: string | undefined) =>
-  (connection: DatabaseConnectionApi) =>
+  (role: string | undefined) => (connection: DatabaseConnectionApi) =>
     Effect.gen(function* () {
       yield* connection.query("SET search_path = ''");
       if (role) {
@@ -349,7 +352,8 @@ function toSqlPgCompatibleClient(client: PoolClient): SqlPgCompatibleClient {
       return compatibleClient;
     },
     processID: candidate.processID,
-    query: (...args) => client.query(...(args as Parameters<typeof client.query>)),
+    query: (...args) =>
+      client.query(...(args as Parameters<typeof client.query>)),
     release: (release) => client.release(release as never),
     removeListener: (...args) => {
       client.removeListener(
@@ -371,7 +375,9 @@ function failedSqlPgClient(error: Error): SqlPgCompatibleClient {
     processID: undefined,
     query: (...args) => {
       const callback = args.find(
-        (arg): arg is (error: Error, result: { rows: []; rowCount: 0 }) => void =>
+        (
+          arg,
+        ): arg is (error: Error, result: { rows: []; rowCount: 0 }) => void =>
           typeof arg === "function",
       );
       callback?.(error, {

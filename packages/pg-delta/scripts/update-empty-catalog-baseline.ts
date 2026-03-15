@@ -24,8 +24,8 @@ import {
   serializeCatalog,
   stringifyCatalogSnapshot,
 } from "../src/core/catalog.snapshot.ts";
-import { createPool, endPool } from "../src/core/postgres-config.ts";
 import { wrapPool } from "../src/core/services/database-live.ts";
+import { createPool, endPool } from "../src/platform/sql/pool.ts";
 import { POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG } from "../tests/constants.ts";
 import { PostgresAlpineContainer } from "../tests/postgres-alpine.ts";
 

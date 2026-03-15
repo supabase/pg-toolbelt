@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AnalyzeResult } from "../../src/model/types";
+import type { AnalyzeResult } from "../../src/model/types.ts";
 
 export const analyzeResultFingerprint = (result: AnalyzeResult): string => {
   const payload = JSON.stringify({

@@ -30,14 +30,16 @@ export const loadIntegrationDSL = (
     const fs = yield* FileSystem.FileSystem;
 
     if (nameOrPath.endsWith(".json")) {
-      const content = yield* fs.readFileString(nameOrPath).pipe(
-        Effect.mapError(
-          (error) =>
-            new Error(
-              `Cannot read integration file '${nameOrPath}': ${error.message}`,
-            ),
-        ),
-      );
+      const content = yield* fs
+        .readFileString(nameOrPath)
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new Error(
+                `Cannot read integration file '${nameOrPath}': ${error.message}`,
+              ),
+          ),
+        );
       return yield* parseIntegrationDsl(content, nameOrPath);
     }
 
@@ -48,13 +50,15 @@ export const loadIntegrationDSL = (
       return module[nameOrPath] as IntegrationDSL;
     }
 
-    const content = yield* fs.readFileString(nameOrPath).pipe(
-      Effect.mapError(
-        (error) =>
-          new Error(
-            `Cannot read integration file '${nameOrPath}': ${error.message}`,
-          ),
-      ),
-    );
+    const content = yield* fs
+      .readFileString(nameOrPath)
+      .pipe(
+        Effect.mapError(
+          (error) =>
+            new Error(
+              `Cannot read integration file '${nameOrPath}': ${error.message}`,
+            ),
+        ),
+      );
     return yield* parseIntegrationDsl(content, nameOrPath);
   });

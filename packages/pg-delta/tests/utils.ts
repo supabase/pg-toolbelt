@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
-import { createPool } from "../src/core/postgres-config.ts";
 import type { DatabaseApi } from "../src/core/services/database.ts";
 import { wrapPool } from "../src/core/services/database-live.ts";
+import { createPool } from "../src/platform/sql/pool.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,

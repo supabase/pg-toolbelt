@@ -3,7 +3,7 @@ import {
   classifyStatement,
   phaseForStatementClass,
   statementClassAstNode,
-} from "../src/classify/classify-statement";
+} from "../src/classify/classify-statement.ts";
 
 describe("classifyStatement", () => {
   test("returns UNKNOWN for unknown AST node type", () => {

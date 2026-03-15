@@ -108,9 +108,9 @@ export const resolveSqlFilePath = (
 ): Effect.Effect<string, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const statResult = yield* fs.stat(schemaPath).pipe(
-      Effect.orElseSucceed(() => undefined),
-    );
+    const statResult = yield* fs
+      .stat(schemaPath)
+      .pipe(Effect.orElseSucceed(() => undefined));
     const baseDir =
       statResult?.type === "File" ? path.dirname(schemaPath) : schemaPath;
     return path.join(baseDir, relativeFilePath);
@@ -143,7 +143,10 @@ export const formatStatementError = (
     lines.push(`SQL state: ${err.code}`);
     if (err.position !== undefined && err.statement.sql.length > 0) {
       lines.push(`Character: ${err.position}`);
-      const pos = Math.max(0, Math.min(err.position - 1, err.statement.sql.length));
+      const pos = Math.max(
+        0,
+        Math.min(err.position - 1, err.statement.sql.length),
+      );
       const contextStart = Math.max(0, pos - 40);
       const contextEnd = Math.min(err.statement.sql.length, pos + 40);
       const snippet = err.statement.sql.slice(contextStart, contextEnd);
@@ -180,7 +183,10 @@ export const formatStatementError = (
             );
             locationLine = `Location: ${parsed.filePath}:${line}:${column}`;
           } else {
-            const { line } = positionToLineColumn(fileContent, statementStart + 1);
+            const { line } = positionToLineColumn(
+              fileContent,
+              statementStart + 1,
+            );
             locationLine = `Location: ${parsed.filePath}:${line}`;
           }
         } else {

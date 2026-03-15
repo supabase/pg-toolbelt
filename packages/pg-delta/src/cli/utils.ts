@@ -203,7 +203,7 @@ export function validatePlanRisk(
  * Handles applyPlan results and writes appropriate output.
  * Returns the exit code that should be set.
  */
-export const handleApplyResultEffect = (
+const handleApplyResultEffect = (
   result: ApplyPlanResult,
 ): Effect.Effect<{ exitCode: number }, never, Output> =>
   Effect.gen(function* () {
@@ -267,7 +267,7 @@ function withChalkLevel<T>(level: number | undefined, fn: () => T): T {
 /**
  * Format data-loss warning lines with optional coloring.
  */
-export function formatDataLossWarning(
+function formatDataLossWarning(
   statements: string[],
   options: { showUnsafeFlagSuggestion?: boolean; useColors?: boolean },
 ): string[] {

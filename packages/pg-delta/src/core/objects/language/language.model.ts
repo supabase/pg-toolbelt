@@ -93,7 +93,7 @@ export class Language extends BasePgModel {
   }
 }
 
-export const _extractLanguages = (
+const _extractLanguages = (
   db: DatabaseApi,
 ): Effect.Effect<Language[], CatalogExtractionError> =>
   Effect.gen(function* () {

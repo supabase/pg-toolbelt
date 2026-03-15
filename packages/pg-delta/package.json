@@ -35,6 +35,13 @@
       "types": "./dist/bun.d.ts",
       "default": "./dist/bun.js"
     },
+    "./adapters/node-pg": {
+      "bun": "./src/adapters/node-pg.ts",
+      "import": "./dist/adapters/node-pg.js",
+      "require": "./dist/adapters/node-pg.js",
+      "types": "./dist/adapters/node-pg.d.ts",
+      "default": "./dist/adapters/node-pg.js"
+    },
     "./integrations/supabase": {
       "bun": "./src/core/integrations/supabase.ts",
       "import": "./dist/core/integrations/supabase.js",

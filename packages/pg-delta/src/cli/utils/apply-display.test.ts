@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { Diagnostic, DiagnosticCode } from "@supabase/pg-topo";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import { Effect } from "effect";
+import type { Diagnostic, DiagnosticCode } from "@supabase/pg-topo";
+import { Effect, type FileSystem } from "effect";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
 import {
   buildDiagnosticDisplayItems,
@@ -19,11 +19,13 @@ import {
   resolveSqlFilePath,
 } from "./apply-display.ts";
 
-const runFs = <A>(effect: Effect.Effect<A, never, any>) =>
+const runFs = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>) =>
   Effect.runPromise(
-    effect.pipe(
-      Effect.provide(NodeFileSystem.layer),
-    ) as Effect.Effect<A, never, never>,
+    effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
+      A,
+      never,
+      never
+    >,
   );
 
 describe("positionToLineColumn", () => {
@@ -353,7 +355,10 @@ describe("formatStatementError", () => {
 
   test("parseable id without position and file read fails shows statement index only", async () => {
     const result = await runFs(
-      formatStatementError(makeErr({ id: "missing/file.sql:1" }), "/nonexistent"),
+      formatStatementError(
+        makeErr({ id: "missing/file.sql:1" }),
+        "/nonexistent",
+      ),
     );
     expect(result).toContain("Location: missing/file.sql (statement 1)");
     expect(result).not.toContain("line");

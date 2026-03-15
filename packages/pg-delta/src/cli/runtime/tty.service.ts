@@ -1,6 +1,6 @@
 import { ServiceMap } from "effect";
 
-export interface TtyApi {
+interface TtyApi {
   readonly stdinIsTty: boolean;
   readonly stdoutIsTty: boolean;
   readonly stderrIsTty: boolean;

@@ -2,6 +2,7 @@
  * Declarative schema export.
  */
 
+import { Clock, DateTime, Effect } from "effect";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
@@ -102,7 +103,7 @@ export function exportDeclarativeSchema(
   return {
     version: 1,
     mode: "declarative",
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentTimestampIso(),
     source: { fingerprint: sourceFingerprint },
     target: { fingerprint: targetFingerprint },
     files,
@@ -127,4 +128,12 @@ function buildFileEntry(
     sql: formatSqlScript(statements, formatOptions),
     metadata,
   };
+}
+
+function currentTimestampIso(): string {
+  return Effect.runSync(
+    Clock.currentTimeMillis.pipe(
+      Effect.map((millis) => DateTime.formatIso(DateTime.makeUnsafe(millis))),
+    ),
+  );
 }

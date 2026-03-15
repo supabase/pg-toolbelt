@@ -1,5 +1,5 @@
-import type { StatementNode } from "../../../src/model/types";
-import type { DatabaseLikeError } from "./postgres-types";
+import type { StatementNode } from "../../../src/model/types.ts";
+import type { DatabaseLikeError } from "./postgres-types.ts";
 
 export const toDatabaseLikeError = (error: unknown): DatabaseLikeError => {
   if (!error || typeof error !== "object") {

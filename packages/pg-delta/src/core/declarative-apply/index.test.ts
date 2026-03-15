@@ -1,15 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
-import type { Pool } from "pg";
 import { CatalogExtractionError, DeclarativeApplyError } from "../errors.ts";
 import type { DatabaseApi } from "../services/database.ts";
+import { DatabaseResolver } from "../services/database-resolver.ts";
 import { withResolvedDatabase } from "./index.ts";
 
 describe("withResolvedDatabase", () => {
-  test("caller-owned pool is NOT closed on early failure", async () => {
-    const pool = createMockPool();
-    const wrapPool = mock((_pool: Pool) => createMockDatabase());
-    const makeScopedPool = mock((_url: string) =>
+  test("caller-provided database is used directly", async () => {
+    const database = createMockDatabase();
+    const resolver = mock((_url: string) =>
       Effect.die(new Error("should not create scoped database")),
     );
 
@@ -17,7 +16,7 @@ describe("withResolvedDatabase", () => {
       withResolvedDatabase(
         {
           content: [{ filePath: "test.sql", sql: "CREATE TABLE t(id int);" }],
-          pool,
+          pool: database,
         },
         () =>
           Effect.fail(
@@ -25,28 +24,24 @@ describe("withResolvedDatabase", () => {
               message: "simulated catalog extraction failure",
             }),
           ),
-        {
-          wrapPool,
-          makeScopedPool,
-        },
-      ).pipe(Effect.runPromise),
+      ).pipe(
+        Effect.provideService(DatabaseResolver, {
+          fromConnectionString: resolver,
+        }),
+        Effect.runPromise,
+      ),
     ).rejects.toThrow("simulated catalog extraction failure");
 
-    expect(wrapPool).toHaveBeenCalledTimes(1);
-    expect(wrapPool).toHaveBeenCalledWith(pool);
-    expect(makeScopedPool).not.toHaveBeenCalled();
-    expect(pool.closeCalled).toBe(false);
+    expect(resolver).not.toHaveBeenCalled();
   });
 
-  test("internally-created pool IS closed on early failure", async () => {
+  test("internally-resolved database is released on early failure", async () => {
     let lastScopedDbClosed = false;
-    const makeScopedPool = mock((_url: string) =>
-      Effect.acquireRelease(
-        Effect.succeed(createMockDatabase()),
-        () =>
-          Effect.sync(() => {
-            lastScopedDbClosed = true;
-          }),
+    const resolver = mock((_url: string) =>
+      Effect.acquireRelease(Effect.succeed(createMockDatabase()), () =>
+        Effect.sync(() => {
+          lastScopedDbClosed = true;
+        }),
       ),
     );
 
@@ -62,16 +57,15 @@ describe("withResolvedDatabase", () => {
               message: "simulated catalog extraction failure",
             }),
           ),
-        {
-          wrapPool: (_pool: Pool) => {
-            throw new Error("should not wrap caller-owned pool");
-          },
-          makeScopedPool,
-        },
-      ).pipe(Effect.runPromise),
+      ).pipe(
+        Effect.provideService(DatabaseResolver, {
+          fromConnectionString: resolver,
+        }),
+        Effect.runPromise,
+      ),
     ).rejects.toThrow("simulated catalog extraction failure");
 
-    expect(makeScopedPool).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledTimes(1);
     expect(lastScopedDbClosed).toBe(true);
   });
 
@@ -98,21 +92,4 @@ function createMockDatabase(): DatabaseApi {
       throw new Error("should not call withConnection on mock");
     },
   } as unknown as DatabaseApi;
-}
-
-function createMockPool(): Pool & { closeCalled: boolean } {
-  const pool = {
-    closeCalled: false,
-    connect: async () => {
-      throw new Error("should not connect");
-    },
-    end: async function end() {
-      pool.closeCalled = true;
-    },
-    query: async () => {
-      throw new Error("should not query");
-    },
-  } as unknown as Pool & { closeCalled: boolean };
-
-  return pool;
 }

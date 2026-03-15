@@ -1,6 +1,6 @@
 import debug from "debug";
 import type { Pool } from "pg";
-import { createPool } from "../src/core/postgres-config.ts";
+import { createPool } from "../src/platform/sql/pool.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   type PostgresVersion,

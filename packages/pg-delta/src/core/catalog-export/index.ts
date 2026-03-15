@@ -17,4 +17,3 @@ export {
   serializeCatalog,
   stringifyCatalogSnapshot,
 } from "../catalog.snapshot.ts";
-export { createManagedPool } from "../postgres-config.ts";

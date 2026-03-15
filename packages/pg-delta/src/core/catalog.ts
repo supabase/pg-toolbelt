@@ -26,7 +26,7 @@ import type { Enum } from "./objects/type/enum/enum.model.ts";
 import type { Range } from "./objects/type/range/range.model.ts";
 import type { View } from "./objects/view/view.model.ts";
 
-export interface CatalogProps {
+interface CatalogProps {
   aggregates: Record<string, Aggregate>;
   collations: Record<string, Collation>;
   compositeTypes: Record<string, CompositeType>;

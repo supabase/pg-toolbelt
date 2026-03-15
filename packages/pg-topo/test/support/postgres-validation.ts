@@ -1,7 +1,7 @@
-import { buildGraph } from "../../src/graph/build-graph";
-import type { AnalyzeResult, StatementNode } from "../../src/model/types";
-import type { RuntimeDiagnostic } from "./postgres/postgres-types";
-import { validateWithPostgres } from "./postgres/postgres-validator";
+import { buildGraph } from "../../src/graph/build-graph.ts";
+import type { AnalyzeResult, StatementNode } from "../../src/model/types.ts";
+import type { RuntimeDiagnostic } from "./postgres/postgres-types.ts";
+import { validateWithPostgres } from "./postgres/postgres-validator.ts";
 
 type PostgresValidationOptions = {
   initialMigrationSql?: string;

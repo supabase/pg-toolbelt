@@ -3,7 +3,6 @@
  */
 
 import { Effect } from "effect";
-import type { Pool } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
@@ -20,7 +19,7 @@ import {
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
 import type { DatabaseApi } from "../services/database.ts";
-import { makeScopedPool, wrapPool } from "../services/database-live.ts";
+import { DatabaseResolver } from "../services/database-resolver.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { Plan } from "./types.ts";
 
@@ -28,7 +27,7 @@ interface ApplyPlanOptions {
   verifyPostApply?: boolean;
 }
 
-type ConnectionInput = string | Pool | DatabaseApi;
+type ConnectionInput = string | DatabaseApi;
 
 /**
  * Check if a statement is a session configuration statement (standalone SET statements).
@@ -82,7 +81,9 @@ export const applyPlan = (
         let filteredChanges = changes;
         if (plan.filter) {
           const filterFn = compileFilterDSL(plan.filter);
-          filteredChanges = filteredChanges.filter((change) => filterFn(change));
+          filteredChanges = filteredChanges.filter((change) =>
+            filterFn(change),
+          );
         }
 
         const sortedChanges = sortChanges(ctx, filteredChanges);
@@ -158,12 +159,17 @@ const withResolvedDatabase = <A, E>(
   use: (database: DatabaseApi) => Effect.Effect<A, E>,
 ): Effect.Effect<
   A,
-  E | CatalogExtractionError | ConnectionError | ConnectionTimeoutError | SslConfigError
+  | E
+  | CatalogExtractionError
+  | ConnectionError
+  | ConnectionTimeoutError
+  | SslConfigError
 > => {
   if (typeof input === "string") {
     return Effect.scoped(
       Effect.gen(function* () {
-        const database = yield* makeScopedPool(input, {
+        const databaseResolver = yield* DatabaseResolver;
+        const database = yield* databaseResolver.fromConnectionString(input, {
           role,
           label,
         });
@@ -175,8 +181,7 @@ const withResolvedDatabase = <A, E>(
   if ("withConnection" in input) {
     return use(input);
   }
-
-  return use(wrapPool(input));
+  return use(input);
 };
 
 const joinStatements = (statements: ReadonlyArray<string>): string => {

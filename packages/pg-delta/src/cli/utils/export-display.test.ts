@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import type { FileEntry } from "../../core/export/types.ts";
 import {
   assertSafePath,
@@ -14,11 +14,13 @@ import {
   formatFileLegend,
 } from "./export-display.ts";
 
-const runFs = <A>(effect: Effect.Effect<A, never, any>) =>
+const runFs = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>) =>
   Effect.runPromise(
-    effect.pipe(
-      Effect.provide(NodeFileSystem.layer),
-    ) as Effect.Effect<A, never, never>,
+    effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
+      A,
+      never,
+      never
+    >,
   );
 
 // ============================================================================
