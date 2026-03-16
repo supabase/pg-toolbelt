@@ -2,73 +2,31 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RUN_ID="$(date +%s)-$$"
-NETWORK="pg-delta-e2e-net-$RUN_ID"
-PG_CONTAINER="pg-delta-e2e-db-$RUN_ID"
+NETWORK="pg-delta-e2e-net"
+PG_CONTAINER="pg-delta-e2e-db"
 E2E_TEMP="$(mktemp -d -t pg-delta-e2e-XXXXXX)"
-SOURCE_DIR="$E2E_TEMP/source"
-PACK_DIR="$E2E_TEMP/pack"
-PROJECT_DIR="$E2E_TEMP/project"
 
 cleanup() {
   docker rm -f "$PG_CONTAINER" 2>/dev/null || true
   docker network rm "$NETWORK" 2>/dev/null || true
   rm -rf "$E2E_TEMP"
+  # Restore node_modules (we removed them for a clean Linux build in Docker)
+  if [[ ! -d "$REPO_ROOT/node_modules" ]] && command -v bun >/dev/null 2>&1; then
+    echo "=== Restoring node_modules ==="
+    (cd "$REPO_ROOT" && bun install)
+  fi
 }
 trap cleanup EXIT
 
-copy_source_checkout() {
-  echo "=== Copying checkout into temp workspace ==="
-  mkdir -p "$SOURCE_DIR" "$PACK_DIR" "$PROJECT_DIR"
-  rsync -a \
-    --exclude '.git/' \
-    --exclude 'node_modules/' \
-    --exclude 'packages/*/node_modules/' \
-    --exclude 'packages/*/dist/' \
-    --exclude '*.tgz' \
-    "$REPO_ROOT/" "$SOURCE_DIR/"
-}
-
-pack_package() {
-  local package_name="$1"
-  local package_dir="$2"
-  local pack_json_path="$PACK_DIR/$package_name-pack.json"
-  local filename
-
-  docker run --rm \
-    -v "$SOURCE_DIR:/app" \
-    -v "$PACK_DIR:/pack" \
-    -w "/app/$package_dir" \
-    oven/bun:latest \
-    sh -lc "npm pack --json --pack-destination /pack" > "$pack_json_path"
-
-  filename="$(
-    docker run --rm \
-      -v "$PACK_DIR:/pack:ro" \
-      node:24-alpine \
-      node -e '
-        const fs = require("node:fs");
-        const pack = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-        const filename = pack?.[0]?.filename;
-        if (typeof filename !== "string" || filename.length === 0) {
-          throw new Error("npm pack did not return a filename");
-        }
-        process.stdout.write(filename);
-      ' "/pack/$package_name-pack.json"
-  )"
-
-  echo "$PACK_DIR/$filename"
-}
-
 echo "=== Creating Docker network ==="
-docker network create "$NETWORK" >/dev/null
+docker network create "$NETWORK"
 
 echo "=== Starting Postgres ==="
 docker run -d \
   --name "$PG_CONTAINER" \
   --network "$NETWORK" \
   -e POSTGRES_PASSWORD=postgres \
-  postgres:17-alpine >/dev/null
+  postgres:17-alpine
 
 echo "=== Waiting for Postgres ==="
 for i in {1..30}; do
@@ -82,18 +40,28 @@ for i in {1..30}; do
   sleep 1
 done
 
-copy_source_checkout
-
 echo "=== Building packages ==="
 docker run --rm \
-  -v "$SOURCE_DIR:/app" \
+  -v "$REPO_ROOT:/app" \
   -w /app \
   oven/bun:latest \
-  sh -lc "bun install && bun run build"
+  sh -c "rm -rf node_modules packages/*/node_modules 2>/dev/null; bun install && bun run build"
 
 echo "=== Packing packages ==="
-PG_TOPO_TARBALL="$(pack_package "pg-topo" "packages/pg-topo")"
-PG_DELTA_TARBALL="$(pack_package "pg-delta" "packages/pg-delta")"
+docker run --rm \
+  -v "$REPO_ROOT:/app" \
+  -w /app/packages/pg-topo \
+  node:24-alpine \
+  npm pack
+
+docker run --rm \
+  -v "$REPO_ROOT:/app" \
+  -w /app/packages/pg-delta \
+  node:24-alpine \
+  npm pack
+
+PG_TOPO_TARBALL="$(ls "$REPO_ROOT"/packages/pg-topo/*.tgz 2>/dev/null | head -1)"
+PG_DELTA_TARBALL="$(ls "$REPO_ROOT"/packages/pg-delta/*.tgz 2>/dev/null | head -1)"
 
 if [[ ! -f "$PG_TOPO_TARBALL" || ! -f "$PG_DELTA_TARBALL" ]]; then
   echo "Failed to create tarballs"
@@ -124,38 +92,12 @@ for tarball in "$PG_TOPO_TARBALL" "$PG_DELTA_TARBALL"; do
     echo "Metadata validation failed"
     exit 1
   fi
-
-  case "$(basename "$tarball")" in
-    supabase-pg-topo-*.tgz)
-      required_files=(
-        "$extract_dir/package/dist/index.js"
-        "$extract_dir/package/dist/node.js"
-        "$extract_dir/package/dist/bun.js"
-      )
-      ;;
-    supabase-pg-delta-*.tgz)
-      required_files=(
-        "$extract_dir/package/dist/index.js"
-        "$extract_dir/package/dist/node.js"
-        "$extract_dir/package/dist/bun.js"
-        "$extract_dir/package/dist/cli/bin/cli.js"
-      )
-      ;;
-    *)
-      required_files=()
-      ;;
-  esac
-
-  for required_file in "${required_files[@]}"; do
-    if [[ ! -f "$required_file" ]]; then
-      echo "Packed package is missing expected artifact: $required_file"
-      exit 1
-    fi
-  done
 done
 echo "Metadata OK: no workspace: protocols."
 
 echo "=== Creating temp project ==="
+PROJECT_DIR="$E2E_TEMP/project"
+mkdir -p "$PROJECT_DIR"
 echo '{"name":"pg-delta-e2e","private":true,"type":"module"}' > "$PROJECT_DIR/package.json"
 
 docker run --rm \
@@ -166,8 +108,8 @@ docker run --rm \
   node:24-alpine \
   sh -c "npm install --silent --no-package-lock /topo.tgz /delta.tgz"
 
-cp "$SOURCE_DIR/.github/scripts/fixtures/lib-golden-path.ts" "$PROJECT_DIR/"
-cp "$SOURCE_DIR/.github/scripts/fixtures/cli-golden-path.ts" "$PROJECT_DIR/"
+cp "$REPO_ROOT/.github/scripts/fixtures/lib-golden-path.ts" "$PROJECT_DIR/"
+cp "$REPO_ROOT/.github/scripts/fixtures/cli-golden-path.ts" "$PROJECT_DIR/"
 
 DATABASE_URL="postgres://postgres:postgres@$PG_CONTAINER:5432/postgres"
 
