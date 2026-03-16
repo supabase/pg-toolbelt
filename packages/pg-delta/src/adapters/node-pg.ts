@@ -19,6 +19,7 @@ import {
   type PgRuntimeConfigApi,
 } from "../platform/sql/runtime-config.ts";
 import { parseSslConfig } from "../platform/sql/ssl-config.ts";
+import { ensureError } from "../utils.ts";
 import { nodeFileSystemPathLayer } from "./node-platform.ts";
 import type { NodePgPool as Pool } from "./pg-runtime.ts";
 
@@ -89,7 +90,7 @@ const createManagedPoolEffect = (
         new ConnectionError({
           label,
           message: `Failed to create ${label} pool.`,
-          cause: error,
+          cause: ensureError(error),
         }),
     });
     const releaseOrClose = (client?: { release: () => void }) =>
@@ -137,7 +138,7 @@ const createManagedPoolEffect = (
                 error instanceof Error
                   ? error.message
                   : `Connection to ${label} database failed.`,
-              cause: error,
+              cause: ensureError(error),
             }),
     }).pipe(Effect.tapError(() => releaseOrClose()));
 

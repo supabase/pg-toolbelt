@@ -25,9 +25,7 @@ export {
   FingerprintMismatchError,
   InvalidPlanError,
   PlanApplyError,
-  PlanDeserializationError,
   SslConfigError,
-  StuckError,
 } from "./core/errors.ts";
 export { exportDeclarativeSchema } from "./core/export/index.ts";
 export type {

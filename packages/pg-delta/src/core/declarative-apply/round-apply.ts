@@ -9,7 +9,6 @@
  */
 
 import { Effect } from "effect";
-import { DeclarativeApplyError } from "../errors.ts";
 import { getPgDeltaLogger } from "../logging.ts";
 import type {
   DatabaseApi,
@@ -227,19 +226,15 @@ function parsePgPosition(pos: string | number | undefined): number | undefined {
  * 4. If finalValidation is true, re-run CREATE FUNCTION/PROCEDURE
  *    with check_function_bodies = on
  */
-export const roundApply = (
-  options: RoundApplyOptions,
-): Effect.Effect<ApplyResult, DeclarativeApplyError> =>
-  resolveDatabase(options)
-    .withConnection((connection) =>
-      roundApplyWithClient(connection, stripDatabaseOptions(options)),
-    )
-    .pipe(Effect.mapError(toDeclarativeApplyError));
+export const roundApply = (options: RoundApplyOptions) =>
+  resolveDatabase(options).withConnection((connection) =>
+    roundApplyWithClient(connection, stripDatabaseOptions(options)),
+  );
 
 function roundApplyWithClient(
   client: DatabaseConnectionApi,
   options: RoundApplyBaseOptions,
-): Effect.Effect<ApplyResult, DeclarativeApplyError> {
+) {
   const {
     statements,
     maxRounds = 100,
@@ -478,7 +473,6 @@ function roundApplyWithClient(
   // before every referenced object exists. Restore the session setting before
   // returning the connection to the caller.
   return client.query("SET check_function_bodies = off").pipe(
-    Effect.mapError(toDeclarativeApplyError),
     Effect.flatMap(() => program),
     Effect.ensuring(
       client
@@ -515,56 +509,48 @@ export function rewriteAsOrReplace(sql: string): string {
 function validateFunctionBodies(
   client: DatabaseConnectionApi,
   functions: StatementEntry[],
-): Effect.Effect<StatementError[], DeclarativeApplyError> {
+) {
   const program = Effect.gen(function* () {
     const errors: StatementError[] = [];
 
     // Auto-detect user schemas so unqualified names inside function bodies are
     // validated against the same broad search_path a full schema apply expects.
-    const { rows } = yield* client
-      .query<{ schemas: string | null }>(`
+    const { rows } = yield* client.query<{ schemas: string | null }>(
+      `
       SELECT string_agg(quote_ident(nspname), ', ' ORDER BY nspname) AS schemas
       FROM pg_namespace
       WHERE nspname NOT LIKE 'pg_%'
         AND nspname <> 'information_schema'
-    `)
-      .pipe(Effect.mapError(toDeclarativeApplyError));
+    `,
+    );
     const detectedSchemas = rows[0]?.schemas;
     if (detectedSchemas) {
       logger.debug("validation search_path: {schemas}, pg_catalog", {
         schemas: detectedSchemas,
       });
-      yield* client
-        .query(`SET LOCAL search_path = ${detectedSchemas}, pg_catalog`)
-        .pipe(Effect.mapError(toDeclarativeApplyError));
+      yield* client.query(
+        `SET LOCAL search_path = ${detectedSchemas}, pg_catalog`,
+      );
     }
 
-    yield* client
-      .query("SET LOCAL check_function_bodies = on")
-      .pipe(Effect.mapError(toDeclarativeApplyError));
+    yield* client.query("SET LOCAL check_function_bodies = on");
 
     for (const stmt of functions) {
       const replaceSql = rewriteAsOrReplace(stmt.sql);
 
       // Each function gets its own savepoint so one validation error does not
       // abort the whole transaction or hide later failures.
-      yield* client
-        .query("SAVEPOINT validate_fn")
-        .pipe(Effect.mapError(toDeclarativeApplyError));
+      yield* client.query("SAVEPOINT validate_fn");
       const validationResult = yield* client
         .query(replaceSql)
         .pipe(Effect.result);
 
       if (validationResult._tag === "Success") {
-        yield* client
-          .query("RELEASE SAVEPOINT validate_fn")
-          .pipe(Effect.mapError(toDeclarativeApplyError));
+        yield* client.query("RELEASE SAVEPOINT validate_fn");
         continue;
       }
 
-      yield* client
-        .query("ROLLBACK TO SAVEPOINT validate_fn")
-        .pipe(Effect.mapError(toDeclarativeApplyError));
+      yield* client.query("ROLLBACK TO SAVEPOINT validate_fn");
       const pgErr = unwrapPgError(validationResult.failure);
       errors.push({
         statement: stmt,
@@ -581,15 +567,11 @@ function validateFunctionBodies(
   });
 
   return client.query("BEGIN").pipe(
-    Effect.mapError(toDeclarativeApplyError),
     Effect.flatMap(() => program),
     // Always roll back: validation should report function-body problems without
     // changing the already-applied schema definitions.
     Effect.ensuring(
-      client.query("ROLLBACK").pipe(
-        Effect.mapError(toDeclarativeApplyError),
-        Effect.catch(() => Effect.void),
-      ),
+      client.query("ROLLBACK").pipe(Effect.catch(() => Effect.void)),
     ),
   );
 }
@@ -617,17 +599,6 @@ const stripDatabaseOptions = (
     onRoundComplete,
   };
 };
-
-const toDeclarativeApplyError = (error: unknown): DeclarativeApplyError =>
-  error instanceof DeclarativeApplyError
-    ? error
-    : new DeclarativeApplyError({
-        message:
-          error instanceof Error
-            ? error.message
-            : `roundApply failed: ${String(error)}`,
-        cause: error,
-      });
 
 function unwrapPgError(error: unknown): PgError {
   let candidate = error;

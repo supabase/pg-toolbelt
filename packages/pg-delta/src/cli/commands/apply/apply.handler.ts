@@ -91,17 +91,18 @@ export const handleApply = Effect.fnUntraced(function* (args: {
           message: result.failure.message,
         }),
       );
-    case "PlanApplyError":
-      yield* output.error(
-        `Failed to apply changes: ${result.failure.cause instanceof Error ? result.failure.cause.message : String(result.failure.cause)}`,
-      );
+    case "PlanApplyError": {
+      const msg = result.failure.cause.cause;
+      yield* output.error(`Failed to apply changes: ${msg}`);
       yield* output.error(`Migration script:\n${result.failure.script}`);
       return yield* Effect.fail(
         new CliExitError({
           exitCode: 1,
-          message: `Failed to apply changes: ${result.failure.cause instanceof Error ? result.failure.cause.message : String(result.failure.cause)}`,
+          message: `Failed to apply changes: ${msg}`,
+          alreadyReported: true,
         }),
       );
+    }
     default:
       return yield* Effect.fail(
         new CliExitError({

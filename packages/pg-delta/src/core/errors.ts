@@ -1,4 +1,11 @@
 import { Data } from "effect";
+import type {
+  ConnectionError,
+  ConnectionTimeoutError,
+  SslConfigError,
+} from "./errors.ts";
+import { WasmLoadError } from "../../../pg-topo/src/errors.ts";
+import type { ParseError } from "@supabase/pg-topo";
 
 // ---------------------------------------------------------------------------
 // Connection errors (re-exported from platform)
@@ -49,7 +56,7 @@ export class FingerprintMismatchError extends Data.TaggedError(
  * SQL execution failed during plan apply.
  */
 export class PlanApplyError extends Data.TaggedError("PlanApplyError")<{
-  readonly cause: unknown;
+  readonly cause: CatalogExtractionError;
   readonly script: string;
 }> {}
 
@@ -71,15 +78,13 @@ export class DeclarativeApplyError extends Data.TaggedError(
   "DeclarativeApplyError",
 )<{
   readonly message: string;
-  readonly cause?: unknown;
-}> {}
-
-/**
- * Declarative apply cannot make progress — statements are stuck.
- */
-export class StuckError extends Data.TaggedError("StuckError")<{
-  readonly message: string;
-  readonly stuckStatements: readonly string[];
+  readonly cause?:
+    | ConnectionError
+    | ConnectionTimeoutError
+    | SslConfigError
+    | CatalogExtractionError
+    | ParseError
+    | WasmLoadError;
 }> {}
 
 // ---------------------------------------------------------------------------
@@ -105,16 +110,6 @@ export class FileDiscoveryError extends Data.TaggedError("FileDiscoveryError")<{
 // ---------------------------------------------------------------------------
 
 /**
- * JSON deserialization or schema validation of a plan file failed.
- */
-export class PlanDeserializationError extends Data.TaggedError(
-  "PlanDeserializationError",
-)<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
-
-/**
  * Runtime host is missing required process-like globals.
  */
 export class RuntimeHostError extends Data.TaggedError("RuntimeHostError")<{
@@ -134,7 +129,6 @@ export class InvariantViolationError extends Data.TaggedError(
     | "index"
     | "runtime";
   readonly message: string;
-  readonly cause?: unknown;
 }> {}
 
 /**
@@ -151,5 +145,5 @@ export class IntegrationSerializationError extends Data.TaggedError(
   "IntegrationSerializationError",
 )<{
   readonly message: string;
-  readonly cause?: unknown;
+  readonly cause?: Error;
 }> {}

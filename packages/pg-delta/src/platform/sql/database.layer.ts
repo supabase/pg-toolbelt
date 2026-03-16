@@ -7,6 +7,7 @@ import {
   type NodePgPoolClient as PoolClient,
 } from "../../adapters/pg-runtime.ts";
 import { CatalogExtractionError } from "../../core/errors.ts";
+import { ensureError } from "../../utils.ts";
 import {
   type DatabaseApi,
   type DatabaseConnectionApi,
@@ -16,7 +17,7 @@ import {
 import {
   ConnectionError,
   ConnectionTimeoutError,
-  SslConfigError,
+  type SslConfigError,
 } from "./errors.ts";
 import { createPool, endPool } from "./pool.ts";
 import {
@@ -41,7 +42,7 @@ const connectionError = (
   new ConnectionError({
     message: `Failed to acquire ${label} database connection: ${error instanceof Error ? error.message : String(error)}`,
     label,
-    cause: error,
+    cause: ensureError(error),
   });
 
 export const makeScopedSqlDatabaseEffect = (
@@ -146,27 +147,17 @@ export const createDatabaseLayer = (
   const makeScopedSqlDatabaseEffect = (
     url: string,
     options?: { role?: string; label?: "source" | "target" },
-  ): Effect.Effect<
-    DatabaseApi,
-    ConnectionError | ConnectionTimeoutError | SslConfigError,
-    FileSystem.FileSystem | PgRuntimeConfigService | Scope.Scope
-  > =>
+  ) =>
     Effect.gen(function* () {
       const label = options?.label ?? "target";
       const runtimeConfig = yield* PgRuntimeConfigService;
       const connectTimeoutMs = runtimeConfig.connectTimeoutMs;
 
-      const sslConfig = yield* dependencies
-        .parseSslConfig(url, label, runtimeConfig)
-        .pipe(
-          Effect.mapError(
-            (error) =>
-              new SslConfigError({
-                message: `SSL config failed for ${label}: ${error instanceof Error ? error.message : String(error)}`,
-                cause: error,
-              }),
-          ),
-        );
+      const sslConfig = yield* dependencies.parseSslConfig(
+        url,
+        label,
+        runtimeConfig,
+      );
 
       const pool = yield* Effect.acquireRelease(
         Effect.sync(() =>
@@ -194,7 +185,7 @@ export const createDatabaseLayer = (
               new ConnectionError({
                 message: `Failed to connect to ${label} database: ${error instanceof Error ? error.message : String(error)}`,
                 label,
-                cause: error,
+                cause: ensureError(error),
               }),
           }).pipe(Effect.timeoutOption(connectTimeoutMs));
 

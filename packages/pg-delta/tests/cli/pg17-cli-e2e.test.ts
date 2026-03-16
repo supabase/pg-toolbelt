@@ -316,9 +316,12 @@ Apply these changes? (y/N) "
       expect(
         applyResult.stderr.match(/Failed to apply changes:/g)?.length ?? 0,
       ).toBe(1);
-      expect(applyResult.stderr).toContain('syntax error at or near "THIS"');
-      expect(applyResult.stderr).toContain("Migration script:");
-      expect(applyResult.stderr).toContain("THIS IS NOT SQL;");
+      expect(applyResult.stderr).toMatchInlineSnapshot(`
+        "Failed to apply changes: syntax error at or near "THIS"
+        Migration script:
+        THIS IS NOT SQL;
+        "
+      `);
     }),
   );
 

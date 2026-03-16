@@ -7,7 +7,6 @@
 
 import type { ObjectRef } from "@supabase/pg-topo";
 import { Effect } from "effect";
-import type { CatalogExtractionError } from "../errors.ts";
 import type { DatabaseApi } from "../services/database.ts";
 
 type FunctionRow = {
@@ -57,9 +56,7 @@ function addProvider(
  *   real schema and "public" (via addProvider's alsoUnderPublic) so
  *   unqualified references in SQL resolve the same way the parser does.
  */
-export const extractCatalogProviders = (
-  db: DatabaseApi,
-): Effect.Effect<ObjectRef[], CatalogExtractionError> =>
+export const extractCatalogProviders = (db: DatabaseApi) =>
   Effect.gen(function* () {
     const providers: ObjectRef[] = [];
 

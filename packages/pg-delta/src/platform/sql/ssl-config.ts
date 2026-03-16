@@ -62,7 +62,7 @@ export const parseSslConfig = Effect.fn("parseSslConfig")(function* (
           Effect.mapError(
             (error) =>
               new SslConfigError({
-                message: `Failed to read certificate file '${queryParam}': ${error instanceof Error ? error.message : String(error)}`,
+                message: `Failed to read certificate file '${queryParam}': ${error.message}`,
                 cause: error,
               }),
           ),

@@ -5,6 +5,7 @@ import {
   CatalogExtractionError,
   type ConnectionError,
 } from "../../core/errors.ts";
+import { ensureError } from "../../utils.ts";
 import { ConnectionError as SqlConnectionError } from "./errors.ts";
 
 export type QueryInput = string | { text: string; values?: readonly unknown[] };
@@ -69,14 +70,14 @@ export const fromPgClient = (
       }));
   const connectionError =
     options?.connectionError ??
-    ((error: unknown) =>
+    ((error) =>
       new SqlConnectionError({
         label: "target",
         message:
           error instanceof Error
             ? error.message
             : "Database connection failed.",
-        cause: error,
+        cause: ensureError(error),
       }));
   const prepareConnection = options?.prepareConnection ?? (() => Effect.void);
 

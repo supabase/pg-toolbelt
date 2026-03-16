@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, type PlatformError } from "effect";
 
 // ---------------------------------------------------------------------------
 // Connection errors (infrastructure-level, no domain-specific fields)
@@ -10,7 +10,7 @@ import { Data } from "effect";
 export class ConnectionError extends Data.TaggedError("ConnectionError")<{
   readonly message: string;
   readonly label: "source" | "target";
-  readonly cause?: unknown;
+  readonly cause?: ConnectionTimeoutError | Error;
 }> {}
 
 /**
@@ -33,5 +33,5 @@ export class ConnectionTimeoutError extends Data.TaggedError(
  */
 export class SslConfigError extends Data.TaggedError("SslConfigError")<{
   readonly message: string;
-  readonly cause?: unknown;
+  readonly cause?: PlatformError.PlatformError | SslConfigError;
 }> {}

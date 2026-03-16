@@ -69,17 +69,6 @@ function toStatementEntries(nodes: StatementNode[]): StatementEntry[] {
   }));
 }
 
-function remapStatementId(
-  statementId: { filePath: string; statementIndex: number } | undefined,
-  filePathMap: Map<string, string>,
-): typeof statementId {
-  if (!statementId) return undefined;
-  return {
-    ...statementId,
-    filePath: filePathMap.get(statementId.filePath) ?? statementId.filePath,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -99,9 +88,7 @@ export { loadDeclarativeSchema } from "./discover-sql.ts";
 // Re-export result types for callers that need them (StatementError is imported from round-apply directly where needed)
 export type { ApplyResult, RoundResult } from "./round-apply.ts";
 
-export const applyDeclarativeSchema = (
-  options: DeclarativeApplyOptions,
-): Effect.Effect<DeclarativeApplyResult, DeclarativeApplyError> => {
+export const applyDeclarativeSchema = (options: DeclarativeApplyOptions) => {
   const {
     content,
     maxRounds = 100,
@@ -156,7 +143,12 @@ export const applyDeclarativeSchema = (
 
       const remappedDiagnostics = diagnostics.map((diagnostic) => ({
         ...diagnostic,
-        statementId: remapStatementId(diagnostic.statementId, filePathMap),
+        statementId: diagnostic.statementId && {
+          ...diagnostic.statementId,
+          filePath:
+            filePathMap.get(diagnostic.statementId.filePath) ??
+            diagnostic.statementId.filePath,
+        },
       }));
 
       if (ordered.length === 0) {
@@ -170,7 +162,14 @@ export const applyDeclarativeSchema = (
         disableCheckFunctionBodies,
         finalValidation: validateFunctionBodies,
         onRoundComplete,
-      });
+      }).pipe(
+        Effect.mapError((error) => {
+          return new DeclarativeApplyError({
+            message: error.message,
+            cause: error,
+          });
+        }),
+      );
 
       return {
         apply: applyResult,
