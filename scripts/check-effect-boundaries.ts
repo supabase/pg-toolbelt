@@ -61,9 +61,8 @@ const runtimeRules: readonly Rule[] = [
     description: "@pgsql/traverse imports must stay in adapters only",
   },
   {
-    pattern: /from\s+["']@effect\/platform-node-shared\//,
-    description:
-      "@effect/platform-node-shared imports must stay in adapters only",
+    pattern: /from\s+["']@effect\/platform-node\//,
+    description: "@effect/platform-node imports must stay in adapters only",
   },
   {
     pattern: /\bcreateRequire\s*\(/,
@@ -93,9 +92,10 @@ const policies: readonly PackagePolicy[] = [
     root: "packages/pg-delta/src",
     allowPrefixes: [],
     allowFiles: [
+      "packages/pg-delta/src/adapters/node-child-process-spawn.ts",
       "packages/pg-delta/src/adapters/node-platform.ts",
-      "packages/pg-delta/src/adapters/runtime-process.ts",
       "packages/pg-delta/src/adapters/pg-runtime.ts",
+      "packages/pg-delta/src/adapters/runtime-process.ts",
     ],
     forbiddenFiles: [
       "packages/pg-delta/src/adapters/cli-package.ts",

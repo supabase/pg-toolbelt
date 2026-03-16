@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect } from "effect";
 import { isPostgresUrl, loadCatalogFromFile } from "./resolve-input.ts";
 

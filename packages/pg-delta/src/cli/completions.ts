@@ -1,11 +1,10 @@
-import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { spawnAndCaptureOutput } from "../adapters/node-child-process-spawn.ts";
 import { getRuntimeProcess } from "../adapters/runtime-process.ts";
 
 const SUPPORTED_COMPLETION_SHELLS = ["bash", "zsh", "fish", "sh"] as const;
 
-export type SupportedCompletionShell =
-  (typeof SUPPORTED_COMPLETION_SHELLS)[number];
+type SupportedCompletionShell = (typeof SUPPORTED_COMPLETION_SHELLS)[number];
 
 export function parseCompletionShell(
   argv: readonly string[],
@@ -50,50 +49,17 @@ export const generateCompletionScript = (
       );
     }
 
-    const script = yield* Effect.tryPromise({
-      try: () =>
-        new Promise<string>((resolve, reject) => {
-          const child = spawn(
-            runtimeCommand,
-            [runtimeEntry, "--completions", generatorShell],
-            {
-              cwd: runtimeProcess.cwd(),
-              env: {
-                ...runtimeProcess.env,
-                PGDELTA_INTERNAL_RAW_COMPLETIONS: "1",
-              },
-              stdio: ["ignore", "pipe", "pipe"],
-            },
-          );
-
-          let stdout = "";
-          let stderr = "";
-
-          child.stdout?.on("data", (chunk) => {
-            stdout += chunk.toString();
-          });
-          child.stderr?.on("data", (chunk) => {
-            stderr += chunk.toString();
-          });
-          child.on("error", reject);
-          child.on("close", (exitCode) => {
-            if (exitCode === 0) {
-              resolve(stdout);
-              return;
-            }
-
-            reject(
-              new Error(
-                stderr.trim() || "Failed to generate completion script.",
-              ),
-            );
-          });
-        }),
-      catch: (error) =>
-        error instanceof Error
-          ? error
-          : new Error("Failed to generate completion script."),
-    });
+    const script = yield* spawnAndCaptureOutput(
+      runtimeCommand,
+      [runtimeEntry, "--completions", generatorShell],
+      {
+        cwd: runtimeProcess.cwd(),
+        env: {
+          ...runtimeProcess.env,
+          PGDELTA_INTERNAL_RAW_COMPLETIONS: "1",
+        },
+      },
+    );
 
     return sanitizeCompletionScript(script.trimEnd(), shell);
   });

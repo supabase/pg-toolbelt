@@ -1,5 +1,5 @@
-import { Effect } from "effect";
 import { ParserServiceLive, validateSqlSyntax } from "@supabase/pg-topo";
+import { Effect } from "effect";
 import type { InvariantViolationError } from "../src/core/errors.ts";
 
 export const resolveSql = (

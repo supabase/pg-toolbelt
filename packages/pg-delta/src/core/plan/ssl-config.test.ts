@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect } from "effect";
 import { parseSslConfig } from "./ssl-config.ts";
 

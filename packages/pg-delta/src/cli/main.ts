@@ -195,5 +195,7 @@ const handledProgram = <R>(program: Effect.Effect<unknown, unknown, R>) =>
   });
 
 export async function runPgDeltaCli(): Promise<void> {
-  await Effect.runPromise(provideCliRuntime(handledProgram(program), outputFormat));
+  await Effect.runPromise(
+    provideCliRuntime(handledProgram(program), outputFormat),
+  );
 }

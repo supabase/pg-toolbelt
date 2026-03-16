@@ -5,6 +5,7 @@ import {
   analyzeAndSortFromFiles as analyzeAndSortFromFilesEffect,
   validateSqlSyntax as validateSqlSyntaxEffect,
 } from "./effect.ts";
+
 export {
   DiscoveryError,
   ParseError,
@@ -26,6 +27,7 @@ export type {
   StatementId,
   StatementNode,
 } from "./model/types.ts";
+
 import { ParserServiceLive } from "./services/parser-live.ts";
 
 const parserRuntime = ManagedRuntime.make(ParserServiceLive);

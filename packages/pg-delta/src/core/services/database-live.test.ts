@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { Effect, Layer, type Scope } from "effect";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { createDatabaseLayer } from "../../platform/sql/database.layer.ts";
