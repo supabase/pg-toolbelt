@@ -450,8 +450,8 @@ export function createFileMapper(
     Effect.gen(function* () {
       const basePath = yield* getFilePath(change);
 
-      // Flat schemas: collapse everything into one file per category.
-      // Applied first -- skips pattern matching for these schemas.
+      // Flat schemas collapse everything into one file per category, so this
+      // runs before regex grouping and partition auto-grouping.
       if (
         flatSet.size > 0 &&
         basePath.metadata.schemaName &&

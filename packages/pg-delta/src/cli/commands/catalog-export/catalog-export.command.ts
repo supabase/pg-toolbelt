@@ -28,4 +28,21 @@ export const catalogExportCommand = Command.make(
   Command.withHandler((flags) =>
     handleCatalogExport(flags).pipe(Effect.scoped),
   ),
+  Command.withShortDescription("Snapshot a live database catalog to JSON"),
+  Command.withDescription(
+    "Extracts the full PostgreSQL catalog from a live database and writes it to a JSON snapshot file. That snapshot can later be passed to plan or declarative export as --source or --target for offline diffs without keeping a live connection around.",
+  ),
+  Command.withExamples([
+    {
+      command:
+        "pgdelta catalog-export --target postgresql://user:pass@localhost:5432/mydb --output snapshot.json",
+      description: "Snapshot a database for later offline diffing",
+    },
+    {
+      command:
+        "pgdelta catalog-export --target postgresql://user:pass@prod:5432/mydb --output prod-snapshot.json --role readonly_role",
+      description:
+        "Export through SET ROLE when the snapshot should use a specific role context",
+    },
+  ]),
 );

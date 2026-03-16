@@ -253,8 +253,13 @@ function roundApplyWithClient(
     let totalApplied = 0;
     let totalSkipped = 0;
 
+    // Pending statements are retried across rounds until they apply or we stop
+    // making progress.
     let pending: StatementEntry[] = [...statements];
+    // Hard failures are reported separately from deferred dependency misses.
     const hardFailed: StatementError[] = [];
+    // Functions/procedures are re-run in the final validation pass once the rest
+    // of the schema exists.
     const appliedFunctions: StatementEntry[] = [];
 
     for (let round = 1; round <= maxRounds && pending.length > 0; round += 1) {
@@ -287,6 +292,8 @@ function roundApplyWithClient(
         const code = pgErr.code ?? "";
         const message = (pgErr.message ?? "").toLowerCase();
 
+        // Environment and capability issues are treated as permanent skips rather
+        // than schema-ordering problems we should retry forever.
         if (isEnvironmentCapabilityError(code, message, stmt.statementClass)) {
           logger.debug("skipped {statementId}: {reason}", {
             statementId: stmt.id,
@@ -296,6 +303,8 @@ function roundApplyWithClient(
           continue;
         }
 
+        // Dependency errors are expected when pg-topo cannot fully model a
+        // runtime dependency; defer the statement to a later round.
         if (isDependencyError(code)) {
           logger.debug("deferred {statementId}: {code} - {message}", {
             statementId: stmt.id,
@@ -321,6 +330,8 @@ function roundApplyWithClient(
           continue;
         }
 
+        // Everything else is a hard failure: record it, keep going, and report it
+        // in the final result.
         failedThisRound += 1;
         logger.debug("failed {statementId}: {code} - {message}", {
           statementId: stmt.id,
@@ -383,6 +394,8 @@ function roundApplyWithClient(
       rounds.push(roundResult);
       onRoundComplete?.(roundResult);
 
+      // No applied statements plus remaining deferred work means the remaining
+      // dependency gaps are no longer resolving on their own.
       if (appliedThisRound === 0 && deferred.length > 0) {
         const stuckStatements = deferred.map((stmt) => {
           const lastError = roundErrors.find(
@@ -412,6 +425,8 @@ function roundApplyWithClient(
       pending = deferred;
     }
 
+    // Hitting maxRounds with pending work is also a stuck condition, but we no
+    // longer have round-local errors to attribute beyond the round limit itself.
     if (pending.length > 0) {
       return {
         status: "stuck" as const,
@@ -429,6 +444,8 @@ function roundApplyWithClient(
       };
     }
 
+    // Final validation runs only after the main rounds complete, so function
+    // bodies can resolve references to objects created later in the apply.
     const validationErrors =
       finalValidation && appliedFunctions.length > 0
         ? yield* validateFunctionBodies(client, appliedFunctions)
@@ -457,6 +474,9 @@ function roundApplyWithClient(
     return program;
   }
 
+  // Disable body checks for the main apply so CREATE FUNCTION/PROCEDURE can land
+  // before every referenced object exists. Restore the session setting before
+  // returning the connection to the caller.
   return client.query("SET check_function_bodies = off").pipe(
     Effect.mapError(toDeclarativeApplyError),
     Effect.flatMap(() => program),
@@ -499,6 +519,8 @@ function validateFunctionBodies(
   const program = Effect.gen(function* () {
     const errors: StatementError[] = [];
 
+    // Auto-detect user schemas so unqualified names inside function bodies are
+    // validated against the same broad search_path a full schema apply expects.
     const { rows } = yield* client
       .query<{ schemas: string | null }>(`
       SELECT string_agg(quote_ident(nspname), ', ' ORDER BY nspname) AS schemas
@@ -524,6 +546,8 @@ function validateFunctionBodies(
     for (const stmt of functions) {
       const replaceSql = rewriteAsOrReplace(stmt.sql);
 
+      // Each function gets its own savepoint so one validation error does not
+      // abort the whole transaction or hide later failures.
       yield* client
         .query("SAVEPOINT validate_fn")
         .pipe(Effect.mapError(toDeclarativeApplyError));
@@ -559,6 +583,8 @@ function validateFunctionBodies(
   return client.query("BEGIN").pipe(
     Effect.mapError(toDeclarativeApplyError),
     Effect.flatMap(() => program),
+    // Always roll back: validation should report function-body problems without
+    // changing the already-applied schema definitions.
     Effect.ensuring(
       client.query("ROLLBACK").pipe(
         Effect.mapError(toDeclarativeApplyError),

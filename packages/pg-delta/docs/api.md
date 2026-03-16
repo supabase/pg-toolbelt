@@ -140,7 +140,7 @@ Effect.Effect<
   { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
   CreatePlanError,
   DatabaseResolver
->
+>;
 ```
 
 ### `applyPlan(plan, source, target, options?)`

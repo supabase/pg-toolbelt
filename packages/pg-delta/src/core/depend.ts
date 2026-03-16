@@ -1863,10 +1863,12 @@ export function extractDepends(
   ORDER BY dependent_stable_id, referenced_stable_id;
   `);
 
-    // Extract privilege and membership dependencies
+    // Privileges and memberships are ordering edges between grants and roles, so
+    // they are synthesized separately from the pg_depend-based catalog query.
     const privilegeDepends = yield* extractPrivilegeAndMembershipDepends(db);
 
-    // Combine all dependency sources and remove duplicates
+    // Merge native catalog dependencies with the synthesized grant/role edges
+    // before the final stable sort returned to callers.
     const allDepends = new Set([...dependsRows, ...privilegeDepends]);
 
     return Array.from(allDepends).sort(

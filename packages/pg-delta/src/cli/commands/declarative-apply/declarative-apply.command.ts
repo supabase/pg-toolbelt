@@ -55,4 +55,28 @@ const declarativeApplyFlags = {
 export const declarativeApplyCommand = Command.make(
   "apply",
   declarativeApplyFlags,
-).pipe(Command.withHandler(handleDeclarativeApply));
+).pipe(
+  Command.withHandler(handleDeclarativeApply),
+  Command.withShortDescription("Apply a declarative SQL schema to a database"),
+  Command.withDescription(
+    "Recursively loads .sql files, uses pg-topo for static dependency analysis and execution ordering, then applies statements in rounds to resolve dependency gaps at runtime. Function body checks are disabled during the main rounds to avoid false failures from not-yet-created objects, then re-enabled in a final validation pass.",
+  ),
+  Command.withExamples([
+    {
+      command:
+        "pgdelta declarative apply --path ./declarative-schemas/ --target postgresql://user:pass@localhost:5432/fresh_db",
+      description: "Apply an exported schema to a fresh database",
+    },
+    {
+      command:
+        "pgdelta declarative apply --path ./declarative-schemas/ --target postgresql://user:pass@localhost:5432/fresh_db --verbose",
+      description:
+        "Show per-round applied, deferred, and failed statement counts",
+    },
+    {
+      command:
+        "DEBUG=pg-delta:declarative-apply pgdelta declarative apply --path ./declarative-schemas/ --target postgresql://user:pass@localhost:5432/fresh_db",
+      description: "Inspect defer, skip, and failure decisions with debug logs",
+    },
+  ]),
+);

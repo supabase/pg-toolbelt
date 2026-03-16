@@ -112,9 +112,7 @@ import { applyPlan, createPlan } from "@supabase/pg-delta";
 const planResult = await createPlan(
   "postgresql://source",
   "postgresql://target",
-).pipe(
-  Effect.runPromise,
-);
+).pipe(Effect.runPromise);
 
 if (planResult) {
   console.log(planResult.plan.statements.join(";\n"));
@@ -123,9 +121,7 @@ if (planResult) {
     planResult.plan,
     "postgresql://source",
     "postgresql://target",
-  ).pipe(
-    Effect.runPromise,
-  );
+  ).pipe(Effect.runPromise);
 
   if (applyResult.status === "applied") {
     console.log(`Applied ${applyResult.statements} statements`);
@@ -142,9 +138,12 @@ Promise facades are still available from explicit runtime entrypoints:
 ```typescript
 import { createPlan, applyPlan } from "@supabase/pg-delta/node";
 
+// Only include changes in the public schema
 const planResult = await createPlan(sourceUrl, targetUrl, {
   filter: { schema: "public" },
-  serialize: [{ when: { type: "schema" }, options: { skipAuthorization: true } }],
+  serialize: [
+    { when: { type: "schema" }, options: { skipAuthorization: true } },
+  ],
 });
 
 if (planResult) {
