@@ -79,7 +79,11 @@ export function extractDeepestCliMessage(error: unknown): string {
   let best = normalizeCliError(error).message;
   const seen = new Set<unknown>();
 
-  while (hasCause(current) && current.cause !== undefined && !seen.has(current)) {
+  while (
+    hasCause(current) &&
+    current.cause !== undefined &&
+    !seen.has(current)
+  ) {
     seen.add(current);
     const next = current.cause;
     const normalized = normalizeCliError(next);

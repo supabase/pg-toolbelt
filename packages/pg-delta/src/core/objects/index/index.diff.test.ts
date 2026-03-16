@@ -99,7 +99,7 @@ describe.concurrent("index.diff", () => {
     ) as CreateIndex | undefined;
 
     expect(createChange).toBeDefined();
-    expect(() => Effect.runSync(createChange!.serialize())).toThrowError(
+    expect(() => Effect.runSync(createChange?.serialize())).toThrowError(
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
