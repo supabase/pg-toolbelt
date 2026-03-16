@@ -1,5 +1,17 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.8
+
+### Patch Changes
+
+- d6c9f90: fix(plan): use catalog-shape guard instead of instanceof Catalog so deserialized catalogs work in edge/bundled runtimes (declarative sync)
+
+## 1.0.0-alpha.7
+
+### Minor Changes
+
+- 28f6a9b: fix: export createManagedPool from lib core
+
 ## 1.0.0-alpha.6
 
 ### Patch Changes

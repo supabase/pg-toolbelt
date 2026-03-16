@@ -4,11 +4,8 @@
 
 import { Effect } from "effect";
 import { diffCatalogs } from "../catalog.diff.ts";
-import {
-  Catalog,
-  createEmptyCatalog,
-  extractCatalog,
-} from "../catalog.model.ts";
+import type { Catalog } from "../catalog.model.ts";
+import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import type {
@@ -49,6 +46,25 @@ import type { CreatePlanOptions, Plan } from "./types.ts";
  * file).
  */
 export type CatalogInput = string | DatabaseApi | Catalog;
+
+/**
+ * Bundle-safe catalog detection: treat input as a resolved Catalog when it has
+ * the catalog shape and is not a database adapter. Deserialized or cross-bundle
+ * Catalog instances may fail `instanceof Catalog` but pass this guard.
+ */
+function isResolvedCatalog(input: CatalogInput): input is Catalog {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    typeof (input as { query?: unknown }).query !== "function" &&
+    "version" in input &&
+    "currentUser" in input &&
+    "depends" in input &&
+    "schemas" in input &&
+    "tables" in input &&
+    "views" in input
+  );
+}
 
 /**
  * Build a plan (and supporting artifacts) from already extracted catalogs.
@@ -361,7 +377,7 @@ const resolveCatalog = (
   | ConnectionTimeoutError
   | SslConfigError
 > => {
-  if (input instanceof Catalog) {
+  if (isResolvedCatalog(input)) {
     return Effect.succeed(input);
   }
 
