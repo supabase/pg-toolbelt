@@ -96,10 +96,11 @@ describe.concurrent("index.diff", () => {
     );
     const createChange = changes.find(
       (change) => change instanceof CreateIndex,
-    ) as CreateIndex | undefined;
+    );
 
     expect(createChange).toBeDefined();
-    expect(() => Effect.runSync(createChange?.serialize())).toThrowError(
+    // biome-ignore lint/style/noNonNullAssertion: asserted above
+    expect(() => Effect.runSync(createChange!.serialize())).toThrowError(
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
