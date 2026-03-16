@@ -94,24 +94,23 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "build": "bun run scripts/sync-cli-version.ts && tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
     "pgdelta": "bun src/cli/bin/cli.ts",
+    "sync-cli-version": "bun run scripts/sync-cli-version.ts",
     "test": "bun scripts/run-tests.ts",
     "test:unit": "bun run test src/",
     "test:integration": "bun run test tests/",
     "update-empty-baseline": "bun scripts/update-empty-catalog-baseline.ts",
-    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
+    "version": "changeset version && bun run scripts/sync-cli-version.ts && bun install --no-frozen-lockfile && bun run format-and-lint --write"
   },
   "dependencies": {
-    "@clack/prompts": "^1.1.0",
     "@effect/platform-node-shared": "4.0.0-beta.31",
     "@effect/sql-pg": "4.0.0-beta.31",
     "@supabase/pg-topo": "^1.0.0-alpha.1",
     "@ts-safeql/sql-tag": "^0.2.0",
-    "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "effect": "4.0.0-beta.31",
     "pg": "^8.17.2"

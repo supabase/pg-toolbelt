@@ -3,8 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
+import * as NodePath from "@effect/platform-node-shared/NodePath";
 import type { Diagnostic, DiagnosticCode } from "@supabase/pg-topo";
-import { Effect, type FileSystem } from "effect";
+import { Effect, type FileSystem, type Path } from "effect";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
 import {
   buildDiagnosticDisplayItems,
@@ -19,13 +20,14 @@ import {
   resolveSqlFilePath,
 } from "./apply-display.ts";
 
-const runFs = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>) =>
+const runFs = <A>(
+  effect: Effect.Effect<A, never, FileSystem.FileSystem | Path.Path>,
+) =>
   Effect.runPromise(
-    effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
-      A,
-      never,
-      never
-    >,
+    effect.pipe(
+      Effect.provide(NodeFileSystem.layer),
+      Effect.provide(NodePath.layer),
+    ),
   );
 
 describe("positionToLineColumn", () => {

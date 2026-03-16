@@ -7,6 +7,7 @@ import {
   splitQualifiedName,
 } from "../model/object-ref.ts";
 import type { AnnotationHints, ObjectRef } from "../model/types.ts";
+import type { ParserApi } from "../services/parser.ts";
 import { asRecord } from "../utils/ast.ts";
 import {
   addExpressionDependencies,
@@ -32,8 +33,14 @@ type ExtractDependenciesResult = {
   requires: ObjectRef[];
 };
 
+type DependencyParser = Pick<
+  ParserApi,
+  "collectExpressionDependencies" | "collectRoutineBodyDependencies"
+>;
+
 const extractCreateTableDependencies = (
   statementNode: Record<string, unknown>,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -100,7 +107,7 @@ const extractCreateTableDependencies = (
           }
         }
         if (constraint.raw_expr) {
-          addExpressionDependencies(constraint.raw_expr, requires);
+          addExpressionDependencies(parser, constraint.raw_expr, requires);
         }
       }
     }
@@ -123,7 +130,7 @@ const extractCreateTableDependencies = (
         }
       }
       if (tableConstraint.raw_expr) {
-        addExpressionDependencies(tableConstraint.raw_expr, requires);
+        addExpressionDependencies(parser, tableConstraint.raw_expr, requires);
       }
     }
   }
@@ -134,6 +141,7 @@ const extractCreateTableDependencies = (
 const extractCreateTableAsDependencies = (
   statementNode: Record<string, unknown>,
   kind: "table" | "materialized_view",
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -150,7 +158,7 @@ const extractCreateTableAsDependencies = (
     }
   }
 
-  addExpressionDependencies(statementNode.query, requires);
+  addExpressionDependencies(parser, statementNode.query, requires);
   return { provides, requires };
 };
 
@@ -212,6 +220,7 @@ const extractAlterTableDependencies = (
 const extractCreateFunctionDependencies = (
   statementNode: Record<string, unknown>,
   kind: "function" | "procedure",
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -257,7 +266,7 @@ const extractCreateFunctionDependencies = (
     requires.push(returnType);
   }
 
-  addRoutineBodyDependencies(statementNode, requires);
+  addRoutineBodyDependencies(parser, statementNode, requires);
 
   return { provides, requires };
 };
@@ -265,6 +274,7 @@ const extractCreateFunctionDependencies = (
 const extractViewDependencies = (
   statementNode: Record<string, unknown>,
   kind: "view" | "materialized_view",
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -278,7 +288,7 @@ const extractViewDependencies = (
     }
   }
 
-  addExpressionDependencies(statementNode.query, requires);
+  addExpressionDependencies(parser, statementNode.query, requires);
   return { provides, requires };
 };
 
@@ -318,6 +328,7 @@ const extractTriggerDependencies = (
 
 const extractPolicyDependencies = (
   statementNode: Record<string, unknown>,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -338,8 +349,8 @@ const extractPolicyDependencies = (
     requires.push(relationRef);
   }
 
-  addExpressionDependencies(statementNode.qual, requires);
-  addExpressionDependencies(statementNode.with_check, requires);
+  addExpressionDependencies(parser, statementNode.qual, requires);
+  addExpressionDependencies(parser, statementNode.with_check, requires);
   return { provides, requires };
 };
 
@@ -680,15 +691,17 @@ const extractAlterSequenceDependencies = (
 
 const extractSelectDependencies = (
   statementNode: Record<string, unknown>,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
-  addExpressionDependencies(statementNode, requires);
+  addExpressionDependencies(parser, statementNode, requires);
   return { provides, requires };
 };
 
 const extractUpdateDependencies = (
   statementNode: Record<string, unknown>,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -698,8 +711,8 @@ const extractUpdateDependencies = (
     requires.push(relationRef);
   }
 
-  addExpressionDependencies(statementNode.targetList, requires);
-  addExpressionDependencies(statementNode.whereClause, requires);
+  addExpressionDependencies(parser, statementNode.targetList, requires);
+  addExpressionDependencies(parser, statementNode.whereClause, requires);
 
   return { provides, requires };
 };
@@ -798,6 +811,7 @@ const extractDoDependencies = (
 const extractDependencyRefs = (
   statementClass: StatementClass,
   ast: unknown,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
   const astNode = asRecord(ast);
   if (!astNode) {
@@ -908,7 +922,7 @@ const extractDependencyRefs = (
       for (const constraintItem of constraints) {
         const constraint = asRecord(asRecord(constraintItem)?.Constraint);
         if (constraint?.raw_expr) {
-          addExpressionDependencies(constraint.raw_expr, requires);
+          addExpressionDependencies(parser, constraint.raw_expr, requires);
         }
       }
 
@@ -947,12 +961,14 @@ const extractDependencyRefs = (
       if (asRecord(astNode.CreateStmt)) {
         return extractCreateTableDependencies(
           asRecord(astNode.CreateStmt) ?? {},
+          parser,
         );
       }
       if (asRecord(astNode.CreateTableAsStmt)) {
         return extractCreateTableAsDependencies(
           asRecord(astNode.CreateTableAsStmt) ?? {},
           "table",
+          parser,
         );
       }
       return { provides: [], requires: [] };
@@ -1017,11 +1033,13 @@ const extractDependencyRefs = (
       return extractCreateFunctionDependencies(
         asRecord(astNode.CreateFunctionStmt) ?? {},
         "function",
+        parser,
       );
     case "CREATE_PROCEDURE":
       return extractCreateFunctionDependencies(
         asRecord(astNode.CreateFunctionStmt) ?? {},
         "procedure",
+        parser,
       );
     case "CREATE_AGGREGATE":
       return extractCreateAggregateDependencies(
@@ -1032,18 +1050,24 @@ const extractDependencyRefs = (
         asRecord(astNode.DefineStmt) ?? {},
       );
     case "CREATE_VIEW":
-      return extractViewDependencies(asRecord(astNode.ViewStmt) ?? {}, "view");
+      return extractViewDependencies(
+        asRecord(astNode.ViewStmt) ?? {},
+        "view",
+        parser,
+      );
     case "CREATE_MATERIALIZED_VIEW":
       if (asRecord(astNode.ViewStmt)) {
         return extractViewDependencies(
           asRecord(astNode.ViewStmt) ?? {},
           "materialized_view",
+          parser,
         );
       }
       if (asRecord(astNode.CreateTableAsStmt)) {
         return extractCreateTableAsDependencies(
           asRecord(astNode.CreateTableAsStmt) ?? {},
           "materialized_view",
+          parser,
         );
       }
       return { provides: [], requires: [] };
@@ -1056,6 +1080,7 @@ const extractDependencyRefs = (
     case "CREATE_POLICY":
       return extractPolicyDependencies(
         asRecord(astNode.CreatePolicyStmt) ?? {},
+        parser,
       );
     case "GRANT":
     case "REVOKE":
@@ -1065,9 +1090,15 @@ const extractDependencyRefs = (
         asRecord(astNode.AlterDefaultPrivilegesStmt) ?? {},
       );
     case "SELECT":
-      return extractSelectDependencies(asRecord(astNode.SelectStmt) ?? {});
+      return extractSelectDependencies(
+        asRecord(astNode.SelectStmt) ?? {},
+        parser,
+      );
     case "UPDATE":
-      return extractUpdateDependencies(asRecord(astNode.UpdateStmt) ?? {});
+      return extractUpdateDependencies(
+        asRecord(astNode.UpdateStmt) ?? {},
+        parser,
+      );
     case "DO":
       return extractDoDependencies(asRecord(astNode.DoStmt) ?? {});
     case "VARIABLE_SET":
@@ -1117,8 +1148,9 @@ export const extractDependencies = (
   statementClass: StatementClass,
   ast: unknown,
   annotations: AnnotationHints,
+  parser: DependencyParser,
 ): ExtractDependenciesResult => {
-  const extracted = extractDependencyRefs(statementClass, ast);
+  const extracted = extractDependencyRefs(statementClass, ast, parser);
   return {
     provides: dedupeObjectRefs([
       ...extracted.provides,

@@ -4,17 +4,16 @@
  * Helper names favor readability over brevity.
  */
 
-import chalk from "chalk";
+import { type AnsiPalette, createAnsiPalette } from "../../ansi.ts";
 
 const GUIDE_UNIT = "│  ";
-const colorCount = (count: string) => chalk.gray(count);
 const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const stripAnsi = (value: string) => value.replace(ANSI_PATTERN, "");
 const visibleWidth = (value: string) => stripAnsi(value).length;
 const splitNameCount = (name: string) => {
-  const m = name.match(/^(.*?)(\s+)(\d+)$/);
-  return m
-    ? { base: m[1], sep: m[2], count: m[3] }
+  const match = name.match(/^(.*?)(\s+)(\d+)$/);
+  return match
+    ? { base: match[1], sep: match[2], count: match[3] }
     : { base: name, sep: "", count: "" };
 };
 const GROUP_NAMES = [
@@ -57,18 +56,12 @@ interface OperationCounts {
   drop: number;
 }
 
-/**
- * Increment operation counters based on a prefixed label.
- */
 function tallyOperation(name: string, counts: OperationCounts): void {
   if (name.startsWith("+")) counts.create += 1;
   else if (name.startsWith("~")) counts.alter += 1;
   else if (name.startsWith("-")) counts.drop += 1;
 }
 
-/**
- * Count operations for a single level (no recursion).
- */
 function summarizeShallow(
   groups?: TreeGroup[],
   items?: TreeItem[],
@@ -89,61 +82,32 @@ function summarizeShallow(
   return counts;
 }
 
-/**
- * A single item in the tree (leaf node).
- */
 export interface TreeItem {
-  /** The display name/label */
   name: string;
 }
 
-/**
- * A group in the tree (branch node with children).
- */
 export interface TreeGroup {
-  /** The display name/label */
   name: string;
-  /** Child items (leaves) */
   items?: TreeItem[];
-  /** Child groups (branches) */
   groups?: TreeGroup[];
 }
 
-/**
- * Render a tree structure using plain lines style.
- *
- * @example
- * ```ts
- * const tree: TreeGroup = {
- *   name: "root",
- *   groups: [
- *     { name: "src", items: [{ name: "index.ts" }] },
- *     { name: "tests", items: [{ name: "test.ts" }] },
- *   ],
- * };
- * const output = renderTree(tree);
- * // Output:
- * // root
- * // ├─ src
- * // │  └─ index.ts
- * // └─ tests
- * //    └─ test.ts
- * ```
- */
-export function renderTree(root: TreeGroup): string {
+export function renderTree(root: TreeGroup, useColors = true): string {
+  const palette = createAnsiPalette(useColors);
+
   interface TreeRow {
     left: string;
     counts?: OperationCounts;
   }
+
   const rows: TreeRow[] = [];
   if (root.name) {
-    rows.push({ left: chalk.bold(root.name) });
+    rows.push({ left: palette.bold(root.name) });
   }
 
   const rootItems = root.items ?? [];
   const rootGroups = root.groups ?? [];
 
-  // Render root groups at top level (no extra wrapper indentation)
   const clusterEntries: TreeGroup[] = [];
   const otherGroups: TreeGroup[] = [];
   let schemasGroup: TreeGroup | undefined;
@@ -152,7 +116,9 @@ export function renderTree(root: TreeGroup): string {
     const { base: label } = splitNameCount(group.name);
     if (label === "cluster") {
       if (group.items) {
-        clusterEntries.push(...group.items.map((it) => ({ name: it.name })));
+        clusterEntries.push(
+          ...group.items.map((item) => ({ name: item.name })),
+        );
       }
       if (group.groups) {
         clusterEntries.push(...group.groups);
@@ -171,20 +137,20 @@ export function renderTree(root: TreeGroup): string {
   ];
 
   const combinedRoot = [
-    ...sortItems(rootItems).map((it) => ({
+    ...sortItems(rootItems).map((item) => ({
       kind: "item" as const,
-      name: it.name,
+      name: item.name,
     })),
-    ...orderedRoot.map((g) => ({ kind: "group" as const, group: g })),
+    ...orderedRoot.map((group) => ({ kind: "group" as const, group })),
   ];
 
-  for (let i = 0; i < combinedRoot.length; i++) {
-    const node = combinedRoot[i];
-    const isLast = i === combinedRoot.length - 1;
+  for (let index = 0; index < combinedRoot.length; index += 1) {
+    const node = combinedRoot[index];
+    const isLast = index === combinedRoot.length - 1;
     if (node.kind === "item") {
-      renderItem(node.name, [], isLast, rows);
+      renderItem(node.name, [], isLast, rows, palette);
     } else {
-      renderGroup(node.group, [], isLast, rows);
+      renderGroup(node.group, [], isLast, rows, palette);
     }
   }
 
@@ -193,31 +159,31 @@ export function renderTree(root: TreeGroup): string {
     0,
   );
 
-  const lines = rows.map(({ left, counts }) => {
-    if (!counts) return left;
+  return rows
+    .map(({ left, counts }) => {
+      if (!counts) return left;
 
-    const parts: string[] = [];
-    if (counts.create) parts.push(chalk.green.dim(`+${counts.create}`));
-    if (counts.alter) parts.push(chalk.yellow.dim(`~${counts.alter}`));
-    if (counts.drop) parts.push(chalk.red.dim(`-${counts.drop}`));
+      const parts: string[] = [];
+      if (counts.create) parts.push(palette.greenDim(`+${counts.create}`));
+      if (counts.alter) parts.push(palette.yellowDim(`~${counts.alter}`));
+      if (counts.drop) parts.push(palette.redDim(`-${counts.drop}`));
 
-    if (parts.length === 0) return left;
+      if (parts.length === 0) return left;
 
-    const summary = parts.join(" ");
-    const gap = Math.max(
-      1,
-      maxLeftWidth - visibleWidth(left) - visibleWidth(summary) - 1,
-    );
-    const filler = gap > 0 ? " ".repeat(gap) : "";
+      const summary = parts.join(" ");
+      const gap = Math.max(
+        1,
+        maxLeftWidth - visibleWidth(left) - visibleWidth(summary) - 1,
+      );
+      const filler = gap > 0 ? " ".repeat(gap) : "";
 
-    return `${left}${filler} ${summary}`;
-  });
-
-  return lines.join("\n");
+      return `${left}${filler} ${summary}`;
+    })
+    .join("\n");
 }
 
 function sortItems(items: TreeItem[]): TreeItem[] {
-  return [...items].sort((firstItem, secondItem) => {
+  return [...items].sort((left, right) => {
     const operationOrder = (name: string) =>
       name.startsWith("+")
         ? 0
@@ -226,19 +192,23 @@ function sortItems(items: TreeItem[]): TreeItem[] {
           : name.startsWith("-")
             ? 2
             : 3;
-    const firstOrder = operationOrder(firstItem.name);
-    const secondOrder = operationOrder(secondItem.name);
-    if (firstOrder !== secondOrder) return firstOrder - secondOrder;
-    const firstLabel = firstItem.name.replace(/^[+~-]\s*/, "").toLowerCase();
-    const secondLabel = secondItem.name.replace(/^[+~-]\s*/, "").toLowerCase();
-    if (firstLabel < secondLabel) return -1;
-    if (firstLabel > secondLabel) return 1;
+
+    const leftOrder = operationOrder(left.name);
+    const rightOrder = operationOrder(right.name);
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    const leftLabel = left.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    const rightLabel = right.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    if (leftLabel < rightLabel) return -1;
+    if (leftLabel > rightLabel) return 1;
     return 0;
   });
 }
 
 function sortGroups(groups: TreeGroup[]): TreeGroup[] {
-  return [...groups].sort((firstGroup, secondGroup) => {
+  return [...groups].sort((left, right) => {
     const operationOrder = (name: string) =>
       name.startsWith("+")
         ? 0
@@ -247,69 +217,65 @@ function sortGroups(groups: TreeGroup[]): TreeGroup[] {
           : name.startsWith("-")
             ? 2
             : 3;
-    const firstOrder = operationOrder(firstGroup.name);
-    const secondOrder = operationOrder(secondGroup.name);
-    if (firstOrder !== secondOrder) return firstOrder - secondOrder;
-    const firstLabel = firstGroup.name.replace(/^[+~-]\s*/, "").toLowerCase();
-    const secondLabel = secondGroup.name.replace(/^[+~-]\s*/, "").toLowerCase();
-    if (firstLabel < secondLabel) return -1;
-    if (firstLabel > secondLabel) return 1;
+
+    const leftOrder = operationOrder(left.name);
+    const rightOrder = operationOrder(right.name);
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    const leftLabel = left.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    const rightLabel = right.name.replace(/^[+~-]\s*/, "").toLowerCase();
+    if (leftLabel < rightLabel) return -1;
+    if (leftLabel > rightLabel) return 1;
     return 0;
   });
 }
 
-/**
- * Colorize a label; pads non-op labels to align with op-labeled rows.
- */
-function colorizeName(name: string, isGroup = false): string {
+function colorizeName(
+  name: string,
+  palette: AnsiPalette,
+  isGroup = false,
+): string {
   const { base: rawBase, sep, count } = splitNameCount(name);
   const hasOperationSymbol = /^[+~-]\s/.test(rawBase);
   const baseName = rawBase.trim();
 
-  // Colorize items/entities with operation symbols (e.g., "+ customer", "+ customer_email_domain_idx")
   if (hasOperationSymbol) {
     const symbol = rawBase[0];
     const rest = rawBase.slice(2).trimStart();
     const coloredBase =
       symbol === "+"
-        ? `${chalk.green(symbol)} ${rest}`
+        ? `${palette.green(symbol)} ${rest}`
         : symbol === "~"
-          ? `${chalk.yellow(symbol)} ${rest}`
-          : `${chalk.red(symbol)} ${rest}`;
-    return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
+          ? `${palette.yellow(symbol)} ${rest}`
+          : `${palette.red(symbol)} ${rest}`;
+
+    return count ? `${coloredBase}${sep}${palette.gray(count)}` : coloredBase;
   }
 
-  // Group names (like "tables", "schemas") - dim gray
   const baseNameStripped = baseName.replace(/\s*\(\d+\)$/, "");
-
   if (GROUP_NAMES.includes(baseNameStripped)) {
-    const coloredBase = chalk.gray(baseNameStripped);
-    return count ? `${coloredBase}${sep}${colorCount(count)}` : coloredBase;
+    const coloredBase = palette.gray(baseNameStripped);
+    return count ? `${coloredBase}${sep}${palette.gray(count)}` : coloredBase;
   }
 
   const padded = isGroup ? baseName : `  ${baseName}`;
-  return count ? `${padded}${sep}${colorCount(count)}` : padded;
+  return count ? `${padded}${sep}${palette.gray(count)}` : padded;
 }
 
-/**
- * Render a group with bullet-style indentation.
- */
-function buildPrefix(ancestors: boolean[]): string {
+function buildPrefix(ancestors: boolean[], palette: AnsiPalette): string {
   return ancestors
-    .map((hasSibling) =>
-      hasSibling ? chalk.hex("#4a4a4a")(GUIDE_UNIT) : "   ",
-    )
+    .map((hasSibling) => (hasSibling ? palette.guide(GUIDE_UNIT) : "   "))
     .join("");
 }
 
-/**
- * Render a group node (may have child groups/items). Avoids drawing guides past the last child.
- */
 function renderGroup(
   group: TreeGroup,
   ancestors: boolean[],
   isLast: boolean,
   rows: { left: string; counts?: OperationCounts }[],
+  palette: AnsiPalette,
 ): void {
   const { base } = splitNameCount(group.name);
   const hasOperationSymbol = /^[+~-]\s/.test(base);
@@ -322,6 +288,7 @@ function renderGroup(
     (group.items || group.groups)
       ? summarizeShallow(group.groups, group.items)
       : undefined;
+
   const childItems = sortItems(group.items ?? []);
   const childGroups = sortGroups(group.groups ?? []);
   const children = [
@@ -332,41 +299,39 @@ function renderGroup(
     })),
   ];
 
-  const prefix = buildPrefix(ancestors);
-  const connector = chalk.hex("#4a4a4a")(isLast ? "└ " : "├ ");
+  const prefix = buildPrefix(ancestors, palette);
+  const connector = palette.guide(isLast ? "└ " : "├ ");
   const extraGuide = hasOperationSymbol ? "" : connector;
-  const coloredName = colorizeName(base, true);
   rows.push({
-    left: `${prefix}${extraGuide}${coloredName}`,
+    left: `${prefix}${extraGuide}${colorizeName(base, palette, true)}`,
     counts: summary,
   });
 
-  for (let i = 0; i < children.length; i++) {
-    const child = children[i];
-    const childIsLast = i === children.length - 1;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    const childIsLast = index === children.length - 1;
     const childAncestors = [...ancestors, !isLast];
     if (child.kind === "item") {
-      renderItem(child.name, childAncestors, childIsLast, rows);
+      renderItem(child.name, childAncestors, childIsLast, rows, palette);
     } else {
-      renderGroup(child.group, childAncestors, childIsLast, rows);
+      renderGroup(child.group, childAncestors, childIsLast, rows, palette);
     }
   }
 }
 
-/**
- * Render a leaf item. Non-op rows get a dim connector; op rows start at the prefix.
- */
 function renderItem(
   name: string,
   ancestors: boolean[],
   isLast: boolean,
   rows: { left: string; counts?: OperationCounts }[],
+  palette: AnsiPalette,
 ): void {
-  const prefix = buildPrefix(ancestors);
+  const prefix = buildPrefix(ancestors, palette);
   const hasOperationSymbol = /^[+~-]\s/.test(name);
   const connector = hasOperationSymbol
     ? ""
-    : chalk.hex("#4a4a4a")(isLast ? "└ " : "├ ");
-  const coloredName = colorizeName(name);
-  rows.push({ left: `${prefix}${connector}${coloredName}` });
+    : palette.guide(isLast ? "└ " : "├ ");
+  rows.push({
+    left: `${prefix}${connector}${colorizeName(name, palette)}`,
+  });
 }

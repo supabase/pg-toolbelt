@@ -95,6 +95,10 @@ If you need the runtime layer directly, use the adapter boundary:
 import { makeNodeFileSystemRuntimeLayer } from "@supabase/pg-topo/adapters/node-filesystem";
 ```
 
+Internally, parser and filesystem integrations follow the same rule: direct
+imports of runtime or third-party libraries live in explicit adapter modules,
+while the analysis pipeline depends on `ParserService` and Effect services only.
+
 ## Public API
 
 ### `analyzeAndSort(sql: string[]): Effect<AnalyzeResult, ParseError>`

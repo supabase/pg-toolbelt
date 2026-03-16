@@ -1,5 +1,4 @@
 import { ConfigProvider, Effect, Layer } from "effect";
-import type { Pool } from "pg";
 import { getPgDeltaLogger } from "../core/logging.ts";
 import type { DatabaseApi } from "../core/services/database.ts";
 import { DatabaseResolver } from "../core/services/database-resolver.ts";
@@ -15,12 +14,16 @@ import {
   type PgRuntimeConfigApi,
 } from "../platform/sql/runtime-config.ts";
 import { parseSslConfig } from "../platform/sql/ssl-config.ts";
+import { nodeFileSystemPathLayer } from "./node-platform.ts";
+import type { NodePgPool as Pool } from "./pg-runtime.ts";
 
 const logger = getPgDeltaLogger("postgres");
 
 export const nodePgDatabaseResolverLayer = Layer.succeed(DatabaseResolver, {
   fromConnectionString: (connectionString, options) =>
-    makeScopedSqlDatabase(connectionString, options),
+    makeScopedSqlDatabase(connectionString, options).pipe(
+      Effect.provide(nodeFileSystemPathLayer),
+    ),
 });
 
 export const fromNodePgPool = (pool: Pool): DatabaseApi => fromPool(pool);
@@ -33,10 +36,10 @@ export async function createManagedPool(
   options?: { role?: string; label?: "source" | "target" },
   runtimeConfig: PgRuntimeConfigApi = getDefaultRuntimeConfig(),
 ): Promise<{ pool: Pool; close: () => Promise<void> }> {
-  const sslConfig = await parseSslConfig(
-    url,
-    options?.label ?? "target",
-    runtimeConfig,
+  const sslConfig = await Effect.runPromise(
+    parseSslConfig(url, options?.label ?? "target", runtimeConfig).pipe(
+      Effect.provide(nodeFileSystemPathLayer),
+    ),
   );
   const pool = createPool(
     sslConfig.cleanedUrl,

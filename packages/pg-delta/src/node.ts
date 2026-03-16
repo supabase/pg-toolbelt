@@ -7,14 +7,13 @@
  * import from `./effect.ts`.
  */
 
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import * as NodePath from "@effect/platform-node-shared/NodePath";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import type { Pool } from "pg";
 import {
   fromNodePgPool,
   nodePgDatabaseResolverLayer,
+  type Pool,
 } from "./adapters/node-pg.ts";
+import { nodeFileSystemPathLayer } from "./adapters/node-platform.ts";
 import type { Catalog } from "./core/catalog.model.ts";
 import type { Change } from "./core/change.types.ts";
 import type { DiffContext } from "./core/context.ts";
@@ -32,11 +31,7 @@ import {
 } from "./effect.ts";
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    nodePgDatabaseResolverLayer,
-    NodeFileSystem.layer,
-    NodePath.layer,
-  ),
+  Layer.mergeAll(nodePgDatabaseResolverLayer, nodeFileSystemPathLayer),
 );
 
 export type NodeCatalogInput = CatalogInput | Pool;
@@ -73,7 +68,7 @@ export const loadDeclarativeSchema = (
 ): Promise<SqlFileEntry[]> =>
   runtime.runPromise(
     _loadDeclarativeSchema(schemaPath).pipe(
-      Effect.provide(NodeFileSystem.layer),
+      Effect.provide(nodeFileSystemPathLayer),
     ),
   );
 

@@ -42,6 +42,8 @@ describe("ParserService", () => {
           ],
           diagnostics: [] as Diagnostic[],
         }),
+      collectExpressionDependencies: () => [],
+      collectRoutineBodyDependencies: () => [],
     });
 
     const result = await analyzeAndSort(["mock sql"]).pipe(
@@ -55,6 +57,8 @@ describe("ParserService", () => {
     const FailingParser = Layer.succeed(ParserService, {
       parseSqlContent: (_sql, _label) =>
         Effect.fail(new ParseError({ message: "parser crashed" })),
+      collectExpressionDependencies: () => [],
+      collectRoutineBodyDependencies: () => [],
     });
 
     const result = await analyzeAndSort(["bad sql"]).pipe(

@@ -4,7 +4,5 @@
  */
 export {
   loadPgRuntimeConfig,
-  
-  
   PgRuntimeConfigService,
 } from "../platform/sql/runtime-config.ts";

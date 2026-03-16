@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 
-import { createRequire } from "node:module";
-import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
-import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import * as NodePath from "@effect/platform-node-shared/NodePath";
-import * as NodeStdio from "@effect/platform-node-shared/NodeStdio";
-import * as NodeTerminal from "@effect/platform-node-shared/NodeTerminal";
 import { Cause, Effect, Exit, Layer, Option, Stdio } from "effect";
 import { Command } from "effect/unstable/cli";
 import * as CliError from "effect/unstable/cli/CliError";
 import { nodePgDatabaseResolverLayer } from "../adapters/node-pg.ts";
+import { nodeCliPlatformLayer } from "../adapters/node-platform.ts";
 import { configurePgDeltaLogging } from "../core/logging.ts";
 import {
   generateCompletionScript,
@@ -26,23 +21,13 @@ import { root } from "./root.ts";
 import { processControlLayer } from "./runtime/process-control.layer.ts";
 import { ProcessControl } from "./runtime/process-control.service.ts";
 import { ttyLayer } from "./runtime/tty.layer.ts";
+import { PGDELTA_CLI_VERSION } from "./version.ts";
 
-const require = createRequire(import.meta.url);
-const packageJson = require("../../package.json") as { version: string };
+const packageVersion = PGDELTA_CLI_VERSION;
 
-const CliRuntimeLive = nodePgDatabaseResolverLayer.pipe(
-  Layer.provideMerge(
-    NodeChildProcessSpawner.layer.pipe(
-      Layer.provideMerge(
-        Layer.mergeAll(
-          NodeFileSystem.layer,
-          NodePath.layer,
-          NodeStdio.layer,
-          NodeTerminal.layer,
-        ),
-      ),
-    ),
-  ),
+const CliRuntimeLive = Layer.mergeAll(
+  nodePgDatabaseResolverLayer,
+  nodeCliPlatformLayer,
 );
 
 const configureLogging = Effect.gen(function* () {
@@ -103,7 +88,7 @@ function cliProgramFor(args: ReadonlyArray<string>) {
   return Effect.gen(function* () {
     yield* configureLogging;
     return yield* Command.runWith(root, {
-      version: packageJson.version,
+      version: packageVersion,
     })(args);
   }).pipe(
     Effect.provide(PgDeltaCliOutputLive),
@@ -151,14 +136,10 @@ const program = Effect.gen(function* () {
   }
 
   if (completionShell) {
-    const script = yield* generateCompletionScript(completionShell, root).pipe(
-      Effect.mapError(
-        (error) =>
-          new CliExitError({
-            exitCode: 1,
-            message: error.message,
-          }),
-      ),
+    const script = yield* generateCompletionScript(
+      completionShell,
+      root,
+      packageVersion,
     );
     yield* output.write(script.endsWith("\n") ? script.trimEnd() : script);
     return;

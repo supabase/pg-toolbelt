@@ -2,27 +2,46 @@
  * CLI helpers for declarative export: file tree, diff, and summary formatting.
  */
 
-import path from "node:path";
-import chalk from "chalk";
-import { Effect, FileSystem } from "effect";
+import { Data, Effect, FileSystem, Path } from "effect";
 import type { FileEntry } from "../../core/export/types.ts";
+import { createAnsiPalette, maybeColorize } from "../ansi.ts";
+
+export class ExportPathTraversalError extends Data.TaggedError(
+  "ExportPathTraversalError",
+)<{
+  readonly filePath: string;
+  readonly outputDir: string;
+  readonly resolvedOutput: string;
+  readonly resolvedFile: string;
+  readonly message: string;
+}> {}
 
 /**
  * Ensure a relative file path does not escape the output directory.
- * Uses Node.js path.resolve + startsWith as the canonical traversal check.
+ * Uses Effect Path.resolve + startsWith as the canonical traversal check.
  */
-export function assertSafePath(filePath: string, outputDir: string): void {
+export const assertSafePath = Effect.fn("assertSafePath")(function* (
+  path: Path.Path,
+  filePath: string,
+  outputDir: string,
+) {
   const resolvedOutput = path.resolve(outputDir);
   const resolvedFile = path.resolve(outputDir, filePath);
   if (
     resolvedFile !== resolvedOutput &&
     !resolvedFile.startsWith(resolvedOutput + path.sep)
   ) {
-    throw new Error(
-      `Export path traversal detected: '${filePath}' resolves outside output directory`,
+    return yield* Effect.fail(
+      new ExportPathTraversalError({
+        filePath,
+        outputDir,
+        resolvedOutput,
+        resolvedFile,
+        message: `Export path traversal detected: '${filePath}' resolves outside output directory`,
+      }),
     );
   }
-}
+});
 
 interface FileDiffResult {
   created: string[];
@@ -51,6 +70,7 @@ function formatLeafSegment(
   status: FileStatus,
   useColors = true,
 ): string {
+  const palette = createAnsiPalette(useColors);
   if (!useColors) {
     switch (status) {
       case "created":
@@ -65,15 +85,21 @@ function formatLeafSegment(
   }
   switch (status) {
     case "created":
-      return chalk.green(`+ ${segment}`);
+      return palette.green(`+ ${segment}`);
     case "updated":
-      return chalk.yellow(`~ ${segment}`);
+      return palette.yellow(`~ ${segment}`);
     case "deleted":
-      return chalk.red(`- ${segment}`);
+      return palette.red(`- ${segment}`);
     default:
-      return chalk.dim(segment);
+      return palette.dim(segment);
   }
 }
+
+const basenameFromPath = (value: string): string => {
+  const normalized = value.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  return segments.at(-1) ?? value;
+};
 
 export function buildFileTree(
   files: string[],
@@ -91,7 +117,9 @@ export function buildFileTree(
     ]);
     pathsToShow = [...changed];
     if (pathsToShow.length === 0) {
-      return useColors ? chalk.dim("(no file changes)") : "(no file changes)";
+      return useColors
+        ? createAnsiPalette(true).dim("(no file changes)")
+        : "(no file changes)";
     }
   }
 
@@ -116,7 +144,7 @@ export function buildFileTree(
   const lines: string[] = [];
 
   function emit(relPath: string, indent: number, isLast: boolean): void {
-    const segment = relPath ? path.basename(relPath) : outputDir;
+    const segment = relPath ? basenameFromPath(relPath) : outputDir;
     const prefix =
       indent === 0 ? "" : "  ".repeat(indent) + (isLast ? "└── " : "├── ");
     const isLeaf = !tree.has(relPath);
@@ -128,7 +156,7 @@ export function buildFileTree(
     const children = tree.get(relPath);
     if (children) {
       const sorted = [...children].sort((a, b) =>
-        path.basename(a).localeCompare(path.basename(b)),
+        basenameFromPath(a).localeCompare(basenameFromPath(b)),
       );
       for (let i = 0; i < sorted.length; i++) {
         emit(sorted[i], indent + 1, i === sorted.length - 1);
@@ -143,9 +171,10 @@ export function buildFileTree(
 const collectExistingFiles = (
   dir: string,
   base = "",
-): Effect.Effect<string[], never, FileSystem.FileSystem> =>
+): Effect.Effect<string[], never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const entries = yield* fs
       .readDirectory(path.join(dir, base))
       .pipe(Effect.orElseSucceed(() => []));
@@ -165,12 +194,10 @@ const collectExistingFiles = (
     return files;
   });
 
-export const computeFileDiff = (
-  outputDir: string,
-  newFiles: FileEntry[],
-): Effect.Effect<FileDiffResult, never, FileSystem.FileSystem> =>
+export const computeFileDiff = (outputDir: string, newFiles: FileEntry[]) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const newPaths = new Set(newFiles.map((file) => file.path));
     const newByPath = new Map(newFiles.map((file) => [file.path, file]));
 
@@ -225,13 +252,14 @@ export function formatExportSummary(
   diff: FileDiffResult,
   dryRun: boolean,
   useColors = true,
-): string {
+) {
   const lines: string[] = [];
   const verb = dryRun ? "Would" : "";
-  const green = useColors ? chalk.green : identity;
-  const yellow = useColors ? chalk.yellow : identity;
-  const red = useColors ? chalk.red : identity;
-  const dim = useColors ? chalk.dim : identity;
+  const palette = createAnsiPalette(useColors);
+  const green = maybeColorize(useColors, palette.green);
+  const yellow = maybeColorize(useColors, palette.yellow);
+  const red = maybeColorize(useColors, palette.red);
+  const dim = maybeColorize(useColors, palette.dim);
 
   if (diff.created.length > 0) {
     lines.push(
@@ -261,22 +289,19 @@ export function formatExportSummary(
   return lines.length > 0 ? lines.join("\n") : "";
 }
 
-const identity = (value: string) => value;
-
-export function formatFileLegend(useColors: boolean): string {
+export function formatFileLegend(useColors: boolean) {
   if (!useColors) {
     return "+ created   ~ updated   - deleted";
   }
-  return `${chalk.green("+")} created   ${chalk.yellow("~")} updated   ${chalk.red("-")} deleted`;
+  const palette = createAnsiPalette(true);
+  return `${palette.green("+")} created   ${palette.yellow("~")} updated   ${palette.red("-")} deleted`;
 }
 
-export function formatDryRunNotice(
-  applyTip: string,
-  useColors: boolean,
-): { notice: string; tip: string } {
+export function formatDryRunNotice(applyTip: string, useColors: boolean) {
+  const palette = createAnsiPalette(useColors);
   const notice = useColors
-    ? chalk.dim("\n(dry-run: no files written)")
+    ? palette.dim("\n(dry-run: no files written)")
     : "\n(dry-run: no files written)";
-  const tip = useColors ? chalk.cyan(applyTip) : applyTip;
+  const tip = useColors ? palette.cyan(applyTip) : applyTip;
   return { notice, tip };
 }

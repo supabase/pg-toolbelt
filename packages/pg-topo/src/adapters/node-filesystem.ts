@@ -10,3 +10,6 @@ export const nodeFileSystemLayer = Layer.mergeAll(
 
 export const makeNodeFileSystemRuntimeLayer = (cwd: string) =>
   Layer.mergeAll(nodeFileSystemLayer, withWorkingDirectory(cwd));
+
+export const makeDefaultNodeFileSystemRuntimeLayer = () =>
+  makeNodeFileSystemRuntimeLayer(process.cwd());

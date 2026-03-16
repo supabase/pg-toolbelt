@@ -3,59 +3,82 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
-import { Effect, type FileSystem } from "effect";
+import * as NodePath from "@effect/platform-node-shared/NodePath";
+import { Effect, type FileSystem, Path } from "effect";
 import type { FileEntry } from "../../core/export/types.ts";
 import {
   assertSafePath,
   buildFileTree,
   computeFileDiff,
+  ExportPathTraversalError,
   formatDryRunNotice,
   formatExportSummary,
   formatFileLegend,
 } from "./export-display.ts";
 
-const runFs = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>) =>
+const runFs = <A>(
+  effect: Effect.Effect<A, never, FileSystem.FileSystem | Path.Path>,
+) =>
   Effect.runPromise(
-    effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
-      A,
-      never,
-      never
-    >,
+    effect.pipe(
+      Effect.provide(NodeFileSystem.layer),
+      Effect.provide(NodePath.layer),
+    ),
   );
+
+const nodePath = Effect.runSync(
+  Effect.gen(function* () {
+    return yield* Path.Path;
+  }).pipe(Effect.provide(NodePath.layer)),
+);
 
 // ============================================================================
 // assertSafePath
 // ============================================================================
 
 describe("assertSafePath", () => {
+  const runSafePath = (filePath: string, outputDir = "/tmp/out") =>
+    Effect.runSync(
+      Effect.result(assertSafePath(nodePath, filePath, outputDir)),
+    );
+
+  const expectTraversalFailure = (
+    filePath: string,
+  ): ExportPathTraversalError => {
+    const result = runSafePath(filePath);
+    expect(result._tag).toBe("Failure");
+    if (result._tag !== "Failure") {
+      throw new Error("expected path traversal failure");
+    }
+    return result.failure;
+  };
+
   test("allows normal relative paths", () => {
-    expect(() =>
-      assertSafePath("schemas/public/tables/users.sql", "/tmp/out"),
-    ).not.toThrow();
+    const result = runSafePath("schemas/public/tables/users.sql");
+    expect(result._tag).toBe("Success");
   });
 
   test("allows nested paths", () => {
-    expect(() =>
-      assertSafePath("cluster/extensions/pgcrypto.sql", "/tmp/out"),
-    ).not.toThrow();
+    const result = runSafePath("cluster/extensions/pgcrypto.sql");
+    expect(result._tag).toBe("Success");
   });
 
   test("rejects path traversal with ..", () => {
-    expect(() => assertSafePath("../../etc/passwd", "/tmp/out")).toThrow(
-      "traversal",
-    );
+    const failure = expectTraversalFailure("../../etc/passwd");
+    expect(failure).toBeInstanceOf(ExportPathTraversalError);
+    expect(failure.message).toContain("traversal");
   });
 
   test("rejects path traversal embedded in path", () => {
-    expect(() =>
-      assertSafePath("schemas/../../../etc/passwd", "/tmp/out"),
-    ).toThrow("traversal");
+    const failure = expectTraversalFailure("schemas/../../../etc/passwd");
+    expect(failure).toBeInstanceOf(ExportPathTraversalError);
+    expect(failure.message).toContain("traversal");
   });
 
   test("rejects absolute paths", () => {
-    expect(() => assertSafePath("/etc/passwd", "/tmp/out")).toThrow(
-      "traversal",
-    );
+    const failure = expectTraversalFailure("/etc/passwd");
+    expect(failure).toBeInstanceOf(ExportPathTraversalError);
+    expect(failure.message).toContain("traversal");
   });
 });
 

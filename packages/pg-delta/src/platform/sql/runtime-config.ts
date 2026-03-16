@@ -1,4 +1,5 @@
 import { Config, ConfigProvider, Effect, Layer, ServiceMap } from "effect";
+import { getRuntimeEnv } from "../../adapters/runtime-process.ts";
 
 const DEFAULT_POOL_MAX = 5;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 3_000;
@@ -16,8 +17,7 @@ export class PgRuntimeConfigService extends ServiceMap.Service<
   PgRuntimeConfigApi
 >()("@pg-delta/PgRuntimeConfigService") {}
 
-const defaultGetEnv = (name: string): string | undefined =>
-  globalThis.process?.env?.[name];
+const defaultGetEnv = (name: string): string | undefined => getRuntimeEnv(name);
 
 const numberFromString = (name: string, fallback: number) =>
   Config.withDefault(Config.string(name), String(fallback)).pipe(

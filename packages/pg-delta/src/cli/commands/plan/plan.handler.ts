@@ -73,7 +73,7 @@ export const handlePlan = Effect.fnUntraced(function* (flags: {
   }
 
   const { content, label } = formatPlanForDisplay(planResult, effectiveFormat, {
-    disableColors: !!outputPath,
+    disableColors: outputPath !== undefined || !output.stdoutColorsEnabled,
     showUnsafeFlagSuggestion: false,
     sqlFormatOptions:
       flags.sqlFormat || sqlFormatOptionsParsed

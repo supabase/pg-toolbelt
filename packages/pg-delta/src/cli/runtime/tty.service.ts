@@ -5,6 +5,8 @@ interface TtyApi {
   readonly stdoutIsTty: boolean;
   readonly stderrIsTty: boolean;
   readonly isCi: boolean;
+  readonly stdoutColorsEnabled: boolean;
+  readonly stderrColorsEnabled: boolean;
 }
 
 export class Tty extends ServiceMap.Service<Tty, TtyApi>()(

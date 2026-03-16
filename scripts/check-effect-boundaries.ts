@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 type Rule = {
@@ -10,6 +10,7 @@ type PackagePolicy = {
   readonly root: string;
   readonly allowPrefixes: readonly string[];
   readonly allowFiles?: readonly string[];
+  readonly forbiddenFiles?: readonly string[];
   readonly rules: readonly Rule[];
 };
 
@@ -32,57 +33,72 @@ const walk = (directory: string): string[] => {
 const runtimeRules: readonly Rule[] = [
   {
     pattern: /from\s+["']node:/,
-    description: "imports from node:* must stay in adapters or entrypoints",
+    description: "imports from node:* must stay in adapters only",
   },
   {
     pattern: /from\s+["']pg["']/,
-    description: "pg imports must stay in node-pg adapters or platform layers",
+    description: "pg imports must stay in adapters only",
   },
   {
     pattern: /from\s+["']chalk["']/,
-    description: "chalk imports must stay in CLI runtime boundaries",
+    description: "chalk imports must stay in adapters only",
   },
   {
     pattern: /from\s+["']@clack\/prompts["']/,
-    description: "@clack/prompts imports must stay in CLI runtime boundaries",
+    description: "@clack/prompts imports must stay in adapters only",
+  },
+  {
+    pattern: /from\s+["']plpgsql-parser["']/,
+    description: "plpgsql-parser imports must stay in adapters only",
+  },
+  {
+    pattern: /from\s+["']@pgsql\/traverse["']/,
+    description: "@pgsql/traverse imports must stay in adapters only",
+  },
+  {
+    pattern: /from\s+["']@effect\/platform-node-shared\//,
+    description:
+      "@effect/platform-node-shared imports must stay in adapters only",
+  },
+  {
+    pattern: /\bcreateRequire\s*\(/,
+    description: "createRequire must not be used in src",
   },
   {
     pattern: /\bglobalThis\.process\b|\bprocess\.(stdin|stdout|stderr|cwd)\b/,
-    description: "direct process access must stay in entrypoints or runtime layers",
+    description: "direct process access must stay in adapters only",
   },
   {
     pattern: /\bcrypto\./,
-    description: "direct crypto access must stay in approved legacy exceptions",
+    description: "direct crypto access must stay in adapters only",
   },
   {
     pattern: /\bnew Date\(/,
-    description: "direct Date construction must stay in approved legacy exceptions",
+    description: "direct Date construction must stay in adapters only",
   },
 ];
 
 const policies: readonly PackagePolicy[] = [
   {
     root: "packages/pg-topo/src",
-    allowPrefixes: [
-      "packages/pg-topo/src/adapters/",
-      "packages/pg-topo/src/platform/",
-    ],
-    allowFiles: [
-      "packages/pg-topo/src/node.ts",
-      "packages/pg-topo/src/bun.ts",
-    ],
+    allowPrefixes: ["packages/pg-topo/src/adapters/"],
     rules: runtimeRules,
   },
   {
     root: "packages/pg-delta/src",
-    allowPrefixes: [
-      "packages/pg-delta/src/adapters/",
-      "packages/pg-delta/src/platform/",
-      "packages/pg-delta/src/cli/",
-    ],
+    allowPrefixes: [],
     allowFiles: [
-      "packages/pg-delta/src/node.ts",
-      "packages/pg-delta/src/bun.ts",
+      "packages/pg-delta/src/adapters/node-platform.ts",
+      "packages/pg-delta/src/adapters/runtime-process.ts",
+      "packages/pg-delta/src/adapters/pg-runtime.ts",
+    ],
+    forbiddenFiles: [
+      "packages/pg-delta/src/adapters/cli-package.ts",
+      "packages/pg-delta/src/adapters/effect-cli-completions.ts",
+      "packages/pg-delta/src/adapters/node-file.ts",
+      "packages/pg-delta/src/adapters/terminal-prompts.ts",
+      "packages/pg-delta/src/adapters/terminal-style.ts",
+      "packages/pg-delta/src/adapters/timestamp.ts",
     ],
     rules: runtimeRules,
   },
@@ -95,6 +111,10 @@ for (const policy of policies) {
   const files = walk(path.join(rootDir, policy.root));
   for (const absoluteFile of files) {
     const relativeFile = path.relative(rootDir, absoluteFile);
+    if (policy.forbiddenFiles?.includes(relativeFile)) {
+      issues.push(`${relativeFile}: forbidden transitional boundary file`);
+      continue;
+    }
     if (
       policy.allowFiles?.includes(relativeFile) ||
       policy.allowPrefixes.some((prefix) => relativeFile.startsWith(prefix))

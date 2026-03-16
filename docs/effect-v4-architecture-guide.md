@@ -74,6 +74,8 @@ A service is **always** split across exactly two files:
 4. **Handlers import only service files, never layer files.** This is what makes handlers testable — they depend on abstract interfaces, not concrete implementations.
 5. **Command files import layer files and the handler.** The command is the only place where concrete layers are wired to abstract services via `Command.provide`.
 
+**Adapter rule:** non-Effect packages and host APIs belong in explicit adapter files only. Pure modules, handlers, formatters, and entrypoints import local adapters or services, never `node:*`, `pg`, `chalk`, `@clack/prompts`, parser libraries, or platform-node modules directly.
+
 **Correct import graph:**
 
 ```

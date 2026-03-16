@@ -162,6 +162,11 @@ import {
 } from "@supabase/pg-delta/adapters/node-pg";
 ```
 
+Internal architecture follows the same rule: runtime and vendor dependencies stay in
+explicit adapter modules. CLI handlers, formatters, and Effect-native library code
+depend on local adapters or services instead of importing `node:*`, `pg`, `chalk`,
+`@clack/prompts`, or platform-node packages directly.
+
 Internally, the Effect-native path now uses the published
 `@effect/sql-pg@4.0.0-beta.31` client as the database foundation, with
 `pg-delta` adding only its own session and error-mapping policy on top.

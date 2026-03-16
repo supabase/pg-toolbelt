@@ -6,6 +6,8 @@ import type { OutputFormat, StreamEvent } from "./types.ts";
 interface OutputApi {
   readonly format: OutputFormat;
   readonly interactive: boolean;
+  readonly stdoutColorsEnabled: boolean;
+  readonly stderrColorsEnabled: boolean;
   readonly write: (message: string) => Effect.Effect<void>;
   readonly info: (message: string) => Effect.Effect<void>;
   readonly warn: (message: string) => Effect.Effect<void>;

@@ -15,7 +15,7 @@
  */
 
 // Plan creation
-;
+
 // Hierarchical grouping
 
 // Plan I/O

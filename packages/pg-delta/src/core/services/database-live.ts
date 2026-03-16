@@ -1,5 +1,1 @@
-export {
-  fromPool as wrapPool,
-  
-  
-} from "../../platform/sql/database.layer.ts";
+export { fromPool as wrapPool } from "../../platform/sql/database.layer.ts";

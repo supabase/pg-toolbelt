@@ -1,5 +1,5 @@
 import { Layer, ManagedRuntime } from "effect";
-import { makeNodeFileSystemRuntimeLayer } from "./adapters/node-filesystem.ts";
+import { makeDefaultNodeFileSystemRuntimeLayer } from "./adapters/node-filesystem.ts";
 import {
   analyzeAndSort as analyzeAndSortEffect,
   analyzeAndSortFromFiles as analyzeAndSortFromFilesEffect,
@@ -11,10 +11,7 @@ const parserRuntime = ManagedRuntime.make(ParserServiceLive);
 
 const makeFromFilesRuntime = () =>
   ManagedRuntime.make(
-    Layer.mergeAll(
-      ParserServiceLive,
-      makeNodeFileSystemRuntimeLayer(process.cwd()),
-    ),
+    Layer.mergeAll(ParserServiceLive, makeDefaultNodeFileSystemRuntimeLayer()),
   );
 
 export * from "./effect.ts";

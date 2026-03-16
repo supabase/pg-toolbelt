@@ -2,17 +2,13 @@
  * Display utilities for the declarative-apply command.
  */
 
-import path from "node:path";
 import type { Diagnostic } from "@supabase/pg-topo";
-import chalk from "chalk";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Path } from "effect";
 import type { RoundResult } from "../../core/declarative-apply/index.ts";
 import type { StatementError } from "../../core/declarative-apply/round-apply.ts";
+import { createAnsiPalette, maybeColorize } from "../ansi.ts";
 
-export function positionToLineColumn(
-  sql: string,
-  position: number,
-): { line: number; column: number } {
+export function positionToLineColumn(sql: string, position: number) {
   const lines = sql.split("\n");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -27,9 +23,7 @@ export function positionToLineColumn(
   return { line: last, column: lastLineLen + 1 };
 }
 
-function parseStatementId(
-  id: string,
-): { filePath: string; statementIndex: number } | null {
+function parseStatementId(id: string) {
   const lastColon = id.lastIndexOf(":");
   if (lastColon === -1) return null;
   const filePath = id.slice(0, lastColon);
@@ -52,14 +46,12 @@ export type DiagnosticDisplayItem = {
   locations: string[];
 };
 
-export const requiredObjectKeyFromDiagnostic = (
-  diagnostic: Diagnostic,
-): string | undefined => {
+export const requiredObjectKeyFromDiagnostic = (diagnostic: Diagnostic) => {
   const value = diagnostic.details?.requiredObjectKey;
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
-const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
+const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry) =>
   [
     entry.diagnostic.code,
     entry.diagnostic.message,
@@ -70,7 +62,7 @@ const diagnosticDisplayGroupKey = (entry: DiagnosticDisplayEntry): string =>
 export const buildDiagnosticDisplayItems = (
   entries: DiagnosticDisplayEntry[],
   grouped: boolean,
-): DiagnosticDisplayItem[] => {
+) => {
   if (!grouped) {
     return entries.map((entry) => ({
       code: entry.diagnostic.code,
@@ -105,9 +97,10 @@ export const buildDiagnosticDisplayItems = (
 export const resolveSqlFilePath = (
   schemaPath: string,
   relativeFilePath: string,
-): Effect.Effect<string, never, FileSystem.FileSystem> =>
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const statResult = yield* fs
       .stat(schemaPath)
       .pipe(Effect.orElseSucceed(() => undefined));
@@ -129,10 +122,7 @@ function findStatementStartInFile(
   return -1;
 }
 
-export const formatStatementError = (
-  err: StatementError,
-  schemaPath: string,
-): Effect.Effect<string, never, FileSystem.FileSystem> =>
+export const formatStatementError = (err: StatementError, schemaPath: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const lines: string[] = [];
@@ -209,26 +199,16 @@ export const formatStatementError = (
     return lines.map((line) => `  ${line}`).join("\n");
   });
 
-const identity = (value: string) => value;
-
-export function formatRoundStatus(
-  round: RoundResult,
-  useColors: boolean,
-): string {
-  const green = useColors ? chalk.green : identity;
-  const yellow = useColors ? chalk.yellow : identity;
-  const red = useColors ? chalk.red : identity;
+export function formatRoundStatus(round: RoundResult, useColors: boolean) {
+  const palette = createAnsiPalette(useColors);
+  const green = maybeColorize(useColors, palette.green);
+  const yellow = maybeColorize(useColors, palette.yellow);
+  const red = maybeColorize(useColors, palette.red);
   const parts = [`Round ${round.round}:`, green(`${round.applied} applied`)];
   if (round.deferred > 0) parts.push(yellow(`${round.deferred} deferred`));
   if (round.failed > 0) parts.push(red(`${round.failed} failed`));
   return parts.join("  ");
 }
-
-const diagnosticColorMap: Record<string, (value: string) => string> = {
-  DUPLICATE_PRODUCER: chalk.yellow,
-  CYCLE_EDGE_SKIPPED: chalk.red,
-  UNRESOLVED_DEPENDENCY: chalk.dim,
-};
 
 export function formatDiagnosticsBlock(
   items: DiagnosticDisplayItem[],
@@ -238,9 +218,16 @@ export function formatDiagnosticsBlock(
     ungroupDiagnostics: boolean;
     previewLimit?: number;
   },
-): string {
+) {
   const { useColors, ungroupDiagnostics, previewLimit = 5 } = options;
-  const defaultColor = useColors ? chalk.yellow : identity;
+  const palette = createAnsiPalette(useColors);
+  const diagnosticColorMap: Record<string, (value: string) => string> = {
+    DUPLICATE_PRODUCER: palette.yellow,
+    CYCLE_EDGE_SKIPPED: palette.red,
+    UNRESOLVED_DEPENDENCY: palette.dim,
+  };
+  const defaultColor = maybeColorize(useColors, palette.yellow);
+  const identity = (value: string) => value;
   const lines: string[] = [
     `\n${warningCount} diagnostic(s) from static analysis:\n`,
   ];
@@ -290,7 +277,10 @@ export function colorStatementError(
   formatted: string,
   severity: "error" | "warning",
   useColors: boolean,
-): string {
+) {
   if (!useColors) return formatted;
-  return severity === "error" ? chalk.red(formatted) : chalk.yellow(formatted);
+  const palette = createAnsiPalette(true);
+  return severity === "error"
+    ? palette.red(formatted)
+    : palette.yellow(formatted);
 }

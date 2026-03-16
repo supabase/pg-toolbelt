@@ -141,7 +141,7 @@ export const analyzeAndSort = Effect.fnUntraced(function* (
     parsedStatements.push(...parsed.statements);
     diagnostics.push(...parsed.diagnostics);
   }
-  return runSyncPipeline(parsedStatements, diagnostics, options);
+  return runSyncPipeline(parsedStatements, diagnostics, parser, options);
 });
 
 // ============================================================================
@@ -155,6 +155,7 @@ export const analyzeAndSort = Effect.fnUntraced(function* (
 const runSyncPipeline = (
   parsedStatements: ParsedStatement[],
   parseDiagnostics: Diagnostic[],
+  parser: import("./services/parser.ts").ParserApi,
   options?: AnalyzeOptions,
 ): AnalyzeResult => {
   const diagnostics: Diagnostic[] = [...parseDiagnostics];
@@ -174,6 +175,7 @@ const runSyncPipeline = (
       statementClass,
       parsedStatement.ast,
       parsedStatement.annotations,
+      parser,
     );
 
     statementNodes.push({

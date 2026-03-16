@@ -1,19 +1,23 @@
 import { describe, expect, mock, test } from "bun:test";
+import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import { Effect, Layer, type Scope } from "effect";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { createDatabaseLayer } from "../../platform/sql/database.layer.ts";
 import { ConnectionTimeoutError, SslConfigError } from "../errors.ts";
 import { PgRuntimeConfigService } from "../runtime-config.ts";
 
-type MockSslConfig = {
-  cleanedUrl: string;
-  ssl:
-    | undefined
-    | {
+type MockSslConfig =
+  | {
+      cleanedUrl: string;
+      ssl: false;
+    }
+  | {
+      cleanedUrl: string;
+      ssl: {
         rejectUnauthorized: boolean;
         ca?: string;
       };
-};
+    };
 
 type SqlPgClientDouble = {
   readonly reserve: Effect.Effect<
@@ -68,9 +72,9 @@ describe("makeScopedPool", () => {
 
   test("does not retry SSL configuration failures", async () => {
     const harness = createHarness(DefaultRuntimeConfig);
-    harness.parseSslConfigMock.mockImplementationOnce(async () => {
-      throw new Error("bad sslmode");
-    });
+    harness.parseSslConfigMock.mockImplementationOnce(() =>
+      Effect.fail(new Error("bad sslmode")),
+    );
 
     const result = await Effect.scoped(
       harness.makeScopedPool("postgresql://example/db", { label: "source" }),
@@ -86,22 +90,24 @@ describe("makeScopedPool", () => {
 
   test("passes injected runtime config through to SSL parsing", async () => {
     const harness = createHarness(DefaultRuntimeConfig);
-    harness.parseSslConfigMock.mockImplementationOnce(
-      async (...args: unknown[]) => {
-        const [url, _label, runtimeConfig] = args as [
-          string,
-          "source" | "target",
-          { getEnv: (name: string) => string | undefined },
-        ];
+    harness.parseSslConfigMock.mockImplementationOnce((...args: unknown[]) =>
+      Effect.succeed(
+        (() => {
+          const [url, _label, runtimeConfig] = args as [
+            string,
+            "source" | "target",
+            { getEnv: (name: string) => string | undefined },
+          ];
 
-        return {
-          cleanedUrl: url,
-          ssl: {
-            rejectUnauthorized: true,
-            ca: runtimeConfig.getEnv("PGDELTA_SOURCE_SSLROOTCERT"),
-          },
-        };
-      },
+          return {
+            cleanedUrl: url,
+            ssl: {
+              rejectUnauthorized: true,
+              ca: runtimeConfig.getEnv("PGDELTA_SOURCE_SSLROOTCERT"),
+            },
+          };
+        })(),
+      ),
     );
 
     const runtimeConfig = Layer.succeed(PgRuntimeConfigService, {
@@ -116,7 +122,11 @@ describe("makeScopedPool", () => {
       harness.makeScopedPoolEffect("postgresql://example/db", {
         label: "source",
       }),
-    ).pipe(Effect.provide(runtimeConfig), Effect.runPromise);
+    ).pipe(
+      Effect.provide(runtimeConfig),
+      Effect.provide(NodeFileSystem.layer),
+      Effect.runPromise,
+    );
 
     expect(harness.createPoolMock).toHaveBeenCalledWith(
       "postgresql://example/db",
@@ -149,7 +159,12 @@ describe("makeScopedPool", () => {
       harness.makeScopedPoolEffect("postgresql://example/db", {
         label: "target",
       }),
-    ).pipe(Effect.provide(TestRuntimeConfig), Effect.result, Effect.runPromise);
+    ).pipe(
+      Effect.provide(TestRuntimeConfig),
+      Effect.provide(NodeFileSystem.layer),
+      Effect.result,
+      Effect.runPromise,
+    );
 
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
@@ -263,10 +278,11 @@ function createHarness(
   defaultRuntimeConfig: Layer.Layer<PgRuntimeConfigService>,
 ) {
   const parseSslConfigMock = mock(
-    async (...args: unknown[]): Promise<MockSslConfig> => ({
-      cleanedUrl: args[0] as string,
-      ssl: undefined,
-    }),
+    (...args: unknown[]): Effect.Effect<MockSslConfig, Error> =>
+      Effect.succeed({
+        cleanedUrl: args[0] as string,
+        ssl: false,
+      } satisfies MockSslConfig),
   );
   const createPoolMock = mock((() =>
     makePool({ connect: () => Promise.resolve(makeClient()) })) as (
@@ -312,7 +328,10 @@ function createHarness(
     ) =>
       databaseLayer
         .makeScopedSqlDatabaseEffect(url, options)
-        .pipe(Effect.provide(defaultRuntimeConfig)),
+        .pipe(
+          Effect.provide(defaultRuntimeConfig),
+          Effect.provide(NodeFileSystem.layer),
+        ),
     makeScopedPoolEffect: databaseLayer.makeScopedSqlDatabaseEffect,
     ownedPoolClientFinalizers: () => ownedPoolClientFinalizers,
     parseSslConfigMock,

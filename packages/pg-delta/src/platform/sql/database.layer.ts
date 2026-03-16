@@ -1,8 +1,11 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Option, Schedule, type Scope } from "effect";
+import { Effect, type FileSystem, Option, Schedule, type Scope } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
-import type { Pool, PoolClient } from "pg";
-import { escapeIdentifier } from "pg";
+import {
+  escapeIdentifier,
+  type NodePgPool as Pool,
+  type NodePgPoolClient as PoolClient,
+} from "../../adapters/pg-runtime.ts";
 import { CatalogExtractionError } from "../../core/errors.ts";
 import {
   type DatabaseApi,
@@ -47,7 +50,7 @@ export const makeScopedSqlDatabaseEffect = (
 ): Effect.Effect<
   DatabaseApi,
   ConnectionError | ConnectionTimeoutError | SslConfigError,
-  PgRuntimeConfigService | Scope.Scope
+  FileSystem.FileSystem | PgRuntimeConfigService | Scope.Scope
 > => defaultDatabaseLayer.makeScopedSqlDatabaseEffect(url, options);
 
 export const makeScopedSqlDatabase = (
@@ -56,7 +59,7 @@ export const makeScopedSqlDatabase = (
 ): Effect.Effect<
   DatabaseApi,
   ConnectionError | ConnectionTimeoutError | SslConfigError,
-  Scope.Scope
+  FileSystem.FileSystem | Scope.Scope
 > =>
   makeScopedSqlDatabaseEffect(url, options).pipe(
     Effect.provide(makePgRuntimeConfigLayer()),
@@ -146,21 +149,24 @@ export const createDatabaseLayer = (
   ): Effect.Effect<
     DatabaseApi,
     ConnectionError | ConnectionTimeoutError | SslConfigError,
-    PgRuntimeConfigService | Scope.Scope
+    FileSystem.FileSystem | PgRuntimeConfigService | Scope.Scope
   > =>
     Effect.gen(function* () {
       const label = options?.label ?? "target";
       const runtimeConfig = yield* PgRuntimeConfigService;
       const connectTimeoutMs = runtimeConfig.connectTimeoutMs;
 
-      const sslConfig = yield* Effect.tryPromise({
-        try: () => dependencies.parseSslConfig(url, label, runtimeConfig),
-        catch: (error) =>
-          new SslConfigError({
-            message: `SSL config failed for ${label}: ${error instanceof Error ? error.message : String(error)}`,
-            cause: error,
-          }),
-      });
+      const sslConfig = yield* dependencies
+        .parseSslConfig(url, label, runtimeConfig)
+        .pipe(
+          Effect.mapError(
+            (error) =>
+              new SslConfigError({
+                message: `SSL config failed for ${label}: ${error instanceof Error ? error.message : String(error)}`,
+                cause: error,
+              }),
+          ),
+        );
 
       const pool = yield* Effect.acquireRelease(
         Effect.sync(() =>

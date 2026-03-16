@@ -4,8 +4,12 @@
  */
 
 import { ConfigProvider, Effect } from "effect";
-import type { PoolClient, PoolConfig } from "pg";
-import { Pool, types } from "pg";
+import {
+  Pool,
+  type NodePgPoolClient as PoolClient,
+  type NodePgPoolConfig as PoolConfig,
+  types,
+} from "../../adapters/pg-runtime.ts";
 import {
   loadPgRuntimeConfig,
   type PgRuntimeConfigApi,
@@ -186,5 +190,3 @@ export function endPool(pool: Pool): Promise<void> {
     pool.end().catch(reject);
   });
 }
-
-;

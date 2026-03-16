@@ -1,7 +1,7 @@
 import { Effect, type FileSystem, Layer, type Path } from "effect";
 import { makeNodeFileSystemRuntimeLayer } from "../../src/adapters/node-filesystem.ts";
-import { ParserServiceLive } from "../../src/services/parser-live.ts";
 import type { ParserService } from "../../src/services/parser.ts";
+import { ParserServiceLive } from "../../src/services/parser-live.ts";
 
 const makeRuntimeLayer = (cwd: string) =>
   Layer.mergeAll(ParserServiceLive, makeNodeFileSystemRuntimeLayer(cwd));

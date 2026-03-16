@@ -26,7 +26,7 @@ export const handleDeclarativeApply = Effect.fnUntraced(function* (flags: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const output = yield* Output;
-  const useColors = output.format === "text";
+  const useColors = output.stderrColorsEnabled;
 
   const roundResults: RoundResult[] = [];
   const onRoundComplete = flags.verbose

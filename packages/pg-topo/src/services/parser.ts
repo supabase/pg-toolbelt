@@ -1,7 +1,7 @@
 import { type Effect, ServiceMap } from "effect";
 import type { ParseError } from "../errors.ts";
 import type { ParsedStatement } from "../ingest/parse.ts";
-import type { Diagnostic } from "../model/types.ts";
+import type { Diagnostic, ObjectRef } from "../model/types.ts";
 
 export interface ParserApi {
   readonly parseSqlContent: (
@@ -11,6 +11,13 @@ export interface ParserApi {
     { statements: ParsedStatement[]; diagnostics: Diagnostic[] },
     ParseError
   >;
+  readonly collectExpressionDependencies: (
+    expressionNode: unknown,
+    options?: { qualifiedOnly?: boolean },
+  ) => ReadonlyArray<ObjectRef>;
+  readonly collectRoutineBodyDependencies: (
+    statementNode: Record<string, unknown>,
+  ) => ReadonlyArray<ObjectRef>;
 }
 
 export class ParserService extends ServiceMap.Service<

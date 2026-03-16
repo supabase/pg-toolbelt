@@ -1,5 +1,4 @@
-import path from "node:path";
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, FileSystem, Option, Path } from "effect";
 import { exportDeclarativeSchema } from "../../../core/export/index.ts";
 import type { Grouping, GroupingPattern } from "../../../core/export/types.ts";
 import { compileSerializeDSL } from "../../../core/integrations/serialize/dsl.ts";
@@ -40,7 +39,9 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
 }) {
   const fs = yield* FileSystem.FileSystem;
   const output = yield* Output;
-  const useColors = output.format === "text";
+  const path = yield* Path.Path;
+  const stdoutUseColors = output.stdoutColorsEnabled;
+  const stderrUseColors = output.stderrColorsEnabled;
 
   const groupPatternsParsed = Option.isSome(flags.groupPatterns)
     ? yield* parseOptionalJson<GroupingPattern[]>(
@@ -147,12 +148,12 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   const treeOutput = buildFileTree(
     exportOutput.files.map((file) => file.path),
     path.basename(outputDir) || outputDir,
-    { diff, diffFocus: flags.diffFocus, useColors },
+    { diff, diffFocus: flags.diffFocus, useColors: stdoutUseColors },
   );
   yield* output.write(treeOutput);
-  yield* output.write(formatFileLegend(useColors));
+  yield* output.write(formatFileLegend(stdoutUseColors));
 
-  const summary = formatExportSummary(diff, flags.dryRun, useColors);
+  const summary = formatExportSummary(diff, flags.dryRun, stderrUseColors);
   if (summary) {
     yield* output.info(summary);
   }
@@ -167,7 +168,10 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   );
 
   if (flags.dryRun) {
-    const dryRunDisplay = formatDryRunNotice(applyTip(outputDir), useColors);
+    const dryRunDisplay = formatDryRunNotice(
+      applyTip(outputDir),
+      stderrUseColors,
+    );
     yield* output.info(dryRunDisplay.notice);
     yield* output.info(dryRunDisplay.tip);
     return;
@@ -185,7 +189,15 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
   }
 
   for (const file of exportOutput.files) {
-    assertSafePath(file.path, outputDir);
+    yield* assertSafePath(path, file.path, outputDir).pipe(
+      Effect.mapError(
+        (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: error.message,
+          }),
+      ),
+    );
     const filePath = path.join(outputDir, file.path);
     yield* fs.makeDirectory(path.dirname(filePath), { recursive: true }).pipe(
       Effect.mapError(
