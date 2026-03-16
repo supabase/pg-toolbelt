@@ -9,7 +9,8 @@ E2E_TEMP="$(mktemp -d -t pg-delta-e2e-XXXXXX)"
 cleanup() {
   docker rm -f "$PG_CONTAINER" 2>/dev/null || true
   docker network rm "$NETWORK" 2>/dev/null || true
-  rm -rf "$E2E_TEMP"
+  # Remove temp dir via Docker so we can delete root-owned files from npm install
+  docker run --rm -v "$E2E_TEMP:/cleanup:rw" alpine rm -rf /cleanup 2>/dev/null || rm -rf "$E2E_TEMP"
   # Restore node_modules (we removed them for a clean Linux build in Docker)
   if [[ ! -d "$REPO_ROOT/node_modules" ]] && command -v bun >/dev/null 2>&1; then
     echo "=== Restoring node_modules ==="

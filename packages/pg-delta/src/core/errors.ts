@@ -1,6 +1,5 @@
-import type { ParseError } from "@supabase/pg-topo";
+import type { ParseError, WasmLoadError } from "@supabase/pg-topo";
 import { Data } from "effect";
-import type { WasmLoadError } from "../../../pg-topo/src/errors.ts";
 import type {
   ConnectionError,
   ConnectionTimeoutError,
