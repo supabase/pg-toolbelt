@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Language } from "../language.model.ts";
 import { DropLanguageChange } from "./language.base.ts";
 
@@ -28,12 +29,12 @@ export class DropLanguage extends DropLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["DROP"];
 
     // Do not print optional keywords (e.g., PROCEDURAL). Keep the statement minimal.
     parts.push("LANGUAGE", this.language.name);
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

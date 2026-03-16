@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { DropForeignTableChange } from "./foreign-table.base.ts";
 
@@ -28,10 +29,12 @@ export class DropForeignTable extends DropForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+      ].join(" "),
+    );
   }
 }

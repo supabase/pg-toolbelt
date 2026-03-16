@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Aggregate } from "../aggregate.model.ts";
@@ -67,7 +68,7 @@ describe("aggregate.comment", () => {
     expect(change.creates).toEqual([stableId.comment(aggregate.stableId)]);
     expect(change.requires).toEqual([aggregate.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON AGGREGATE public.agg_sum(integer) IS 'aggregate''s total'",
     );
   });
@@ -82,7 +83,7 @@ describe("aggregate.comment", () => {
       aggregate.stableId,
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON AGGREGATE public.agg_sum(integer) IS NULL",
     );
   });

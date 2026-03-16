@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
 import { AlterRoleChange } from "./role.base.ts";
@@ -56,9 +57,9 @@ export class AlterRoleSetOptions extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["ALTER ROLE", this.role.name];
-    return [...parts, "WITH", this.options.join(" ")].join(" ");
+    return Effect.succeed([...parts, "WITH", this.options.join(" ")].join(" "));
   }
 }
 
@@ -93,18 +94,18 @@ export class AlterRoleSetConfig extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const head = ["ALTER ROLE", this.role.name].join(" ");
     if (this.action === "reset_all") {
-      return `${head} RESET ALL`;
+      return Effect.succeed(`${head} RESET ALL`);
     }
     if (this.action === "reset") {
-      return `${head} RESET ${this.key}`;
+      return Effect.succeed(`${head} RESET ${this.key}`);
     }
     const formatted = formatConfigValue(
       this.key as string,
       this.value as string,
     );
-    return `${head} SET ${this.key} TO ${formatted}`;
+    return Effect.succeed(`${head} SET ${this.key} TO ${formatted}`);
   }
 }

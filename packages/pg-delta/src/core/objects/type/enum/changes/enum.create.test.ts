@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Enum } from "../enum.model.ts";
 import { CreateEnum } from "./enum.create.ts";
@@ -24,7 +25,7 @@ describe("enum", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE TYPE public.test_enum AS ENUM ('value1', 'value2', 'value3')",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import type { Change } from "../../change.types.ts";
 import { compileSerializeDSL } from "./dsl.ts";
 
@@ -31,7 +32,7 @@ describe("compileSerializeDSL", () => {
         : "CREATE SCHEMA test AUTHORIZATION owner",
     );
 
-    expect(serializer(change)).toBe("CREATE SCHEMA test");
+    expect(Effect.runSync(serializer(change))).toBe("CREATE SCHEMA test");
   });
 
   test("no matching rule uses default serialization", () => {
@@ -48,7 +49,9 @@ describe("compileSerializeDSL", () => {
         : "CREATE SCHEMA test AUTHORIZATION owner",
     );
 
-    expect(serializer(change)).toBe("CREATE SCHEMA test AUTHORIZATION owner");
+    expect(Effect.runSync(serializer(change))).toBe(
+      "CREATE SCHEMA test AUTHORIZATION owner",
+    );
   });
 
   test("first matching rule wins", () => {
@@ -67,7 +70,7 @@ describe("compileSerializeDSL", () => {
       opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH",
     );
 
-    expect(serializer(change)).toBe("WITHOUT AUTH");
+    expect(Effect.runSync(serializer(change))).toBe("WITHOUT AUTH");
   });
 
   test("skips non-matching first rule and applies second", () => {
@@ -86,6 +89,6 @@ describe("compileSerializeDSL", () => {
       opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH",
     );
 
-    expect(serializer(change)).toBe("WITH AUTH");
+    expect(Effect.runSync(serializer(change))).toBe("WITH AUTH");
   });
 });

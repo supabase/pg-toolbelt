@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Schema } from "../schema.model.ts";
 import { DropSchemaChange } from "./schema.base.ts";
 
@@ -28,7 +29,7 @@ export class DropSchema extends DropSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
-    return ["DROP SCHEMA", this.schema.name].join(" ");
+  serialize() {
+    return Effect.succeed(["DROP SCHEMA", this.schema.name].join(" "));
   }
 }

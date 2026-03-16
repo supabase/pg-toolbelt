@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Collation } from "../collation.model.ts";
 import { DropCollation } from "./collation.drop.ts";
@@ -26,6 +27,8 @@ describe("collation", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP COLLATION public.test");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP COLLATION public.test",
+    );
   });
 });

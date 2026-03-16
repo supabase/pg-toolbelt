@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Collation } from "../collation.model.ts";
 import {
@@ -31,7 +32,7 @@ describe.concurrent("collation", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER COLLATION public.test OWNER TO new_owner",
       );
     });
@@ -58,7 +59,7 @@ describe.concurrent("collation", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER COLLATION public.test REFRESH VERSION",
       );
     });

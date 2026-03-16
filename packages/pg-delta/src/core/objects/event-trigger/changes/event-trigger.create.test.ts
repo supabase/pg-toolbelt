@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import { CreateEventTrigger } from "./event-trigger.create.ts";
@@ -20,7 +21,7 @@ describe("event trigger create change", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE EVENT TRIGGER ddl_logger ON ddl_command_start WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE') EXECUTE FUNCTION public.log_ddl()",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { diffRlsPolicies } from "../rls-policy.diff.ts";
 import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
@@ -36,7 +37,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table TO role1, role2",
       );
     });
@@ -65,7 +66,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table TO PUBLIC",
       );
     });
@@ -100,11 +101,11 @@ describe.concurrent("rls-policy", () => {
       expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
       expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
       await assertValidSql(changes[0].serialize());
-      expect(changes[0].serialize()).toBe(
+      expect(Effect.runSync(changes[0].serialize())).toBe(
         "DROP POLICY test_policy ON public.test_table",
       );
       await assertValidSql(changes[1].serialize());
-      expect(changes[1].serialize()).toBe(
+      expect(Effect.runSync(changes[1].serialize())).toBe(
         "CREATE POLICY test_policy ON public.test_table FOR UPDATE USING (user_id = current_user_id())",
       );
     });
@@ -139,11 +140,11 @@ describe.concurrent("rls-policy", () => {
       expect(changes[0]).toBeInstanceOf(DropRlsPolicy);
       expect(changes[1]).toBeInstanceOf(CreateRlsPolicy);
       await assertValidSql(changes[0].serialize());
-      expect(changes[0].serialize()).toBe(
+      expect(Effect.runSync(changes[0].serialize())).toBe(
         "DROP POLICY test_policy ON public.test_table",
       );
       await assertValidSql(changes[1].serialize());
-      expect(changes[1].serialize()).toBe(
+      expect(Effect.runSync(changes[1].serialize())).toBe(
         "CREATE POLICY test_policy ON public.test_table AS RESTRICTIVE FOR SELECT USING (user_id = current_user_id())",
       );
     });
@@ -172,7 +173,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table USING (new_expr)",
       );
     });
@@ -201,7 +202,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table USING (true)",
       );
     });
@@ -230,7 +231,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table WITH CHECK (new_check)",
       );
     });
@@ -259,7 +260,7 @@ describe.concurrent("rls-policy", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER POLICY test_policy ON public.test_table WITH CHECK (true)",
       );
     });

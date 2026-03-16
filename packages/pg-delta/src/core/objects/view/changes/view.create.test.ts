@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { View } from "../view.model.ts";
 import { CreateView } from "./view.create.ts";
@@ -32,7 +33,7 @@ describe("view", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE VIEW public.test_view AS SELECT * FROM test_table",
     );
   });
@@ -63,7 +64,7 @@ describe("view", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE VIEW public.test_view WITH (security_barrier=true, check_option=local) AS SELECT * FROM test_table",
     );
   });

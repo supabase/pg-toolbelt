@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange } from "./language.base.ts";
@@ -71,7 +72,7 @@ export class CreateLanguage extends CreateLanguageChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [`CREATE${this.orReplace ? " OR REPLACE" : ""}`];
 
     // Only include non-default flags. We never print the optional
@@ -99,6 +100,6 @@ export class CreateLanguage extends CreateLanguageChange {
       parts.push("VALIDATOR", this.language.validator);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

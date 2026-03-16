@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { CompositeType } from "../composite-type.model.ts";
 import { DropCompositeType } from "./composite-type.drop.ts";
@@ -31,6 +32,8 @@ describe("composite-type", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP TYPE public.test_type");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP TYPE public.test_type",
+    );
   });
 });

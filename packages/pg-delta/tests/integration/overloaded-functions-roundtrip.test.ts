@@ -20,6 +20,9 @@ import { POSTGRES_VERSIONS, type PostgresVersion } from "../constants.ts";
 import { applyDeclarativeSchema, createPlan } from "../promise-helpers.ts";
 import { withDb } from "../utils.ts";
 
+const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
+  Effect.runSync(effect as Effect.Effect<A, E, never>);
+
 const OVERLOADED_FUNCTIONS_SQL = `
 -- Two overloads of the same function name (like publish_package in dbdev)
 create function public.overload_me(a integer, b text)
@@ -44,7 +47,7 @@ for (const pgVersion of POSTGRES_VERSIONS as PostgresVersion[]) {
           );
         }
 
-        const output = exportDeclarativeSchema(planResult);
+        const output = runSyncEffect(exportDeclarativeSchema(planResult));
 
         const applyResult = await applyDeclarativeSchema({
           content: output.files.map((f) => ({ filePath: f.path, sql: f.sql })),
@@ -75,11 +78,15 @@ for (const pgVersion of POSTGRES_VERSIONS as PostgresVersion[]) {
         const remainingChanges = diffCatalogs(mainCatalog, branchCatalog);
 
         if (remainingChanges.length > 0) {
-          const sorted = sortChanges(
-            { mainCatalog, branchCatalog },
-            remainingChanges,
+          const sorted = runSyncEffect(
+            sortChanges({ mainCatalog, branchCatalog }, remainingChanges),
           );
-          const remainingSql = sorted.map((c) => c.serialize()).join(";\n");
+          const remainingSql = sorted
+            .map((c) => {
+              const sql = c.serialize();
+              return Effect.isEffect(sql) ? runSyncEffect(sql) : sql;
+            })
+            .join(";\n");
           console.error(
             `[overloaded-functions-roundtrip] ${remainingChanges.length} remaining change(s):\n${remainingSql}`,
           );

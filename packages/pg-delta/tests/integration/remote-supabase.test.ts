@@ -19,6 +19,9 @@ import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { createPool } from "../../src/platform/sql/pool.ts";
 import { withDb } from "../utils.ts";
 
+const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
+  Effect.runSync(effect as Effect.Effect<A, E, never>);
+
 // Test to run manually.
 // Don't forget to define the DATABASE_URL environment variable to connect to the remote Supabase instance.
 test.skip(
@@ -97,9 +100,8 @@ test.skip(
       return Math.random() - 0.5;
     });
 
-    const sortedChanges = sortChanges(
-      { mainCatalog, branchCatalog },
-      filteredChanges,
+    const sortedChanges = runSyncEffect(
+      sortChanges({ mainCatalog, branchCatalog }, filteredChanges),
     );
 
     const hasRoutineChanges = sortedChanges.some(
@@ -113,7 +115,8 @@ test.skip(
     const migrationScript = `${[
       ...sessionConfig,
       ...sortedChanges.map((change) => {
-        return options.serialize?.(change) ?? change.serialize();
+        const sql = options.serialize?.(change) ?? change.serialize();
+        return Effect.isEffect(sql) ? runSyncEffect(sql) : sql;
       }),
     ].join(";\n\n")};`;
 
@@ -141,9 +144,14 @@ test.skip(
       // Verify that there are no remaining changes
       if (filteredChangesAfter.length > 0) {
         // Generate second migration script for remaining changes
-        const sortedChangesAfter = sortChanges(
-          { mainCatalog: mainCatalogAfter, branchCatalog: branchCatalogAfter },
-          filteredChangesAfter,
+        const sortedChangesAfter = runSyncEffect(
+          sortChanges(
+            {
+              mainCatalog: mainCatalogAfter,
+              branchCatalog: branchCatalogAfter,
+            },
+            filteredChangesAfter,
+          ),
         );
 
         const hasRoutineChangesAfter = sortedChangesAfter.some(
@@ -158,7 +166,8 @@ test.skip(
         const secondMigrationScript = `${[
           ...sessionConfigAfter,
           ...sortedChangesAfter.map((change) => {
-            return options.serialize?.(change) ?? change.serialize();
+            const sql = options.serialize?.(change) ?? change.serialize();
+            return Effect.isEffect(sql) ? runSyncEffect(sql) : sql;
           }),
         ].join(";\n\n")};`;
 

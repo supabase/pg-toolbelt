@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
 import { ReplaceTrigger } from "./trigger.alter.ts";
@@ -42,7 +43,7 @@ describe.concurrent("trigger", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table EXECUTE FUNCTION public.test_function()",
       );
     });

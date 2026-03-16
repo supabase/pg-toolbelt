@@ -1,16 +1,15 @@
+import type { Effect } from "effect";
+import type { InvariantViolationError } from "../../../errors.ts";
 import type { TableLikeObject } from "../../base.model.ts";
+import { ensureIndexIsSerializable } from "../../invariants.ts";
 import type { Index } from "../index.model.ts";
 
 export function checkIsSerializable(
   index: Index,
   indexableObject?: TableLikeObject,
-) {
-  if (
-    index.index_expressions === null &&
-    (indexableObject === undefined || indexableObject.columns.length === 0)
-  ) {
-    throw new Error(
-      "Index requires an indexableObject with columns when key_columns are used",
-    );
-  }
+): Effect.Effect<void, InvariantViolationError> {
+  return ensureIndexIsSerializable(
+    index.index_expressions !== null,
+    indexableObject !== undefined && indexableObject.columns.length > 0,
+  );
 }

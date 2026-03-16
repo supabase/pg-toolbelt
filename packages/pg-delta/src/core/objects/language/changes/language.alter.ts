@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Language } from "../language.model.ts";
 import { AlterLanguageChange } from "./language.base.ts";
 
@@ -33,7 +34,7 @@ export class AlterLanguageChangeOwner extends AlterLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["ALTER"];
 
     // Do not print the optional PROCEDURAL keyword.
@@ -42,7 +43,7 @@ export class AlterLanguageChangeOwner extends AlterLanguageChange {
 
     parts.push("LANGUAGE", this.language.name, "OWNER TO", this.owner);
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange } from "./sequence.base.ts";
@@ -61,7 +62,7 @@ export class CreateSequence extends CreateSequenceChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE SEQUENCE"];
 
     // Add schema and name
@@ -106,6 +107,6 @@ export class CreateSequence extends CreateSequenceChange {
       parts.push("CYCLE");
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

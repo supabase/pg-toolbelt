@@ -1,8 +1,11 @@
 import type * as PgClient from "@effect/sql-pg/PgClient";
 import { Effect, ServiceMap } from "effect";
 import type { Connection as SqlConnection } from "effect/unstable/sql/SqlConnection";
-import type { CatalogExtractionError } from "../../core/errors.ts";
-import type { ConnectionError } from "./errors.ts";
+import {
+  CatalogExtractionError,
+  type ConnectionError,
+} from "../../core/errors.ts";
+import { ConnectionError as SqlConnectionError } from "./errors.ts";
 
 export type QueryInput = string | { text: string; values?: readonly unknown[] };
 
@@ -56,14 +59,25 @@ export const fromPgClient = (
 ): DatabaseApi => {
   const queryError =
     options?.queryError ??
-    ((error: unknown) => {
-      throw error;
-    });
+    ((error: unknown) =>
+      new CatalogExtractionError({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Database query failed during catalog extraction.",
+        cause: error,
+      }));
   const connectionError =
     options?.connectionError ??
-    ((error: unknown) => {
-      throw error;
-    });
+    ((error: unknown) =>
+      new SqlConnectionError({
+        label: "target",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Database connection failed.",
+        cause: error,
+      }));
   const prepareConnection = options?.prepareConnection ?? (() => Effect.void);
 
   return {

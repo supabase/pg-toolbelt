@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -42,7 +43,7 @@ export class CreateServer extends CreateServerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE SERVER"];
 
     // Add server name
@@ -76,6 +77,6 @@ export class CreateServer extends CreateServerChange {
       }
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { AlterTableChange } from "./table.base.ts";
@@ -57,24 +59,26 @@ export class GrantTablePrivileges extends AlterTableChange {
     return [this.table.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantTablePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("TABLE");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
-    const tableName = `${this.table.schema}.${this.table.name}`;
-    const columnSpec =
-      this.columns && this.columns.length > 0
-        ? ` (${this.columns.join(", ")})`
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
         : "";
-    return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${tableName} TO ${this.grantee}${withGrant}`;
+      const kindPrefix = getObjectKindPrefix("TABLE");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("TABLE", list, self.version);
+      const tableName = `${self.table.schema}.${self.table.name}`;
+      const columnSpec =
+        self.columns && self.columns.length > 0
+          ? ` (${self.columns.join(", ")})`
+          : "";
+      return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${tableName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -132,7 +136,7 @@ export class RevokeTablePrivileges extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("TABLE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TABLE", list, this.version);
@@ -141,7 +145,9 @@ export class RevokeTablePrivileges extends AlterTableChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -183,7 +189,7 @@ export class RevokeGrantOptionTablePrivileges extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("TABLE");
     const privSql = formatObjectPrivilegeList(
       "TABLE",
@@ -195,6 +201,8 @@ export class RevokeGrantOptionTablePrivileges extends AlterTableChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${tableName} FROM ${this.grantee}`,
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -36,14 +37,16 @@ export class CreateCommentOnMaterializedView extends CreateMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON MATERIALIZED VIEW",
-      `${this.materializedView.schema}.${this.materializedView.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: mv comment is not nullable in this case
-      quoteLiteral(this.materializedView.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON MATERIALIZED VIEW",
+        `${this.materializedView.schema}.${this.materializedView.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: mv comment is not nullable in this case
+        quoteLiteral(this.materializedView.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -67,12 +70,14 @@ export class DropCommentOnMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON MATERIALIZED VIEW",
-      `${this.materializedView.schema}.${this.materializedView.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON MATERIALIZED VIEW",
+        `${this.materializedView.schema}.${this.materializedView.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -112,14 +117,16 @@ export class CreateCommentOnMaterializedViewColumn extends CreateMaterializedVie
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
-      `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
-      quoteLiteral(this.column.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLUMN",
+        `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
+        quoteLiteral(this.column.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -166,11 +173,13 @@ export class DropCommentOnMaterializedViewColumn extends DropMaterializedViewCha
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
-      `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLUMN",
+        `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

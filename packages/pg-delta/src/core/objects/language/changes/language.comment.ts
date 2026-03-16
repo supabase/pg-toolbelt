@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
@@ -25,13 +26,15 @@ export class CreateCommentOnLanguage extends CreateLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON LANGUAGE",
-      this.language.name,
-      "IS",
-      quoteLiteral(this.language.comment as string),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON LANGUAGE",
+        this.language.name,
+        "IS",
+        quoteLiteral(this.language.comment as string),
+      ].join(" "),
+    );
   }
 }
 
@@ -52,7 +55,9 @@ export class DropCommentOnLanguage extends DropLanguageChange {
     return [stableId.comment(this.language.stableId), this.language.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON LANGUAGE", this.language.name, "IS NULL"].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON LANGUAGE", this.language.name, "IS NULL"].join(" "),
+    );
   }
 }

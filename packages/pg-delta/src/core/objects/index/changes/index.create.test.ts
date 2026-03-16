@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
+import {
+  assertValidSql,
+  resolveSql,
+} from "../../../test-utils/assert-valid-sql.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { Index } from "../index.model.ts";
 import { CreateIndex } from "./index.create.ts";
@@ -62,7 +65,7 @@ describe("index", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(resolveSql(change.serialize())).toBe(
       "CREATE INDEX test_index ON public.test_table (id)",
     );
   });

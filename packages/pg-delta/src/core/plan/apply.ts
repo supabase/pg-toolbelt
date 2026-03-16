@@ -13,7 +13,9 @@ import {
   type ConnectionTimeoutError,
   FingerprintMismatchError,
   InvalidPlanError,
+  type InvariantViolationError,
   PlanApplyError,
+  type SortCycleError,
   type SslConfigError,
 } from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
@@ -56,6 +58,8 @@ export const applyPlan = (
   | CatalogExtractionError
   | ConnectionError
   | ConnectionTimeoutError
+  | InvariantViolationError
+  | SortCycleError
   | SslConfigError
 > =>
   withResolvedDatabase(source, "source", plan.role, (currentDb) =>
@@ -86,7 +90,7 @@ export const applyPlan = (
           );
         }
 
-        const sortedChanges = sortChanges(ctx, filteredChanges);
+        const sortedChanges = yield* sortChanges(ctx, filteredChanges);
         if (sortedChanges.length === 0) {
           return yield* new AlreadyAppliedError();
         }

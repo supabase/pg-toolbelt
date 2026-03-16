@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Enum } from "../enum.model.ts";
 import { DropEnumChange } from "./enum.base.ts";
 
@@ -28,7 +29,9 @@ export class DropEnum extends DropEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
-    return ["DROP TYPE", `${this.enum.schema}.${this.enum.name}`].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP TYPE", `${this.enum.schema}.${this.enum.name}`].join(" "),
+    );
   }
 }

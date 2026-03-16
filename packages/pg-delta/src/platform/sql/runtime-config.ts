@@ -17,7 +17,8 @@ export class PgRuntimeConfigService extends ServiceMap.Service<
   PgRuntimeConfigApi
 >()("@pg-delta/PgRuntimeConfigService") {}
 
-const defaultGetEnv = (name: string): string | undefined => getRuntimeEnv(name);
+const defaultGetEnv = (name: string): string | undefined =>
+  Effect.runSync(getRuntimeEnv(name).pipe(Effect.orDie));
 
 const numberFromString = (name: string, fallback: number) =>
   Config.withDefault(Config.string(name), String(fallback)).pipe(

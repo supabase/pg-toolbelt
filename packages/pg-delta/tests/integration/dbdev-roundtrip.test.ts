@@ -47,6 +47,9 @@ const MIGRATIONS_DIR = path.join(
   "fixtures/dbdev-migrations/migrations",
 );
 
+const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
+  Effect.runSync(effect as Effect.Effect<A, E, never>);
+
 /**
  * Load the core schema migrations that are sufficient to reproduce both bugs.
  *
@@ -155,9 +158,11 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
           );
         }
 
-        const output = exportDeclarativeSchema(planResult, {
-          integration: { serialize: compiledSerialize },
-        });
+        const output = runSyncEffect(
+          exportDeclarativeSchema(planResult, {
+            integration: { serialize: compiledSerialize },
+          }),
+        );
 
         // Apply the exported declarative schema files to the clean main DB.
         // Disable final function body validation: functions reference auth.uid()
@@ -194,11 +199,15 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
         const remainingChanges = allChanges.filter(compiledFilter);
 
         if (remainingChanges.length > 0) {
-          const sorted = sortChanges(
-            { mainCatalog, branchCatalog },
-            remainingChanges,
+          const sorted = runSyncEffect(
+            sortChanges({ mainCatalog, branchCatalog }, remainingChanges),
           );
-          const remainingSql = sorted.map((c) => c.serialize()).join(";\n");
+          const remainingSql = sorted
+            .map((c) => {
+              const sql = c.serialize();
+              return Effect.isEffect(sql) ? runSyncEffect(sql) : sql;
+            })
+            .join(";\n");
           console.error(
             `[dbdev-roundtrip] ${remainingChanges.length} remaining change(s) after roundtrip:\n${remainingSql}`,
           );

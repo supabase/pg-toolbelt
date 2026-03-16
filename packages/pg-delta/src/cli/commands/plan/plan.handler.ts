@@ -72,14 +72,26 @@ export const handlePlan = Effect.fnUntraced(function* (flags: {
     effectiveFormat = "tree";
   }
 
-  const { content, label } = formatPlanForDisplay(planResult, effectiveFormat, {
-    disableColors: outputPath !== undefined || !output.stdoutColorsEnabled,
-    showUnsafeFlagSuggestion: false,
-    sqlFormatOptions:
-      flags.sqlFormat || sqlFormatOptionsParsed
-        ? (sqlFormatOptionsParsed ?? {})
-        : undefined,
-  });
+  const { content, label } = yield* formatPlanForDisplay(
+    planResult,
+    effectiveFormat,
+    {
+      disableColors: outputPath !== undefined || !output.stdoutColorsEnabled,
+      showUnsafeFlagSuggestion: false,
+      sqlFormatOptions:
+        flags.sqlFormat || sqlFormatOptionsParsed
+          ? (sqlFormatOptionsParsed ?? {})
+          : undefined,
+    },
+  ).pipe(
+    Effect.mapError(
+      (error) =>
+        new CliExitError({
+          exitCode: 1,
+          message: error.message,
+        }),
+    ),
+  );
 
   if (outputPath) {
     yield* fs.writeFileString(outputPath, content).pipe(

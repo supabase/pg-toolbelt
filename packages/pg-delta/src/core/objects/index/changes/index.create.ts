@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { TableLikeObject } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
@@ -27,7 +28,6 @@ export class CreateIndex extends CreateIndexChange {
 
   constructor(props: { index: Index; indexableObject?: TableLikeObject }) {
     super();
-    checkIsSerializable(props.index, props.indexableObject);
     this.index = props.index;
     this.indexableObject = props.indexableObject;
   }
@@ -51,18 +51,20 @@ export class CreateIndex extends CreateIndexChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
-    let definition = this.index.definition;
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* checkIsSerializable(self.index, self.indexableObject);
 
-    // btree being the default, we can omit it
-    definition = definition.replace(" USING btree", "");
+      let definition = self.index.definition;
 
-    // Remove "ON ONLY" for partitioned indexes to allow automatic propagation to partitions.
-    // Preserve "ON ONLY" for non-partitioned indexes on partitioned tables (explicit user intent).
-    if (this.index.is_partitioned_index) {
-      definition = definition.replace(/\s+ON\s+ONLY\s+/i, " ON ");
-    }
+      definition = definition.replace(" USING btree", "");
 
-    return definition;
+      if (self.index.is_partitioned_index) {
+        definition = definition.replace(/\s+ON\s+ONLY\s+/i, " ON ");
+      }
+
+      return definition;
+    });
   }
 }

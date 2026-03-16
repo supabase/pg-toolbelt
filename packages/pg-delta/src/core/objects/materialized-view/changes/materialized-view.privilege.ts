@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
@@ -58,28 +60,30 @@ export class GrantMaterializedViewPrivileges extends AlterMaterializedViewChange
     return [this.materializedView.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantMaterializedViewPrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList(
-      "MATERIALIZED VIEW",
-      list,
-      this.version,
-    );
-    const materializedViewName = `${this.materializedView.schema}.${this.materializedView.name}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList(
+        "MATERIALIZED VIEW",
+        list,
+        self.version,
+      );
+      const materializedViewName = `${self.materializedView.schema}.${self.materializedView.name}`;
 
-    // Add column list if present
-    const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
+      // Add column list if present
+      const columnClause = self.columns ? ` (${self.columns.join(", ")})` : "";
 
-    return `GRANT ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} TO ${this.grantee}${withGrant}`;
+      return `GRANT ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -138,7 +142,7 @@ export class RevokeMaterializedViewPrivileges extends AlterMaterializedViewChang
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
@@ -151,7 +155,9 @@ export class RevokeMaterializedViewPrivileges extends AlterMaterializedViewChang
     // Add column list if present
     const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
 
-    return `REVOKE ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -195,7 +201,7 @@ export class RevokeGrantOptionMaterializedViewPrivileges extends AlterMaterializ
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
     const privSql = formatObjectPrivilegeList(
       "MATERIALIZED VIEW",
@@ -207,6 +213,8 @@ export class RevokeGrantOptionMaterializedViewPrivileges extends AlterMaterializ
     // Add column list if present
     const columnClause = this.columns ? ` (${this.columns.join(", ")})` : "";
 
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql}${columnClause} ${kindPrefix} ${materializedViewName} FROM ${this.grantee}`,
+    );
   }
 }

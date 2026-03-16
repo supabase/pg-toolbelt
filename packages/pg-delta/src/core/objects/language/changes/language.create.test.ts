@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language } from "../language.model.ts";
 import { CreateLanguage } from "./language.create.ts";
@@ -23,7 +24,7 @@ describe("language", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE TRUSTED LANGUAGE plpgsql HANDLER plpgsql_call_handler INLINE plpgsql_inline_handler VALIDATOR plpgsql_validator",
     );
   });

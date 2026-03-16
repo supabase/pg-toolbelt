@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
@@ -25,14 +26,16 @@ export class CreateCommentOnDomain extends CreateDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON DOMAIN",
-      `${this.domain.schema}.${this.domain.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: domain comment is not nullable in this case
-      quoteLiteral(this.domain.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON DOMAIN",
+        `${this.domain.schema}.${this.domain.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: domain comment is not nullable in this case
+        quoteLiteral(this.domain.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -49,11 +52,13 @@ export class DropCommentOnDomain extends DropDomainChange {
     return [stableId.comment(this.domain.stableId), this.domain.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON DOMAIN",
-      `${this.domain.schema}.${this.domain.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON DOMAIN",
+        `${this.domain.schema}.${this.domain.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

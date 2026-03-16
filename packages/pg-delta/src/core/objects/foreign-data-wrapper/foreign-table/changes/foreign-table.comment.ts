@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
@@ -31,14 +32,16 @@ export class CreateCommentOnForeignTable extends CreateForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
-      quoteLiteral(this.foreignTable.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
+        quoteLiteral(this.foreignTable.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -62,11 +65,13 @@ export class DropCommentOnForeignTable extends DropForeignTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -39,8 +40,10 @@ export class AlterServerChangeOwner extends AlterServerChange {
     return [this.server.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return ["ALTER SERVER", this.server.name, "OWNER TO", this.owner].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["ALTER SERVER", this.server.name, "OWNER TO", this.owner].join(" "),
+    );
   }
 }
 
@@ -62,17 +65,21 @@ export class AlterServerSetVersion extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     if (this.version === null) {
       // PostgreSQL doesn't support removing version, but we'll handle it
-      return ["ALTER SERVER", this.server.name, "VERSION", "''"].join(" ");
+      return Effect.succeed(
+        ["ALTER SERVER", this.server.name, "VERSION", "''"].join(" "),
+      );
     }
-    return [
-      "ALTER SERVER",
-      this.server.name,
-      "VERSION",
-      quoteLiteral(this.version),
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER SERVER",
+        this.server.name,
+        "VERSION",
+        quoteLiteral(this.version),
+      ].join(" "),
+    );
   }
 }
 
@@ -105,7 +112,7 @@ export class AlterServerSetOptions extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
@@ -116,11 +123,13 @@ export class AlterServerSetOptions extends AlterServerChange {
       }
     }
 
-    return [
-      "ALTER SERVER",
-      this.server.name,
-      "OPTIONS",
-      `(${optionParts.join(", ")})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER SERVER",
+        this.server.name,
+        "OPTIONS",
+        `(${optionParts.join(", ")})`,
+      ].join(" "),
+    );
   }
 }

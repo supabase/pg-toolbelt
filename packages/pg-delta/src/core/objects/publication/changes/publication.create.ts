@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Publication } from "../publication.model.ts";
 import {
@@ -48,7 +49,7 @@ export class CreatePublication extends CreatePublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE PUBLICATION", this.publication.name];
 
     if (this.publication.all_tables) {
@@ -77,6 +78,6 @@ export class CreatePublication extends CreatePublicationChange {
       parts.push("WITH", `(${options.join(", ")})`);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

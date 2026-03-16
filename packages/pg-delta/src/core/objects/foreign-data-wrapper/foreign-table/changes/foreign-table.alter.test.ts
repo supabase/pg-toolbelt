@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   ForeignTable,
@@ -57,7 +58,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table OWNER TO new_owner",
       );
     });
@@ -88,7 +89,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text",
       );
     });
@@ -119,7 +120,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text NOT NULL",
       );
     });
@@ -150,7 +151,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text DEFAULT 'default_value'",
       );
     });
@@ -181,7 +182,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ADD COLUMN name text NOT NULL DEFAULT 'default_value'",
       );
     });
@@ -195,7 +196,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table DROP COLUMN id",
       );
     });
@@ -210,7 +211,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id TYPE bigint",
       );
     });
@@ -225,7 +226,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id SET DEFAULT 0",
       );
     });
@@ -239,7 +240,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id DROP DEFAULT",
       );
     });
@@ -253,7 +254,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id SET NOT NULL",
       );
     });
@@ -267,7 +268,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table ALTER COLUMN id DROP NOT NULL",
       );
     });
@@ -284,7 +285,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD schema_name 'remote_schema', ADD table_name 'remote_table')",
       );
     });
@@ -300,7 +301,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (SET schema_name 'new_schema')",
       );
     });
@@ -314,7 +315,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (DROP schema_name)",
       );
     });
@@ -332,7 +333,7 @@ describe.concurrent("foreign-table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
       );
     });

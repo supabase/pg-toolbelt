@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { CompositeType } from "../composite-type.model.ts";
 import { DropCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -28,10 +29,12 @@ export class DropCompositeType extends DropCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP TYPE",
-      `${this.compositeType.schema}.${this.compositeType.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP TYPE",
+        `${this.compositeType.schema}.${this.compositeType.name}`,
+      ].join(" "),
+    );
   }
 }

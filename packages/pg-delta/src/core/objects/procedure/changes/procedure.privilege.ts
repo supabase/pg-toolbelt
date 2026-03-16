@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
@@ -53,24 +55,26 @@ export class GrantProcedurePrivileges extends AlterProcedureChange {
     return [this.procedure.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantProcedurePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
-    const kindPrefix = getObjectKindPrefix(objectKind);
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList(objectKind, list, this.version);
-    const procedureName = `${this.procedure.schema}.${this.procedure.name}`;
-    const args = this.procedure.argument_types?.join(", ") ?? "";
-    // Always include parentheses for privilege statements, even for zero-argument procedures/functions
-    const signature = `${procedureName}(${args})`;
-    return `GRANT ${privSql} ${kindPrefix} ${signature} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const objectKind = self.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
+      const kindPrefix = getObjectKindPrefix(objectKind);
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList(objectKind, list, self.version);
+      const procedureName = `${self.procedure.schema}.${self.procedure.name}`;
+      const args = self.procedure.argument_types?.join(", ") ?? "";
+      // Always include parentheses for privilege statements, even for zero-argument procedures/functions
+      const signature = `${procedureName}(${args})`;
+      return `GRANT ${privSql} ${kindPrefix} ${signature} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -123,7 +127,7 @@ export class RevokeProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const kindPrefix = getObjectKindPrefix(objectKind);
     const list = this.privileges.map((p) => p.privilege);
@@ -132,7 +136,9 @@ export class RevokeProcedurePrivileges extends AlterProcedureChange {
     const args = this.procedure.argument_types?.join(", ") ?? "";
     // Always include parentheses for privilege statements, even for zero-argument procedures/functions
     const signature = `${procedureName}(${args})`;
-    return `REVOKE ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -171,7 +177,7 @@ export class RevokeGrantOptionProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const kindPrefix = getObjectKindPrefix(objectKind);
     const privSql = formatObjectPrivilegeList(
@@ -183,6 +189,8 @@ export class RevokeGrantOptionProcedurePrivileges extends AlterProcedureChange {
     const args = this.procedure.argument_types?.join(", ") ?? "";
     // Always include parentheses for privilege statements, even for zero-argument procedures/functions
     const signature = `${procedureName}(${args})`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${signature} FROM ${this.grantee}`,
+    );
   }
 }

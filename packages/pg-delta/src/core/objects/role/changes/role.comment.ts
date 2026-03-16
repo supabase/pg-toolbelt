@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
@@ -22,13 +23,15 @@ export class CreateCommentOnRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON ROLE",
-      this.role.name,
-      "IS",
-      quoteLiteral(this.role.comment as string),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON ROLE",
+        this.role.name,
+        "IS",
+        quoteLiteral(this.role.comment as string),
+      ].join(" "),
+    );
   }
 }
 
@@ -49,7 +52,9 @@ export class DropCommentOnRole extends DropRoleChange {
     return [stableId.comment(this.role.stableId), this.role.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" "),
+    );
   }
 }

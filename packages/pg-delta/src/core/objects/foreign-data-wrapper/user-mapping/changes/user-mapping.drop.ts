@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { DropUserMappingChange } from "./user-mapping.base.ts";
 
@@ -29,12 +30,14 @@ export class DropUserMapping extends DropUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP USER MAPPING FOR",
-      this.userMapping.user,
-      "SERVER",
-      this.userMapping.server,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP USER MAPPING FOR",
+        this.userMapping.user,
+        "SERVER",
+        this.userMapping.server,
+      ].join(" "),
+    );
   }
 }

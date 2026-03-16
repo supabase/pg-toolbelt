@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Index } from "../index.model.ts";
 import { DropIndexChange } from "./index.base.ts";
 
@@ -28,7 +29,9 @@ export class DropIndex extends DropIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    return ["DROP INDEX", `${this.index.schema}.${this.index.name}`].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP INDEX", `${this.index.schema}.${this.index.name}`].join(" "),
+    );
   }
 }

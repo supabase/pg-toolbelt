@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
@@ -63,8 +64,10 @@ export class AlterDomainSetDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`,
+    );
   }
 }
 
@@ -84,8 +87,10 @@ export class AlterDomainDropDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`,
+    );
   }
 }
 
@@ -105,8 +110,10 @@ export class AlterDomainSetNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`,
+    );
   }
 }
 
@@ -126,8 +133,10 @@ export class AlterDomainDropNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`,
+    );
   }
 }
 
@@ -149,8 +158,10 @@ export class AlterDomainChangeOwner extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`,
+    );
   }
 }
 
@@ -182,7 +193,7 @@ export class AlterDomainAddConstraint extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
     const parts: string[] = [
       "ALTER DOMAIN",
@@ -196,7 +207,7 @@ export class AlterDomainAddConstraint extends AlterDomainChange {
     if (!this.constraint.validated) {
       parts.push("NOT VALID");
     }
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 
@@ -235,14 +246,16 @@ export class AlterDomainDropConstraint extends DropDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return [
-      "ALTER DOMAIN",
-      domainName,
-      "DROP CONSTRAINT",
-      this.constraint.name,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER DOMAIN",
+        domainName,
+        "DROP CONSTRAINT",
+        this.constraint.name,
+      ].join(" "),
+    );
   }
 }
 
@@ -274,13 +287,15 @@ export class AlterDomainValidateConstraint extends AlterDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return [
-      "ALTER DOMAIN",
-      domainName,
-      "VALIDATE CONSTRAINT",
-      this.constraint.name,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER DOMAIN",
+        domainName,
+        "VALIDATE CONSTRAINT",
+        this.constraint.name,
+      ].join(" "),
+    );
   }
 }

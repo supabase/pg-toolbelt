@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Role } from "../role.model.ts";
 import { DropRoleChange } from "./role.base.ts";
 
@@ -28,7 +29,7 @@ export class DropRole extends DropRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
-    return ["DROP ROLE", this.role.name].join(" ");
+  serialize() {
+    return Effect.succeed(["DROP ROLE", this.role.name].join(" "));
   }
 }

@@ -1,4 +1,9 @@
 import { ConfigProvider, Effect, Layer } from "effect";
+import {
+  ConnectionError,
+  ConnectionTimeoutError,
+  type SslConfigError,
+} from "../core/errors.ts";
 import { getPgDeltaLogger } from "../core/logging.ts";
 import type { DatabaseApi } from "../core/services/database.ts";
 import { DatabaseResolver } from "../core/services/database-resolver.ts";
@@ -36,59 +41,109 @@ export async function createManagedPool(
   options?: { role?: string; label?: "source" | "target" },
   runtimeConfig: PgRuntimeConfigApi = getDefaultRuntimeConfig(),
 ): Promise<{ pool: Pool; close: () => Promise<void> }> {
-  const sslConfig = await Effect.runPromise(
-    parseSslConfig(url, options?.label ?? "target", runtimeConfig).pipe(
-      Effect.provide(nodeFileSystemPathLayer),
-    ),
+  return await Effect.runPromise(
+    createManagedPoolEffect(url, options, runtimeConfig),
   );
-  const pool = createPool(
-    sslConfig.cleanedUrl,
-    {
-      ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
-      onError: (err: Error & { code?: string }) => {
-        if (err.code !== "57P01") {
-          logger.error("Pool error for {label} connection", {
-            label: options?.label ?? "target",
-            error: err,
-          });
-        }
-      },
-      onConnect: async (client) => {
-        await client.query("SET search_path = ''");
-        if (options?.role) {
-          await client.query(`SET ROLE ${quoteIdentifier(options.role)}`);
-        }
-      },
-    },
-    runtimeConfig,
-  );
-
-  const label = options?.label ?? "target";
-  const timeoutMs = runtimeConfig.connectTimeoutMs;
-  try {
-    const client = await Promise.race([
-      pool.connect(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
-                  `The server may require SSL, use an invalid certificate, or be unreachable.`,
-              ),
-            ),
-          timeoutMs,
-        ),
-      ),
-    ]);
-    client.release();
-  } catch (err) {
-    await pool.end().catch(() => {});
-    throw err;
-  }
-
-  return { pool, close: () => endPool(pool) };
 }
+
+const createManagedPoolEffect = (
+  url: string,
+  options?: { role?: string; label?: "source" | "target" },
+  runtimeConfig: PgRuntimeConfigApi = getDefaultRuntimeConfig(),
+): Effect.Effect<
+  { pool: Pool; close: () => Promise<void> },
+  ConnectionError | ConnectionTimeoutError | SslConfigError
+> =>
+  Effect.gen(function* () {
+    const sslConfig = yield* parseSslConfig(
+      url,
+      options?.label ?? "target",
+      runtimeConfig,
+    ).pipe(Effect.provide(nodeFileSystemPathLayer));
+    const label = options?.label ?? "target";
+    const timeoutMs = runtimeConfig.connectTimeoutMs;
+    const pool = yield* Effect.try({
+      try: () =>
+        createPool(
+          sslConfig.cleanedUrl,
+          {
+            ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+            onError: (err: Error & { code?: string }) => {
+              if (err.code !== "57P01") {
+                logger.error("Pool error for {label} connection", {
+                  label: options?.label ?? "target",
+                  error: err,
+                });
+              }
+            },
+            onConnect: async (client) => {
+              await client.query("SET search_path = ''");
+              if (options?.role) {
+                await client.query(`SET ROLE ${quoteIdentifier(options.role)}`);
+              }
+            },
+          },
+          runtimeConfig,
+        ),
+      catch: (error) =>
+        new ConnectionError({
+          label,
+          message: `Failed to create ${label} pool.`,
+          cause: error,
+        }),
+    });
+    const releaseOrClose = (client?: { release: () => void }) =>
+      Effect.tryPromise({
+        try: async () => {
+          if (client) {
+            client.release();
+            return;
+          }
+          await pool.end().catch(() => {});
+        },
+        catch: () =>
+          new ConnectionError({
+            label,
+            message: `Failed to clean up ${label} pool after connection validation.`,
+          }),
+      }).pipe(Effect.catch(() => Effect.void));
+
+    const client = yield* Effect.tryPromise({
+      try: () =>
+        Promise.race([
+          pool.connect(),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new ConnectionTimeoutError({
+                    message:
+                      `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
+                      "The server may require SSL, use an invalid certificate, or be unreachable.",
+                    label,
+                    timeoutMs,
+                  }),
+                ),
+              timeoutMs,
+            ),
+          ),
+        ]),
+      catch: (error) =>
+        error instanceof ConnectionTimeoutError
+          ? error
+          : new ConnectionError({
+              label,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : `Connection to ${label} database failed.`,
+              cause: error,
+            }),
+    }).pipe(Effect.tapError(() => releaseOrClose()));
+
+    yield* releaseOrClose(client);
+    return { pool, close: () => endPool(pool) };
+  });
 
 export {
   fromPool,

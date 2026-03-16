@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
@@ -22,13 +23,15 @@ export class CreateCommentOnView extends CreateViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON VIEW",
-      `${this.view.schema}.${this.view.name}`,
-      "IS",
-      quoteLiteral(this.view.comment as string),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON VIEW",
+        `${this.view.schema}.${this.view.name}`,
+        "IS",
+        quoteLiteral(this.view.comment as string),
+      ].join(" "),
+    );
   }
 }
 
@@ -49,11 +52,13 @@ export class DropCommentOnView extends DropViewChange {
     return [stableId.comment(this.view.stableId), this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON VIEW",
-      `${this.view.schema}.${this.view.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON VIEW",
+        `${this.view.schema}.${this.view.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { DropTableChange } from "./table.base.ts";
@@ -39,7 +40,9 @@ export class DropTable extends DropTableChange {
     ];
   }
 
-  serialize(): string {
-    return ["DROP TABLE", `${this.table.schema}.${this.table.name}`].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP TABLE", `${this.table.schema}.${this.table.name}`].join(" "),
+    );
   }
 }

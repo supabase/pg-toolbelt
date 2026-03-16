@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Sequence } from "../sequence.model.ts";
 import { CreateSequence } from "./sequence.create.ts";
@@ -26,7 +27,9 @@ describe("sequence", () => {
 
     const change = new CreateSequence({ sequence });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("CREATE SEQUENCE public.s_min");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "CREATE SEQUENCE public.s_min",
+    );
   });
 
   test("create", async () => {
@@ -55,7 +58,7 @@ describe("sequence", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SEQUENCE public.test_sequence AS integer",
     );
   });
@@ -82,7 +85,7 @@ describe("sequence", () => {
 
     const change = new CreateSequence({ sequence });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SEQUENCE public.s_all AS integer INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
     );
   });

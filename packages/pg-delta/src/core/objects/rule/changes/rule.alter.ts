@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Rule, RuleEnabledState } from "../rule.model.ts";
 import { AlterRuleChange } from "./rule.base.ts";
@@ -22,7 +23,7 @@ export class ReplaceRule extends AlterRuleChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     return new CreateRule({ rule: this.rule, orReplace: true }).serialize();
   }
 }
@@ -48,9 +49,11 @@ export class SetRuleEnabledState extends AlterRuleChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const clause = clauseForState(this.enabled);
-    return `ALTER TABLE ${this.rule.schema}.${this.rule.table_name} ${clause} ${this.rule.name}`;
+    return Effect.succeed(
+      `ALTER TABLE ${this.rule.schema}.${this.rule.table_name} ${clause} ${this.rule.name}`,
+    );
   }
 }
 

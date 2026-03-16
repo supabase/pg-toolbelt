@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role, type RoleProps } from "../role.model.ts";
 import { AlterRoleSetOptions } from "./role.alter.ts";
@@ -23,7 +24,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["SUPERUSER"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH SUPERUSER");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH SUPERUSER",
+      );
     });
 
     test("alter NOSUPERUSER", async () => {
@@ -47,7 +50,9 @@ describe.concurrent("role", () => {
         options: ["NOSUPERUSER"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOSUPERUSER");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOSUPERUSER",
+      );
     });
 
     test("alter NOCREATEDB", async () => {
@@ -68,7 +73,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOCREATEDB"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEDB");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOCREATEDB",
+      );
     });
 
     test("alter NOCREATEROLE", async () => {
@@ -92,7 +99,9 @@ describe.concurrent("role", () => {
         options: ["NOCREATEROLE"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOCREATEROLE");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOCREATEROLE",
+      );
     });
 
     test("alter INHERIT", async () => {
@@ -113,7 +122,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["INHERIT"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH INHERIT");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH INHERIT",
+      );
     });
 
     test("alter LOGIN", async () => {
@@ -134,7 +145,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["LOGIN"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH LOGIN");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH LOGIN",
+      );
     });
 
     test("alter NOREPLICATION", async () => {
@@ -158,7 +171,9 @@ describe.concurrent("role", () => {
         options: ["NOREPLICATION"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOREPLICATION");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOREPLICATION",
+      );
     });
 
     test("alter NOBYPASSRLS", async () => {
@@ -182,7 +197,9 @@ describe.concurrent("role", () => {
         options: ["NOBYPASSRLS"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOBYPASSRLS");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOBYPASSRLS",
+      );
     });
 
     test("alter CREATEROLE", async () => {
@@ -203,7 +220,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["CREATEROLE"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH CREATEROLE");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH CREATEROLE",
+      );
     });
 
     test("alter NOINHERIT", async () => {
@@ -224,7 +243,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOINHERIT"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOINHERIT");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOINHERIT",
+      );
     });
 
     test("alter NOLOGIN", async () => {
@@ -245,7 +266,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["NOLOGIN"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH NOLOGIN");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH NOLOGIN",
+      );
     });
 
     test("alter REPLICATION", async () => {
@@ -269,7 +292,9 @@ describe.concurrent("role", () => {
         options: ["REPLICATION"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH REPLICATION");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH REPLICATION",
+      );
     });
 
     test("alter BYPASSRLS", async () => {
@@ -290,7 +315,9 @@ describe.concurrent("role", () => {
       });
       const change = new AlterRoleSetOptions({ role, options: ["BYPASSRLS"] });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER ROLE r WITH BYPASSRLS");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER ROLE r WITH BYPASSRLS",
+      );
     });
 
     test("alter multiple options ordering", async () => {
@@ -323,7 +350,7 @@ describe.concurrent("role", () => {
         ],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER ROLE r WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 10",
       );
     });
@@ -354,7 +381,7 @@ describe.concurrent("role", () => {
         options: ["CREATEDB", "CONNECTION LIMIT 3"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER ROLE r WITH CREATEDB CONNECTION LIMIT 3",
       );
     });

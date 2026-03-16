@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -16,8 +17,10 @@ export class AlterSubscriptionSetConnection extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION ${quoteLiteral(this.subscription.conninfo)}`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION ${quoteLiteral(this.subscription.conninfo)}`,
+    );
   }
 }
 
@@ -30,12 +33,12 @@ export class AlterSubscriptionSetPublication extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
+  serialize() {
     const base = `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
     if (!this.subscription.enabled) {
-      return `${base} WITH (refresh = false)`;
+      return Effect.succeed(`${base} WITH (refresh = false)`);
     }
-    return base;
+    return Effect.succeed(base);
   }
 }
 
@@ -48,8 +51,10 @@ export class AlterSubscriptionEnable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} ENABLE`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER SUBSCRIPTION ${this.subscription.name} ENABLE`,
+    );
   }
 }
 
@@ -62,8 +67,10 @@ export class AlterSubscriptionDisable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} DISABLE`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER SUBSCRIPTION ${this.subscription.name} DISABLE`,
+    );
   }
 }
 
@@ -81,11 +88,13 @@ export class AlterSubscriptionSetOptions extends AlterSubscriptionChange {
     this.options = props.options;
   }
 
-  serialize(): string {
+  serialize() {
     const assignments = this.options.map((option) =>
       formatSubscriptionOption(this.subscription, option),
     );
-    return `ALTER SUBSCRIPTION ${this.subscription.name} SET (${assignments.join(", ")})`;
+    return Effect.succeed(
+      `ALTER SUBSCRIPTION ${this.subscription.name} SET (${assignments.join(", ")})`,
+    );
   }
 }
 
@@ -104,7 +113,9 @@ export class AlterSubscriptionSetOwner extends AlterSubscriptionChange {
     return [stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER SUBSCRIPTION ${this.subscription.name} OWNER TO ${this.owner}`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER SUBSCRIPTION ${this.subscription.name} OWNER TO ${this.owner}`,
+    );
   }
 }

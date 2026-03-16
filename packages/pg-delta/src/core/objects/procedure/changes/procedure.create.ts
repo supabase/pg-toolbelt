@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { parseTypeString, stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedureChange } from "./procedure.base.ts";
@@ -78,7 +79,7 @@ export class CreateProcedure extends CreateProcedureChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     // Use the server-generated CREATE statement for functions/procedures
     // Normalize trailing semicolon and OR REPLACE clause according to flag
     let definition = this.procedure.definition.trim();
@@ -87,6 +88,6 @@ export class CreateProcedure extends CreateProcedureChange {
       /^CREATE\s+(?:OR\s+REPLACE\s+)?/i,
       `CREATE ${this.orReplace ? "OR REPLACE " : ""}`,
     );
-    return definition;
+    return Effect.succeed(definition);
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -39,13 +40,15 @@ export class AlterExtensionUpdateVersion extends AlterExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EXTENSION",
-      this.extension.name,
-      "UPDATE TO",
-      quoteLiteral(this.version),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER EXTENSION",
+        this.extension.name,
+        "UPDATE TO",
+        quoteLiteral(this.version),
+      ].join(" "),
+    );
   }
 }
 
@@ -67,12 +70,11 @@ export class AlterExtensionSetSchema extends AlterExtensionChange {
     return [this.extension.stableId, stableId.schema(this.schema)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EXTENSION",
-      this.extension.name,
-      "SET SCHEMA",
-      this.schema,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["ALTER EXTENSION", this.extension.name, "SET SCHEMA", this.schema].join(
+        " ",
+      ),
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
@@ -25,14 +26,16 @@ export class CreateCommentOnIndex extends CreateIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON INDEX",
-      `${this.index.schema}.${this.index.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: index comment is not nullable here
-      quoteLiteral(this.index.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON INDEX",
+        `${this.index.schema}.${this.index.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: index comment is not nullable here
+        quoteLiteral(this.index.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -53,11 +56,13 @@ export class DropCommentOnIndex extends DropIndexChange {
     return [stableId.comment(this.index.stableId), this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON INDEX",
-      `${this.index.schema}.${this.index.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON INDEX",
+        `${this.index.schema}.${this.index.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

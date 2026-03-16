@@ -1,3 +1,8 @@
+import { Effect } from "effect";
+import {
+  ensureSingleRevokeKind,
+  ensureUniformGrantablePrivileges,
+} from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
@@ -50,12 +55,14 @@ export class GrantRoleMembership extends CreateRoleChange {
     return [this.role.stableId, stableId.role(this.member)];
   }
 
-  serialize(): string {
+  serialize() {
     // On creation, only emit ADMIN OPTION; leave INHERIT/SET to defaults
     const opts: string[] = [];
     if (this.options.admin) opts.push("ADMIN OPTION");
     const withClause = opts.length > 0 ? ` WITH ${opts.join(" ")}` : "";
-    return `GRANT ${this.role.name} TO ${this.member}${withClause}`;
+    return Effect.succeed(
+      `GRANT ${this.role.name} TO ${this.member}${withClause}`,
+    );
   }
 }
 
@@ -94,8 +101,8 @@ export class RevokeRoleMembership extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
-    return `REVOKE ${this.role.name} FROM ${this.member}`;
+  serialize() {
+    return Effect.succeed(`REVOKE ${this.role.name} FROM ${this.member}`);
   }
 }
 
@@ -138,12 +145,14 @@ export class RevokeRoleMembershipOptions extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [];
     if (this.admin) parts.push("ADMIN OPTION");
     if (this.inherit) parts.push("INHERIT OPTION");
     if (this.set) parts.push("SET OPTION");
-    return `REVOKE ${parts.join(" ")} FOR ${this.role.name} FROM ${this.member}`;
+    return Effect.succeed(
+      `REVOKE ${parts.join(" ")} FOR ${this.role.name} FROM ${this.member}`,
+    );
   }
 }
 
@@ -197,22 +206,24 @@ export class GrantRoleDefaultPrivileges extends CreateRoleChange {
     ];
   }
 
-  serialize(): string {
-    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      const scope = self.inSchema ? ` IN SCHEMA ${self.inSchema}` : "";
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantRoleDefaultPrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const privSql = formatPrivilegeList(
-      this.objtype,
-      this.privileges.map((p) => p.privilege),
-      this.version,
-    );
-    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} GRANT ${privSql} ON ${objtypeToKeyword(this.objtype)} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const privSql = formatPrivilegeList(
+        self.objtype,
+        self.privileges.map((p) => p.privilege),
+        self.version,
+      );
+      return `ALTER DEFAULT PRIVILEGES FOR ROLE ${self.role.name}${scope} GRANT ${privSql} ON ${objtypeToKeyword(self.objtype)} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -272,31 +283,39 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
-    const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
-    const grantOptionPrivs = this.privileges
-      .filter((p) => p.grantable)
-      .map((p) => p.privilege);
-    const basePrivs = this.privileges
-      .filter((p) => !p.grantable)
-      .map((p) => p.privilege);
-    const hasGrantOption = grantOptionPrivs.length > 0;
-    const hasBase = basePrivs.length > 0;
-    if (hasGrantOption && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      const scope = self.inSchema ? ` IN SCHEMA ${self.inSchema}` : "";
+      const grantOptionPrivs = self.privileges
+        .filter((p) => p.grantable)
+        .map((p) => p.privilege);
+      const basePrivs = self.privileges
+        .filter((p) => !p.grantable)
+        .map((p) => p.privilege);
+      const hasGrantOption = grantOptionPrivs.length > 0;
+      const hasBase = basePrivs.length > 0;
+      yield* ensureSingleRevokeKind(
+        hasGrantOption,
+        hasBase,
         "AlterDefaultPrivilegesRevoke expects privileges from a single revoke kind",
       );
-    }
-    if (hasGrantOption) {
+      if (hasGrantOption) {
+        const privSql = formatPrivilegeList(
+          self.objtype,
+          grantOptionPrivs,
+          self.version,
+        );
+        return `ALTER DEFAULT PRIVILEGES FOR ROLE ${self.role.name}${scope} REVOKE GRANT OPTION FOR ${privSql} ON ${objtypeToKeyword(self.objtype)} FROM ${self.grantee}`;
+      }
+
       const privSql = formatPrivilegeList(
-        this.objtype,
-        grantOptionPrivs,
-        this.version,
+        self.objtype,
+        basePrivs,
+        self.version,
       );
-      return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE GRANT OPTION FOR ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
-    }
-    const privSql = formatPrivilegeList(this.objtype, basePrivs, this.version);
-    return `ALTER DEFAULT PRIVILEGES FOR ROLE ${this.role.name}${scope} REVOKE ${privSql} ON ${objtypeToKeyword(this.objtype)} FROM ${this.grantee}`;
+      return `ALTER DEFAULT PRIVILEGES FOR ROLE ${self.role.name}${scope} REVOKE ${privSql} ON ${objtypeToKeyword(self.objtype)} FROM ${self.grantee}`;
+    });
   }
 }
 

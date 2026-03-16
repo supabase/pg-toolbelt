@@ -1,15 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import type { Change } from "../change.types.ts";
 import { getPgDeltaLogger } from "../logging.ts";
 import {
   applyGrouping,
   type CompiledPattern,
   compilePatterns,
-  createFileMapper,
+  createFileMapper as createFileMapperEffect,
   flattenSchema,
   resolveGroupName,
 } from "./file-mapper.ts";
 import type { FilePath } from "./types.ts";
+
+const createFileMapper = (
+  ...args: Parameters<typeof createFileMapperEffect>
+) => {
+  const mapper = createFileMapperEffect(...args);
+  return (change: Change) => Effect.runSync(mapper(change));
+};
 
 // ============================================================================
 // Helpers – minimal Change stubs

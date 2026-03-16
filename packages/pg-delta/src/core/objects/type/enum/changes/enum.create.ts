@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
@@ -38,7 +39,7 @@ export class CreateEnum extends CreateEnumChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name
@@ -51,6 +52,6 @@ export class CreateEnum extends CreateEnumChange {
     const labels = this.enum.labels.map((label) => quoteLiteral(label.label));
     parts.push(`(${labels.join(", ")})`);
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { AlterSequenceChange } from "./sequence.base.ts";
@@ -58,19 +59,21 @@ export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const head = [
       "ALTER SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
     ];
     if (this.ownedBy) {
-      return [
-        ...head,
-        "OWNED BY",
-        `${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
-      ].join(" ");
+      return Effect.succeed(
+        [
+          ...head,
+          "OWNED BY",
+          `${this.ownedBy.schema}.${this.ownedBy.table}.${this.ownedBy.column}`,
+        ].join(" "),
+      );
     }
-    return [...head, "OWNED BY NONE"].join(" ");
+    return Effect.succeed([...head, "OWNED BY NONE"].join(" "));
   }
 }
 
@@ -99,12 +102,12 @@ export class AlterSequenceSetOptions extends AlterSequenceChange {
 
   // Note: default max computation moved to diff when building options
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [
       "ALTER SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
     ];
-    return [...parts, ...this.options].join(" ");
+    return Effect.succeed([...parts, ...this.options].join(" "));
   }
 }
 

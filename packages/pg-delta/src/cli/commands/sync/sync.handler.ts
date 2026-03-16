@@ -42,9 +42,17 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
     return;
   }
 
-  const { content } = formatPlanForDisplay(planResult, "tree", {
+  const { content } = yield* formatPlanForDisplay(planResult, "tree", {
     disableColors: !output.stdoutColorsEnabled,
-  });
+  }).pipe(
+    Effect.mapError(
+      (error) =>
+        new CliExitError({
+          exitCode: 1,
+          message: error.message,
+        }),
+    ),
+  );
   yield* output.write(content);
 
   const validation = validatePlanRisk(planResult.plan, flags.unsafe, {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Range } from "../range.model.ts";
 import { DropRange } from "./range.drop.ts";
@@ -23,6 +24,8 @@ describe("range", () => {
     });
     const change = new DropRange({ range: r });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("DROP TYPE public.tsrange_custom");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP TYPE public.tsrange_custom",
+    );
   });
 });

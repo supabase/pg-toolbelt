@@ -19,6 +19,11 @@ const tsSourceFile = (filePath: string) =>
   !filePath.endsWith(".d.ts") &&
   !filePath.endsWith(".test.ts");
 
+const isThrowGuardExempt = (filePath: string) =>
+  filePath.includes("/tests/") ||
+  filePath.endsWith(".test.ts") ||
+  filePath.includes("/src/core/test-utils/");
+
 const walk = (directory: string): string[] => {
   const entries = readdirSync(directory, { withFileTypes: true });
   return entries.flatMap((entry) => {
@@ -107,6 +112,110 @@ const policies: readonly PackagePolicy[] = [
 const rootDir = process.cwd();
 const issues: string[] = [];
 
+const isIdentifierChar = (char: string) => /[A-Za-z0-9_$]/.test(char);
+
+const findThrowStatements = (_filePath: string, content: string): number[] => {
+  const lines: number[] = [];
+  let line = 1;
+  let index = 0;
+  let state:
+    | "code"
+    | "single"
+    | "double"
+    | "template"
+    | "lineComment"
+    | "blockComment" = "code";
+
+  while (index < content.length) {
+    const char = content[index];
+    const next = content[index + 1];
+
+    if (char === "\n") {
+      line += 1;
+      if (state === "lineComment") {
+        state = "code";
+      }
+      index += 1;
+      continue;
+    }
+
+    if (state === "lineComment") {
+      index += 1;
+      continue;
+    }
+
+    if (state === "blockComment") {
+      if (char === "*" && next === "/") {
+        state = "code";
+        index += 2;
+        continue;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (state === "single" || state === "double" || state === "template") {
+      if (char === "\\") {
+        index += 2;
+        continue;
+      }
+      if (
+        (state === "single" && char === "'") ||
+        (state === "double" && char === '"') ||
+        (state === "template" && char === "`")
+      ) {
+        state = "code";
+      }
+      index += 1;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      state = "lineComment";
+      index += 2;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      state = "blockComment";
+      index += 2;
+      continue;
+    }
+
+    if (char === "'") {
+      state = "single";
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      state = "double";
+      index += 1;
+      continue;
+    }
+
+    if (char === "`") {
+      state = "template";
+      index += 1;
+      continue;
+    }
+
+    if (
+      content.startsWith("throw", index) &&
+      !isIdentifierChar(content[index - 1] ?? "") &&
+      !isIdentifierChar(content[index + 5] ?? "")
+    ) {
+      lines.push(line);
+      index += 5;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return lines;
+};
+
 for (const policy of policies) {
   const files = walk(path.join(rootDir, policy.root));
   for (const absoluteFile of files) {
@@ -126,6 +235,13 @@ for (const policy of policies) {
     for (const rule of policy.rules) {
       if (rule.pattern.test(content)) {
         issues.push(`${relativeFile}: ${rule.description}`);
+      }
+    }
+    if (!isThrowGuardExempt(relativeFile)) {
+      for (const line of findThrowStatements(relativeFile, content)) {
+        issues.push(
+          `${relativeFile}:${line}: production code must use typed Effect failures instead of throw`,
+        );
       }
     }
   }

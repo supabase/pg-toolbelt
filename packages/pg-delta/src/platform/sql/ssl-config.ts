@@ -6,6 +6,7 @@
  */
 
 import { Effect, FileSystem } from "effect";
+import { SslConfigError } from "./errors.ts";
 import type { PgRuntimeConfigApi } from "./runtime-config.ts";
 
 type SslConfig = {
@@ -55,18 +56,17 @@ export const parseSslConfig = Effect.fn("parseSslConfig")(function* (
   const getCertValue = (
     queryParam: string | null,
     envVarName: string,
-  ): Effect.Effect<string | undefined, Error> =>
+  ): Effect.Effect<string | undefined, SslConfigError> =>
     queryParam
-      ? fs
-          .readFileString(queryParam, "utf-8")
-          .pipe(
-            Effect.mapError(
-              (error) =>
-                new Error(
-                  `Failed to read certificate file '${queryParam}': ${error instanceof Error ? error.message : String(error)}`,
-                ),
-            ),
-          )
+      ? fs.readFileString(queryParam, "utf-8").pipe(
+          Effect.mapError(
+            (error) =>
+              new SslConfigError({
+                message: `Failed to read certificate file '${queryParam}': ${error instanceof Error ? error.message : String(error)}`,
+                cause: error,
+              }),
+          ),
+        )
       : Effect.succeed(runtimeConfig.getEnv(envVarName) || undefined);
 
   const hasExplicitVerification =
@@ -120,9 +120,10 @@ export const parseSslConfig = Effect.fn("parseSslConfig")(function* (
 
   if ((ssl.cert && !ssl.key) || (!ssl.cert && ssl.key)) {
     return yield* Effect.fail(
-      new Error(
-        "Both client certificate and key must be provided together for mutual TLS",
-      ),
+      new SslConfigError({
+        message:
+          "Both client certificate and key must be provided together for mutual TLS",
+      }),
     );
   }
 

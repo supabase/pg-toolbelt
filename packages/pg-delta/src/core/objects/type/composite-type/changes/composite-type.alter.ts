@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { CompositeType } from "../composite-type.model.ts";
 import { AlterCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -42,13 +43,15 @@ export class AlterCompositeTypeChangeOwner extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
-      `${this.compositeType.schema}.${this.compositeType.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TYPE",
+        `${this.compositeType.schema}.${this.compositeType.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -77,7 +80,7 @@ export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts = [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -88,7 +91,7 @@ export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
     if (this.attribute.collation) {
       parts.push("COLLATE", this.attribute.collation);
     }
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 
@@ -116,13 +119,15 @@ export class AlterCompositeTypeDropAttribute extends AlterCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
-      `${this.compositeType.schema}.${this.compositeType.name}`,
-      "DROP ATTRIBUTE",
-      this.attribute.name,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TYPE",
+        `${this.compositeType.schema}.${this.compositeType.name}`,
+        "DROP ATTRIBUTE",
+        this.attribute.name,
+      ].join(" "),
+    );
   }
 }
 
@@ -150,7 +155,7 @@ export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChan
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const parts = [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -162,7 +167,7 @@ export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChan
     if (this.attribute.collation) {
       parts.push("COLLATE", this.attribute.collation);
     }
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 

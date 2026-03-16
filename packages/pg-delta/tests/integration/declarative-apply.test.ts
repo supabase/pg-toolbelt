@@ -21,6 +21,9 @@ import { POSTGRES_VERSIONS } from "../constants.ts";
 import { applyDeclarativeSchema, createPlan } from "../promise-helpers.ts";
 import { withDb } from "../utils.ts";
 
+const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
+  Effect.runSync(effect as Effect.Effect<A, E, never>);
+
 /**
  * Helper: export declarative schema from branch DB, write to temp dir,
  * then apply to main DB using loadDeclarativeSchema + applyDeclarativeSchema (content-based).
@@ -49,7 +52,7 @@ async function testDeclarativeApply(options: {
     throw new Error("No changes detected - cannot test declarative apply");
   }
 
-  const output = exportDeclarativeSchema(planResult);
+  const output = runSyncEffect(exportDeclarativeSchema(planResult));
 
   // 3. Write SQL files to a temp directory
   const tempDir = path.join(
@@ -89,9 +92,8 @@ async function testDeclarativeApply(options: {
       extractCatalog(wrapPool(branchSession)),
     );
     const remainingChanges = diffCatalogs(mainCatalog, branchCatalog);
-    const sortedRemaining = sortChanges(
-      { mainCatalog, branchCatalog },
-      remainingChanges,
+    const sortedRemaining = runSyncEffect(
+      sortChanges({ mainCatalog, branchCatalog }, remainingChanges),
     );
 
     // Verify no remaining differences between main and branch

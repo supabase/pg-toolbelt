@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -31,14 +32,16 @@ export class CreateCommentOnForeignDataWrapper extends CreateForeignDataWrapperC
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN DATA WRAPPER",
-      this.foreignDataWrapper.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
-      quoteLiteral(this.foreignDataWrapper.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON FOREIGN DATA WRAPPER",
+        this.foreignDataWrapper.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
+        quoteLiteral(this.foreignDataWrapper.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -62,11 +65,13 @@ export class DropCommentOnForeignDataWrapper extends DropForeignDataWrapperChang
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON FOREIGN DATA WRAPPER",
-      this.foreignDataWrapper.name,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON FOREIGN DATA WRAPPER",
+        this.foreignDataWrapper.name,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

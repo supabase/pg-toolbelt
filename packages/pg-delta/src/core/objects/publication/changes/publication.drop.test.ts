@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Publication } from "../publication.model.ts";
 import { DropPublication } from "./publication.drop.ts";
@@ -43,6 +44,8 @@ describe("publication.drop", () => {
     expect(change.drops).toEqual([publication.stableId]);
     expect(change.requires).toEqual([publication.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("DROP PUBLICATION pub_drop_me");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP PUBLICATION pub_drop_me",
+    );
   });
 });

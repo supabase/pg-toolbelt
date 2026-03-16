@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { View, type ViewProps } from "../view.model.ts";
 import {
@@ -42,7 +43,7 @@ describe.concurrent("view", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER VIEW public.test_view OWNER TO new_owner",
       );
     });
@@ -76,7 +77,7 @@ describe.concurrent("view", () => {
       options: ["security_barrier=false"],
     });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER VIEW public.test_view SET (security_barrier=false)",
     );
   });
@@ -108,7 +109,7 @@ describe.concurrent("view", () => {
       params: ["check_option"],
     });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER VIEW public.test_view RESET (check_option)",
     );
   });

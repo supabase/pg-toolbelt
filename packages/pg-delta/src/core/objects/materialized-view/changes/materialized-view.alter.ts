@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -53,13 +54,15 @@ export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER MATERIALIZED VIEW",
-      `${this.materializedView.schema}.${this.materializedView.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER MATERIALIZED VIEW",
+        `${this.materializedView.schema}.${this.materializedView.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -88,7 +91,7 @@ export class AlterMaterializedViewSetStorageParams extends AlterMaterializedView
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const head = [
       "ALTER MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,
@@ -102,7 +105,7 @@ export class AlterMaterializedViewSetStorageParams extends AlterMaterializedView
       statements.push(`${head} SET (${this.paramsToSet.join(", ")})`);
     }
 
-    return statements.join(";\n");
+    return Effect.succeed(statements.join(";\n"));
   }
 }
 

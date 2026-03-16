@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedView } from "./materialized-view.drop.ts";
@@ -32,6 +33,8 @@ describe("materialized-view", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP MATERIALIZED VIEW public.test_mv");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP MATERIALIZED VIEW public.test_mv",
+    );
   });
 });

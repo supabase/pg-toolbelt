@@ -2,14 +2,12 @@
  * Group changes into declarative schema files and order them for readability.
  */
 
+import { Effect } from "effect";
 import type { Change } from "../change.types.ts";
+import type { InvariantViolationError } from "../errors.ts";
 import { getFilePath } from "./file-mapper.ts";
 import type { FileCategory, FileMetadata, FilePath } from "./types.ts";
 import { CATEGORY_PRIORITY } from "./types.ts";
-
-// ============================================================================
-// Types
-// ============================================================================
 
 interface FileGroup {
   path: string;
@@ -17,10 +15,6 @@ interface FileGroup {
   metadata: FileMetadata;
   changes: Change[];
 }
-
-// ============================================================================
-// Within-file ordering
-// ============================================================================
 
 const OPERATION_PRIORITY: Record<string, number> = {
   create: 0,
@@ -35,14 +29,7 @@ const SCOPE_PRIORITY: Record<string, number> = {
   membership: 4,
 };
 
-/**
- * Sort changes within a file for readability:
- * 1. By operation: create → alter
- * 2. By scope: object → comment → privilege → default_privilege → membership
- * 3. Stable tie-break by original position
- */
 function sortChangesWithinFile(changes: Change[]): Change[] {
-  // Tag each change with its original index for stable tie-breaking.
   const tagged = changes.map((change, index) => ({ change, index }));
   tagged.sort((a, b) => {
     const opA = OPERATION_PRIORITY[a.change.operation] ?? 99;
@@ -60,45 +47,40 @@ function sortChangesWithinFile(changes: Change[]): Change[] {
   return tagged.map((t) => t.change);
 }
 
-// ============================================================================
-// Grouping & Ordering
-// ============================================================================
-
 export function groupChangesByFile(
   changes: Change[],
-  mapper: (change: Change) => FilePath = getFilePath,
-): FileGroup[] {
-  const groups = new Map<string, FileGroup>();
+  mapper: (
+    change: Change,
+  ) => Effect.Effect<FilePath, InvariantViolationError> = getFilePath,
+): Effect.Effect<FileGroup[], InvariantViolationError> {
+  return Effect.gen(function* () {
+    const groups = new Map<string, FileGroup>();
 
-  for (const change of changes) {
-    const file = mapper(change);
+    for (const change of changes) {
+      const file = yield* mapper(change);
 
-    const existing = groups.get(file.path);
-    if (!existing) {
-      groups.set(file.path, {
-        path: file.path,
-        category: file.category,
-        metadata: file.metadata,
-        changes: [change],
-      });
-      continue;
+      const existing = groups.get(file.path);
+      if (!existing) {
+        groups.set(file.path, {
+          path: file.path,
+          category: file.category,
+          metadata: file.metadata,
+          changes: [change],
+        });
+        continue;
+      }
+
+      existing.changes.push(change);
     }
 
-    existing.changes.push(change);
-  }
+    for (const group of groups.values()) {
+      group.changes = sortChangesWithinFile(group.changes);
+    }
 
-  // Sort within each file for readability.
-  for (const group of groups.values()) {
-    group.changes = sortChangesWithinFile(group.changes);
-  }
-
-  // Sort files by category priority, then alphabetically by path.
-  return Array.from(groups.values()).sort(sortByCategory);
+    return Array.from(groups.values()).sort(sortByCategory);
+  });
 }
 
-/**
- * Sort by category priority, then path for determinism.
- */
 function sortByCategory(a: FileGroup, b: FileGroup): number {
   const categoryDiff =
     CATEGORY_PRIORITY[a.category] - CATEGORY_PRIORITY[b.category];

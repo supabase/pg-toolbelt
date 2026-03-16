@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Sequence, type SequenceProps } from "../sequence.model.ts";
 import {
@@ -41,7 +42,7 @@ describe.concurrent("sequence", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SEQUENCE public.test_sequence OWNED BY public.t.id",
       );
     });
@@ -67,7 +68,9 @@ describe.concurrent("sequence", () => {
       });
       const change = new AlterSequenceSetOwnedBy({ sequence, ownedBy: null });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe("ALTER SEQUENCE public.s OWNED BY NONE");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER SEQUENCE public.s OWNED BY NONE",
+      );
     });
 
     test("drop + create sequence (handled in diff)", async () => {
@@ -110,7 +113,7 @@ describe.concurrent("sequence", () => {
         ],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 2 MINVALUE 5 MAXVALUE 100 START WITH 10 CACHE 3 CYCLE",
       );
     });
@@ -149,7 +152,7 @@ describe.concurrent("sequence", () => {
         ],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SEQUENCE public.s INCREMENT BY 1 NO MINVALUE NO MAXVALUE START WITH 1 CACHE 1 NO CYCLE",
       );
     });

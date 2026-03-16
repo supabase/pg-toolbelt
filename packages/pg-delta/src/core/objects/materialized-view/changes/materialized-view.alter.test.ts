@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import {
   MaterializedView,
@@ -43,7 +44,7 @@ describe.concurrent("materialized-view", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER MATERIALIZED VIEW public.test_mv OWNER TO new_owner",
       );
     });
@@ -81,7 +82,7 @@ describe.concurrent("materialized-view", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER MATERIALIZED VIEW public.test_mv SET (fillfactor=90)",
       );
     });
@@ -119,7 +120,7 @@ describe.concurrent("materialized-view", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         [
           "ALTER MATERIALIZED VIEW public.test_mv RESET (autovacuum_enabled)",
           "ALTER MATERIALIZED VIEW public.test_mv SET (fillfactor=90, user_catalog_table=true)",

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicy } from "./rls-policy.drop.ts";
@@ -24,7 +25,7 @@ describe("rls-policy", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "DROP POLICY test_policy ON public.test_table",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Schema } from "../schema.model.ts";
 import { CreateSchema } from "./schema.create.ts";
@@ -18,7 +19,7 @@ describe("schema", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SCHEMA test_schema AUTHORIZATION test",
     );
   });

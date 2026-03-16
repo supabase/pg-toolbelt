@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Aggregate } from "../aggregate.model.ts";
 import { AlterAggregateChange } from "./aggregate.base.ts";
@@ -39,22 +41,24 @@ export class GrantAggregatePrivileges extends AlterAggregateChange {
     return [this.aggregate.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantAggregatePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("FUNCTION");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
-    const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const signature = this.aggregate.identityArguments;
-    const qualified = `${aggregateName}(${signature})`;
-    return `GRANT ${privSql} ${kindPrefix} ${qualified} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("FUNCTION");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("FUNCTION", list, self.version);
+      const aggregateName = `${self.aggregate.schema}.${self.aggregate.name}`;
+      const signature = self.aggregate.identityArguments;
+      const qualified = `${aggregateName}(${signature})`;
+      return `GRANT ${privSql} ${kindPrefix} ${qualified} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -92,14 +96,16 @@ export class RevokeAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("FUNCTION");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const signature = this.aggregate.identityArguments;
     const qualified = `${aggregateName}(${signature})`;
-    return `REVOKE ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -131,7 +137,7 @@ export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("FUNCTION");
     const privSql = formatObjectPrivilegeList(
       "FUNCTION",
@@ -141,6 +147,8 @@ export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const signature = this.aggregate.identityArguments;
     const qualified = `${aggregateName}(${signature})`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`,
+    );
   }
 }

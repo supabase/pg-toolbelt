@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { DropEventTriggerChange } from "./event-trigger.base.ts";
 
@@ -28,7 +29,9 @@ export class DropEventTrigger extends DropEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
-    return ["DROP EVENT TRIGGER", this.eventTrigger.name].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP EVENT TRIGGER", this.eventTrigger.name].join(" "),
+    );
   }
 }

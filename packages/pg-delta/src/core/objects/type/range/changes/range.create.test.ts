@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Range } from "../range.model.ts";
 import { CreateRange } from "./range.create.ts";
@@ -23,7 +24,7 @@ describe("range", () => {
     });
     const change = new CreateRange({ range: r });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE TYPE public.tsrange_custom AS RANGE (SUBTYPE = int4)",
     );
   });
@@ -47,7 +48,7 @@ describe("range", () => {
     });
     const change = new CreateRange({ range: r });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'CREATE TYPE public.daterange_custom AS RANGE (SUBTYPE = date, SUBTYPE_OPCLASS = public.date_ops, COLLATION = "en_US", CANONICAL = public.canon_fn, SUBTYPE_DIFF = public.diff_fn)',
     );
   });

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Publication } from "../publication.model.ts";
 import { DropPublicationChange } from "./publication.base.ts";
 
@@ -23,7 +24,7 @@ export class DropPublication extends DropPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
-    return `DROP PUBLICATION ${this.publication.name}`;
+  serialize() {
+    return Effect.succeed(`DROP PUBLICATION ${this.publication.name}`);
   }
 }

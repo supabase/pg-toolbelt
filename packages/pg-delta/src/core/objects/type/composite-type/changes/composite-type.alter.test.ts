@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import {
   CompositeType,
@@ -43,7 +44,7 @@ describe.concurrent("composite-type", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TYPE public.test_type OWNER TO new_owner",
       );
     });
@@ -97,7 +98,7 @@ describe.concurrent("composite-type", () => {
       attribute: branch.columns[0],
     });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER TYPE public.ct ADD ATTRIBUTE a text",
     );
   });
@@ -150,7 +151,9 @@ describe.concurrent("composite-type", () => {
       attribute: main.columns[0],
     });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("ALTER TYPE public.ct DROP ATTRIBUTE a");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "ALTER TYPE public.ct DROP ATTRIBUTE a",
+    );
   });
 
   test("alter attribute type and collation", async () => {
@@ -201,7 +204,7 @@ describe.concurrent("composite-type", () => {
       attribute: branch.columns[0],
     });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'ALTER TYPE public.ct ALTER ATTRIBUTE a TYPE text COLLATE "en_US"',
     );
   });

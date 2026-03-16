@@ -1,3 +1,5 @@
+import type { Effect } from "effect";
+import type { InvariantViolationError } from "../../errors.ts";
 import { Aggregate } from "../../objects/aggregate/aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "../../objects/aggregate/changes/aggregate.alter.ts";
 import {
@@ -443,7 +445,9 @@ import { formatSqlScript } from "../statements.ts";
 
 type ChangeCase = {
   label: string;
-  change: { serialize: () => string };
+  change: {
+    serialize: () => Effect.Effect<string, InvariantViolationError>;
+  };
 };
 
 const column = (overrides: Partial<ColumnProps> = {}): ColumnProps => ({

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicyChange } from "./rls-policy.base.ts";
@@ -47,7 +48,7 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE POLICY"];
 
     // Add policy name
@@ -95,6 +96,6 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
       parts.push("WITH CHECK", `(${this.policy.with_check_expression})`);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

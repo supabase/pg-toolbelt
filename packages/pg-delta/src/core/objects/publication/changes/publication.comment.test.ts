@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Publication } from "../publication.model.ts";
@@ -49,7 +50,7 @@ describe("publication.comment", () => {
     expect(change.creates).toEqual([stableId.comment(publication.stableId)]);
     expect(change.requires).toEqual([publication.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON PUBLICATION pub_comment IS 'publication''s overview'",
     );
   });
@@ -66,7 +67,7 @@ describe("publication.comment", () => {
       publication.stableId,
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON PUBLICATION pub_comment IS NULL",
     );
   });

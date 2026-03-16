@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import { DropAggregate } from "./aggregate.drop.ts";
@@ -63,7 +64,9 @@ describe("aggregate.drop", () => {
     expect(change.drops).toEqual([aggregate.stableId]);
     expect(change.requires).toEqual([aggregate.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("DROP AGGREGATE public.agg_sum(integer)");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP AGGREGATE public.agg_sum(integer)",
+    );
   });
 
   test("serialize drop for aggregate without arguments", async () => {
@@ -77,6 +80,8 @@ describe("aggregate.drop", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP AGGREGATE public.agg_no_args(*)");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP AGGREGATE public.agg_no_args(*)",
+    );
   });
 });

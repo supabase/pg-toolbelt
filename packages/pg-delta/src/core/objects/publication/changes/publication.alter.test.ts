@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import type { PublicationTableProps } from "../publication.model.ts";
@@ -61,7 +62,7 @@ describe("publication.alter", () => {
 
     expect(change.requires).toEqual([publication.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_options SET (publish = 'insert, update', publish_via_partition_root = true)",
     );
   });
@@ -97,7 +98,7 @@ describe("publication.alter", () => {
       stableId.schema("analytics"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_set_list SET TABLE public.articles WHERE (published = true), TABLE public.authors (id, name), TABLES IN SCHEMA analytics",
     );
   });
@@ -128,7 +129,7 @@ describe("publication.alter", () => {
       stableId.column("audit", "events", "id"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_add_tables ADD TABLE public.logs, TABLE audit.events (created_at, id)",
     );
   });
@@ -157,7 +158,7 @@ describe("publication.alter", () => {
       stableId.table("audit", "events"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_drop_tables DROP TABLE public.logs, audit.events",
     );
   });
@@ -175,7 +176,7 @@ describe("publication.alter", () => {
       stableId.schema("sales"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_add_schemas ADD TABLES IN SCHEMA analytics, TABLES IN SCHEMA sales",
     );
   });
@@ -193,7 +194,7 @@ describe("publication.alter", () => {
       stableId.schema("sales"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_drop_schemas DROP TABLES IN SCHEMA analytics, TABLES IN SCHEMA sales",
     );
   });
@@ -210,7 +211,7 @@ describe("publication.alter", () => {
       stableId.role("owner2"),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER PUBLICATION pub_owner OWNER TO owner2",
     );
   });

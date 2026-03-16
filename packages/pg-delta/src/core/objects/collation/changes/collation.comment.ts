@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
@@ -30,14 +31,16 @@ export class CreateCommentOnCollation extends CreateCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLLATION",
-      `${this.collation.schema}.${this.collation.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: collation comment is not nullable in this case
-      quoteLiteral(this.collation.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLLATION",
+        `${this.collation.schema}.${this.collation.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: collation comment is not nullable in this case
+        quoteLiteral(this.collation.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -58,11 +61,13 @@ export class DropCommentOnCollation extends DropCollationChange {
     return [stableId.comment(this.collation.stableId)];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLLATION",
-      `${this.collation.schema}.${this.collation.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLLATION",
+        `${this.collation.schema}.${this.collation.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

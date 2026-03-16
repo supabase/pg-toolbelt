@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Subscription } from "../subscription.model.ts";
@@ -50,7 +51,7 @@ describe("subscription.comment", () => {
     expect(change.creates).toEqual([stableId.comment(subscription.stableId)]);
     expect(change.requires).toEqual([subscription.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON SUBSCRIPTION sub_base IS 'subscription''s metadata'",
     );
   });
@@ -65,6 +66,8 @@ describe("subscription.comment", () => {
       subscription.stableId,
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("COMMENT ON SUBSCRIPTION sub_base IS NULL");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "COMMENT ON SUBSCRIPTION sub_base IS NULL",
+    );
   });
 });

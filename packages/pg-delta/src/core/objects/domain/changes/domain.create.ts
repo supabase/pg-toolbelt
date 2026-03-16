@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import {
   isUserDefinedTypeSchema,
   parseTypeString,
@@ -71,7 +72,7 @@ export class CreateDomain extends CreateDomainChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [];
 
     // Schema-qualified name
@@ -119,6 +120,6 @@ export class CreateDomain extends CreateDomainChange {
       }
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

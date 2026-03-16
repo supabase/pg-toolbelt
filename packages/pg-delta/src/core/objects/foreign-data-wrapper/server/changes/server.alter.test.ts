@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server, type ServerProps } from "../server.model.ts";
 import {
@@ -28,7 +29,7 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SERVER test_server OWNER TO new_owner",
       );
     });
@@ -52,7 +53,9 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe("ALTER SERVER test_server VERSION '2.0'");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER SERVER test_server VERSION '2.0'",
+      );
     });
 
     test("set version to null", async () => {
@@ -74,7 +77,9 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe("ALTER SERVER test_server VERSION ''");
+      expect(Effect.runSync(change.serialize())).toBe(
+        "ALTER SERVER test_server VERSION ''",
+      );
     });
 
     test("set options ADD", async () => {
@@ -99,7 +104,7 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SERVER test_server OPTIONS (ADD host 'localhost', ADD port '5432')",
       );
     });
@@ -123,7 +128,7 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SERVER test_server OPTIONS (SET host 'newhost')",
       );
     });
@@ -147,7 +152,7 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SERVER test_server OPTIONS (DROP host)",
       );
     });
@@ -175,7 +180,7 @@ describe.concurrent("server", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
       );
     });

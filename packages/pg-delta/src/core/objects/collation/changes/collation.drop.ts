@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Collation } from "../collation.model.ts";
 import { DropCollationChange } from "./collation.base.ts";
 
@@ -28,10 +29,12 @@ export class DropCollation extends DropCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP COLLATION",
-      `${this.collation.schema}.${this.collation.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP COLLATION",
+        `${this.collation.schema}.${this.collation.name}`,
+      ].join(" "),
+    );
   }
 }

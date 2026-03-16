@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Aggregate } from "../aggregate.model.ts";
 import { DropAggregateChange } from "./aggregate.base.ts";
 
@@ -23,10 +24,10 @@ export class DropAggregate extends DropAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "(*)";
-    return `DROP AGGREGATE ${qualifiedName}${withArgs}`;
+    return Effect.succeed(`DROP AGGREGATE ${qualifiedName}${withArgs}`);
   }
 }

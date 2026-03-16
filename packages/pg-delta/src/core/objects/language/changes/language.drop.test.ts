@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language } from "../language.model.ts";
 import { DropLanguage } from "./language.drop.ts";
@@ -23,6 +24,6 @@ describe("language", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP LANGUAGE plpgsql");
+    expect(Effect.runSync(change.serialize())).toBe("DROP LANGUAGE plpgsql");
   });
 });

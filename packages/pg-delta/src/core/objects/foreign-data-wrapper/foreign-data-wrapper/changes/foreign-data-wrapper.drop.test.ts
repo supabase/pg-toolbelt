@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { DropForeignDataWrapper } from "./foreign-data-wrapper.drop.ts";
@@ -21,6 +22,8 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP FOREIGN DATA WRAPPER test_fdw");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP FOREIGN DATA WRAPPER test_fdw",
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Aggregate } from "../aggregate.model.ts";
 import { AlterAggregateChange } from "./aggregate.base.ts";
 
@@ -23,10 +24,12 @@ export class AlterAggregateChangeOwner extends AlterAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";
-    return `ALTER AGGREGATE ${qualifiedName}${withArgs} OWNER TO ${this.owner}`;
+    return Effect.succeed(
+      `ALTER AGGREGATE ${qualifiedName}${withArgs} OWNER TO ${this.owner}`,
+    );
   }
 }

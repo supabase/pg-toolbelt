@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { UserMapping } from "../user-mapping.model.ts";
 import { DropUserMapping } from "./user-mapping.drop.ts";
@@ -17,7 +18,7 @@ describe("user-mapping", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "DROP USER MAPPING FOR test_user SERVER test_server",
     );
   });
@@ -35,7 +36,7 @@ describe("user-mapping", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "DROP USER MAPPING FOR PUBLIC SERVER test_server",
     );
   });
@@ -53,7 +54,7 @@ describe("user-mapping", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "DROP USER MAPPING FOR CURRENT_USER SERVER test_server",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { Table, type TableProps } from "../table.model.ts";
@@ -60,7 +61,7 @@ describe.concurrent("table", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table OWNER TO new_owner",
       );
     });
@@ -90,7 +91,7 @@ describe.concurrent("table", () => {
 
       const change = new AlterTableSetUnlogged({ table });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table SET UNLOGGED",
       );
     });
@@ -120,7 +121,7 @@ describe.concurrent("table", () => {
 
       const change = new AlterTableSetLogged({ table });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table SET LOGGED",
       );
     });
@@ -154,7 +155,7 @@ describe.concurrent("table", () => {
         }),
       });
       await assertValidSql(enable.serialize());
-      expect(enable.serialize()).toBe(
+      expect(Effect.runSync(enable.serialize())).toBe(
         "ALTER TABLE public.test_table ENABLE ROW LEVEL SECURITY",
       );
       const disable = new AlterTableDisableRowLevelSecurity({
@@ -166,7 +167,7 @@ describe.concurrent("table", () => {
         }),
       });
       await assertValidSql(disable.serialize());
-      expect(disable.serialize()).toBe(
+      expect(Effect.runSync(disable.serialize())).toBe(
         "ALTER TABLE public.test_table DISABLE ROW LEVEL SECURITY",
       );
     });
@@ -201,7 +202,7 @@ describe.concurrent("table", () => {
         }),
       });
       await assertValidSql(force.serialize());
-      expect(force.serialize()).toBe(
+      expect(Effect.runSync(force.serialize())).toBe(
         "ALTER TABLE public.test_table FORCE ROW LEVEL SECURITY",
       );
       const noforce = new AlterTableNoForceRowLevelSecurity({
@@ -213,7 +214,7 @@ describe.concurrent("table", () => {
         }),
       });
       await assertValidSql(noforce.serialize());
-      expect(noforce.serialize()).toBe(
+      expect(Effect.runSync(noforce.serialize())).toBe(
         "ALTER TABLE public.test_table NO FORCE ROW LEVEL SECURITY",
       );
     });
@@ -244,7 +245,7 @@ describe.concurrent("table", () => {
         options: ["fillfactor=90"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table SET (fillfactor=90)",
       );
     });
@@ -280,7 +281,7 @@ describe.concurrent("table", () => {
         params: ["fillfactor", "autovacuum_enabled"],
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table RESET (fillfactor, autovacuum_enabled)",
       );
     });
@@ -327,16 +328,20 @@ describe.concurrent("table", () => {
         replica_identity: "f",
       });
       expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toNothing.replica_identity,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableSetReplicaIdentity({
+            table,
+            mode: toNothing.replica_identity,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY NOTHING");
       expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toFull.replica_identity,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableSetReplicaIdentity({
+            table,
+            mode: toFull.replica_identity,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
     });
 
@@ -382,17 +387,21 @@ describe.concurrent("table", () => {
         replica_identity: "i",
       });
       expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toDefault.replica_identity,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableSetReplicaIdentity({
+            table,
+            mode: toDefault.replica_identity,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
       // AlterTableSetReplicaIdentity of type "i" will not be emitted in diff, it is handled by index changes, we fallback to DEFAULT here
       expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toIndex.replica_identity,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableSetReplicaIdentity({
+            table,
+            mode: toIndex.replica_identity,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
     });
 
@@ -452,7 +461,7 @@ describe.concurrent("table", () => {
         column: colInt,
       });
       await assertValidSql(changeAdd.serialize());
-      expect(changeAdd.serialize()).toBe(
+      expect(Effect.runSync(changeAdd.serialize())).toBe(
         "ALTER TABLE public.test_table ADD COLUMN a integer",
       );
 
@@ -467,7 +476,7 @@ describe.concurrent("table", () => {
         column: colText,
       });
       await assertValidSql(changeDrop.serialize());
-      expect(changeDrop.serialize()).toBe(
+      expect(Effect.runSync(changeDrop.serialize())).toBe(
         "ALTER TABLE public.test_table DROP COLUMN b",
       );
 
@@ -476,7 +485,7 @@ describe.concurrent("table", () => {
         column: colText,
       });
       await assertValidSql(changeType.serialize());
-      expect(changeType.serialize()).toBe(
+      expect(Effect.runSync(changeType.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN b TYPE text",
       );
 
@@ -485,7 +494,7 @@ describe.concurrent("table", () => {
         column: { ...colInt, default: "0" },
       });
       await assertValidSql(changeSetDefault.serialize());
-      expect(changeSetDefault.serialize()).toBe(
+      expect(Effect.runSync(changeSetDefault.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT 0",
       );
 
@@ -494,7 +503,7 @@ describe.concurrent("table", () => {
         column: { ...colInt, default: null },
       });
       await assertValidSql(changeDropDefault.serialize());
-      expect(changeDropDefault.serialize()).toBe(
+      expect(Effect.runSync(changeDropDefault.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a DROP DEFAULT",
       );
 
@@ -503,7 +512,7 @@ describe.concurrent("table", () => {
         column: { ...colInt, not_null: true },
       });
       await assertValidSql(changeSetNotNull.serialize());
-      expect(changeSetNotNull.serialize()).toBe(
+      expect(Effect.runSync(changeSetNotNull.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET NOT NULL",
       );
 
@@ -512,7 +521,7 @@ describe.concurrent("table", () => {
         column: { ...colInt, not_null: false },
       });
       await assertValidSql(changeDropNotNull.serialize());
-      expect(changeDropNotNull.serialize()).toBe(
+      expect(Effect.runSync(changeDropNotNull.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a DROP NOT NULL",
       );
     });
@@ -559,7 +568,7 @@ describe.concurrent("table", () => {
       };
       const change = new AlterTableAddColumn({ table: withCols, column: col });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table ADD COLUMN a integer COLLATE mycoll DEFAULT 0 NOT NULL",
       );
     });
@@ -609,7 +618,7 @@ describe.concurrent("table", () => {
         column: col,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll",
       );
     });
@@ -659,7 +668,7 @@ describe.concurrent("table", () => {
         column: col,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT NULL",
       );
     });
@@ -737,23 +746,32 @@ describe.concurrent("table", () => {
       };
 
       expect(
-        new AlterTableAddConstraint({ table: t, constraint: pkey }).serialize(),
+        Effect.runSync(
+          new AlterTableAddConstraint({
+            table: t,
+            constraint: pkey,
+          }).serialize(),
+        ),
       ).toBe(
         "ALTER TABLE public.test_table ADD CONSTRAINT pk_t PRIMARY KEY(a)",
       );
 
       // drop + validate
       expect(
-        new AlterTableDropConstraint({
-          table: t,
-          constraint: pkey,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableDropConstraint({
+            table: t,
+            constraint: pkey,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table DROP CONSTRAINT pk_t");
       expect(
-        new AlterTableValidateConstraint({
-          table: t,
-          constraint: pkey,
-        }).serialize(),
+        Effect.runSync(
+          new AlterTableValidateConstraint({
+            table: t,
+            constraint: pkey,
+          }).serialize(),
+        ),
       ).toBe("ALTER TABLE public.test_table VALIDATE CONSTRAINT pk_t");
     });
 
@@ -829,7 +847,7 @@ describe.concurrent("table", () => {
         partition: part2025,
       });
       await assertValidSql(attach.serialize());
-      expect(attach.serialize()).toBe(
+      expect(Effect.runSync(attach.serialize())).toBe(
         "ALTER TABLE public.events ATTACH PARTITION public.events_2025 FOR VALUES FROM ('2025-01-01 00:00:00') TO ('2026-01-01 00:00:00')",
       );
 
@@ -838,7 +856,7 @@ describe.concurrent("table", () => {
         partition: part2025,
       });
       await assertValidSql(detach.serialize());
-      expect(detach.serialize()).toBe(
+      expect(Effect.runSync(detach.serialize())).toBe(
         "ALTER TABLE public.events DETACH PARTITION public.events_2025",
       );
     });

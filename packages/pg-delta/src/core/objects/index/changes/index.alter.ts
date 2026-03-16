@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 import { AlterIndexChange } from "./index.base.ts";
@@ -46,7 +47,7 @@ export class AlterIndexSetStorageParams extends AlterIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const head = [
       "ALTER INDEX",
       `${this.index.schema}.${this.index.name}`,
@@ -60,7 +61,7 @@ export class AlterIndexSetStorageParams extends AlterIndexChange {
       statements.push(`${head} SET (${this.paramsToSet.join(", ")})`);
     }
 
-    return statements.join(";\n");
+    return Effect.succeed(statements.join(";\n"));
   }
 }
 
@@ -90,7 +91,7 @@ export class AlterIndexSetStatistics extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const statements: string[] = [];
     const head = [
       "ALTER INDEX",
@@ -103,7 +104,7 @@ export class AlterIndexSetStatistics extends BaseChange {
       );
     }
 
-    return statements.join(";\n");
+    return Effect.succeed(statements.join(";\n"));
   }
 }
 
@@ -127,13 +128,15 @@ export class AlterIndexSetTablespace extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER INDEX",
-      `${this.index.schema}.${this.index.name}`,
-      "SET TABLESPACE",
-      this.tablespace,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER INDEX",
+        `${this.index.schema}.${this.index.name}`,
+        "SET TABLESPACE",
+        this.tablespace,
+      ].join(" "),
+    );
   }
 }
 

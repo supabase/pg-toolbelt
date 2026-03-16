@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import { DropEventTrigger } from "./event-trigger.drop.ts";
@@ -20,6 +21,8 @@ describe("event trigger drop change", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP EVENT TRIGGER ddl_logger");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP EVENT TRIGGER ddl_logger",
+    );
   });
 });

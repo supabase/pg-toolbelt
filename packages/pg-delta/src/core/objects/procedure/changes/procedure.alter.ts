@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
@@ -60,16 +61,18 @@ export class AlterProcedureChangeOwner extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER",
+        objectType,
+        procedureSignature(this.procedure),
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -91,18 +94,17 @@ export class AlterProcedureSetSecurity extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const security = this.securityDefiner
       ? "SECURITY DEFINER"
       : "SECURITY INVOKER"; // INVOKER is default; only emitted when changed via diff
 
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      security,
-    ].join(" ");
+    return Effect.succeed(
+      ["ALTER", objectType, procedureSignature(this.procedure), security].join(
+        " ",
+      ),
+    );
   }
 }
 
@@ -142,19 +144,20 @@ export class AlterProcedureSetConfig extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const head = [
       "ALTER",
       this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
       procedureSignature(this.procedure),
     ].join(" ");
-    if (this.action === "reset_all") return `${head} RESET ALL`;
-    if (this.action === "reset") return `${head} RESET ${this.key}`;
+    if (this.action === "reset_all") return Effect.succeed(`${head} RESET ALL`);
+    if (this.action === "reset")
+      return Effect.succeed(`${head} RESET ${this.key}`);
     const formatted = formatConfigValue(
       this.key as string,
       this.value as string,
     );
-    return `${head} SET ${this.key} TO ${formatted}`;
+    return Effect.succeed(`${head} SET ${this.key} TO ${formatted}`);
   }
 }
 
@@ -176,19 +179,21 @@ export class AlterProcedureSetVolatility extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const volMap: Record<string, string> = {
       i: "IMMUTABLE",
       s: "STABLE",
       v: "VOLATILE",
     };
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      volMap[this.volatility],
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER",
+        objectType,
+        procedureSignature(this.procedure),
+        volMap[this.volatility],
+      ].join(" "),
+    );
   }
 }
 
@@ -210,15 +215,17 @@ export class AlterProcedureSetStrictness extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const strictness = this.isStrict ? "STRICT" : "CALLED ON NULL INPUT";
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      strictness,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER",
+        objectType,
+        procedureSignature(this.procedure),
+        strictness,
+      ].join(" "),
+    );
   }
 }
 
@@ -240,11 +247,11 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const leak = this.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
-    return ["ALTER", objectType, procedureSignature(this.procedure), leak].join(
-      " ",
+    return Effect.succeed(
+      ["ALTER", objectType, procedureSignature(this.procedure), leak].join(" "),
     );
   }
 }
@@ -267,19 +274,21 @@ export class AlterProcedureSetParallel extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const parallelMap: Record<string, string> = {
       u: "PARALLEL UNSAFE",
       s: "PARALLEL SAFE",
       r: "PARALLEL RESTRICTED",
     };
-    return [
-      "ALTER",
-      objectType,
-      procedureSignature(this.procedure),
-      parallelMap[this.parallelSafety],
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER",
+        objectType,
+        procedureSignature(this.procedure),
+        parallelMap[this.parallelSafety],
+      ].join(" "),
+    );
   }
 }
 

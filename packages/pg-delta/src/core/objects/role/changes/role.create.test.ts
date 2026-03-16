@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role } from "../role.model.ts";
 import { CreateRole } from "./role.create.ts";
@@ -27,7 +28,9 @@ describe("role", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("CREATE ROLE test_role WITH LOGIN");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "CREATE ROLE test_role WITH LOGIN",
+    );
   });
 
   test("create with all options (non-defaults only)", async () => {
@@ -49,7 +52,7 @@ describe("role", () => {
 
     const change = new CreateRole({ role });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE ROLE r_all WITH SUPERUSER CREATEDB CREATEROLE NOINHERIT LOGIN REPLICATION BYPASSRLS CONNECTION LIMIT 5",
     );
   });

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -41,13 +42,15 @@ export class AlterForeignDataWrapperChangeOwner extends AlterForeignDataWrapperC
     return [this.foreignDataWrapper.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN DATA WRAPPER",
-      this.foreignDataWrapper.name,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN DATA WRAPPER",
+        this.foreignDataWrapper.name,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -80,7 +83,7 @@ export class AlterForeignDataWrapperSetOptions extends AlterForeignDataWrapperCh
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
@@ -91,11 +94,13 @@ export class AlterForeignDataWrapperSetOptions extends AlterForeignDataWrapperCh
       }
     }
 
-    return [
-      "ALTER FOREIGN DATA WRAPPER",
-      this.foreignDataWrapper.name,
-      "OPTIONS",
-      `(${optionParts.join(", ")})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN DATA WRAPPER",
+        this.foreignDataWrapper.name,
+        "OPTIONS",
+        `(${optionParts.join(", ")})`,
+      ].join(" "),
+    );
   }
 }

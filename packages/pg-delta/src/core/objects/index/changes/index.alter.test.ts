@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Index, type IndexProps } from "../index.model.ts";
 import {
@@ -53,7 +54,7 @@ describe.concurrent("index", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER INDEX public.test_index SET (fillfactor=90)",
       );
     });
@@ -102,7 +103,7 @@ describe.concurrent("index", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         [
           "ALTER INDEX public.test_index RESET (fastupdate)",
           "ALTER INDEX public.test_index SET (fillfactor=90)",
@@ -153,7 +154,7 @@ describe.concurrent("index", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER INDEX public.test_index ALTER COLUMN 1 SET STATISTICS 100",
       );
     });
@@ -201,7 +202,7 @@ describe.concurrent("index", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER INDEX public.test_index SET TABLESPACE fast_space",
       );
     });

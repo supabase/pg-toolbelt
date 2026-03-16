@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -49,14 +50,16 @@ export class CreateCommentOnTable extends CreateTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: table comment is not nullable in this case
-      quoteLiteral(this.table.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: table comment is not nullable in this case
+        quoteLiteral(this.table.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -80,12 +83,14 @@ export class DropCommentOnTable extends DropTableChange {
     return [stableId.comment(this.table.stableId), this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -118,14 +123,16 @@ export class CreateCommentOnColumn extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
-      `${this.table.schema}.${this.table.name}.${this.column.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
-      quoteLiteral(this.column.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLUMN",
+        `${this.table.schema}.${this.table.name}.${this.column.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: column comment is not nullable in this case
+        quoteLiteral(this.column.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -161,12 +168,14 @@ export class DropCommentOnColumn extends DropTableChange {
     return [stableId.comment(columnStableId), columnStableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON COLUMN",
-      `${this.table.schema}.${this.table.name}.${this.column.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON COLUMN",
+        `${this.table.schema}.${this.table.name}.${this.column.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -178,10 +187,7 @@ export class CreateCommentOnConstraint extends CreateTableChange {
   public readonly constraint: TableConstraintProps;
   public readonly scope = "comment" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
@@ -206,16 +212,18 @@ export class CreateCommentOnConstraint extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON CONSTRAINT",
-      this.constraint.name,
-      "ON",
-      `${this.table.schema}.${this.table.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: constraint comment is not nullable in this case
-      quoteLiteral(this.constraint.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON CONSTRAINT",
+        this.constraint.name,
+        "ON",
+        `${this.table.schema}.${this.table.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: constraint comment is not nullable in this case
+        quoteLiteral(this.constraint.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -227,10 +235,7 @@ export class DropCommentOnConstraint extends DropTableChange {
   public readonly constraint: TableConstraintProps;
   public readonly scope = "comment" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
@@ -254,13 +259,15 @@ export class DropCommentOnConstraint extends DropTableChange {
     return [stableId.comment(constraintStableId), constraintStableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON CONSTRAINT",
-      this.constraint.name,
-      "ON",
-      `${this.table.schema}.${this.table.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON CONSTRAINT",
+        this.constraint.name,
+        "ON",
+        `${this.table.schema}.${this.table.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

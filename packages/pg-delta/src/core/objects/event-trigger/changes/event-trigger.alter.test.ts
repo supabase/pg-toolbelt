@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { EventTrigger } from "../event-trigger.model.ts";
 import {
@@ -26,7 +27,7 @@ describe("event trigger alter change", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER EVENT TRIGGER ddl_logger OWNER TO new_owner",
     );
   });
@@ -39,7 +40,9 @@ describe("event trigger alter change", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("ALTER EVENT TRIGGER ddl_logger DISABLE");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "ALTER EVENT TRIGGER ddl_logger DISABLE",
+    );
   });
 
   test("serialize enable always", async () => {
@@ -50,7 +53,7 @@ describe("event trigger alter change", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER EVENT TRIGGER ddl_logger ENABLE ALWAYS",
     );
   });

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -30,14 +31,16 @@ export class CreateCommentOnExtension extends CreateExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON EXTENSION",
-      this.extension.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: extension comment is not nullable here
-      quoteLiteral(this.extension.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON EXTENSION",
+        this.extension.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: extension comment is not nullable here
+        quoteLiteral(this.extension.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -58,7 +61,9 @@ export class DropCommentOnExtension extends DropExtensionChange {
     return [stableId.comment(this.extension.stableId), this.extension.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON EXTENSION", this.extension.name, "IS NULL"].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON EXTENSION", this.extension.name, "IS NULL"].join(" "),
+    );
   }
 }

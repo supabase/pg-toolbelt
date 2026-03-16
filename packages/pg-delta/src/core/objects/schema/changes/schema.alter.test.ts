@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Schema, type SchemaProps } from "../schema.model.ts";
 import { AlterSchemaChangeOwner } from "./schema.alter.ts";
@@ -23,7 +24,7 @@ describe.concurrent("schema", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER SCHEMA test_schema OWNER TO new_owner",
       );
     });

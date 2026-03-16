@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Range } from "../range.model.ts";
 import { DropRangeChange } from "./range.base.ts";
 
@@ -28,7 +29,9 @@ export class DropRange extends DropRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return ["DROP TYPE", `${this.range.schema}.${this.range.name}`].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP TYPE", `${this.range.schema}.${this.range.name}`].join(" "),
+    );
   }
 }

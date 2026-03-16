@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange } from "./role.base.ts";
 
@@ -41,7 +42,7 @@ export class CreateRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE ROLE"];
 
     // Add role name
@@ -97,6 +98,6 @@ export class CreateRole extends CreateRoleChange {
       parts.push("WITH", options.join(" "));
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

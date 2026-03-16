@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { AlterSchemaChange } from "./schema.base.ts";
@@ -52,20 +54,22 @@ export class GrantSchemaPrivileges extends AlterSchemaChange {
     return [this.schema.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantSchemaPrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("SCHEMA");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("SCHEMA", list, this.version);
-    const schemaName = this.schema.name;
-    return `GRANT ${privSql} ${kindPrefix} ${schemaName} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("SCHEMA");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("SCHEMA", list, self.version);
+      const schemaName = self.schema.name;
+      return `GRANT ${privSql} ${kindPrefix} ${schemaName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -118,12 +122,14 @@ export class RevokeSchemaPrivileges extends AlterSchemaChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SCHEMA", list, this.version);
     const schemaName = this.schema.name;
-    return `REVOKE ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -162,7 +168,7 @@ export class RevokeGrantOptionSchemaPrivileges extends AlterSchemaChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const privSql = formatObjectPrivilegeList(
       "SCHEMA",
@@ -170,6 +176,8 @@ export class RevokeGrantOptionSchemaPrivileges extends AlterSchemaChange {
       this.version,
     );
     const schemaName = this.schema.name;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${schemaName} FROM ${this.grantee}`,
+    );
   }
 }

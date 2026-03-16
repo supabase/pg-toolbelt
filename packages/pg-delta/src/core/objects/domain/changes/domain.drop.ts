@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Domain } from "../domain.model.ts";
 import { DropDomainChange } from "./domain.base.ts";
 
@@ -28,7 +29,9 @@ export class DropDomain extends DropDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
-    return `DROP DOMAIN ${this.domain.schema}.${this.domain.name}`;
+  serialize() {
+    return Effect.succeed(
+      `DROP DOMAIN ${this.domain.schema}.${this.domain.name}`,
+    );
   }
 }

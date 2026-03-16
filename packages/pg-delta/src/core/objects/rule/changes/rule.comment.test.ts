@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
@@ -36,7 +37,7 @@ describe("rule.comment", () => {
     expect(change.creates).toEqual([stableId.comment(rule.stableId)]);
     expect(change.requires).toEqual([rule.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "COMMENT ON RULE \"my_rule\" ON public.\"my_table\" IS 'rule''s description'",
     );
   });
@@ -51,7 +52,7 @@ describe("rule.comment", () => {
       rule.stableId,
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'COMMENT ON RULE "my_rule" ON public."my_table" IS NULL',
     );
   });

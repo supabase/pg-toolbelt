@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
@@ -22,14 +23,16 @@ export class CreateCommentOnSchema extends CreateSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SCHEMA",
-      this.schema.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: schema comment is not nullable in this case
-      quoteLiteral(this.schema.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON SCHEMA",
+        this.schema.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: schema comment is not nullable in this case
+        quoteLiteral(this.schema.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -50,7 +53,9 @@ export class DropCommentOnSchema extends DropSchemaChange {
     return [stableId.comment(this.schema.stableId), this.schema.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON SCHEMA", this.schema.name, "IS NULL"].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON SCHEMA", this.schema.name, "IS NULL"].join(" "),
+    );
   }
 }

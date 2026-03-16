@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { AlterUserMappingChange } from "./user-mapping.base.ts";
@@ -46,7 +47,7 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
@@ -57,13 +58,15 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
       }
     }
 
-    return [
-      "ALTER USER MAPPING FOR",
-      this.userMapping.user,
-      "SERVER",
-      this.userMapping.server,
-      "OPTIONS",
-      `(${optionParts.join(", ")})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER USER MAPPING FOR",
+        this.userMapping.user,
+        "SERVER",
+        this.userMapping.server,
+        "OPTIONS",
+        `(${optionParts.join(", ")})`,
+      ].join(" "),
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Rule } from "../rule.model.ts";
 import { CreateRuleChange } from "./rule.base.ts";
@@ -26,7 +27,7 @@ export class CreateRule extends CreateRuleChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     let definition = this.rule.definition.trim();
 
     definition = definition.replace(
@@ -37,6 +38,6 @@ export class CreateRule extends CreateRuleChange {
     // Remove trailing semicolons (pg_get_ruledef includes them, but we add our own)
     definition = definition.replace(/;+\s*$/, "");
 
-    return definition;
+    return Effect.succeed(definition);
   }
 }

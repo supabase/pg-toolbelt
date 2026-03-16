@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { TableLikeObject } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
@@ -74,7 +75,7 @@ export class CreateTrigger extends CreateTriggerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     let definition = this.trigger.definition.trim();
     const isConstraintTrigger = this.trigger.isConstraintTrigger;
 
@@ -83,6 +84,6 @@ export class CreateTrigger extends CreateTriggerChange {
       `CREATE ${this.orReplace && !isConstraintTrigger ? "OR REPLACE " : ""}`,
     );
 
-    return definition;
+    return Effect.succeed(definition);
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
@@ -44,7 +45,7 @@ export class CreateForeignTable extends CreateForeignTableChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE FOREIGN TABLE"];
 
     // Add schema and name
@@ -76,6 +77,6 @@ export class CreateForeignTable extends CreateForeignTableChange {
       }
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

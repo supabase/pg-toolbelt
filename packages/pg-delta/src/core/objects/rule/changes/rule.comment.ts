@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Rule } from "../rule.model.ts";
@@ -20,16 +21,18 @@ export class CreateCommentOnRule extends CreateRuleChange {
     return [this.rule.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON RULE",
-      this.rule.name,
-      "ON",
-      `${this.rule.schema}.${this.rule.table_name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: rule comment is not nullable in this case
-      quoteLiteral(this.rule.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON RULE",
+        this.rule.name,
+        "ON",
+        `${this.rule.schema}.${this.rule.table_name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: rule comment is not nullable in this case
+        quoteLiteral(this.rule.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -50,13 +53,15 @@ export class DropCommentOnRule extends DropRuleChange {
     return [stableId.comment(this.rule.stableId), this.rule.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON RULE",
-      this.rule.name,
-      "ON",
-      `${this.rule.schema}.${this.rule.table_name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON RULE",
+        this.rule.name,
+        "ON",
+        `${this.rule.schema}.${this.rule.table_name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

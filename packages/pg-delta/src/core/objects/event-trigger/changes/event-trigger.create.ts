@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
@@ -48,7 +49,7 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [
       "CREATE EVENT TRIGGER",
       this.eventTrigger.name,
@@ -67,6 +68,6 @@ export class CreateEventTrigger extends CreateEventTriggerChange {
       `${this.eventTrigger.function_schema}.${this.eventTrigger.function_name}()`,
     );
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

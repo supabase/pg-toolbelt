@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { AlterViewChange } from "./view.base.ts";
@@ -57,24 +59,26 @@ export class GrantViewPrivileges extends AlterViewChange {
     return [this.view.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantViewPrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("VIEW");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("VIEW", list, this.version);
-    const viewName = `${this.view.schema}.${this.view.name}`;
-    const columnSpec =
-      this.columns && this.columns.length > 0
-        ? ` (${this.columns.join(", ")})`
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
         : "";
-    return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${viewName} TO ${this.grantee}${withGrant}`;
+      const kindPrefix = getObjectKindPrefix("VIEW");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("VIEW", list, self.version);
+      const viewName = `${self.view.schema}.${self.view.name}`;
+      const columnSpec =
+        self.columns && self.columns.length > 0
+          ? ` (${self.columns.join(", ")})`
+          : "";
+      return `GRANT ${privSql}${columnSpec} ${kindPrefix} ${viewName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -132,7 +136,7 @@ export class RevokeViewPrivileges extends AlterViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("VIEW");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("VIEW", list, this.version);
@@ -141,7 +145,9 @@ export class RevokeViewPrivileges extends AlterViewChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -183,7 +189,7 @@ export class RevokeGrantOptionViewPrivileges extends AlterViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("VIEW");
     const privSql = formatObjectPrivilegeList(
       "VIEW",
@@ -195,6 +201,8 @@ export class RevokeGrantOptionViewPrivileges extends AlterViewChange {
       this.columns && this.columns.length > 0
         ? ` (${this.columns.join(", ")})`
         : "";
-    return `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql}${columnSpec} ${kindPrefix} ${viewName} FROM ${this.grantee}`,
+    );
   }
 }

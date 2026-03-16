@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Table, type TableProps } from "../table.model.ts";
 import { DropTable } from "./table.drop.ts";
@@ -31,6 +32,6 @@ describe.concurrent("table.drop", () => {
     const t = new Table(base);
     const change = new DropTable({ table: t });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("DROP TABLE public.t");
+    expect(Effect.runSync(change.serialize())).toBe("DROP TABLE public.t");
   });
 });

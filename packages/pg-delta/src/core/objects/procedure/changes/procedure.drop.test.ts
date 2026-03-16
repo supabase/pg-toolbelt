@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Procedure } from "../procedure.model.ts";
 import { DropProcedure } from "./procedure.drop.ts";
@@ -44,7 +45,9 @@ describe("procedure", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP PROCEDURE public.test_procedure()");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP PROCEDURE public.test_procedure()",
+    );
   });
 
   test("drop function", async () => {
@@ -85,6 +88,8 @@ describe("procedure", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP FUNCTION public.test_function()");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP FUNCTION public.test_function()",
+    );
   });
 });

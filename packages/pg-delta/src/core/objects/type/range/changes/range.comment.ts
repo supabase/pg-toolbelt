@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
@@ -26,14 +27,16 @@ export class CreateCommentOnRange extends CreateRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
-      `${this.range.schema}.${this.range.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: range comment is not nullable in this case
-      quoteLiteral(this.range.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON TYPE",
+        `${this.range.schema}.${this.range.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: range comment is not nullable in this case
+        quoteLiteral(this.range.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -54,11 +57,13 @@ export class DropCommentOnRange extends DropRangeChange {
     return [stableId.comment(this.range.stableId), this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON TYPE",
-      `${this.range.schema}.${this.range.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON TYPE",
+        `${this.range.schema}.${this.range.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

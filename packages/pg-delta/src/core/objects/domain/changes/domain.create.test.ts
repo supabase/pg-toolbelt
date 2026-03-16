@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Domain } from "../domain.model.ts";
 import { CreateDomain } from "./domain.create.ts";
@@ -27,7 +28,7 @@ describe("domain", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE DOMAIN public.test_domain AS integer",
     );
   });
@@ -63,7 +64,7 @@ describe("domain", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       `CREATE DOMAIN public.test_domain_all AS custom.text[][] COLLATE mycoll DEFAULT 'hello' NOT NULL CHECK (VALUE <> '')`,
     );
   });
@@ -88,7 +89,7 @@ describe("domain", () => {
     });
     const change = new CreateDomain({ domain });
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE DOMAIN app.email_address AS extensions.citext",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicy } from "./rls-policy.create.ts";
@@ -24,7 +25,7 @@ describe("rls-policy", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE POLICY test_policy_min ON public.test_table",
     );
   });
@@ -49,7 +50,7 @@ describe("rls-policy", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE POLICY test_policy ON public.test_table FOR SELECT USING (user_id = current_user_id())",
     );
   });
@@ -74,7 +75,7 @@ describe("rls-policy", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE POLICY test_policy_all ON public.test_table AS RESTRICTIVE FOR UPDATE TO role1, role2 USING (expr1) WITH CHECK (expr2)",
     );
   });

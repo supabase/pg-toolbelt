@@ -22,6 +22,7 @@ import {
   hashStableIds,
 } from "../../src/core/fingerprint.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { serializeChange } from "../../src/core/serialize-effect.ts";
 import { wrapPool } from "../../src/core/services/database-live.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import {
@@ -37,6 +38,23 @@ import {
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
+
+const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
+  Effect.runSync(effect as Effect.Effect<A, E, never>);
+
+const runSortChanges = (
+  catalogs: Parameters<typeof sortChanges>[0],
+  changes: Parameters<typeof sortChanges>[1],
+) => runSyncEffect(sortChanges(catalogs, changes));
+
+const runExportDeclarativeSchema = (
+  ...args: Parameters<typeof exportDeclarativeSchema>
+): DeclarativeSchemaOutput => runSyncEffect(exportDeclarativeSchema(...args));
+
+const resolveSerializedSql = (
+  change: Change,
+  serializer?: Integration["serialize"],
+): string => runSyncEffect(serializeChange(change, serializer));
 
 interface RoundtripTestOptions {
   /** Pool for the main (source) database. */
@@ -238,11 +256,13 @@ export async function roundtripFidelityTest(
 
   if (postApplyFingerprint !== targetFingerprint) {
     const remainingChanges = diffCatalogs(debugMainCatalogAfter, branchCatalog);
-    const sortedRemaining = sortChanges(
+    const sortedRemaining = runSortChanges(
       { mainCatalog: debugMainCatalogAfter, branchCatalog },
       remainingChanges,
     );
-    const remainingSql = sortedRemaining.map((c) => c.serialize()).join(";\n");
+    const remainingSql = sortedRemaining
+      .map((c) => resolveSerializedSql(c))
+      .join(";\n");
     const remainingSummary = sortedRemaining.map((c) => ({
       change: c.constructor.name,
       op: c.operation,
@@ -317,7 +337,7 @@ export async function testDeclarativeExport(
   const { branchCatalog } = ctx;
   const integrationFilter = integration?.filter;
 
-  const output = exportDeclarativeSchema(planResult, {
+  const output = runExportDeclarativeSchema(planResult, {
     integration,
     ...exportOptions,
   });
@@ -378,12 +398,12 @@ export async function testDeclarativeExport(
       const remainingFiltered = integrationFilter
         ? remainingChanges.filter((change) => integrationFilter(change))
         : remainingChanges;
-      const sortedRemaining = sortChanges(
+      const sortedRemaining = runSortChanges(
         { mainCatalog: finalCatalog, branchCatalog },
         remainingFiltered,
       );
       const remainingSql = sortedRemaining
-        .map((c) => c.serialize())
+        .map((c) => resolveSerializedSql(c))
         .join(";\n");
       const remainingSummary = sortedRemaining.map((c) => ({
         change: c.constructor.name,
@@ -433,13 +453,13 @@ async function verifyNoRemainingChanges(
   }
 
   // Sort the remaining changes for better debugging
-  const sortedChangesAfter = sortChanges(
+  const sortedChangesAfter = runSortChanges(
     { mainCatalog: mainCatalogAfter, branchCatalog },
     filteredChangesAfter,
   );
 
   const remainingSqlStatements = sortedChangesAfter.map((change) =>
-    change.serialize(),
+    resolveSerializedSql(change),
   );
   const remainingMigrationScript = remainingSqlStatements.join(";\n\n");
 

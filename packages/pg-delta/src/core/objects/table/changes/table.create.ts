@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { isUserDefinedTypeSchema, stableId } from "../../utils.ts";
 import type { Table } from "../table.model.ts";
 import { CreateTableChange } from "./table.base.ts";
@@ -93,7 +94,7 @@ export class CreateTable extends CreateTableChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE"];
 
     // Add TEMPORARY/UNLOGGED based on persistence
@@ -114,12 +115,14 @@ export class CreateTable extends CreateTableChange {
       this.table.parent_name &&
       this.table.partition_bound
     ) {
-      return [
-        ...parts,
-        "PARTITION OF",
-        `${this.table.parent_schema}.${this.table.parent_name}`,
-        this.table.partition_bound,
-      ].join(" ");
+      return Effect.succeed(
+        [
+          ...parts,
+          "PARTITION OF",
+          `${this.table.parent_schema}.${this.table.parent_name}`,
+          this.table.partition_bound,
+        ].join(" "),
+      );
     }
 
     // Add columns definition
@@ -187,6 +190,6 @@ export class CreateTable extends CreateTableChange {
       parts.push("WITH", `(${this.table.options.join(", ")})`);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

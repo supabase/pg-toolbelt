@@ -62,7 +62,7 @@ export type SerializeDSL = SerializeRule[];
  * ```
  */
 export function compileSerializeDSL(dsl: SerializeDSL): ChangeSerializer {
-  return (change: Change): string | undefined => {
+  return (change: Change) => {
     // Find first matching rule
     for (const rule of dsl) {
       if (evaluatePattern(rule.when, change)) {

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import {
   parseProcedureReference,
@@ -166,7 +167,7 @@ export class CreateAggregate extends CreateAggregateChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const head = [
@@ -289,7 +290,7 @@ export class CreateAggregate extends CreateAggregateChange {
 
     const body = clauses.length ? `(${clauses.join(", ")})` : "()";
 
-    return `${head} ${body}`;
+    return Effect.succeed(`${head} ${body}`);
   }
 }
 

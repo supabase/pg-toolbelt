@@ -1,3 +1,6 @@
+import type { Effect } from "effect";
+import type { InvariantViolationError } from "../errors.ts";
+
 type ChangeOperation = "create" | "alter" | "drop";
 
 export abstract class BaseChange {
@@ -13,14 +16,6 @@ export abstract class BaseChange {
    * The scope of the change.
    */
   abstract readonly scope: string;
-
-  /**
-   * A unique identifier for the change.
-   */
-  get changeId(): string {
-    return `${this.operation}:${this.scope}:${this.objectType}:${this.serialize()}`;
-  }
-
   /**
    * Stable identifiers this change creates.
    *
@@ -51,7 +46,9 @@ export abstract class BaseChange {
   /**
    * Serialize the change into a single SQL statement.
    */
-  abstract serialize(options?: Record<string, unknown>): string;
+  abstract serialize(
+    options?: Record<string, unknown>,
+  ): Effect.Effect<string, InvariantViolationError>;
 }
 
 /**

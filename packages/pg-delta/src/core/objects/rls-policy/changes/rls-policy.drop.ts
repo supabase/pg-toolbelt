@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -28,12 +29,14 @@ export class DropRlsPolicy extends DropRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+      ].join(" "),
+    );
   }
 }

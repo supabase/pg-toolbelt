@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Extension, type ExtensionProps } from "../extension.model.ts";
 import {
@@ -29,7 +30,7 @@ describe.concurrent("extension", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER EXTENSION test_extension UPDATE TO '2.0'",
       );
     });
@@ -55,7 +56,7 @@ describe.concurrent("extension", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER EXTENSION test_extension SET SCHEMA extensions",
       );
     });

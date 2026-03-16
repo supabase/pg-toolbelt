@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Trigger } from "../trigger.model.ts";
 import { DropTrigger } from "./trigger.drop.ts";
@@ -40,7 +41,7 @@ describe("trigger", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "DROP TRIGGER test_trigger ON public.test_table",
     );
   });

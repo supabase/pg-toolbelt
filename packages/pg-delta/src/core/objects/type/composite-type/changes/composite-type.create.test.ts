@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeType } from "./composite-type.create.ts";
@@ -50,7 +51,7 @@ describe("composite-type", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE TYPE public.test_type AS (id integer)",
     );
   });
@@ -99,7 +100,7 @@ describe("composite-type", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'CREATE TYPE public.test_type AS (name text COLLATE "en_US")',
     );
   });

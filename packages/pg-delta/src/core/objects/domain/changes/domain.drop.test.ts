@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Domain } from "../domain.model.ts";
 import { DropDomain } from "./domain.drop.ts";
@@ -28,6 +29,8 @@ describe("domain", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP DOMAIN public.test_domain");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP DOMAIN public.test_domain",
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedView } from "./materialized-view.create.ts";
@@ -31,7 +32,7 @@ describe("materialized-view", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE MATERIALIZED VIEW public.test_mv AS SELECT * FROM test_table WITH NO DATA",
     );
   });
@@ -62,7 +63,7 @@ describe("materialized-view", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE MATERIALIZED VIEW public.test_mv WITH (fillfactor=90, autovacuum_enabled=false) AS SELECT * FROM test_table WITH DATA",
     );
   });

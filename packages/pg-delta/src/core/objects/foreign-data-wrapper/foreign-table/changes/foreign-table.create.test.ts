@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTable } from "./foreign-table.create.ts";
@@ -41,7 +42,7 @@ describe("foreign-table", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer) SERVER test_server",
     );
   });
@@ -101,7 +102,7 @@ describe("foreign-table", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer, name text) SERVER test_server",
     );
   });
@@ -143,7 +144,7 @@ describe("foreign-table", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer) SERVER test_server OPTIONS (schema_name 'remote_schema', table_name 'remote_table')",
     );
   });
@@ -203,7 +204,7 @@ describe("foreign-table", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN TABLE public.test_table (id integer, name text) SERVER test_server OPTIONS (schema_name 'remote_schema', table_name 'remote_table')",
     );
   });

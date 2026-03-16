@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../../invariants.ts";
 import { stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { AlterCompositeTypeChange } from "./composite-type.base.ts";
@@ -52,20 +54,22 @@ export class GrantCompositeTypePrivileges extends AlterCompositeTypeChange {
     return [this.compositeType.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantCompositeTypePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("TYPE");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
-    const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${typeName} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("TYPE");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("TYPE", list, self.version);
+      const typeName = `${self.compositeType.schema}.${self.compositeType.name}`;
+      return `GRANT ${privSql} ${kindPrefix} ${typeName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -118,12 +122,14 @@ export class RevokeCompositeTypePrivileges extends AlterCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
     const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -162,7 +168,7 @@ export class RevokeGrantOptionCompositeTypePrivileges extends AlterCompositeType
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const privSql = formatObjectPrivilegeList(
       "TYPE",
@@ -170,6 +176,8 @@ export class RevokeGrantOptionCompositeTypePrivileges extends AlterCompositeType
       this.version,
     );
     const typeName = `${this.compositeType.schema}.${this.compositeType.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${typeName} FROM ${this.grantee}`,
+    );
   }
 }

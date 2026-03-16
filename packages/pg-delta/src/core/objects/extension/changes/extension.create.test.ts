@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Extension } from "../extension.model.ts";
 import { CreateExtension } from "./extension.create.ts";
@@ -21,7 +22,7 @@ describe("extension", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       `CREATE EXTENSION test_extension WITH SCHEMA public`,
     );
   });

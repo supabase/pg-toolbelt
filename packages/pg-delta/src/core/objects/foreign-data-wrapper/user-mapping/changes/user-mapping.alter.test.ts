@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { UserMapping, type UserMappingProps } from "../user-mapping.model.ts";
 import { AlterUserMappingSetOptions } from "./user-mapping.alter.ts";
@@ -22,7 +23,7 @@ describe.concurrent("user-mapping", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password 'secret')",
       );
     });
@@ -41,7 +42,7 @@ describe.concurrent("user-mapping", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password 'new_secret')",
       );
     });
@@ -60,7 +61,7 @@ describe.concurrent("user-mapping", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (DROP password)",
       );
     });
@@ -83,7 +84,7 @@ describe.concurrent("user-mapping", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
       );
     });

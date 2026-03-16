@@ -1,3 +1,6 @@
+import { Effect } from "effect";
+import { RuntimeHostError } from "../core/errors.ts";
+
 type RuntimeReadable = NodeJS.ReadableStream & { isTTY?: boolean };
 type RuntimeWritable = NodeJS.WritableStream & { isTTY?: boolean };
 
@@ -11,19 +14,31 @@ interface RuntimeProcess {
   exitCode?: number;
 }
 
-export const getRuntimeProcess = (): RuntimeProcess => {
-  const runtimeProcess = globalThis.process;
-  if (!runtimeProcess) {
-    throw new Error("pgdelta runtime requires a process-like host");
-  }
-  return runtimeProcess as unknown as RuntimeProcess;
-};
+export const getRuntimeProcess = (): Effect.Effect<
+  RuntimeProcess,
+  RuntimeHostError
+> =>
+  Effect.sync(() => globalThis.process).pipe(
+    Effect.flatMap((runtimeProcess) =>
+      runtimeProcess
+        ? Effect.succeed(runtimeProcess as unknown as RuntimeProcess)
+        : Effect.fail(
+            new RuntimeHostError({
+              message: "pgdelta runtime requires a process-like host",
+            }),
+          ),
+    ),
+  );
 
-export const getRuntimeEnv = (name: string): string | undefined =>
-  getRuntimeProcess().env[name];
+export const getRuntimeEnv = (
+  name: string,
+): Effect.Effect<string | undefined, RuntimeHostError> =>
+  getRuntimeProcess().pipe(
+    Effect.map((runtimeProcess) => runtimeProcess.env[name]),
+  );
 
-export const isRuntimeCi = (): boolean => {
-  const env = getRuntimeProcess().env;
+export const isRuntimeCi = (runtimeProcess: RuntimeProcess): boolean => {
+  const { env } = runtimeProcess;
   return (
     env.CI === "1" ||
     env.CI === "true" ||
@@ -32,8 +47,11 @@ export const isRuntimeCi = (): boolean => {
   );
 };
 
-export const colorsEnabledForStream = (isTty: boolean): boolean => {
-  const env = getRuntimeProcess().env;
+export const colorsEnabledForRuntimeProcess = (
+  runtimeProcess: RuntimeProcess,
+  isTty: boolean,
+): boolean => {
+  const { env } = runtimeProcess;
   if (!isTty) {
     return false;
   }
@@ -43,5 +61,5 @@ export const colorsEnabledForStream = (isTty: boolean): boolean => {
   if (env.FORCE_COLOR !== undefined) {
     return env.FORCE_COLOR !== "0";
   }
-  return !isRuntimeCi();
+  return !isRuntimeCi(runtimeProcess);
 };

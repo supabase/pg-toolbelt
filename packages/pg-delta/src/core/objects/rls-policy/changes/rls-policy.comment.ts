@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
@@ -27,16 +28,18 @@ export class CreateCommentOnRlsPolicy extends CreateRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: rls policy comment is not nullable in this case
-      quoteLiteral(this.policy.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: rls policy comment is not nullable in this case
+        quoteLiteral(this.policy.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -57,13 +60,15 @@ export class DropCommentOnRlsPolicy extends DropRlsPolicyChange {
     return [stableId.comment(this.policy.stableId), this.policy.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

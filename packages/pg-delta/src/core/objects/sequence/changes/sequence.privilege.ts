@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { AlterSequenceChange } from "./sequence.base.ts";
@@ -54,20 +56,22 @@ export class GrantSequencePrivileges extends AlterSequenceChange {
     return [this.sequence.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantSequencePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("SEQUENCE");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("SEQUENCE", list, this.version);
-    const sequenceName = `${this.sequence.schema}.${this.sequence.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${sequenceName} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("SEQUENCE");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("SEQUENCE", list, self.version);
+      const sequenceName = `${self.sequence.schema}.${self.sequence.name}`;
+      return `GRANT ${privSql} ${kindPrefix} ${sequenceName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -122,12 +126,14 @@ export class RevokeSequencePrivileges extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("SEQUENCE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SEQUENCE", list, this.version);
     const sequenceName = `${this.sequence.schema}.${this.sequence.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${sequenceName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${sequenceName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -166,7 +172,7 @@ export class RevokeGrantOptionSequencePrivileges extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("SEQUENCE");
     const privSql = formatObjectPrivilegeList(
       "SEQUENCE",
@@ -174,6 +180,8 @@ export class RevokeGrantOptionSequencePrivileges extends AlterSequenceChange {
       this.version,
     );
     const sequenceName = `${this.sequence.schema}.${this.sequence.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${sequenceName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${sequenceName} FROM ${this.grantee}`,
+    );
   }
 }

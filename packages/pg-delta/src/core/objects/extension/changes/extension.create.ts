@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtensionChange } from "./extension.base.ts";
@@ -40,7 +41,7 @@ export class CreateExtension extends CreateExtensionChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE EXTENSION"];
 
     // Add extension name
@@ -58,6 +59,6 @@ export class CreateExtension extends CreateExtensionChange {
     // TODO: Add CASCADE if the extension has dependencies
     // parts.push("CASCADE");
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

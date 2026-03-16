@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { Enum } from "../enum.model.ts";
 import { AlterEnumChange } from "./enum.base.ts";
@@ -36,13 +37,15 @@ export class AlterEnumChangeOwner extends AlterEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
-      `${this.enum.schema}.${this.enum.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TYPE",
+        `${this.enum.schema}.${this.enum.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -70,7 +73,7 @@ export class AlterEnumAddValue extends AlterEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts = [
       "ALTER TYPE",
       `${this.enum.schema}.${this.enum.name}`,
@@ -84,7 +87,7 @@ export class AlterEnumAddValue extends AlterEnumChange {
       parts.push("AFTER", quoteLiteral(this.position.after));
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 

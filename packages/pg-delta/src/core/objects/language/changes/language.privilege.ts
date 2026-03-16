@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { AlterLanguageChange } from "./language.base.ts";
@@ -52,19 +54,21 @@ export class GrantLanguagePrivileges extends AlterLanguageChange {
     return [this.language.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantLanguagePrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("LANGUAGE");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    return `GRANT ${privSql} ${kindPrefix} ${this.language.name} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("LANGUAGE");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("LANGUAGE", list, self.version);
+      return `GRANT ${privSql} ${kindPrefix} ${self.language.name} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -117,11 +121,13 @@ export class RevokeLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
-    return `REVOKE ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -160,13 +166,15 @@ export class RevokeGrantOptionLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const privSql = formatObjectPrivilegeList(
       "LANGUAGE",
       this.privilegeNames,
       this.version,
     );
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${this.language.name} FROM ${this.grantee}`,
+    );
   }
 }

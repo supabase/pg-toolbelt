@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Language, type LanguageProps } from "../language.model.ts";
 import { AlterLanguageChangeOwner } from "./language.alter.ts";
@@ -28,7 +29,7 @@ describe.concurrent("language", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER LANGUAGE plpgsql OWNER TO new_owner",
       );
     });

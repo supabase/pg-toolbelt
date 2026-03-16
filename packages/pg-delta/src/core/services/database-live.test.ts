@@ -73,7 +73,11 @@ describe("makeScopedPool", () => {
   test("does not retry SSL configuration failures", async () => {
     const harness = createHarness(DefaultRuntimeConfig);
     harness.parseSslConfigMock.mockImplementationOnce(() =>
-      Effect.fail(new Error("bad sslmode")),
+      Effect.fail(
+        new SslConfigError({
+          message: "bad sslmode",
+        }),
+      ),
     );
 
     const result = await Effect.scoped(
@@ -278,7 +282,7 @@ function createHarness(
   defaultRuntimeConfig: Layer.Layer<PgRuntimeConfigService>,
 ) {
   const parseSslConfigMock = mock(
-    (...args: unknown[]): Effect.Effect<MockSslConfig, Error> =>
+    (...args: unknown[]): Effect.Effect<MockSslConfig, SslConfigError> =>
       Effect.succeed({
         cleanedUrl: args[0] as string,
         ssl: false,

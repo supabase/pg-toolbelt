@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { AlterRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -38,21 +39,23 @@ export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const targetRoles = this.roles;
     const toPublic =
       targetRoles.length === 0 ||
       (targetRoles.length === 1 && targetRoles[0].toLowerCase() === "public");
     const rolesSql = toPublic ? "PUBLIC" : targetRoles.join(", ");
 
-    return [
-      "ALTER POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-      "TO",
-      rolesSql,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+        "TO",
+        rolesSql,
+      ].join(" "),
+    );
   }
 }
 
@@ -74,16 +77,18 @@ export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const expr = this.usingExpression ?? "true";
-    return [
-      "ALTER POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-      "USING",
-      `(${expr})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+        "USING",
+        `(${expr})`,
+      ].join(" "),
+    );
   }
 }
 
@@ -108,16 +113,18 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const expr = this.withCheckExpression ?? "true";
-    return [
-      "ALTER POLICY",
-      this.policy.name,
-      "ON",
-      `${this.policy.schema}.${this.policy.table_name}`,
-      "WITH CHECK",
-      `(${expr})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER POLICY",
+        this.policy.name,
+        "ON",
+        `${this.policy.schema}.${this.policy.table_name}`,
+        "WITH CHECK",
+        `(${expr})`,
+      ].join(" "),
+    );
   }
 }
 

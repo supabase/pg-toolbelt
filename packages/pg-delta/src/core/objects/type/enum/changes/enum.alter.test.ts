@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Enum, type EnumProps } from "../enum.model.ts";
 import { AlterEnumAddValue, AlterEnumChangeOwner } from "./enum.alter.ts";
@@ -27,7 +28,7 @@ describe.concurrent("enum", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TYPE public.test_enum OWNER TO new_owner",
       );
     });
@@ -49,7 +50,7 @@ describe.concurrent("enum", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TYPE public.test_enum ADD VALUE 'value3'",
       );
     });
@@ -75,7 +76,7 @@ describe.concurrent("enum", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TYPE public.test_enum ADD VALUE 'value1_5' BEFORE 'value2'",
       );
     });
@@ -101,7 +102,7 @@ describe.concurrent("enum", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER TYPE public.test_enum ADD VALUE 'value1_5' AFTER 'value1'",
       );
     });

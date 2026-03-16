@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
@@ -27,14 +28,16 @@ export class CreateCommentOnEventTrigger extends CreateEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON EVENT TRIGGER",
-      this.eventTrigger.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: comment creation implies non-null
-      quoteLiteral(this.eventTrigger.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON EVENT TRIGGER",
+        this.eventTrigger.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: comment creation implies non-null
+        quoteLiteral(this.eventTrigger.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -58,9 +61,9 @@ export class DropCommentOnEventTrigger extends DropEventTriggerChange {
     ];
   }
 
-  serialize(): string {
-    return ["COMMENT ON EVENT TRIGGER", this.eventTrigger.name, "IS NULL"].join(
-      " ",
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON EVENT TRIGGER", this.eventTrigger.name, "IS NULL"].join(" "),
     );
   }
 }

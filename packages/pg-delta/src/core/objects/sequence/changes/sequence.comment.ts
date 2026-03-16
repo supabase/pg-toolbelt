@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
@@ -22,14 +23,16 @@ export class CreateCommentOnSequence extends CreateSequenceChange {
     return [this.sequence.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SEQUENCE",
-      `${this.sequence.schema}.${this.sequence.name}`,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: sequence comment is not nullable in this case
-      quoteLiteral(this.sequence.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON SEQUENCE",
+        `${this.sequence.schema}.${this.sequence.name}`,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: sequence comment is not nullable in this case
+        quoteLiteral(this.sequence.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -50,11 +53,13 @@ export class DropCommentOnSequence extends DropSequenceChange {
     return [stableId.comment(this.sequence.stableId), this.sequence.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SEQUENCE",
-      `${this.sequence.schema}.${this.sequence.name}`,
-      "IS NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON SEQUENCE",
+        `${this.sequence.schema}.${this.sequence.name}`,
+        "IS NULL",
+      ].join(" "),
+    );
   }
 }

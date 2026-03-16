@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Subscription } from "../subscription.model.ts";
 import { DropSubscriptionChange } from "./subscription.base.ts";
 
@@ -14,7 +15,7 @@ export class DropSubscription extends DropSubscriptionChange {
     return [this.subscription.stableId];
   }
 
-  serialize(): string {
-    return `DROP SUBSCRIPTION ${this.subscription.name}`;
+  serialize() {
+    return Effect.succeed(`DROP SUBSCRIPTION ${this.subscription.name}`);
   }
 }

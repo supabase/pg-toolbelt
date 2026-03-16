@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
@@ -27,10 +28,7 @@ export class ReplaceTrigger extends AlterTriggerChange {
   public readonly indexableObject?: TableLikeObject;
   public readonly scope = "object" as const;
 
-  constructor(props: {
-    trigger: Trigger;
-    indexableObject?: TableLikeObject;
-  }) {
+  constructor(props: { trigger: Trigger; indexableObject?: TableLikeObject }) {
     super();
     this.trigger = props.trigger;
     this.indexableObject = props.indexableObject;
@@ -40,7 +38,7 @@ export class ReplaceTrigger extends AlterTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     if (this.trigger.isConstraintTrigger) {
       const dropChange = new DropTrigger({ trigger: this.trigger });
       const createChange = new CreateTrigger({
@@ -60,9 +58,11 @@ export class ReplaceTrigger extends AlterTriggerChange {
             ].join(" ")
           : null;
 
-      return [dropChange.serialize(), createChange.serialize(), commentSql]
-        .filter(Boolean)
-        .join(";\n");
+      return Effect.gen(function* () {
+        const dropSql = yield* dropChange.serialize();
+        const createSql = yield* createChange.serialize();
+        return [dropSql, createSql, commentSql].filter(Boolean).join(";\n");
+      });
     }
 
     const createChange = new CreateTrigger({

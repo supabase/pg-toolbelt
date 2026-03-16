@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { DropViewChange } from "./view.base.ts";
@@ -34,7 +35,9 @@ export class DropView extends DropViewChange {
     ];
   }
 
-  serialize(): string {
-    return ["DROP VIEW", `${this.view.schema}.${this.view.name}`].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP VIEW", `${this.view.schema}.${this.view.name}`].join(" "),
+    );
   }
 }

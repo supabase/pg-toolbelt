@@ -5,12 +5,17 @@
 import { Clock, DateTime, Effect } from "effect";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
+import type {
+  IntegrationSerializationError,
+  InvariantViolationError,
+} from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import type { Integration } from "../integrations/integration.types.ts";
 import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
 import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
 import { formatSqlScript } from "../plan/statements.ts";
 import type { Plan } from "../plan/types.ts";
+import { serializeChange } from "../serialize-effect.ts";
 import { createFileMapper } from "./file-mapper.ts";
 import { groupChangesByFile } from "./grouper.ts";
 import type { DeclarativeSchemaOutput, FileEntry, Grouping } from "./types.ts";
@@ -61,58 +66,64 @@ export interface ExportOptions {
  * @param options - Optional integration for custom serialization
  * @returns Declarative schema output with grouped files
  */
-export function exportDeclarativeSchema(
+export const exportDeclarativeSchema = (
   planResult: PlanResult,
   options?: ExportOptions,
-): DeclarativeSchemaOutput {
-  const { ctx, sortedChanges } = planResult;
-  const integration = options?.integration;
-  const formatOptions: SqlFormatOptions | undefined =
-    options?.formatOptions === null
-      ? undefined
-      : {
-          ...DEFAULT_OPTIONS,
-          maxWidth: 180,
-          keywordCase: "upper",
-          ...options?.formatOptions,
-        };
+): Effect.Effect<
+  DeclarativeSchemaOutput,
+  InvariantViolationError | IntegrationSerializationError
+> =>
+  Effect.gen(function* () {
+    const { ctx, sortedChanges } = planResult;
+    const integration = options?.integration;
+    const formatOptions: SqlFormatOptions | undefined =
+      options?.formatOptions === null
+        ? undefined
+        : {
+            ...DEFAULT_OPTIONS,
+            maxWidth: 180,
+            keywordCase: "upper",
+            ...options?.formatOptions,
+          };
 
-  // Drop filtering and dependency cascading are handled upstream by createPlan.
+    // Drop filtering and dependency cascading are handled upstream by createPlan.
 
-  const { hash: sourceFingerprint, stableIds } = buildPlanScopeFingerprint(
-    ctx.mainCatalog,
-    sortedChanges,
-  );
-  const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
-
-  const mapper = createFileMapper(options?.grouping, options?.onWarning);
-  const groups = groupChangesByFile(sortedChanges, mapper);
-  const files = groups.map((group, index) => {
-    const statements = group.changes.map((change) =>
-      serializeChange(change, integration),
+    const { hash: sourceFingerprint, stableIds } = buildPlanScopeFingerprint(
+      ctx.mainCatalog,
+      sortedChanges,
     );
-    return buildFileEntry(
-      group.path,
-      group.metadata,
-      statements,
-      index,
-      formatOptions,
+    const targetFingerprint = hashStableIds(ctx.branchCatalog, stableIds);
+
+    const mapper = createFileMapper(options?.grouping, options?.onWarning);
+    const groups = yield* groupChangesByFile(sortedChanges, mapper);
+    const files = yield* Effect.all(
+      groups.map((group, index) =>
+        Effect.gen(function* () {
+          const statements = yield* Effect.all(
+            group.changes.map((change) =>
+              serializeChange(change, integration?.serialize),
+            ),
+          );
+          return buildFileEntry(
+            group.path,
+            group.metadata,
+            statements,
+            index,
+            formatOptions,
+          );
+        }),
+      ),
     );
+
+    return {
+      version: 1,
+      mode: "declarative",
+      generatedAt: yield* currentTimestampIso,
+      source: { fingerprint: sourceFingerprint },
+      target: { fingerprint: targetFingerprint },
+      files,
+    };
   });
-
-  return {
-    version: 1,
-    mode: "declarative",
-    generatedAt: currentTimestampIso(),
-    source: { fingerprint: sourceFingerprint },
-    target: { fingerprint: targetFingerprint },
-    files,
-  };
-}
-
-function serializeChange(change: Change, integration?: Integration): string {
-  return integration?.serialize?.(change) ?? change.serialize();
-}
 
 function buildFileEntry(
   path: string,
@@ -130,10 +141,6 @@ function buildFileEntry(
   };
 }
 
-function currentTimestampIso(): string {
-  return Effect.runSync(
-    Clock.currentTimeMillis.pipe(
-      Effect.map((millis) => DateTime.formatIso(DateTime.makeUnsafe(millis))),
-    ),
-  );
-}
+const currentTimestampIso = Clock.currentTimeMillis.pipe(
+  Effect.map((millis) => DateTime.formatIso(DateTime.makeUnsafe(millis))),
+);

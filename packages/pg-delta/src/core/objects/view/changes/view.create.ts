@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange } from "./view.base.ts";
@@ -52,7 +53,7 @@ export class CreateView extends CreateViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [
       `CREATE${this.orReplace ? " OR REPLACE" : ""} VIEW`,
     ];
@@ -68,6 +69,6 @@ export class CreateView extends CreateViewChange {
     // Add AS query (trim to avoid double spaces before SELECT)
     parts.push("AS", this.view.definition.trim());
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

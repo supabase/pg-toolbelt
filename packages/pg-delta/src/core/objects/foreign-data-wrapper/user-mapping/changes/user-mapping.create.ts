@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
@@ -37,7 +38,7 @@ export class CreateUserMapping extends CreateUserMappingChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE USER MAPPING FOR"];
 
     // Add user (can be CURRENT_USER, PUBLIC, etc.)
@@ -61,6 +62,6 @@ export class CreateUserMapping extends CreateUserMappingChange {
       }
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

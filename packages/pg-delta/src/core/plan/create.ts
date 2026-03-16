@@ -15,6 +15,9 @@ import type {
   CatalogExtractionError,
   ConnectionError,
   ConnectionTimeoutError,
+  IntegrationSerializationError,
+  InvariantViolationError,
+  SortCycleError,
   SslConfigError,
 } from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
@@ -27,6 +30,7 @@ import {
   compileSerializeDSL,
   type SerializeDSL,
 } from "../integrations/serialize/dsl.ts";
+import { serializeChange } from "../serialize-effect.ts";
 import type { DatabaseApi } from "../services/database.ts";
 import { DatabaseResolver } from "../services/database-resolver.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
@@ -53,7 +57,10 @@ function buildPlanForCatalogs(
   fromCatalog: Catalog,
   toCatalog: Catalog,
   options: CreatePlanOptions = {},
-): { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null {
+): Effect.Effect<
+  { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
+  InvariantViolationError | IntegrationSerializationError | SortCycleError
+> {
   const changes = diffCatalogs(fromCatalog, toCatalog, {
     role: options.role,
     skipDefaultPrivilegeSubtraction: options.skipDefaultPrivilegeSubtraction,
@@ -116,20 +123,22 @@ function buildPlanForCatalogs(
   }
 
   if (filteredChanges.length === 0) {
-    return null;
+    return Effect.succeed(null);
   }
 
-  const sortedChanges = sortChanges(ctx, filteredChanges);
-  const plan = buildPlan(
-    ctx,
-    sortedChanges,
-    options,
-    filterDSL,
-    serializeDSL,
-    finalIntegration,
-  );
+  return Effect.gen(function* () {
+    const sortedChanges = yield* sortChanges(ctx, filteredChanges);
+    const plan = yield* buildPlan(
+      ctx,
+      sortedChanges,
+      options,
+      filterDSL,
+      serializeDSL,
+      finalIntegration,
+    );
 
-  return { plan, sortedChanges, ctx };
+    return { plan, sortedChanges, ctx };
+  });
 }
 
 // ============================================================================
@@ -239,30 +248,35 @@ function buildPlan(
   filterDSL?: FilterDSL,
   serializeDSL?: SerializeDSL,
   integration?: Integration,
-): Plan {
-  const role = options?.role;
-  const statements = generateStatements(changes, {
-    integration,
-    role,
+): Effect.Effect<
+  Plan,
+  InvariantViolationError | IntegrationSerializationError
+> {
+  return Effect.gen(function* () {
+    const role = options?.role;
+    const statements = yield* generateStatements(changes, {
+      integration,
+      role,
+    });
+    const risk = classifyChangesRisk(changes);
+
+    const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+      ctx.mainCatalog,
+      changes,
+    );
+    const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
+
+    return {
+      version: 1,
+      source: { fingerprint: fingerprintFrom },
+      target: { fingerprint: fingerprintTo },
+      statements,
+      role,
+      filter: filterDSL,
+      serialize: serializeDSL,
+      risk,
+    };
   });
-  const risk = classifyChangesRisk(changes);
-
-  const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
-    ctx.mainCatalog,
-    changes,
-  );
-  const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
-
-  return {
-    version: 1,
-    source: { fingerprint: fingerprintFrom },
-    target: { fingerprint: fingerprintTo },
-    statements,
-    role,
-    filter: filterDSL,
-    serialize: serializeDSL,
-    risk,
-  };
 }
 
 /**
@@ -274,23 +288,30 @@ function generateStatements(
     integration?: Integration;
     role?: string;
   },
-): string[] {
-  const statements: string[] = [];
+): Effect.Effect<
+  string[],
+  InvariantViolationError | IntegrationSerializationError
+> {
+  return Effect.gen(function* () {
+    const statements: string[] = [];
 
-  if (options?.role) {
-    statements.push(`SET ROLE ${quoteIdentifier(options.role)}`);
-  }
+    if (options?.role) {
+      statements.push(`SET ROLE ${quoteIdentifier(options.role)}`);
+    }
 
-  if (hasRoutineChanges(changes)) {
-    statements.push("SET check_function_bodies = false");
-  }
+    if (hasRoutineChanges(changes)) {
+      statements.push("SET check_function_bodies = false");
+    }
 
-  for (const change of changes) {
-    const sql = options?.integration?.serialize?.(change) ?? change.serialize();
-    statements.push(sql);
-  }
+    const serialized = yield* Effect.all(
+      changes.map((change) =>
+        serializeChange(change, options?.integration?.serialize),
+      ),
+    );
 
-  return statements;
+    statements.push(...serialized);
+    return statements;
+  });
 }
 
 /**
@@ -313,6 +334,9 @@ export const createPlan = (
   | CatalogExtractionError
   | ConnectionError
   | ConnectionTimeoutError
+  | IntegrationSerializationError
+  | InvariantViolationError
+  | SortCycleError
   | SslConfigError
 > =>
   Effect.gen(function* () {
@@ -323,7 +347,7 @@ export const createPlan = (
         ? yield* resolveCatalog(source, "source", options)
         : yield* createEmptyCatalog(toCatalog.version, toCatalog.currentUser);
 
-    return buildPlanForCatalogs(fromCatalog, toCatalog, options);
+    return yield* buildPlanForCatalogs(fromCatalog, toCatalog, options);
   });
 
 const resolveCatalog = (

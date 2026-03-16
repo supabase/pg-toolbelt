@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
@@ -101,13 +102,15 @@ export class AlterTableChangeOwner extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -127,12 +130,14 @@ export class AlterTableSetLogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "SET LOGGED",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "SET LOGGED",
+      ].join(" "),
+    );
   }
 }
 
@@ -152,12 +157,14 @@ export class AlterTableSetUnlogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "SET UNLOGGED",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "SET UNLOGGED",
+      ].join(" "),
+    );
   }
 }
 
@@ -177,12 +184,14 @@ export class AlterTableEnableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ENABLE ROW LEVEL SECURITY",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ENABLE ROW LEVEL SECURITY",
+      ].join(" "),
+    );
   }
 }
 
@@ -202,12 +211,14 @@ export class AlterTableDisableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "DISABLE ROW LEVEL SECURITY",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "DISABLE ROW LEVEL SECURITY",
+      ].join(" "),
+    );
   }
 }
 
@@ -227,12 +238,14 @@ export class AlterTableForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "FORCE ROW LEVEL SECURITY",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "FORCE ROW LEVEL SECURITY",
+      ].join(" "),
+    );
   }
 }
 
@@ -252,12 +265,14 @@ export class AlterTableNoForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "NO FORCE ROW LEVEL SECURITY",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "NO FORCE ROW LEVEL SECURITY",
+      ].join(" "),
+    );
   }
 }
 
@@ -279,13 +294,15 @@ export class AlterTableSetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const storageParams = this.options.join(", ");
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      `SET (${storageParams})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        `SET (${storageParams})`,
+      ].join(" "),
+    );
   }
 }
 
@@ -307,13 +324,15 @@ export class AlterTableResetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const paramsSql = this.params.join(", ");
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      `RESET (${paramsSql})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        `RESET (${paramsSql})`,
+      ].join(" "),
+    );
   }
 }
 
@@ -365,14 +384,16 @@ export class AlterTableAddConstraint extends AlterTableChange {
     return reqs;
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ADD CONSTRAINT",
-      this.constraint.name,
-      this.constraint.definition,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ADD CONSTRAINT",
+        this.constraint.name,
+        this.constraint.definition,
+      ].join(" "),
+    );
   }
 }
 
@@ -411,13 +432,15 @@ export class AlterTableDropConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "DROP CONSTRAINT",
-      this.constraint.name,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "DROP CONSTRAINT",
+        this.constraint.name,
+      ].join(" "),
+    );
   }
 }
 
@@ -446,13 +469,15 @@ export class AlterTableValidateConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "VALIDATE CONSTRAINT",
-      this.constraint.name,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "VALIDATE CONSTRAINT",
+        this.constraint.name,
+      ].join(" "),
+    );
   }
 }
 
@@ -474,7 +499,7 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const clause =
       this.mode === "d"
         ? "DEFAULT"
@@ -483,12 +508,14 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
           : this.mode === "f"
             ? "FULL"
             : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "REPLICA IDENTITY",
-      clause,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "REPLICA IDENTITY",
+        clause,
+      ].join(" "),
+    );
   }
 }
 
@@ -516,7 +543,7 @@ export class AlterTableAddColumn extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -541,7 +568,7 @@ export class AlterTableAddColumn extends AlterTableChange {
     if (this.column.not_null) {
       parts.push("NOT NULL");
     }
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 
@@ -572,13 +599,15 @@ export class AlterTableDropColumn extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "DROP COLUMN",
-      this.column.name,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "DROP COLUMN",
+        this.column.name,
+      ].join(" "),
+    );
   }
 }
 
@@ -602,7 +631,7 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -614,7 +643,7 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     if (this.column.collation) {
       parts.push("COLLATE", this.column.collation);
     }
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 
@@ -638,17 +667,19 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const set = this.column.is_generated ? "SET EXPRESSION AS" : "SET DEFAULT";
 
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
-      this.column.name,
-      set,
-      this.column.default ?? "NULL",
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        set,
+        this.column.default ?? "NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -672,14 +703,16 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
-      this.column.name,
-      "DROP DEFAULT",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        "DROP DEFAULT",
+      ].join(" "),
+    );
   }
 }
 
@@ -703,14 +736,16 @@ export class AlterTableAlterColumnSetNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
-      this.column.name,
-      "SET NOT NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        "SET NOT NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -734,14 +769,16 @@ export class AlterTableAlterColumnDropNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ALTER COLUMN",
-      this.column.name,
-      "DROP NOT NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        "DROP NOT NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -764,15 +801,17 @@ export class AlterTableAttachPartition extends AlterTableChange {
     return [this.partition.stableId, this.table.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const bound = this.partition.partition_bound ?? "DEFAULT";
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "ATTACH PARTITION",
-      `${this.partition.schema}.${this.partition.name}`,
-      bound,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ATTACH PARTITION",
+        `${this.partition.schema}.${this.partition.name}`,
+        bound,
+      ].join(" "),
+    );
   }
 }
 
@@ -795,12 +834,14 @@ export class AlterTableDetachPartition extends AlterTableChange {
     return [this.table.stableId, this.partition.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TABLE",
-      `${this.table.schema}.${this.table.name}`,
-      "DETACH PARTITION",
-      `${this.partition.schema}.${this.partition.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "DETACH PARTITION",
+        `${this.partition.schema}.${this.partition.name}`,
+      ].join(" "),
+    );
   }
 }

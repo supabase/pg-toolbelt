@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
 } from "../../base.privilege.ts";
+import { ensureUniformGrantablePrivileges } from "../../invariants.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
 import { AlterDomainChange } from "./domain.base.ts";
@@ -52,20 +54,22 @@ export class GrantDomainPrivileges extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
-    const hasGrantable = this.privileges.some((p) => p.grantable);
-    const hasBase = this.privileges.some((p) => !p.grantable);
-    if (hasGrantable && hasBase) {
-      throw new Error(
+  serialize() {
+    const self = this;
+    return Effect.gen(function* () {
+      yield* ensureUniformGrantablePrivileges(
+        self.privileges,
         "GrantDomainPrivileges expects privileges with uniform grantable flag",
       );
-    }
-    const withGrant = hasGrantable ? " WITH GRANT OPTION" : "";
-    const kindPrefix = getObjectKindPrefix("DOMAIN");
-    const list = this.privileges.map((p) => p.privilege);
-    const privSql = formatObjectPrivilegeList("DOMAIN", list, this.version);
-    const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return `GRANT ${privSql} ${kindPrefix} ${domainName} TO ${this.grantee}${withGrant}`;
+      const withGrant = self.privileges.some((p) => p.grantable)
+        ? " WITH GRANT OPTION"
+        : "";
+      const kindPrefix = getObjectKindPrefix("DOMAIN");
+      const list = self.privileges.map((p) => p.privilege);
+      const privSql = formatObjectPrivilegeList("DOMAIN", list, self.version);
+      const domainName = `${self.domain.schema}.${self.domain.name}`;
+      return `GRANT ${privSql} ${kindPrefix} ${domainName} TO ${self.grantee}${withGrant}`;
+    });
   }
 }
 
@@ -114,12 +118,14 @@ export class RevokeDomainPrivileges extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("DOMAIN");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("DOMAIN", list, this.version);
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return `REVOKE ${privSql} ${kindPrefix} ${domainName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE ${privSql} ${kindPrefix} ${domainName} FROM ${this.grantee}`,
+    );
   }
 }
 
@@ -158,7 +164,7 @@ export class RevokeGrantOptionDomainPrivileges extends AlterDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const kindPrefix = getObjectKindPrefix("DOMAIN");
     const privSql = formatObjectPrivilegeList(
       "DOMAIN",
@@ -166,6 +172,8 @@ export class RevokeGrantOptionDomainPrivileges extends AlterDomainChange {
       this.version,
     );
     const domainName = `${this.domain.schema}.${this.domain.name}`;
-    return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${domainName} FROM ${this.grantee}`;
+    return Effect.succeed(
+      `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${domainName} FROM ${this.grantee}`,
+    );
   }
 }

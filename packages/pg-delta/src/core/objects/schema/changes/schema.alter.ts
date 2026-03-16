@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Schema } from "../schema.model.ts";
 import { AlterSchemaChange } from "./schema.base.ts";
 
@@ -33,8 +34,10 @@ export class AlterSchemaChangeOwner extends AlterSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
-    return ["ALTER SCHEMA", this.schema.name, "OWNER TO", this.owner].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["ALTER SCHEMA", this.schema.name, "OWNER TO", this.owner].join(" "),
+    );
   }
 }
 

@@ -126,7 +126,7 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
       : undefined;
 
   const exportWarnings: string[] = [];
-  const exportOutput = exportDeclarativeSchema(planResult, {
+  const exportOutput = yield* exportDeclarativeSchema(planResult, {
     integration:
       serializeFn !== undefined ? { serialize: serializeFn } : undefined,
     formatOptions: formatOptionsParsed ?? undefined,
@@ -134,7 +134,15 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
     onWarning: (message) => {
       exportWarnings.push(message);
     },
-  });
+  }).pipe(
+    Effect.mapError(
+      (error) =>
+        new CliExitError({
+          exitCode: 1,
+          message: error.message,
+        }),
+    ),
+  );
 
   for (const warning of exportWarnings) {
     yield* output.warn(`Warning: ${warning}`);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Schema } from "../schema.model.ts";
 import { DropSchema } from "./schema.drop.ts";
@@ -18,6 +19,6 @@ describe("schema", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP SCHEMA test_schema");
+    expect(Effect.runSync(change.serialize())).toBe("DROP SCHEMA test_schema");
   });
 });

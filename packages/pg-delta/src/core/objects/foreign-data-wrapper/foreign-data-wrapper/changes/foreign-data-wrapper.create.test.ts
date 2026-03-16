@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { CreateForeignDataWrapper } from "./foreign-data-wrapper.create.ts";
@@ -21,7 +22,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw NO HANDLER NO VALIDATOR",
     );
   });
@@ -43,7 +44,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func NO VALIDATOR",
     );
   });
@@ -65,7 +66,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw NO HANDLER VALIDATOR public.validator_func",
     );
   });
@@ -87,7 +88,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func VALIDATOR public.validator_func",
     );
   });
@@ -109,7 +110,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw NO HANDLER NO VALIDATOR OPTIONS (host 'localhost', port '5432')",
     );
   });
@@ -131,7 +132,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER public.handler_func VALIDATOR public.validator_func OPTIONS (host 'localhost', port '5432')",
     );
   });
@@ -153,7 +154,7 @@ describe("foreign-data-wrapper", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER extensions.iceberg_fdw_handler VALIDATOR extensions.iceberg_fdw_validator",
     );
   });

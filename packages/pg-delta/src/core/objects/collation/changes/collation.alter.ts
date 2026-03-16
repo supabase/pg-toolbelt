@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Collation } from "../collation.model.ts";
 import { AlterCollationChange } from "./collation.base.ts";
 
@@ -36,13 +37,15 @@ export class AlterCollationChangeOwner extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER COLLATION",
-      `${this.collation.schema}.${this.collation.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER COLLATION",
+        `${this.collation.schema}.${this.collation.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -62,12 +65,14 @@ export class AlterCollationRefreshVersion extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER COLLATION",
-      `${this.collation.schema}.${this.collation.name}`,
-      "REFRESH VERSION",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER COLLATION",
+        `${this.collation.schema}.${this.collation.name}`,
+        "REFRESH VERSION",
+      ].join(" "),
+    );
   }
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Enum } from "../enum.model.ts";
 import { DropEnum } from "./enum.drop.ts";
@@ -23,6 +24,8 @@ describe("enum", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP TYPE public.test_enum");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP TYPE public.test_enum",
+    );
   });
 });

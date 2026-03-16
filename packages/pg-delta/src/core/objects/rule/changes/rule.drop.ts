@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Rule } from "../rule.model.ts";
 import { DropRuleChange } from "./rule.base.ts";
 
@@ -18,12 +19,14 @@ export class DropRule extends DropRuleChange {
     return [this.rule.stableId, this.rule.relationStableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP RULE",
-      this.rule.name,
-      "ON",
-      `${this.rule.schema}.${this.rule.table_name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP RULE",
+        this.rule.name,
+        "ON",
+        `${this.rule.schema}.${this.rule.table_name}`,
+      ].join(" "),
+    );
   }
 }

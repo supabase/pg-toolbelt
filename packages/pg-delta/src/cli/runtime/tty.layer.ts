@@ -1,22 +1,29 @@
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import {
-  colorsEnabledForStream,
+  colorsEnabledForRuntimeProcess,
   getRuntimeProcess,
   isRuntimeCi,
 } from "../../adapters/runtime-process.ts";
 import { Tty } from "./tty.service.ts";
 
-const runtimeProcess = getRuntimeProcess();
+export const ttyLayer = Layer.effect(
+  Tty,
+  Effect.gen(function* () {
+    const runtimeProcess = yield* getRuntimeProcess();
 
-export const ttyLayer = Layer.succeed(Tty, {
-  stdinIsTty: Boolean(runtimeProcess.stdin.isTTY),
-  stdoutIsTty: Boolean(runtimeProcess.stdout.isTTY),
-  stderrIsTty: Boolean(runtimeProcess.stderr.isTTY),
-  isCi: isRuntimeCi(),
-  stdoutColorsEnabled: colorsEnabledForStream(
-    Boolean(runtimeProcess.stdout.isTTY),
-  ),
-  stderrColorsEnabled: colorsEnabledForStream(
-    Boolean(runtimeProcess.stderr.isTTY),
-  ),
-});
+    return Tty.of({
+      stdinIsTty: Boolean(runtimeProcess.stdin.isTTY),
+      stdoutIsTty: Boolean(runtimeProcess.stdout.isTTY),
+      stderrIsTty: Boolean(runtimeProcess.stderr.isTTY),
+      isCi: isRuntimeCi(runtimeProcess),
+      stdoutColorsEnabled: colorsEnabledForRuntimeProcess(
+        runtimeProcess,
+        Boolean(runtimeProcess.stdout.isTTY),
+      ),
+      stderrColorsEnabled: colorsEnabledForRuntimeProcess(
+        runtimeProcess,
+        Boolean(runtimeProcess.stderr.isTTY),
+      ),
+    });
+  }),
+);

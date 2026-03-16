@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import { stableId } from "../../../utils.ts";
@@ -55,13 +56,15 @@ export class AlterForeignTableChangeOwner extends AlterForeignTableChange {
     return [this.foreignTable.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -83,7 +86,7 @@ export class AlterForeignTableAddColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const parts = [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -100,7 +103,7 @@ export class AlterForeignTableAddColumn extends AlterForeignTableChange {
       parts.push("DEFAULT", this.column.default);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }
 
@@ -122,13 +125,15 @@ export class AlterForeignTableDropColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "DROP COLUMN",
-      this.columnName,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "DROP COLUMN",
+        this.columnName,
+      ].join(" "),
+    );
   }
 }
 
@@ -156,15 +161,17 @@ export class AlterForeignTableAlterColumnType extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
-      this.columnName,
-      "TYPE",
-      this.dataType,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "ALTER COLUMN",
+        this.columnName,
+        "TYPE",
+        this.dataType,
+      ].join(" "),
+    );
   }
 }
 
@@ -192,15 +199,17 @@ export class AlterForeignTableAlterColumnSetDefault extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
-      this.columnName,
-      "SET DEFAULT",
-      this.defaultValue,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "ALTER COLUMN",
+        this.columnName,
+        "SET DEFAULT",
+        this.defaultValue,
+      ].join(" "),
+    );
   }
 }
 
@@ -222,14 +231,16 @@ export class AlterForeignTableAlterColumnDropDefault extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
-      this.columnName,
-      "DROP DEFAULT",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "ALTER COLUMN",
+        this.columnName,
+        "DROP DEFAULT",
+      ].join(" "),
+    );
   }
 }
 
@@ -251,14 +262,16 @@ export class AlterForeignTableAlterColumnSetNotNull extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
-      this.columnName,
-      "SET NOT NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "ALTER COLUMN",
+        this.columnName,
+        "SET NOT NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -280,14 +293,16 @@ export class AlterForeignTableAlterColumnDropNotNull extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "ALTER COLUMN",
-      this.columnName,
-      "DROP NOT NULL",
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "ALTER COLUMN",
+        this.columnName,
+        "DROP NOT NULL",
+      ].join(" "),
+    );
   }
 }
 
@@ -320,7 +335,7 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {
@@ -331,11 +346,13 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
       }
     }
 
-    return [
-      "ALTER FOREIGN TABLE",
-      `${this.foreignTable.schema}.${this.foreignTable.name}`,
-      "OPTIONS",
-      `(${optionParts.join(", ")})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER FOREIGN TABLE",
+        `${this.foreignTable.schema}.${this.foreignTable.name}`,
+        "OPTIONS",
+        `(${optionParts.join(", ")})`,
+      ].join(" "),
+    );
   }
 }

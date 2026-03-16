@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
+
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
@@ -41,7 +43,7 @@ describe("rule.create", () => {
       ),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'CREATE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
     );
   });
@@ -56,7 +58,7 @@ describe("rule.create", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'CREATE OR REPLACE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Domain, type DomainProps } from "../domain.model.ts";
 import {
@@ -42,7 +43,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain SET DEFAULT 42",
       );
     });
@@ -75,7 +76,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain DROP DEFAULT",
       );
     });
@@ -108,7 +109,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain SET NOT NULL",
       );
     });
@@ -141,7 +142,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain DROP NOT NULL",
       );
     });
@@ -175,7 +176,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain OWNER TO new_owner",
       );
     });
@@ -213,7 +214,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0)",
       );
     });
@@ -251,7 +252,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain ADD CONSTRAINT test_check CHECK (VALUE > 0) NOT VALID",
       );
     });
@@ -289,7 +290,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain DROP CONSTRAINT test_check",
       );
     });
@@ -327,7 +328,7 @@ describe.concurrent("domain", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER DOMAIN public.test_domain VALIDATE CONSTRAINT test_check",
       );
     });

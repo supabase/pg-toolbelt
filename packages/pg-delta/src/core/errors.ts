@@ -113,3 +113,43 @@ export class PlanDeserializationError extends Data.TaggedError(
   readonly message: string;
   readonly cause?: unknown;
 }> {}
+
+/**
+ * Runtime host is missing required process-like globals.
+ */
+export class RuntimeHostError extends Data.TaggedError("RuntimeHostError")<{
+  readonly message: string;
+}> {}
+
+/**
+ * Internal invariant was violated while deriving or formatting output.
+ */
+export class InvariantViolationError extends Data.TaggedError(
+  "InvariantViolationError",
+)<{
+  readonly area:
+    | "file_mapper"
+    | "hierarchy"
+    | "serialization"
+    | "index"
+    | "runtime";
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+/**
+ * Sorting could not break a dependency cycle.
+ */
+export class SortCycleError extends Data.TaggedError("SortCycleError")<{
+  readonly message: string;
+}> {}
+
+/**
+ * A custom integration serializer failed or returned invalid output.
+ */
+export class IntegrationSerializationError extends Data.TaggedError(
+  "IntegrationSerializationError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}

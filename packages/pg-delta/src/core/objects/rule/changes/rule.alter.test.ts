@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Rule } from "../rule.model.ts";
@@ -41,7 +42,7 @@ describe("rule.alter", () => {
       ),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'CREATE OR REPLACE RULE "my_rule" AS ON INSERT TO public."my_table" DO INSTEAD NOTHING',
     );
   });
@@ -58,7 +59,7 @@ describe("rule.alter", () => {
       ),
     ]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'ALTER TABLE public."my_table" DISABLE RULE "my_rule"',
     );
   });
@@ -75,7 +76,7 @@ describe("rule.alter", () => {
 
     expect(change.requires).toEqual([rule.stableId, rule.relationStableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       'ALTER TABLE public."my_view" ENABLE REPLICA RULE "my_rule"',
     );
   });

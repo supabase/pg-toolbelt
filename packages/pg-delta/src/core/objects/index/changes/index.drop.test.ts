@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Index } from "../index.model.ts";
 import { DropIndex } from "./index.drop.ts";
@@ -42,6 +43,8 @@ describe("index", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP INDEX public.test_index");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP INDEX public.test_index",
+    );
   });
 });

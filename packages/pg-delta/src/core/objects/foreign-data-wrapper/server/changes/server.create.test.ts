@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server } from "../server.model.ts";
 import { CreateServer } from "./server.create.ts";
@@ -22,7 +23,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server FOREIGN DATA WRAPPER test_fdw",
     );
   });
@@ -45,7 +46,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server TYPE 'postgres_fdw' FOREIGN DATA WRAPPER test_fdw",
     );
   });
@@ -68,7 +69,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server VERSION '1.0' FOREIGN DATA WRAPPER test_fdw",
     );
   });
@@ -91,7 +92,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server TYPE 'postgres_fdw' VERSION '1.0' FOREIGN DATA WRAPPER test_fdw",
     );
   });
@@ -114,7 +115,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server FOREIGN DATA WRAPPER test_fdw OPTIONS (host 'localhost', port '5432')",
     );
   });
@@ -137,7 +138,7 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "CREATE SERVER test_server TYPE 'postgres_fdw' VERSION '1.0' FOREIGN DATA WRAPPER test_fdw OPTIONS (host 'localhost', port '5432')",
     );
   });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { ForeignTable } from "../foreign-table.model.ts";
 import { DropForeignTable } from "./foreign-table.drop.ts";
@@ -41,6 +42,8 @@ describe("foreign-table", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP FOREIGN TABLE public.test_table");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP FOREIGN TABLE public.test_table",
+    );
   });
 });

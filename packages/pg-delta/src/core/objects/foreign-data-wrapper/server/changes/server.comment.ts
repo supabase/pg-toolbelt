@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -26,14 +27,16 @@ export class CreateCommentOnServer extends CreateServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SERVER",
-      this.server.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
-      quoteLiteral(this.server.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON SERVER",
+        this.server.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: comment is not nullable in this case
+        quoteLiteral(this.server.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -54,7 +57,9 @@ export class DropCommentOnServer extends DropServerChange {
     return [stableId.comment(this.server.stableId), this.server.stableId];
   }
 
-  serialize(): string {
-    return ["COMMENT ON SERVER", this.server.name, "IS NULL"].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["COMMENT ON SERVER", this.server.name, "IS NULL"].join(" "),
+    );
   }
 }

@@ -2,7 +2,9 @@
  * Map changes to declarative schema file paths.
  */
 
+import { Effect } from "effect";
 import type { Change } from "../change.types.ts";
+import { InvariantViolationError } from "../errors.ts";
 import { getPgDeltaLogger } from "../logging.ts";
 import {
   getObjectName,
@@ -33,14 +35,19 @@ function isRoleDefaultPrivilegeChange(
   );
 }
 
-function requireSchema(change: Change): string {
+function requireSchema(
+  change: Change,
+): Effect.Effect<string, InvariantViolationError> {
   const schema = getObjectSchema(change);
   if (!schema) {
-    throw new Error(
-      `Expected schema for ${change.objectType} change '${getObjectName(change)}' (operation: ${change.operation})`,
+    return Effect.fail(
+      new InvariantViolationError({
+        area: "file_mapper",
+        message: `Expected schema for ${change.objectType} change '${getObjectName(change)}' (operation: ${change.operation})`,
+      }),
     );
   }
-  return schema;
+  return Effect.succeed(schema);
 }
 
 function schemaPath(schema: string, ...parts: string[]): string {
@@ -51,7 +58,11 @@ function schemaPath(schema: string, ...parts: string[]): string {
 // File Path Mapping
 // ============================================================================
 
-export function getFilePath(change: Change): FilePath {
+export const getFilePath: (
+  change: Change,
+) => Effect.Effect<FilePath, InvariantViolationError> = Effect.fn(
+  "getFilePath",
+)(function* (change: Change) {
   switch (change.objectType) {
     case "role":
       if (isRoleDefaultPrivilegeChange(change) && change.inSchema) {
@@ -64,20 +75,20 @@ export function getFilePath(change: Change): FilePath {
             schemaName,
             objectName: schemaName,
           },
-        };
+        } as FilePath;
       }
       return {
         path: "cluster/roles.sql",
         category: "cluster",
         metadata: { objectType: "role" },
-      };
+      } as FilePath;
     case "extension": {
       const extensionName = getObjectName(change);
       return {
         path: `cluster/extensions/${extensionName}.sql`,
         category: "extensions",
         metadata: { objectType: "extension", objectName: extensionName },
-      };
+      } as FilePath;
     }
     case "foreign_data_wrapper":
     case "server":
@@ -86,31 +97,31 @@ export function getFilePath(change: Change): FilePath {
         path: "cluster/foreign_data_wrappers.sql",
         category: "cluster",
         metadata: { objectType: change.objectType },
-      };
+      } as FilePath;
     case "publication":
       return {
         path: "cluster/publications.sql",
         category: "cluster",
         metadata: { objectType: "publication" },
-      };
+      } as FilePath;
     case "subscription":
       return {
         path: "cluster/subscriptions.sql",
         category: "cluster",
         metadata: { objectType: "subscription" },
-      };
+      } as FilePath;
     case "event_trigger":
       return {
         path: "cluster/event_triggers.sql",
         category: "cluster",
         metadata: { objectType: "event_trigger" },
-      };
+      } as FilePath;
     case "language":
       return {
         path: "cluster/languages.sql",
         category: "cluster",
         metadata: { objectType: "language" },
-      };
+      } as FilePath;
     case "schema": {
       const schemaName = change.schema.name;
       return {
@@ -121,12 +132,12 @@ export function getFilePath(change: Change): FilePath {
           schemaName,
           objectName: schemaName,
         },
-      };
+      } as FilePath;
     }
     case "enum":
     case "composite_type":
     case "range": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "types", `${objectName}.sql`),
@@ -136,10 +147,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "domain": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "domains", `${objectName}.sql`),
@@ -149,10 +160,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "collation": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "collations", `${objectName}.sql`),
@@ -162,10 +173,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "sequence": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
 
       // ALTER SEQUENCE ... OWNED BY must be grouped with the owning table,
@@ -189,7 +200,7 @@ export function getFilePath(change: Change): FilePath {
             schemaName: ownedBy.schema,
             objectName: ownedBy.table,
           },
-        };
+        } as FilePath;
       }
 
       return {
@@ -200,7 +211,7 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "table": {
       const schema = change.table.schema;
@@ -220,7 +231,7 @@ export function getFilePath(change: Change): FilePath {
             schemaName: parentSchema,
             objectName: change.table.parent_name,
           },
-        };
+        } as FilePath;
       }
       return {
         path: schemaPath(schema, "tables", `${tableName}.sql`),
@@ -230,10 +241,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName: tableName,
         },
-      };
+      } as FilePath;
     }
     case "foreign_table": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "foreign_tables", `${objectName}.sql`),
@@ -243,10 +254,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "view": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "views", `${objectName}.sql`),
@@ -256,10 +267,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "materialized_view": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "matviews", `${objectName}.sql`),
@@ -269,10 +280,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "procedure": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       const isProcedure = change.procedure.kind === "p";
       return {
@@ -287,10 +298,10 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "aggregate": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const objectName = getObjectName(change);
       return {
         path: schemaPath(schema, "aggregates", `${objectName}.sql`),
@@ -300,14 +311,17 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName,
         },
-      };
+      } as FilePath;
     }
     case "index": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const parent = getParentInfo(change);
       if (!parent) {
-        throw new Error(
-          `Expected parent for index '${getObjectName(change)}' in schema '${schema}'`,
+        return yield* Effect.fail(
+          new InvariantViolationError({
+            area: "file_mapper",
+            message: `Expected parent for index '${getObjectName(change)}' in schema '${schema}'`,
+          }),
         );
       }
       const parentName = parent.name;
@@ -321,16 +335,19 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName: parentName,
         },
-      };
+      } as FilePath;
     }
     case "trigger":
     case "rls_policy":
     case "rule": {
-      const schema = requireSchema(change);
+      const schema = yield* requireSchema(change);
       const parent = getParentInfo(change);
       if (!parent) {
-        throw new Error(
-          `Expected parent for ${change.objectType} '${getObjectName(change)}' in schema '${schema}'`,
+        return yield* Effect.fail(
+          new InvariantViolationError({
+            area: "file_mapper",
+            message: `Expected parent for ${change.objectType} '${getObjectName(change)}' in schema '${schema}'`,
+          }),
         );
       }
       const parentName = parent.name;
@@ -348,14 +365,14 @@ export function getFilePath(change: Change): FilePath {
           schemaName: schema,
           objectName: parentName,
         },
-      };
+      } as FilePath;
     }
     default: {
       const _exhaustive: never = change;
       return _exhaustive;
     }
   }
-}
+});
 
 // ============================================================================
 // Entity Grouping
@@ -419,7 +436,7 @@ export function compilePatterns(
 export function createFileMapper(
   grouping?: Grouping,
   onWarning?: (message: string) => void,
-): (change: Change) => FilePath {
+): (change: Change) => Effect.Effect<FilePath, InvariantViolationError> {
   if (!grouping) return getFilePath;
 
   const { compiled, warnings } = compilePatterns(grouping.groupPatterns ?? []);
@@ -429,28 +446,29 @@ export function createFileMapper(
   const autoPartitions = grouping.autoGroupPartitions !== false; // default true
   const flatSet = new Set(grouping.flatSchemas ?? []);
 
-  return (change: Change): FilePath => {
-    const basePath = getFilePath(change);
+  return (change: Change): Effect.Effect<FilePath, InvariantViolationError> =>
+    Effect.gen(function* () {
+      const basePath = yield* getFilePath(change);
 
-    // Flat schemas: collapse everything into one file per category.
-    // Applied first -- skips pattern matching for these schemas.
-    if (
-      flatSet.size > 0 &&
-      basePath.metadata.schemaName &&
-      flatSet.has(basePath.metadata.schemaName)
-    ) {
-      return flattenSchema(basePath);
-    }
+      // Flat schemas: collapse everything into one file per category.
+      // Applied first -- skips pattern matching for these schemas.
+      if (
+        flatSet.size > 0 &&
+        basePath.metadata.schemaName &&
+        flatSet.has(basePath.metadata.schemaName)
+      ) {
+        return flattenSchema(basePath);
+      }
 
-    const groupName = resolveGroupName(
-      change,
-      basePath,
-      compiled,
-      autoPartitions,
-    );
-    if (!groupName) return basePath;
-    return applyGrouping(basePath, groupName, grouping.mode);
-  };
+      const groupName = resolveGroupName(
+        change,
+        basePath,
+        compiled,
+        autoPartitions,
+      );
+      if (!groupName) return basePath;
+      return applyGrouping(basePath, groupName, grouping.mode);
+    });
 }
 
 /**

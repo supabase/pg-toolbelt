@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import type { ObjectDiffContext } from "../diff-context.ts";
 import {
   AlterSubscriptionDisable,
@@ -154,7 +155,9 @@ describe.concurrent("subscription.diff", () => {
       (change) => change instanceof AlterSubscriptionSetOptions,
     ) as AlterSubscriptionSetOptions | undefined;
     expect(setOptionsChange).toBeDefined();
-    expect(setOptionsChange?.serialize()).toBe(
+    expect(
+      setOptionsChange && Effect.runSync(setOptionsChange.serialize()),
+    ).toBe(
       "ALTER SUBSCRIPTION mysub SET (slot_name = 'custom_slot', binary = true, streaming = 'parallel', synchronous_commit = 'local', disable_on_error = true, password_required = false, run_as_owner = true, origin = 'none', failover = true)",
     );
   });
@@ -176,9 +179,9 @@ describe.concurrent("subscription.diff", () => {
       (change) => change instanceof AlterSubscriptionSetOptions,
     ) as AlterSubscriptionSetOptions | undefined;
     expect(setOptionsChange).toBeDefined();
-    expect(setOptionsChange?.serialize()).toBe(
-      "ALTER SUBSCRIPTION mysub SET (slot_name = NONE)",
-    );
+    expect(
+      setOptionsChange && Effect.runSync(setOptionsChange.serialize()),
+    ).toBe("ALTER SUBSCRIPTION mysub SET (slot_name = NONE)");
   });
 
   test("owner and comment changes", () => {

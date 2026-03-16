@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedViewChange } from "./materialized-view.base.ts";
@@ -51,10 +52,12 @@ export class DropMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
-    return [
-      "DROP MATERIALIZED VIEW",
-      `${this.materializedView.schema}.${this.materializedView.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "DROP MATERIALIZED VIEW",
+        `${this.materializedView.schema}.${this.materializedView.name}`,
+      ].join(" "),
+    );
   }
 }

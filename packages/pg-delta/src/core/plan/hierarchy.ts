@@ -2,8 +2,10 @@
  * Hierarchical grouping of changes for tree display.
  */
 
+import { Effect } from "effect";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
+import { InvariantViolationError } from "../errors.ts";
 import {
   AlterTableAddColumn,
   AlterTableAlterColumnDropDefault,
@@ -218,49 +220,52 @@ function isExistingPartition(
 export function groupChangesHierarchically(
   ctx: DiffContext,
   changes: Change[],
-): HierarchicalPlan {
-  const result: HierarchicalPlan = {
-    cluster: emptyClusterGroup(),
-    schemas: {},
-  };
+): Effect.Effect<HierarchicalPlan, InvariantViolationError> {
+  return Effect.gen(function* () {
+    const result: HierarchicalPlan = {
+      cluster: emptyClusterGroup(),
+      schemas: {},
+    };
 
-  for (const change of changes) {
-    const columnName = isColumnOperation(change);
-    // Check for partitions: either creating a new partition (CreateTable) or any change on an existing partition
-    let partitionOf: string | null = null;
-    const changeSchema = getObjectSchema(change);
-    if (change.objectType === "table" && changeSchema) {
-      // First check if this is a CreateTable creating a partition
-      partitionOf = isPartitionTable(change);
-      // If not, check if this table is an existing partition (for any table change including privilege changes)
-      if (!partitionOf) {
-        partitionOf = isExistingPartition(ctx, changeSchema, change.table.name);
+    for (const change of changes) {
+      const columnName = isColumnOperation(change);
+      let partitionOf: string | null = null;
+      const changeSchema = getObjectSchema(change);
+      if (change.objectType === "table" && changeSchema) {
+        partitionOf = isPartitionTable(change);
+        if (!partitionOf) {
+          partitionOf = isExistingPartition(
+            ctx,
+            changeSchema,
+            change.table.name,
+          );
+        }
       }
+
+      if (!changeSchema) {
+        yield* addClusterChange(result.cluster, change);
+        continue;
+      }
+
+      if (!result.schemas[changeSchema]) {
+        result.schemas[changeSchema] = emptySchemaGroup();
+      }
+      const schemaGroup = result.schemas[changeSchema];
+
+      const parent = getParentInfo(change);
+      if (parent) {
+        yield* addChildChange(schemaGroup, change);
+        continue;
+      }
+
+      yield* addSchemaLevelChange(schemaGroup, change, {
+        columnName,
+        partitionOf,
+      });
     }
 
-    if (!changeSchema) {
-      addClusterChange(result.cluster, change);
-      continue;
-    }
-
-    if (!result.schemas[changeSchema]) {
-      result.schemas[changeSchema] = emptySchemaGroup();
-    }
-    const schemaGroup = result.schemas[changeSchema];
-
-    const parent = getParentInfo(change);
-    if (parent) {
-      addChildChange(schemaGroup, change);
-      continue;
-    }
-
-    addSchemaLevelChange(schemaGroup, change, {
-      columnName,
-      partitionOf,
-    });
-  }
-
-  return result;
+    return result;
+  });
 }
 
 // ============================================================================
@@ -270,7 +275,10 @@ export function groupChangesHierarchically(
 /**
  * Add a change to the cluster group (exhaustive on cluster-wide types).
  */
-function addClusterChange(cluster: ClusterGroup, change: Change): void {
+function addClusterChange(
+  cluster: ClusterGroup,
+  change: Change,
+): Effect.Effect<void, InvariantViolationError> {
   const objectType = change.objectType;
 
   switch (objectType) {
@@ -322,17 +330,26 @@ function addClusterChange(cluster: ClusterGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      return Effect.fail(
+        new InvariantViolationError({
+          area: "hierarchy",
+          message: `Unhandled object type: ${_exhaustive}`,
+        }),
+      );
     }
   }
+  return Effect.void;
 }
 
 /**
  * Add a child change (index, trigger, policy, rule) to its parent (exhaustive).
  */
-function addChildChange(schema: SchemaGroup, change: Change): void {
+function addChildChange(
+  schema: SchemaGroup,
+  change: Change,
+): Effect.Effect<void, InvariantViolationError> {
   const parentInfo = getParentInfo(change);
-  if (!parentInfo) return;
+  if (!parentInfo) return Effect.void;
 
   const parentName = parentInfo.name;
   const parentType = parentInfo.type;
@@ -366,7 +383,12 @@ function addChildChange(schema: SchemaGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = parentType;
-      throw new Error(`Unhandled parent type: ${_exhaustive}`);
+      return Effect.fail(
+        new InvariantViolationError({
+          area: "hierarchy",
+          message: `Unhandled parent type: ${_exhaustive}`,
+        }),
+      );
     }
   }
 
@@ -416,9 +438,15 @@ function addChildChange(schema: SchemaGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      return Effect.fail(
+        new InvariantViolationError({
+          area: "hierarchy",
+          message: `Unhandled object type: ${_exhaustive}`,
+        }),
+      );
     }
   }
+  return Effect.void;
 }
 
 /**
@@ -436,7 +464,7 @@ function addSchemaLevelChange(
   schema: SchemaGroup,
   change: Change,
   enrichment: ChangeEnrichment,
-): void {
+): Effect.Effect<void, InvariantViolationError> {
   const objectType = change.objectType;
 
   switch (objectType) {
@@ -568,7 +596,13 @@ function addSchemaLevelChange(
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      return Effect.fail(
+        new InvariantViolationError({
+          area: "hierarchy",
+          message: `Unhandled object type: ${_exhaustive}`,
+        }),
+      );
     }
   }
+  return Effect.void;
 }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
 import { Server } from "../server.model.ts";
 import { DropServer } from "./server.drop.ts";
@@ -22,6 +23,6 @@ describe("server", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP SERVER test_server");
+    expect(Effect.runSync(change.serialize())).toBe("DROP SERVER test_server");
   });
 });

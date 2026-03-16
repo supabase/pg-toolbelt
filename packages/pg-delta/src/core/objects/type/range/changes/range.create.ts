@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import {
   isUserDefinedTypeSchema,
   parseProcedureReference,
@@ -98,7 +99,7 @@ export class CreateRange extends CreateRangeChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const name = `${this.range.schema}.${this.range.name}`;
     const prefix: string = ["CREATE TYPE", name, "AS RANGE"].join(" ");
 
@@ -150,6 +151,6 @@ export class CreateRange extends CreateRangeChange {
     }
 
     const body = `(${opts.join(", ")})`;
-    return `${prefix} ${body}`;
+    return Effect.succeed(`${prefix} ${body}`);
   }
 }

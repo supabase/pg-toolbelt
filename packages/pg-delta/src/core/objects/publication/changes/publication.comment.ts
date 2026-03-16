@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Publication } from "../publication.model.ts";
@@ -27,14 +28,16 @@ export class CreateCommentOnPublication extends CreatePublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON PUBLICATION",
-      this.publication.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: comment ensured non-null by caller
-      quoteLiteral(this.publication.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON PUBLICATION",
+        this.publication.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: comment ensured non-null by caller
+        quoteLiteral(this.publication.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -58,7 +61,9 @@ export class DropCommentOnPublication extends DropPublicationChange {
     ];
   }
 
-  serialize(): string {
-    return `COMMENT ON PUBLICATION ${this.publication.name} IS NULL`;
+  serialize() {
+    return Effect.succeed(
+      `COMMENT ON PUBLICATION ${this.publication.name} IS NULL`,
+    );
   }
 }

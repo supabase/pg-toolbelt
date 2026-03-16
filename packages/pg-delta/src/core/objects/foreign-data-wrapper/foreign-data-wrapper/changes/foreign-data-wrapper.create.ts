@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -52,7 +53,7 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE FOREIGN DATA WRAPPER"];
 
     // Add FDW name
@@ -90,6 +91,6 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
       }
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

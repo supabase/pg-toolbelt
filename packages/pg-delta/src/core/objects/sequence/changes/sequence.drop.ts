@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Sequence } from "../sequence.model.ts";
 import { DropSequenceChange } from "./sequence.base.ts";
 
@@ -28,10 +29,11 @@ export class DropSequence extends DropSequenceChange {
     return [this.sequence.stableId];
   }
 
-  serialize(): string {
-    return [
-      "DROP SEQUENCE",
-      `${this.sequence.schema}.${this.sequence.name}`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      ["DROP SEQUENCE", `${this.sequence.schema}.${this.sequence.name}`].join(
+        " ",
+      ),
+    );
   }
 }

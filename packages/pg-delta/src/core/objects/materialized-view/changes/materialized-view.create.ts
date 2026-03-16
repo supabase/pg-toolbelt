@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
@@ -62,7 +63,7 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 
     // Add schema and name
@@ -88,6 +89,6 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
       parts.push("WITH NO DATA");
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

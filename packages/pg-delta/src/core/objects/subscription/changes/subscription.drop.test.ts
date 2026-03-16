@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Subscription } from "../subscription.model.ts";
 import { DropSubscription } from "./subscription.drop.ts";
@@ -43,6 +44,8 @@ describe("subscription.drop", () => {
 
     expect(change.drops).toEqual([subscription.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe("DROP SUBSCRIPTION sub_base");
+    expect(Effect.runSync(change.serialize())).toBe(
+      "DROP SUBSCRIPTION sub_base",
+    );
   });
 });

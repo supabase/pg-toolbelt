@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Procedure, type ProcedureProps } from "../procedure.model.ts";
 import {
@@ -57,7 +58,7 @@ describe.concurrent("procedure", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() OWNER TO new_owner",
       );
     });
@@ -106,7 +107,7 @@ describe.concurrent("procedure", () => {
 
       await assertValidSql(change.serialize());
 
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() OWNER TO new_owner",
       );
     });
@@ -148,7 +149,7 @@ describe.concurrent("procedure", () => {
         owner: "postgres",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.my_func(integer, text) OWNER TO postgres",
       );
     });
@@ -191,7 +192,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() SECURITY DEFINER",
       );
     });
@@ -234,7 +235,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() SECURITY INVOKER",
       );
     });
@@ -293,15 +294,15 @@ describe.concurrent("procedure", () => {
         value: "64MB",
       });
       await assertValidSql(change1.serialize());
-      expect(change1.serialize()).toBe(
+      expect(Effect.runSync(change1.serialize())).toBe(
         "ALTER FUNCTION public.test_function() RESET search_path",
       );
       await assertValidSql(change2.serialize());
-      expect(change2.serialize()).toBe(
+      expect(Effect.runSync(change2.serialize())).toBe(
         "ALTER FUNCTION public.test_function() SET search_path TO pg_temp",
       );
       await assertValidSql(change3.serialize());
-      expect(change3.serialize()).toBe(
+      expect(Effect.runSync(change3.serialize())).toBe(
         "ALTER FUNCTION public.test_function() SET work_mem TO '64MB'",
       );
     });
@@ -346,7 +347,7 @@ describe.concurrent("procedure", () => {
         value: "public",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() SET search_path TO public",
       );
     });
@@ -389,7 +390,7 @@ describe.concurrent("procedure", () => {
         volatility: "i",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() IMMUTABLE",
       );
     });
@@ -432,7 +433,7 @@ describe.concurrent("procedure", () => {
         isStrict: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() STRICT",
       );
     });
@@ -475,7 +476,7 @@ describe.concurrent("procedure", () => {
         isStrict: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() CALLED ON NULL INPUT",
       );
     });
@@ -518,7 +519,7 @@ describe.concurrent("procedure", () => {
         leakproof: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() LEAKPROOF",
       );
     });
@@ -561,7 +562,7 @@ describe.concurrent("procedure", () => {
         leakproof: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() NOT LEAKPROOF",
       );
     });
@@ -604,7 +605,7 @@ describe.concurrent("procedure", () => {
         parallelSafety: "r",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER FUNCTION public.test_function() PARALLEL RESTRICTED",
       );
     });
@@ -648,7 +649,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() SECURITY DEFINER",
       );
     });
@@ -691,7 +692,7 @@ describe.concurrent("procedure", () => {
         securityDefiner: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() SECURITY INVOKER",
       );
     });
@@ -747,15 +748,15 @@ describe.concurrent("procedure", () => {
         value: "64MB",
       });
       await assertValidSql(change1.serialize());
-      expect(change1.serialize()).toBe(
+      expect(Effect.runSync(change1.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
       await assertValidSql(change2.serialize());
-      expect(change2.serialize()).toBe(
+      expect(Effect.runSync(change2.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() SET search_path TO pg_temp",
       );
       await assertValidSql(change3.serialize());
-      expect(change3.serialize()).toBe(
+      expect(Effect.runSync(change3.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() SET work_mem TO '64MB'",
       );
     });
@@ -807,11 +808,11 @@ describe.concurrent("procedure", () => {
         key: "work_mem",
       });
       await assertValidSql(change1.serialize());
-      expect(change1.serialize()).toBe(
+      expect(Effect.runSync(change1.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET search_path",
       );
       await assertValidSql(change2.serialize());
-      expect(change2.serialize()).toBe(
+      expect(Effect.runSync(change2.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() RESET work_mem",
       );
     });
@@ -854,7 +855,7 @@ describe.concurrent("procedure", () => {
         volatility: "s",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() STABLE",
       );
     });
@@ -897,7 +898,7 @@ describe.concurrent("procedure", () => {
         isStrict: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() STRICT",
       );
     });
@@ -940,7 +941,7 @@ describe.concurrent("procedure", () => {
         isStrict: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() CALLED ON NULL INPUT",
       );
     });
@@ -983,7 +984,7 @@ describe.concurrent("procedure", () => {
         leakproof: true,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() LEAKPROOF",
       );
     });
@@ -1026,7 +1027,7 @@ describe.concurrent("procedure", () => {
         leakproof: false,
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() NOT LEAKPROOF",
       );
     });
@@ -1069,7 +1070,7 @@ describe.concurrent("procedure", () => {
         parallelSafety: "s",
       });
       await assertValidSql(change.serialize());
-      expect(change.serialize()).toBe(
+      expect(Effect.runSync(change.serialize())).toBe(
         "ALTER PROCEDURE public.test_procedure() PARALLEL SAFE",
       );
     });

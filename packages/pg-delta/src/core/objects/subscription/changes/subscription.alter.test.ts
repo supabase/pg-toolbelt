@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Subscription } from "../subscription.model.ts";
@@ -53,7 +54,7 @@ describe("subscription.alter", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER SUBSCRIPTION sub_base CONNECTION 'dbname=postgres host=replica'",
     );
   });
@@ -69,7 +70,7 @@ describe("subscription.alter", () => {
 
     await assertValidSql(enabledChange.serialize());
 
-    expect(enabledChange.serialize()).toBe(
+    expect(Effect.runSync(enabledChange.serialize())).toBe(
       "ALTER SUBSCRIPTION sub_base SET PUBLICATION pub_a, pub_b",
     );
 
@@ -83,7 +84,7 @@ describe("subscription.alter", () => {
 
     await assertValidSql(disabledChange.serialize());
 
-    expect(disabledChange.serialize()).toBe(
+    expect(Effect.runSync(disabledChange.serialize())).toBe(
       "ALTER SUBSCRIPTION sub_base SET PUBLICATION pub_a, pub_b WITH (refresh = false)",
     );
   });
@@ -91,12 +92,14 @@ describe("subscription.alter", () => {
   test("toggle enablement serializes ENABLE and DISABLE statements", async () => {
     const subscription = makeSubscription();
 
-    expect(new AlterSubscriptionEnable({ subscription }).serialize()).toBe(
-      "ALTER SUBSCRIPTION sub_base ENABLE",
-    );
-    expect(new AlterSubscriptionDisable({ subscription }).serialize()).toBe(
-      "ALTER SUBSCRIPTION sub_base DISABLE",
-    );
+    expect(
+      Effect.runSync(new AlterSubscriptionEnable({ subscription }).serialize()),
+    ).toBe("ALTER SUBSCRIPTION sub_base ENABLE");
+    expect(
+      Effect.runSync(
+        new AlterSubscriptionDisable({ subscription }).serialize(),
+      ),
+    ).toBe("ALTER SUBSCRIPTION sub_base DISABLE");
   });
 
   test("set options delegates to option formatter", async () => {
@@ -113,7 +116,7 @@ describe("subscription.alter", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER SUBSCRIPTION sub_base SET (slot_name = 'custom_slot', disable_on_error = true, origin = 'none')",
     );
   });
@@ -127,7 +130,7 @@ describe("subscription.alter", () => {
 
     expect(change.requires).toEqual([stableId.role("new_owner")]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER SUBSCRIPTION sub_base OWNER TO new_owner",
     );
   });

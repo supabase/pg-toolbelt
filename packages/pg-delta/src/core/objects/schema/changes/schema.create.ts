@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchemaChange } from "./schema.base.ts";
@@ -31,7 +32,7 @@ export class CreateSchema extends CreateSchemaChange {
     return [stableId.role(this.schema.owner)];
   }
 
-  serialize(options?: { skipAuthorization?: boolean }): string {
+  serialize(options?: { skipAuthorization?: boolean }) {
     const parts: string[] = ["CREATE SCHEMA"];
 
     // Add schema name
@@ -42,6 +43,6 @@ export class CreateSchema extends CreateSchemaChange {
       parts.push("AUTHORIZATION", this.schema.owner);
     }
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

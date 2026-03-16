@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Range } from "../range.model.ts";
 import { AlterRangeChange } from "./range.base.ts";
 
@@ -34,13 +35,15 @@ export class AlterRangeChangeOwner extends AlterRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER TYPE",
-      `${this.range.schema}.${this.range.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER TYPE",
+        `${this.range.schema}.${this.range.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 

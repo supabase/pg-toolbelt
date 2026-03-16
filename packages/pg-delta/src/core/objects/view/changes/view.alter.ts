@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { View } from "../view.model.ts";
 import { AlterViewChange } from "./view.base.ts";
 
@@ -42,13 +43,15 @@ export class AlterViewChangeOwner extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER VIEW",
-      `${this.view.schema}.${this.view.name}`,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER VIEW",
+        `${this.view.schema}.${this.view.name}`,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -72,14 +75,16 @@ export class AlterViewSetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const opts = this.options.join(", ");
-    return [
-      "ALTER VIEW",
-      `${this.view.schema}.${this.view.name}`,
-      "SET",
-      `(${opts})`,
-    ].join(" ");
+    return Effect.succeed(
+      [
+        "ALTER VIEW",
+        `${this.view.schema}.${this.view.name}`,
+        "SET",
+        `(${opts})`,
+      ].join(" "),
+    );
   }
 }
 
@@ -101,12 +106,14 @@ export class AlterViewResetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER VIEW",
-      `${this.view.schema}.${this.view.name}`,
-      "RESET",
-      `(${this.params.join(", ")})`,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER VIEW",
+        `${this.view.schema}.${this.view.name}`,
+        "RESET",
+        `(${this.params.join(", ")})`,
+      ].join(" "),
+    );
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { AlterEventTriggerChange } from "./event-trigger.base.ts";
 
@@ -37,13 +38,15 @@ export class AlterEventTriggerChangeOwner extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
-    return [
-      "ALTER EVENT TRIGGER",
-      this.eventTrigger.name,
-      "OWNER TO",
-      this.owner,
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "ALTER EVENT TRIGGER",
+        this.eventTrigger.name,
+        "OWNER TO",
+        this.owner,
+      ].join(" "),
+    );
   }
 }
 
@@ -75,8 +78,10 @@ export class AlterEventTriggerSetEnabled extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const clause = ENABLED_SQL[this.enabled];
-    return ["ALTER EVENT TRIGGER", this.eventTrigger.name, clause].join(" ");
+    return Effect.succeed(
+      ["ALTER EVENT TRIGGER", this.eventTrigger.name, clause].join(" "),
+    );
   }
 }

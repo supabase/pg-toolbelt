@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { stableId } from "../../utils.ts";
 import type {
   Publication,
@@ -31,7 +32,7 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
+  serialize() {
     const assignments: string[] = [];
 
     if (this.setPublish) {
@@ -45,7 +46,9 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
       );
     }
 
-    return `ALTER PUBLICATION ${this.publication.name} SET (${assignments.join(", ")})`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} SET (${assignments.join(", ")})`,
+    );
   }
 }
 
@@ -79,12 +82,14 @@ export class AlterPublicationSetList extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const clauses = formatPublicationObjects(
       this.publication.tables,
       this.publication.schemas,
     );
-    return `ALTER PUBLICATION ${this.publication.name} SET ${clauses.join(", ")}`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} SET ${clauses.join(", ")}`,
+    );
   }
 }
 
@@ -118,9 +123,11 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const clauses = this.tables.map((table) => formatPublicationTable(table));
-    return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`,
+    );
   }
 }
 
@@ -150,9 +157,11 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const targets = this.tables.map((table) => `${table.schema}.${table.name}`);
-    return `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`,
+    );
   }
 }
 
@@ -174,9 +183,11 @@ export class AlterPublicationAddSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
-    return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`,
+    );
   }
 }
 
@@ -198,9 +209,11 @@ export class AlterPublicationDropSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
+  serialize() {
     const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
-    return `ALTER PUBLICATION ${this.publication.name} DROP ${clauses.join(", ")}`;
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} DROP ${clauses.join(", ")}`,
+    );
   }
 }
 
@@ -219,7 +232,9 @@ export class AlterPublicationSetOwner extends AlterPublicationChange {
     return [this.publication.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
-    return `ALTER PUBLICATION ${this.publication.name} OWNER TO ${this.owner}`;
+  serialize() {
+    return Effect.succeed(
+      `ALTER PUBLICATION ${this.publication.name} OWNER TO ${this.owner}`,
+    );
   }
 }

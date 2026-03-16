@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
@@ -48,7 +49,7 @@ export class CreateCollation extends CreateCollationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize() {
     const parts: string[] = ["CREATE COLLATION"];
 
     // Add schema and name (already quoted in model extraction)
@@ -101,6 +102,6 @@ export class CreateCollation extends CreateCollationChange {
 
     parts.push(["(", properties.join(", "), ")"].join(""));
 
-    return parts.join(" ");
+    return Effect.succeed(parts.join(" "));
   }
 }

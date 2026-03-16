@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Role } from "../role.model.ts";
 import { DropRole } from "./role.drop.ts";
@@ -27,6 +28,6 @@ describe("role", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(change.serialize()).toBe("DROP ROLE test_role");
+    expect(Effect.runSync(change.serialize())).toBe("DROP ROLE test_role");
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./aggregate.alter.ts";
@@ -59,7 +60,7 @@ describe("aggregate.alter", () => {
 
     expect(change.requires).toEqual([aggregate.stableId]);
     await assertValidSql(change.serialize());
-    expect(change.serialize()).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "ALTER AGGREGATE public.agg_sum(integer) OWNER TO owner2",
     );
   });

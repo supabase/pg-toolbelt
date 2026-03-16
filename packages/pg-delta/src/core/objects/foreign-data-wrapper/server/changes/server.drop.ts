@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { Server } from "../server.model.ts";
 import { DropServerChange } from "./server.base.ts";
 
@@ -28,7 +29,7 @@ export class DropServer extends DropServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
-    return ["DROP SERVER", this.server.name].join(" ");
+  serialize() {
+    return Effect.succeed(["DROP SERVER", this.server.name].join(" "));
   }
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -27,14 +28,16 @@ export class CreateCommentOnSubscription extends CreateSubscriptionChange {
     return [this.subscription.stableId];
   }
 
-  serialize(): string {
-    return [
-      "COMMENT ON SUBSCRIPTION",
-      this.subscription.name,
-      "IS",
-      // biome-ignore lint/style/noNonNullAssertion: ensures comment provided by caller
-      quoteLiteral(this.subscription.comment!),
-    ].join(" ");
+  serialize() {
+    return Effect.succeed(
+      [
+        "COMMENT ON SUBSCRIPTION",
+        this.subscription.name,
+        "IS",
+        // biome-ignore lint/style/noNonNullAssertion: ensures comment provided by caller
+        quoteLiteral(this.subscription.comment!),
+      ].join(" "),
+    );
   }
 }
 
@@ -58,7 +61,9 @@ export class DropCommentOnSubscription extends DropSubscriptionChange {
     ];
   }
 
-  serialize(): string {
-    return `COMMENT ON SUBSCRIPTION ${this.subscription.name} IS NULL`;
+  serialize() {
+    return Effect.succeed(
+      `COMMENT ON SUBSCRIPTION ${this.subscription.name} IS NULL`,
+    );
   }
 }
