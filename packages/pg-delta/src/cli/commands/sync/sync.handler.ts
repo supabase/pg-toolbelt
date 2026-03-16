@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect";
 import { applyPlan, createPlan } from "../../../effect.ts";
 import { CliExitError, UserCancelled } from "../../errors.ts";
+import { extractDeepestCliMessage } from "../../output/normalize-error.ts";
 import { Output } from "../../output/output.service.ts";
 import { resolveIntegration } from "../../utils/resolve-integration.ts";
 import { formatPlanForDisplay, validatePlanRisk } from "../../utils.ts";
@@ -141,7 +142,7 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
         }),
       );
     case "PlanApplyError": {
-      const msg = result.failure.cause.cause;
+      const msg = extractDeepestCliMessage(result.failure.cause);
       yield* output.error(`Failed to apply changes: ${msg}`);
       yield* output.error(`Migration script:\n${result.failure.script}`);
       return yield* Effect.fail(

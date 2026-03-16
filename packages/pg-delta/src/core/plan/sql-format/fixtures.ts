@@ -1,4 +1,4 @@
-import type { Effect } from "effect";
+import { Effect } from "effect";
 import type { InvariantViolationError } from "../../errors.ts";
 import { Aggregate } from "../../objects/aggregate/aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "../../objects/aggregate/changes/aggregate.alter.ts";
@@ -2799,8 +2799,10 @@ const changeCases: ChangeCase[] = [
   },
 ];
 
-const renderChanges = (changes: ChangeCase[]): string[] =>
-  changes.map(({ label, change }) => `-- ${label}\n${change.serialize()}`);
+const renderChanges = (changes: ChangeCase[]) =>
+  changes.map(
+    ({ label, change }) => `-- ${label}\n${Effect.runSync(change.serialize())}`,
+  );
 
 export function renderScript(options?: SqlFormatOptions): string {
   return formatSqlScript(renderChanges(changeCases), options);

@@ -6,7 +6,7 @@ import { compileSerializeDSL } from "./dsl.ts";
 function makeChange(
   type: string,
   operation: string,
-  serializeFn: (opts?: Record<string, unknown>) => string,
+  serializeFn: (opts?: Record<string, unknown>) => Effect.Effect<string>,
 ): Change {
   return {
     objectType: type,
@@ -27,9 +27,11 @@ describe("compileSerializeDSL", () => {
     ]);
 
     const change = makeChange("schema", "create", (opts) =>
-      opts?.skipAuthorization
-        ? "CREATE SCHEMA test"
-        : "CREATE SCHEMA test AUTHORIZATION owner",
+      Effect.succeed(
+        opts?.skipAuthorization
+          ? "CREATE SCHEMA test"
+          : "CREATE SCHEMA test AUTHORIZATION owner",
+      ),
     );
 
     expect(Effect.runSync(serializer(change))).toBe("CREATE SCHEMA test");
@@ -44,9 +46,11 @@ describe("compileSerializeDSL", () => {
     ]);
 
     const change = makeChange("schema", "create", (opts) =>
-      opts?.skipAuthorization
-        ? "CREATE SCHEMA test"
-        : "CREATE SCHEMA test AUTHORIZATION owner",
+      Effect.succeed(
+        opts?.skipAuthorization
+          ? "CREATE SCHEMA test"
+          : "CREATE SCHEMA test AUTHORIZATION owner",
+      ),
     );
 
     expect(Effect.runSync(serializer(change))).toBe(
@@ -67,7 +71,7 @@ describe("compileSerializeDSL", () => {
     ]);
 
     const change = makeChange("schema", "create", (opts) =>
-      opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH",
+      Effect.succeed(opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH"),
     );
 
     expect(Effect.runSync(serializer(change))).toBe("WITHOUT AUTH");
@@ -86,7 +90,7 @@ describe("compileSerializeDSL", () => {
     ]);
 
     const change = makeChange("schema", "create", (opts) =>
-      opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH",
+      Effect.succeed(opts?.skipAuthorization ? "WITHOUT AUTH" : "WITH AUTH"),
     );
 
     expect(Effect.runSync(serializer(change))).toBe("WITH AUTH");

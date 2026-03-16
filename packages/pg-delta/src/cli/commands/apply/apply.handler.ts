@@ -2,6 +2,7 @@ import { Effect, FileSystem } from "effect";
 import { deserializePlan, type Plan } from "../../../core/plan/index.ts";
 import { applyPlan } from "../../../effect.ts";
 import { CliExitError } from "../../errors.ts";
+import { extractDeepestCliMessage } from "../../output/normalize-error.ts";
 import { Output } from "../../output/output.service.ts";
 import { validatePlanRisk } from "../../utils.ts";
 
@@ -92,7 +93,7 @@ export const handleApply = Effect.fnUntraced(function* (args: {
         }),
       );
     case "PlanApplyError": {
-      const msg = result.failure.cause.cause;
+      const msg = extractDeepestCliMessage(result.failure.cause);
       yield* output.error(`Failed to apply changes: ${msg}`);
       yield* output.error(`Migration script:\n${result.failure.script}`);
       return yield* Effect.fail(

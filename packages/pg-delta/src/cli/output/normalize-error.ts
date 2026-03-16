@@ -62,3 +62,32 @@ export function normalizeCause(
     Option.getOrElse(errorOption, () => Cause.squash(cause)),
   );
 }
+
+const hasCause = (value: unknown): value is { cause: unknown } =>
+  isErrorRecord(value) && "cause" in value;
+
+const isGenericMessage = (message: string): boolean =>
+  message === "Unknown error" ||
+  message === "UnknownError" ||
+  message === "SqlError" ||
+  message === "Failed to execute statement" ||
+  message === "Connection error" ||
+  message === "Failed to acquire connection";
+
+export function extractDeepestCliMessage(error: unknown): string {
+  let current = error;
+  let best = normalizeCliError(error).message;
+  const seen = new Set<unknown>();
+
+  while (hasCause(current) && current.cause !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const next = current.cause;
+    const normalized = normalizeCliError(next);
+    if (!isGenericMessage(normalized.message)) {
+      best = normalized.message;
+    }
+    current = next;
+  }
+
+  return best;
+}

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Effect } from "effect";
 import {
   AlterIndexSetStatistics,
   AlterIndexSetStorageParams,
@@ -88,9 +89,17 @@ describe.concurrent("index.diff", () => {
       key_columns: [1],
       index_expressions: null,
     });
-    expect(() =>
-      diffIndexes({ [main.stableId]: main }, { [branch.stableId]: branch }, {}),
-    ).toThrowError(
+    const changes = diffIndexes(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      {},
+    );
+    const createChange = changes.find(
+      (change) => change instanceof CreateIndex,
+    ) as CreateIndex | undefined;
+
+    expect(createChange).toBeDefined();
+    expect(() => Effect.runSync(createChange!.serialize())).toThrowError(
       "Index requires an indexableObject with columns when key_columns are used",
     );
   });
