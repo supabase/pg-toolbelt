@@ -56,12 +56,18 @@ interface OperationCounts {
   drop: number;
 }
 
+/**
+ * Increment operation counters based on a prefixed label.
+ */
 function tallyOperation(name: string, counts: OperationCounts): void {
   if (name.startsWith("+")) counts.create += 1;
   else if (name.startsWith("~")) counts.alter += 1;
   else if (name.startsWith("-")) counts.drop += 1;
 }
 
+/**
+ * Count operations for a single level (no recursion).
+ */
 function summarizeShallow(
   groups?: TreeGroup[],
   items?: TreeItem[],
@@ -92,6 +98,27 @@ export interface TreeGroup {
   groups?: TreeGroup[];
 }
 
+/**
+ * Render a tree structure using plain lines style.
+ *
+ * @example
+ * ```ts
+ * const tree: TreeGroup = {
+ *   name: "root",
+ *   groups: [
+ *     { name: "src", items: [{ name: "index.ts" }] },
+ *     { name: "tests", items: [{ name: "test.ts" }] },
+ *   ],
+ * };
+ * const output = renderTree(tree);
+ * // Output:
+ * // root
+ * // ├─ src
+ * // │  └─ index.ts
+ * // └─ tests
+ * //    └─ test.ts
+ * ```
+ */
 export function renderTree(root: TreeGroup, useColors = true): string {
   const palette = createAnsiPalette(useColors);
 
@@ -108,6 +135,7 @@ export function renderTree(root: TreeGroup, useColors = true): string {
   const rootItems = root.items ?? [];
   const rootGroups = root.groups ?? [];
 
+  // Render root groups at top level (no extra wrapper indentation)
   const clusterEntries: TreeGroup[] = [];
   const otherGroups: TreeGroup[] = [];
   let schemasGroup: TreeGroup | undefined;
@@ -232,6 +260,9 @@ function sortGroups(groups: TreeGroup[]): TreeGroup[] {
   });
 }
 
+/**
+ * Colorize a label; pads non-op labels to align with op-labeled rows.
+ */
 function colorizeName(
   name: string,
   palette: AnsiPalette,
@@ -241,6 +272,7 @@ function colorizeName(
   const hasOperationSymbol = /^[+~-]\s/.test(rawBase);
   const baseName = rawBase.trim();
 
+  // Colorize items/entities with operation symbols (e.g., "+ customer", "+ customer_email_domain_idx")
   if (hasOperationSymbol) {
     const symbol = rawBase[0];
     const rest = rawBase.slice(2).trimStart();
@@ -254,6 +286,7 @@ function colorizeName(
     return count ? `${coloredBase}${sep}${palette.gray(count)}` : coloredBase;
   }
 
+  // Group names (like "tables", "schemas") - dim gray
   const baseNameStripped = baseName.replace(/\s*\(\d+\)$/, "");
   if (GROUP_NAMES.includes(baseNameStripped)) {
     const coloredBase = palette.gray(baseNameStripped);
@@ -264,12 +297,18 @@ function colorizeName(
   return count ? `${padded}${sep}${palette.gray(count)}` : padded;
 }
 
+/**
+ * Render a group with bullet-style indentation.
+ */
 function buildPrefix(ancestors: boolean[], palette: AnsiPalette): string {
   return ancestors
     .map((hasSibling) => (hasSibling ? palette.guide(GUIDE_UNIT) : "   "))
     .join("");
 }
 
+/**
+ * Render a group node (may have child groups/items). Avoids drawing guides past the last child.
+ */
 function renderGroup(
   group: TreeGroup,
   ancestors: boolean[],
@@ -319,6 +358,9 @@ function renderGroup(
   }
 }
 
+/**
+ * Render a leaf item. Non-op rows get a dim connector; op rows start at the prefix.
+ */
 function renderItem(
   name: string,
   ancestors: boolean[],

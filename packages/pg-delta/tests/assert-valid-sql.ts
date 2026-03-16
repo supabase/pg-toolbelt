@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { validateSqlSyntax } from "../../../../pg-topo/src/node.ts";
-import type { InvariantViolationError } from "../errors.ts";
+import { ParserServiceLive, validateSqlSyntax } from "@supabase/pg-topo";
+import type { InvariantViolationError } from "../src/core/errors.ts";
 
 export const resolveSql = (
   sql: Effect.Effect<string, InvariantViolationError>,
@@ -18,12 +18,13 @@ export const resolveSql = (
 export async function assertValidSql(
   sql: Effect.Effect<string, InvariantViolationError>,
 ): Promise<void> {
-  const resolvedSql = resolveSql(sql);
-  try {
-    await validateSqlSyntax(resolvedSql);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown parser error";
-    throw new Error(`Invalid SQL syntax: ${message}\nSQL: ${resolvedSql}`);
-  }
+  const resolvedSql = Effect.runSync(sql);
+  const validationEffect = validateSqlSyntax(resolvedSql).pipe(
+    Effect.provide(ParserServiceLive),
+    Effect.mapError(
+      (error) =>
+        new Error(`Invalid SQL syntax: ${error.message}\nSQL: ${resolvedSql}`),
+    ),
+  );
+  await Effect.runPromise(validationEffect);
 }

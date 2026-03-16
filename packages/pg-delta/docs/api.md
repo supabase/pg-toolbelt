@@ -1,10 +1,11 @@
 # API Reference
 
-`@supabase/pg-delta` now exposes four library entrypoints:
+`@supabase/pg-delta` exposes these primary programmatic entrypoints:
 
 - `@supabase/pg-delta` — canonical Effect-native root surface
 - `@supabase/pg-delta/effect` — explicit Effect-native surface
 - `@supabase/pg-delta/node` — Node promise facade over the shared Effect core
+- `@supabase/pg-delta/bun` — Bun promise facade over the shared Effect core
 - `@supabase/pg-delta/adapters/node-pg` — explicit `pg` interop for pools and runtime layers
 
 The Effect-native implementation is backed by `@effect/sql-pg@4.0.0-beta.31`,
@@ -24,19 +25,20 @@ npm install @supabase/pg-delta
 import { Effect } from "effect";
 import { applyPlan, createPlan } from "@supabase/pg-delta";
 import { supabase } from "@supabase/pg-delta/integrations/supabase";
+import { nodePgDatabaseResolverLayer } from "@supabase/pg-delta/adapters/node-pg";
 
 const planResult = await createPlan(
   "postgresql://localhost:5432/source_db",
   "postgresql://localhost:5432/target_db",
   { filter: supabase.filter, serialize: supabase.serialize },
-).pipe(Effect.runPromise);
+).pipe(Effect.provide(nodePgDatabaseResolverLayer), Effect.runPromise);
 
 if (planResult) {
   const applyResult = await applyPlan(
     planResult.plan,
     "postgresql://localhost:5432/source_db",
     "postgresql://localhost:5432/target_db",
-  ).pipe(Effect.runPromise);
+  ).pipe(Effect.provide(nodePgDatabaseResolverLayer), Effect.runPromise);
 
   console.log(applyResult.status);
 }
@@ -95,6 +97,14 @@ import {
 
 `@supabase/pg-delta/node` adapts the shared Effect programs into Promise APIs
 and accepts `pg.Pool` inputs where appropriate.
+
+### Bun Entry Point
+
+```typescript
+import { applyPlan, createPlan } from "@supabase/pg-delta/bun";
+```
+
+`@supabase/pg-delta/bun` keeps the same Promise contract as `/node`.
 
 ### Explicit `pg` Adapter
 

@@ -27,4 +27,14 @@ describe("@supabase/pg-topo entrypoints", () => {
       BunApi.validateSqlSyntax("SELECT 1;"),
     ).resolves.toBeUndefined();
   });
+
+  test("node and bun entrypoints do not leak Effect-only runtime exports", () => {
+    expect("ParserServiceLive" in NodeApi).toBe(false);
+    expect("withWorkingDirectory" in NodeApi).toBe(false);
+    expect("WorkingDirectory" in NodeApi).toBe(false);
+
+    expect("ParserServiceLive" in BunApi).toBe(false);
+    expect("withWorkingDirectory" in BunApi).toBe(false);
+    expect("WorkingDirectory" in BunApi).toBe(false);
+  });
 });

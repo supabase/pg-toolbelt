@@ -13,7 +13,7 @@ import * as Prompt from "effect/unstable/cli/Prompt";
 import { Tty } from "../runtime/tty.service.ts";
 import { NonInteractiveError } from "./errors.ts";
 import { Output } from "./output.service.ts";
-import type { OutputFormat, StreamEvent } from "./types.ts";
+import type { OutputFormat } from "./types.ts";
 
 const NON_INTERACTIVE_CONFIRM_TIMEOUT_MS = 1_000;
 
@@ -86,8 +86,6 @@ const textOutputLayer = Layer.effect(
       );
 
     return Output.of({
-      format: "text",
-      interactive: tty.stdinIsTty && tty.stdoutIsTty && !tty.isCi,
       stdoutColorsEnabled: tty.stdoutColorsEnabled,
       stderrColorsEnabled: tty.stderrColorsEnabled,
       write: (message: string) => writeLine(writeStdout, message),
@@ -95,10 +93,6 @@ const textOutputLayer = Layer.effect(
       warn: (message: string) => writeLine(writeStderr, message),
       success: (message: string) => writeLine(writeStderr, message),
       error: (message: string) => writeLine(writeStderr, message),
-      event: (event: StreamEvent) =>
-        event.type === "log"
-          ? writeLine(writeStderr, `[${event.level}] ${event.message}`)
-          : writeLine(writeStdout, JSON.stringify(event)),
       confirm: (message: string) =>
         tty.stdinIsTty && tty.stdoutIsTty && !tty.isCi
           ? confirmInteractively(message)
@@ -136,8 +130,6 @@ const jsonOutputLayer = Layer.effect(
       );
 
     return Output.of({
-      format: "json",
-      interactive: false,
       stdoutColorsEnabled: false,
       stderrColorsEnabled: false,
       write: (message: string) => writeLine(writeStdout, message),
@@ -145,8 +137,6 @@ const jsonOutputLayer = Layer.effect(
       warn: (message: string) => writeLine(writeStderr, message),
       success: (message: string) => writeLine(writeStderr, message),
       error: (message: string) => writeLine(writeStderr, message),
-      event: (event: StreamEvent) =>
-        writeLine(writeStdout, JSON.stringify(event)),
       confirm: () => nonInteractive("prompt for confirmation"),
       fail: (error) =>
         writeLine(writeStdout, JSON.stringify({ _tag: "Error", error })),
@@ -162,70 +152,32 @@ const streamJsonOutputLayer = Layer.effect(
     const writeStdout = (message: string) =>
       Stream.make(message).pipe(Stream.run(stdio.stdout()), Effect.orDie);
 
-    const emit = (event: StreamEvent) =>
+    const emit = (event: Record<string, unknown>) =>
       writeLine(writeStdout, JSON.stringify(event));
 
+    const emitLog = (
+      level: "info" | "warn" | "success" | "error",
+      message: string,
+    ) =>
+      timestampNow.pipe(
+        Effect.flatMap((timestamp) =>
+          emit({
+            type: "log",
+            level,
+            message,
+            timestamp,
+          }),
+        ),
+      );
+
     return Output.of({
-      format: "stream-json",
-      interactive: false,
       stdoutColorsEnabled: false,
       stderrColorsEnabled: false,
-      write: (message: string) =>
-        timestampNow.pipe(
-          Effect.flatMap((timestamp) =>
-            emit({
-              type: "log",
-              level: "info",
-              message,
-              timestamp,
-            }),
-          ),
-        ),
-      info: (message: string) =>
-        timestampNow.pipe(
-          Effect.flatMap((timestamp) =>
-            emit({
-              type: "log",
-              level: "info",
-              message,
-              timestamp,
-            }),
-          ),
-        ),
-      warn: (message: string) =>
-        timestampNow.pipe(
-          Effect.flatMap((timestamp) =>
-            emit({
-              type: "log",
-              level: "warn",
-              message,
-              timestamp,
-            }),
-          ),
-        ),
-      success: (message: string) =>
-        timestampNow.pipe(
-          Effect.flatMap((timestamp) =>
-            emit({
-              type: "log",
-              level: "success",
-              message,
-              timestamp,
-            }),
-          ),
-        ),
-      error: (message: string) =>
-        timestampNow.pipe(
-          Effect.flatMap((timestamp) =>
-            emit({
-              type: "log",
-              level: "error",
-              message,
-              timestamp,
-            }),
-          ),
-        ),
-      event: emit,
+      write: (message: string) => emitLog("info", message),
+      info: (message: string) => emitLog("info", message),
+      warn: (message: string) => emitLog("warn", message),
+      success: (message: string) => emitLog("success", message),
+      error: (message: string) => emitLog("error", message),
       confirm: () =>
         Effect.fail(
           new NonInteractiveError({

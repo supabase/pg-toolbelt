@@ -1,4 +1,3 @@
-import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 import { applyCommand } from "./commands/apply/apply.command.ts";
 import { catalogExportCommand } from "./commands/catalog-export/catalog-export.command.ts";
@@ -7,7 +6,6 @@ import { declarativeExportCommand } from "./commands/declarative-export/declarat
 import { planCommand } from "./commands/plan/plan.command.ts";
 import { syncCommand } from "./commands/sync/sync.command.ts";
 import { OutputFormatFlag } from "./global-flags.ts";
-import { outputLayerFor } from "./output/output.layer.ts";
 
 const declarativeCommand = Command.make("declarative").pipe(
   Command.withSubcommands([declarativeApplyCommand, declarativeExportCommand]),
@@ -21,13 +19,5 @@ export const root = Command.make("pgdelta").pipe(
     declarativeCommand,
     catalogExportCommand,
   ]),
-  Command.provide(
-    Layer.unwrap(
-      Effect.gen(function* () {
-        const outputFormat = yield* OutputFormatFlag;
-        return outputLayerFor(outputFormat);
-      }),
-    ),
-  ),
   Command.withGlobalFlags([OutputFormatFlag]),
 );

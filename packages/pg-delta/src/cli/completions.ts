@@ -1,10 +1,11 @@
+import { spawn } from "node:child_process";
 import { Effect } from "effect";
-import { Command } from "effect/unstable/cli";
+import { getRuntimeProcess } from "../adapters/runtime-process.ts";
 
 const SUPPORTED_COMPLETION_SHELLS = ["bash", "zsh", "fish", "sh"] as const;
 
-type SupportedCompletionShell = (typeof SUPPORTED_COMPLETION_SHELLS)[number];
-type GeneratorShell = Exclude<SupportedCompletionShell, "sh">;
+export type SupportedCompletionShell =
+  (typeof SUPPORTED_COMPLETION_SHELLS)[number];
 
 export function parseCompletionShell(
   argv: readonly string[],
@@ -34,44 +35,76 @@ export function isSupportedCompletionShell(
 
 export const generateCompletionScript = (
   shell: SupportedCompletionShell,
-  command: unknown,
-  version: string,
 ): Effect.Effect<string, Error> =>
   Effect.gen(function* () {
     const generatorShell = shell === "sh" ? "bash" : shell;
-    const originalLog = console.log;
-    const captured: string[] = [];
+    const runtimeProcess = yield* getRuntimeProcess().pipe(
+      Effect.mapError((error) => new Error(error.message)),
+    );
 
-    console.log = (...args: ReadonlyArray<unknown>) => {
-      captured.push(args.map(String).join(" "));
-    };
-
-    try {
-      yield* Command.runWith(command as never, { version })([
-        "--completions",
-        generatorShell,
-      ]).pipe(
-        Effect.mapError(
-          (error) =>
-            new Error(
-              error instanceof Error
-                ? error.message
-                : "Failed to generate completion script.",
-            ),
-        ),
-      ) as Effect.Effect<void, Error, never>;
-    } finally {
-      console.log = originalLog;
+    const runtimeCommand = runtimeProcess.argv[0];
+    const runtimeEntry = runtimeProcess.argv[1];
+    if (runtimeCommand === undefined || runtimeEntry === undefined) {
+      return yield* Effect.fail(
+        new Error("Failed to resolve the current CLI runtime entrypoint."),
+      );
     }
 
-    return sanitizeCompletionScript(captured.join("\n"), generatorShell);
+    const script = yield* Effect.tryPromise({
+      try: () =>
+        new Promise<string>((resolve, reject) => {
+          const child = spawn(
+            runtimeCommand,
+            [runtimeEntry, "--completions", generatorShell],
+            {
+              cwd: runtimeProcess.cwd(),
+              env: {
+                ...runtimeProcess.env,
+                PGDELTA_INTERNAL_RAW_COMPLETIONS: "1",
+              },
+              stdio: ["ignore", "pipe", "pipe"],
+            },
+          );
+
+          let stdout = "";
+          let stderr = "";
+
+          child.stdout?.on("data", (chunk) => {
+            stdout += chunk.toString();
+          });
+          child.stderr?.on("data", (chunk) => {
+            stderr += chunk.toString();
+          });
+          child.on("error", reject);
+          child.on("close", (exitCode) => {
+            if (exitCode === 0) {
+              resolve(stdout);
+              return;
+            }
+
+            reject(
+              new Error(
+                stderr.trim() || "Failed to generate completion script.",
+              ),
+            );
+          });
+        }),
+      catch: (error) =>
+        error instanceof Error
+          ? error
+          : new Error("Failed to generate completion script."),
+    });
+
+    return sanitizeCompletionScript(script.trimEnd(), shell);
   });
 
-function sanitizeCompletionScript(
+export function sanitizeCompletionScript(
   script: string,
-  shell: GeneratorShell,
+  shell: SupportedCompletionShell,
 ): string {
-  switch (shell) {
+  const generatorShell = shell === "sh" ? "bash" : shell;
+
+  switch (generatorShell) {
     case "bash":
       return sanitizeBashCompletionScript(script);
     case "zsh":

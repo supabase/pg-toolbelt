@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
+import { assertValidSql } from "../../../../../tests/assert-valid-sql.ts";
 import { diffRlsPolicies } from "../rls-policy.diff.ts";
 import { RlsPolicy, type RlsPolicyProps } from "../rls-policy.model.ts";
 import {

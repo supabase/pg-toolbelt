@@ -1,5 +1,5 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withDb } from "../utils.ts";
@@ -272,6 +272,53 @@ Apply these changes? (y/N) "
       expect(JSON.parse(await readFile(planPath, "utf8"))).toHaveProperty(
         "risk",
       );
+    }),
+  );
+
+  test(
+    "apply does not duplicate locally reported execution failures",
+    withDb(17, async (db) => {
+      const tempDir = await mkdtemp(join(tmpdir(), "pgdelta-cli-pg17-"));
+      const planPath = join(tempDir, "plan.json");
+
+      await db.branch.query("CREATE SCHEMA broken_apply");
+
+      const planResult = await runCli([
+        "plan",
+        "--source",
+        db.mainUrl,
+        "--target",
+        db.branchUrl,
+        "--output",
+        planPath,
+      ]);
+
+      expect(planResult.exitCode).toBe(2);
+
+      const plan = JSON.parse(await readFile(planPath, "utf8")) as {
+        statements: string[];
+      };
+      plan.statements = ["THIS IS NOT SQL"];
+      await writeFile(planPath, JSON.stringify(plan, null, 2));
+
+      const applyResult = await runCli([
+        "apply",
+        "--plan",
+        planPath,
+        "--source",
+        db.mainUrl,
+        "--target",
+        db.branchUrl,
+      ]);
+
+      expect(applyResult.exitCode).toBe(1);
+      expect(applyResult.stdout).toBe("");
+      expect(
+        applyResult.stderr.match(/Failed to apply changes:/g)?.length ?? 0,
+      ).toBe(1);
+      expect(applyResult.stderr).toContain('syntax error at or near "THIS"');
+      expect(applyResult.stderr).toContain("Migration script:");
+      expect(applyResult.stderr).toContain("THIS IS NOT SQL;");
     }),
   );
 

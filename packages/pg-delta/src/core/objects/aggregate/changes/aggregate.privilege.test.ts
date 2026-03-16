@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  assertValidSql,
-  resolveSql,
-} from "../../../test-utils/assert-valid-sql.ts";
+import { Effect } from "effect";
+import { assertValidSql } from "../../../../../tests/assert-valid-sql.ts";
 import { stableId } from "../../utils.ts";
 import { Aggregate } from "../aggregate.model.ts";
 import {
@@ -75,7 +73,7 @@ describe("aggregate.privilege", () => {
       stableId.role("role_exec"),
     ]);
     await assertValidSql(change.serialize());
-    expect(resolveSql(change.serialize())).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "GRANT ALL ON FUNCTION public.agg_sum(integer) TO role_exec",
     );
   });
@@ -90,7 +88,7 @@ describe("aggregate.privilege", () => {
 
     await assertValidSql(change.serialize());
 
-    expect(resolveSql(change.serialize())).toBe(
+    expect(Effect.runSync(change.serialize())).toBe(
       "GRANT ALL ON FUNCTION public.agg_sum(integer) TO role_exec WITH GRANT OPTION",
     );
   });
@@ -113,7 +111,7 @@ describe("aggregate.privilege", () => {
       stableId.role("role_old"),
     ]);
     await assertValidSql(revoke.serialize());
-    expect(resolveSql(revoke.serialize())).toBe(
+    expect(Effect.runSync(revoke.serialize())).toBe(
       "REVOKE ALL ON FUNCTION public.agg_sum(integer) FROM role_old",
     );
 
@@ -132,7 +130,7 @@ describe("aggregate.privilege", () => {
       stableId.role("role_with_option"),
     ]);
     await assertValidSql(revokeGrantOption.serialize());
-    expect(resolveSql(revokeGrantOption.serialize())).toBe(
+    expect(Effect.runSync(revokeGrantOption.serialize())).toBe(
       "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.agg_sum(integer) FROM role_with_option",
     );
   });

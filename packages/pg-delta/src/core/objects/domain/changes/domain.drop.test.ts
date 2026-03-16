@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
+import { assertValidSql } from "../../../../../tests/assert-valid-sql.ts";
 import { Domain } from "../domain.model.ts";
 import { DropDomain } from "./domain.drop.ts";
 

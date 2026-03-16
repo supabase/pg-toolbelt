@@ -59,7 +59,17 @@ export const declarativeApplyCommand = Command.make(
   Command.withHandler(handleDeclarativeApply),
   Command.withShortDescription("Apply a declarative SQL schema to a database"),
   Command.withDescription(
-    "Recursively loads .sql files, uses pg-topo for static dependency analysis and execution ordering, then applies statements in rounds to resolve dependency gaps at runtime. Function body checks are disabled during the main rounds to avoid false failures from not-yet-created objects, then re-enabled in a final validation pass.",
+    `Apply SQL files from a declarative schema directory to a target database.
+
+Uses pg-topo for static dependency analysis and topological ordering,
+then applies statements round-by-round to handle any remaining
+dependency gaps. Statements that fail with dependency errors are
+deferred to subsequent rounds until all succeed or no progress is made.
+
+Function body checks are disabled during rounds to avoid false failures
+from functions referencing not-yet-created objects. A final validation
+pass re-runs all function/procedure definitions with body checks enabled.
+    `.trim(),
   ),
   Command.withExamples([
     {

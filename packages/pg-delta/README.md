@@ -105,40 +105,12 @@ pgdelta sync --source <source> --target <target> --integration ./my-integration.
 
 ### Programmatic Usage
 
-```typescript
-import { Effect } from "effect";
-import { applyPlan, createPlan } from "@supabase/pg-delta";
-
-const planResult = await createPlan(
-  "postgresql://source",
-  "postgresql://target",
-).pipe(Effect.runPromise);
-
-if (planResult) {
-  console.log(planResult.plan.statements.join(";\n"));
-
-  const applyResult = await applyPlan(
-    planResult.plan,
-    "postgresql://source",
-    "postgresql://target",
-  ).pipe(Effect.runPromise);
-
-  if (applyResult.status === "applied") {
-    console.log(`Applied ${applyResult.statements} statements`);
-  }
-}
-```
-
-`@supabase/pg-delta` and `@supabase/pg-delta/effect` are now the Effect-native
-surfaces. They accept catalogs, abstract database adapters, and connection URLs,
-but they do not expose `pg.Pool` types directly.
-
-Promise facades are still available from explicit runtime entrypoints:
+For URL-based workflows, prefer the Promise facades exposed by the explicit
+runtime entrypoints:
 
 ```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta/node";
+import { applyPlan, createPlan } from "@supabase/pg-delta/node";
 
-// Only include changes in the public schema
 const planResult = await createPlan(sourceUrl, targetUrl, {
   filter: { schema: "public" },
   serialize: [
@@ -147,7 +119,40 @@ const planResult = await createPlan(sourceUrl, targetUrl, {
 });
 
 if (planResult) {
-  const result = await applyPlan(planResult.plan, sourceUrl, targetUrl);
+  console.log(planResult.plan.statements.join(";\n"));
+
+  const applyResult = await applyPlan(planResult.plan, sourceUrl, targetUrl);
+
+  if (applyResult.status === "applied") {
+    console.log(`Applied ${applyResult.statements} statements`);
+  }
+}
+```
+
+`@supabase/pg-delta` and `@supabase/pg-delta/effect` share the same
+Effect-native contract:
+
+- they return `Effect.Effect` programs
+- they do not expose `pg.Pool` in public types
+- URL-based helpers require a `DatabaseResolver` layer at the boundary
+
+```typescript
+import { Effect } from "effect";
+import { applyPlan, createPlan } from "@supabase/pg-delta";
+import { nodePgDatabaseResolverLayer } from "@supabase/pg-delta/adapters/node-pg";
+
+const runtime = nodePgDatabaseResolverLayer;
+
+const planResult = await createPlan(sourceUrl, targetUrl).pipe(
+  Effect.provide(runtime),
+  Effect.runPromise,
+);
+
+if (planResult) {
+  await applyPlan(planResult.plan, sourceUrl, targetUrl).pipe(
+    Effect.provide(runtime),
+    Effect.runPromise,
+  );
 }
 ```
 

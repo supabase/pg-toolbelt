@@ -113,4 +113,19 @@ const declarativeExportFlags = {
 export const declarativeExportCommand = Command.make(
   "export",
   declarativeExportFlags,
-).pipe(Command.withHandler(handleDeclarativeExport));
+).pipe(
+  Command.withHandler(handleDeclarativeExport),
+  Command.withShortDescription(
+    "Export a declarative schema from a database diff",
+  ),
+  Command.withDescription(
+    `Export a declarative SQL schema by comparing two databases (source → target).
+Writes .sql files to the output directory, grouped by object type and optional
+grouping rules.
+
+When --source is omitted, all objects from the target database are exported
+(equivalent to diffing from an empty database).
+After export, a tip is printed with the command to apply the schema to an empty database.
+    `.trim(),
+  ),
+);

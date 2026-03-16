@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
+import { assertValidSql } from "../../../../../../tests/assert-valid-sql.ts";
 import { UserMapping, type UserMappingProps } from "../user-mapping.model.ts";
 import { AlterUserMappingSetOptions } from "./user-mapping.alter.ts";
 

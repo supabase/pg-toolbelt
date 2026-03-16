@@ -66,4 +66,17 @@ const syncFlags = {
 
 export const syncCommand = Command.make("sync", syncFlags).pipe(
   Command.withHandler(handleSync),
+  Command.withShortDescription("Plan and apply schema changes in one go"),
+  Command.withDescription(
+    `Compute the schema diff between two PostgreSQL databases (source → target),
+display the plan, prompt for confirmation, and apply changes if confirmed.
+
+Use --yes to skip the confirmation prompt and apply changes automatically.
+Safe by default: refuses data-loss changes unless --unsafe is set.
+
+Exit codes:
+  0 - Success (changes applied or no changes detected)
+  1 - Error occurred
+  2 - User cancelled or changes detected but not applied`.trim(),
+  ),
 );

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
+import { assertValidSql } from "../../../../../tests/assert-valid-sql.ts";
 import { Trigger } from "../trigger.model.ts";
 import { CreateTrigger } from "./trigger.create.ts";
 

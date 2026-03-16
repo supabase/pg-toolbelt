@@ -1,5 +1,5 @@
 import { formatSqlStatements } from "@supabase/pg-delta";
-import { analyzeAndSort } from "@supabase/pg-topo";
+import { analyzeAndSort } from "@supabase/pg-topo/node";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {

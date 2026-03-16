@@ -5,6 +5,27 @@ import {
   analyzeAndSortFromFiles as analyzeAndSortFromFilesEffect,
   validateSqlSyntax as validateSqlSyntaxEffect,
 } from "./effect.ts";
+export {
+  DiscoveryError,
+  ParseError,
+  ValidationError,
+  WasmLoadError,
+} from "./errors.ts";
+export type {
+  AnalyzeOptions,
+  AnalyzeResult,
+  AnnotationHints,
+  Diagnostic,
+  DiagnosticCode,
+  GraphEdge,
+  GraphEdgeReason,
+  GraphReport,
+  ObjectKind,
+  ObjectRef,
+  PhaseTag,
+  StatementId,
+  StatementNode,
+} from "./model/types.ts";
 import { ParserServiceLive } from "./services/parser-live.ts";
 
 const parserRuntime = ManagedRuntime.make(ParserServiceLive);
@@ -13,8 +34,6 @@ const makeFromFilesRuntime = () =>
   ManagedRuntime.make(
     Layer.mergeAll(ParserServiceLive, makeDefaultNodeFileSystemRuntimeLayer()),
   );
-
-export * from "./effect.ts";
 
 export const analyzeAndSort = (
   sql: Parameters<typeof analyzeAndSortEffect>[0],

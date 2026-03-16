@@ -46,12 +46,13 @@ The core API accepts a list of SQL content strings (each string can contain mult
 ```ts
 import { Effect } from "effect";
 import { analyzeAndSort } from "@supabase/pg-topo";
+import { ParserServiceLive } from "@supabase/pg-topo/effect";
 
 const result = await analyzeAndSort([
   "create schema app;",
   "create table app.users(id int primary key, email text not null);",
   "create view app.user_emails as select email from app.users;",
-]).pipe(Effect.runPromise);
+]).pipe(Effect.provide(ParserServiceLive), Effect.runPromise);
 
 if (result.diagnostics.length > 0) {
   for (const diagnostic of result.diagnostics) {
@@ -65,22 +66,20 @@ console.log(sortedSql);
 
 ## Using with Files
 
-If you want to point at directories or `.sql` files on disk, use the filesystem adapter:
+If you want to point at directories or `.sql` files on disk, use the runtime
+entrypoints that provide parser and filesystem layers for you:
 
 ```ts
-import { Effect } from "effect";
-import { analyzeAndSortFromFiles } from "@supabase/pg-topo";
+import { analyzeAndSortFromFiles } from "@supabase/pg-topo/node";
 
-const result = await analyzeAndSortFromFiles(["./schema"]).pipe(
-  Effect.runPromise,
-);
+const result = await analyzeAndSortFromFiles(["./schema"]);
 ```
 
 `analyzeAndSortFromFiles` discovers `.sql` files, reads them, and delegates to the core `analyzeAndSort`.
 
-The Effect-native filesystem path is now explicit about its requirements:
-provide `FileSystem`, `Path`, and a working-directory value. The published
-runtime boundaries do that for you.
+The Effect-native filesystem path is explicit about its requirements: provide
+`ParserService`, `FileSystem`, `Path`, and a working-directory value yourself,
+or import from `/node` or `/bun` instead.
 
 If you want Promise-returning wrappers instead, use the explicit runtime entrypoints:
 

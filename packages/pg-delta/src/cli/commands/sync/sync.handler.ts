@@ -17,12 +17,15 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
 }) {
   const output = yield* Output;
 
+  // Load integration if provided and extract filter/serialize DSL
+  // Use integration DSL if explicit flags not provided
   const { filter, serialize } = yield* resolveIntegration({
     filter: flags.filter,
     serialize: flags.serialize,
     integration: flags.integration,
   });
 
+  // 1. Create the plan
   const planResult = yield* createPlan(flags.source, flags.target, {
     role: Option.getOrUndefined(flags.role),
     filter,
@@ -42,6 +45,7 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
     return;
   }
 
+  // 2. Display the plan
   const { content } = yield* formatPlanForDisplay(planResult, "tree", {
     disableColors: !output.stdoutColorsEnabled,
   }).pipe(
@@ -55,6 +59,7 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
   );
   yield* output.write(content);
 
+  // 3. Validate risk (suppress warning since it's already shown in the plan)
   const validation = validatePlanRisk(planResult.plan, flags.unsafe, {
     suppressWarning: true,
   });
@@ -75,6 +80,7 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
     );
   }
 
+  // 4. Prompt for confirmation (unless --yes)
   if (!flags.yes) {
     const confirmed = yield* output.confirm("Apply these changes?").pipe(
       Effect.mapError(
@@ -92,10 +98,12 @@ export const handleSync = Effect.fnUntraced(function* (flags: {
     }
   }
 
+  // 5. Apply the plan
   const result = yield* applyPlan(planResult.plan, flags.source, flags.target, {
     verifyPostApply: true,
   }).pipe(Effect.result);
 
+  // 6. Handle apply result
   if (result._tag === "Success") {
     yield* output.info(
       `Applying ${result.success.statements} changes to database...`,

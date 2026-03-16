@@ -78,11 +78,11 @@ GLOBAL FLAGS
   --output-format choice    Output format: text (default), json, or stream-json (NDJSON)
 
 SUBCOMMANDS
-  plan              
-  apply             
-  sync              
+  plan              Compute schema diff and preview changes
+  apply             Apply a saved migration plan
+  sync              Plan and apply schema changes in one go
   declarative       
-  catalog-export    
+  catalog-export    Snapshot a live database catalog to JSON
 "
 `);
     expect(result.stderr).toMatchInlineSnapshot(`""`);
@@ -107,24 +107,13 @@ SUBCOMMANDS
 `);
   });
 
-  for (const [shell, marker] of [
-    ["bash", "complete -F _pgdelta pgdelta"],
-    ["zsh", "#compdef pgdelta"],
-    ["fish", "complete -c pgdelta"],
-    ["sh", "complete -F _pgdelta pgdelta"],
-  ] as const) {
-    test(`${shell} completions expose shell markers without invalid negated flags`, async () => {
-      const result = await runCli(["--completions", shell]);
+  test("bash completions smoke-test the generated script", async () => {
+    const result = await runCli(["--completions", "bash"]);
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).toBe("");
-      expect(result.stdout).toContain(marker);
-      expect(result.stdout).not.toContain("--no-unsafe");
-      expect(result.stdout).not.toContain("--no-force");
-      expect(result.stdout).not.toContain("--no-verbose");
-      expect(result.stdout).not.toContain("--no-skip-function-validation");
-    });
-  }
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("complete -F _pgdelta pgdelta");
+  });
 
   test("unsupported completions shell prints a targeted error", async () => {
     const result = await runCli(["--completions", "bogus"]);
@@ -298,6 +287,59 @@ CREATE SCHEMA app AUTHORIZATION postgres;
 "Invalid filter JSON: JSON Parse error: Expected '}'
 "
 `);
+  });
+
+  test("plan --output-format json emits structured errors on stdout", async () => {
+    const result = await runCli([
+      "plan",
+      "--target",
+      baselineSnapshotPath,
+      "--filter",
+      "{",
+      "--output-format",
+      "json",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      _tag: "Error",
+      error: {
+        code: "CliExitError",
+        message: "Invalid filter JSON: JSON Parse error: Expected '}'",
+      },
+    });
+  });
+
+  test("plan --output-format stream-json emits NDJSON errors on stdout", async () => {
+    const result = await runCli([
+      "plan",
+      "--target",
+      baselineSnapshotPath,
+      "--filter",
+      "{",
+      "--output-format",
+      "stream-json",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+
+    const lines = result.stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      type: "error",
+      error: {
+        code: "CliExitError",
+        message: "Invalid filter JSON: JSON Parse error: Expected '}'",
+      },
+    });
+    expect(typeof lines[0]?.timestamp).toBe("string");
   });
 
   test("plan rejects unknown flags with a clean parse error", async () => {

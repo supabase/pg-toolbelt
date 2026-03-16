@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { assertValidSql } from "../../../../test-utils/assert-valid-sql.ts";
+import { assertValidSql } from "../../../../../../tests/assert-valid-sql.ts";
 import { Enum, type EnumProps } from "../enum.model.ts";
 import { AlterEnumAddValue, AlterEnumChangeOwner } from "./enum.alter.ts";
 

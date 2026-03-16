@@ -90,4 +90,12 @@ const planFlags = {
 
 export const planCommand = Command.make("plan", planFlags).pipe(
   Command.withHandler(handlePlan),
+  Command.withShortDescription("Compute schema diff and preview changes"),
+  Command.withDescription(
+    `
+Compute the schema diff between two PostgreSQL databases (source → target),
+and preview it for review or scripting. Defaults to tree display;
+json/sql outputs are available for artifacts or piping.
+    `.trim(),
+  ),
 );

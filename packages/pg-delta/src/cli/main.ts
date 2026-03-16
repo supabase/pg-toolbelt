@@ -12,7 +12,6 @@ import {
   parseCompletionShell,
 } from "./completions.ts";
 import { ChangesDetected, CliExitError, UserCancelled } from "./errors.ts";
-import { PgDeltaCliOutputLive } from "./help-formatter.ts";
 import { normalizeCause, normalizeCliError } from "./output/normalize-error.ts";
 import { outputLayerFor } from "./output/output.layer.ts";
 import { Output } from "./output/output.service.ts";
@@ -28,7 +27,18 @@ const packageVersion = PGDELTA_CLI_VERSION;
 const CliRuntimeLive = Layer.mergeAll(
   nodePgDatabaseResolverLayer,
   nodeCliPlatformLayer,
+  processControlLayer,
+  ttyLayer,
 );
+
+const provideCliRuntime = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  outputFormat: OutputFormat,
+) =>
+  effect.pipe(
+    Effect.provide(outputLayerFor(outputFormat)),
+    Effect.provide(CliRuntimeLive),
+  );
 
 const configureLogging = Effect.gen(function* () {
   const processControl = yield* ProcessControl;
@@ -90,12 +100,7 @@ function cliProgramFor(args: ReadonlyArray<string>) {
     return yield* Command.runWith(root, {
       version: packageVersion,
     })(args);
-  }).pipe(
-    Effect.provide(PgDeltaCliOutputLive),
-    Effect.provide(processControlLayer),
-    Effect.provide(ttyLayer),
-    Effect.provide(CliRuntimeLive),
-  );
+  });
 }
 
 const args = await Effect.runPromise(
@@ -104,6 +109,8 @@ const args = await Effect.runPromise(
     return yield* stdio.args;
   }).pipe(Effect.provide(CliRuntimeLive)),
 );
+
+const outputFormat = outputFormatFor(args);
 
 const program = Effect.gen(function* () {
   const processControl = yield* ProcessControl;
@@ -136,22 +143,13 @@ const program = Effect.gen(function* () {
   }
 
   if (completionShell) {
-    const script = yield* generateCompletionScript(
-      completionShell,
-      root,
-      packageVersion,
-    );
+    const script = yield* generateCompletionScript(completionShell);
     yield* output.write(script.endsWith("\n") ? script.trimEnd() : script);
     return;
   }
 
   return yield* cliProgramFor(args);
-}).pipe(
-  Effect.provide(outputLayerFor(outputFormatFor(args))),
-  Effect.provide(processControlLayer),
-  Effect.provide(ttyLayer),
-  Effect.provide(CliRuntimeLive),
-);
+});
 
 const handledProgram = <R>(program: Effect.Effect<unknown, unknown, R>) =>
   Effect.gen(function* () {
@@ -194,14 +192,8 @@ const handledProgram = <R>(program: Effect.Effect<unknown, unknown, R>) =>
 
     yield* output.fail(normalizeCause(exit.cause));
     return yield* processControl.exit(1);
-  }).pipe(
-    Effect.provide(outputLayerFor(outputFormatFor(args))),
-    Effect.provide(PgDeltaCliOutputLive),
-    Effect.provide(processControlLayer),
-    Effect.provide(ttyLayer),
-    Effect.provide(CliRuntimeLive),
-  );
+  });
 
 export async function runPgDeltaCli(): Promise<void> {
-  await Effect.runPromise(handledProgram(program));
+  await Effect.runPromise(provideCliRuntime(handledProgram(program), outputFormat));
 }

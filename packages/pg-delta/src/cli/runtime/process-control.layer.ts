@@ -8,12 +8,7 @@ export const processControlLayer = Layer.effect(
     const runtimeProcess = yield* getRuntimeProcess();
 
     return ProcessControl.of({
-      args: Effect.succeed(runtimeProcess.argv.slice(2)),
       env: (name: string) => Effect.succeed(runtimeProcess.env[name]),
-      setExitCode: (exitCode: number) =>
-        Effect.sync(() => {
-          runtimeProcess.exitCode = exitCode;
-        }),
       exit: (exitCode: number) =>
         Effect.sync(() => {
           runtimeProcess.exitCode = exitCode;

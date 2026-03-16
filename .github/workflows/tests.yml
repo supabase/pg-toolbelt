@@ -28,6 +28,7 @@ jobs:
       pg-delta-package-json: ${{ steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ steps.changes.outputs.pg-topo-package-json }}
+      multi-runtime-e2e: ${{ steps.changes.outputs.multi-runtime-e2e }}
       root: ${{ steps.changes.outputs.root }}
     steps:
       - name: Checkout
@@ -302,10 +303,7 @@ jobs:
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
-      (
-        needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
-        needs.detect-changes.outputs.pg-topo-package-json == 'true'
-      )
+      needs.detect-changes.outputs.multi-runtime-e2e == 'true'
     needs:
       - detect-changes
     name: "Multi-runtime e2e (Node, Bun, Deno)"

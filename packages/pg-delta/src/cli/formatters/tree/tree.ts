@@ -52,6 +52,10 @@ function countTotalChanges(plan: HierarchicalPlan): number {
   return total;
 }
 
+/**
+ * Build summary as a table showing counts by entity type and operation.
+ * Exported for use by declarative-export to show the same summary style.
+ */
 function buildPlanSummaryTable(
   plan: HierarchicalPlan,
   palette: ReturnType<typeof createAnsiPalette>,
@@ -62,6 +66,7 @@ function buildPlanSummaryTable(
   > = {};
   countFromHierarchy(plan, byType);
 
+  // Filter to only types with changes
   const entries = Object.entries(byType).filter(
     ([, counts]) => counts.create + counts.alter + counts.drop > 0,
   );
@@ -70,6 +75,7 @@ function buildPlanSummaryTable(
     return "";
   }
 
+  // Calculate column widths
   let maxNameWidth = 0;
   let maxCreateWidth = 0;
   let maxAlterWidth = 0;
@@ -78,6 +84,7 @@ function buildPlanSummaryTable(
   for (const [type, counts] of entries) {
     const typeStr = type.replace(/_/g, "-");
     maxNameWidth = Math.max(maxNameWidth, typeStr.length);
+    // For width calculation, use "1" instead of "0" since we'll show "-" for zeros
     maxCreateWidth = Math.max(
       maxCreateWidth,
       counts.create > 0 ? counts.create.toString().length : 1,
@@ -92,6 +99,7 @@ function buildPlanSummaryTable(
     );
   }
 
+  // Ensure minimum widths for headers
   maxNameWidth = Math.max(maxNameWidth, "Entity".length);
   maxCreateWidth = Math.max(maxCreateWidth, "Create".length);
   maxAlterWidth = Math.max(maxAlterWidth, "Alter".length);
@@ -99,6 +107,7 @@ function buildPlanSummaryTable(
 
   const lines: string[] = [];
 
+  // Header
   lines.push(
     `${palette.bold("Entity".padEnd(maxNameWidth))}  ${palette.bold("Create".padStart(maxCreateWidth))}  ${palette.bold("Alter".padStart(maxAlterWidth))}  ${palette.bold("Drop".padStart(maxDropWidth))}`,
   );
@@ -106,8 +115,10 @@ function buildPlanSummaryTable(
     `${palette.dim("-".repeat(maxNameWidth))}  ${palette.dim("-".repeat(maxCreateWidth))}  ${palette.dim("-".repeat(maxAlterWidth))}  ${palette.dim("-".repeat(maxDropWidth))}`,
   );
 
+  // Rows
   for (const [type, counts] of entries.sort(([a], [b]) => a.localeCompare(b))) {
     const typeStr = type.replace(/_/g, "-");
+    // Format numbers: show "-" for 0, pad and colorize
     const createDisplay = counts.create > 0 ? counts.create.toString() : "-";
     const alterDisplay = counts.alter > 0 ? counts.alter.toString() : "-";
     const dropDisplay = counts.drop > 0 ? counts.drop.toString() : "-";
@@ -133,6 +144,9 @@ function buildPlanSummaryTable(
   return lines.join("\n");
 }
 
+/**
+ * Count changes by type from hierarchy.
+ */
 function countFromHierarchy(
   plan: HierarchicalPlan,
   byType: Record<string, { create: number; alter: number; drop: number }>,
@@ -162,6 +176,7 @@ function countFromHierarchy(
     byType[type].drop += group.drop.length;
   }
 
+  // Cluster
   countGroup(plan.cluster.roles, "role");
   countGroup(plan.cluster.extensions, "extension");
   countGroup(plan.cluster.eventTriggers, "event-trigger");
@@ -183,12 +198,14 @@ function countFromHierarchy(
         drop: table.changes.drop.length,
       };
 
+      // Roll column counts into table totals (no separate column row)
       addCounts(tableCounts, {
         create: table.columns.create.length,
         alter: table.columns.alter.length,
         drop: table.columns.drop.length,
       });
 
+      // Apply rolled-up counts to table totals
       if (!byType.table) {
         byType.table = { create: 0, alter: 0, drop: 0 };
       }

@@ -14,6 +14,9 @@ outputs:
   pg-topo-package-json:
     description: Whether pg-topo package.json changed
     value: ${{ steps.filter.outputs.pg-topo-package-json }}
+  multi-runtime-e2e:
+    description: Whether the multi-runtime e2e harness changed
+    value: ${{ steps.filter.outputs.multi-runtime-e2e }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
@@ -33,6 +36,16 @@ runs:
             - 'packages/pg-topo/**'
           pg-topo-package-json:
             - 'packages/pg-topo/package.json'
+          multi-runtime-e2e:
+            - 'packages/pg-delta/**'
+            - 'packages/pg-topo/**'
+            - '.github/scripts/fixtures/**'
+            - 'scripts/e2e-docker.sh'
+            - 'package.json'
+            - 'bun.lock'
+            - '.github/workflows/tests.yml'
+            - '.github/actions/setup/action.yml'
+            - '.github/actions/detect-changes/action.yml'
           root:
             - 'package.json'
             - 'bunfig.toml'
