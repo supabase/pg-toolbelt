@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, type FileSystem, Option, Schedule, type Scope } from "effect";
+import { Effect, Option, Schedule } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import {
   escapeIdentifier,
@@ -14,11 +14,7 @@ import {
   fromPgClient,
   type QueryInput,
 } from "./database.service.ts";
-import {
-  ConnectionError,
-  ConnectionTimeoutError,
-  type SslConfigError,
-} from "./errors.ts";
+import { ConnectionError, ConnectionTimeoutError } from "./errors.ts";
 import { createPool, endPool } from "./pool.ts";
 import {
   makePgRuntimeConfigLayer,
@@ -48,20 +44,12 @@ const connectionError = (
 export const makeScopedSqlDatabaseEffect = (
   url: string,
   options?: { role?: string; label?: "source" | "target" },
-): Effect.Effect<
-  DatabaseApi,
-  ConnectionError | ConnectionTimeoutError | SslConfigError,
-  FileSystem.FileSystem | PgRuntimeConfigService | Scope.Scope
-> => defaultDatabaseLayer.makeScopedSqlDatabaseEffect(url, options);
+) => defaultDatabaseLayer.makeScopedSqlDatabaseEffect(url, options);
 
 export const makeScopedSqlDatabase = (
   url: string,
   options?: { role?: string; label?: "source" | "target" },
-): Effect.Effect<
-  DatabaseApi,
-  ConnectionError | ConnectionTimeoutError | SslConfigError,
-  FileSystem.FileSystem | Scope.Scope
-> =>
+) =>
   makeScopedSqlDatabaseEffect(url, options).pipe(
     Effect.provide(makePgRuntimeConfigLayer()),
   );
@@ -127,7 +115,7 @@ export const createDatabaseLayer = (
     pool: Pool,
     label: "source" | "target" | undefined,
     use: (client: PgClient.PgClient) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E | ConnectionError, R> =>
+  ) =>
     Effect.scoped(
       Effect.gen(function* () {
         const client = yield* dependencies
@@ -169,7 +157,11 @@ export const createDatabaseLayer = (
             runtimeConfig,
           ),
         ),
-        (pool) => Effect.promise(() => dependencies.endPool(pool)),
+        (pool) =>
+          Effect.tryPromise({
+            try: () => dependencies.endPool(pool),
+            catch: (e) => e,
+          }).pipe(Effect.orDie),
       );
 
       const compatiblePool = createSqlPgCompatiblePool(pool);
@@ -399,4 +391,4 @@ const defaultDatabaseLayer = createDatabaseLayer();
 export const fromPool = (
   pool: Pool,
   options?: { readonly label?: "source" | "target" },
-): DatabaseApi => defaultDatabaseLayer.fromPool(pool, options);
+) => defaultDatabaseLayer.fromPool(pool, options);

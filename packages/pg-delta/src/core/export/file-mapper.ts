@@ -35,9 +35,7 @@ function isRoleDefaultPrivilegeChange(
   );
 }
 
-function requireSchema(
-  change: Change,
-): Effect.Effect<string, InvariantViolationError> {
+function requireSchema(change: Change) {
   const schema = getObjectSchema(change);
   if (!schema) {
     return Effect.fail(

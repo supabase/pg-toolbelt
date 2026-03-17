@@ -8,8 +8,7 @@ import { nodeCliPlatformLayer } from "../adapters/node-platform.ts";
 import { configurePgDeltaLogging } from "../core/logging.ts";
 import {
   generateCompletionScript,
-  isSupportedCompletionShell,
-  parseCompletionShell,
+  resolveCompletionShell,
 } from "./completions.ts";
 import { ChangesDetected, CliExitError, UserCancelled } from "./errors.ts";
 import { normalizeCause, normalizeCliError } from "./output/normalize-error.ts";
@@ -22,23 +21,12 @@ import { ProcessControl } from "./runtime/process-control.service.ts";
 import { ttyLayer } from "./runtime/tty.layer.ts";
 import { PGDELTA_CLI_VERSION } from "./version.ts";
 
-const packageVersion = PGDELTA_CLI_VERSION;
-
 const CliRuntimeLive = Layer.mergeAll(
   nodePgDatabaseResolverLayer,
   nodeCliPlatformLayer,
   processControlLayer,
   ttyLayer,
 );
-
-const provideCliRuntime = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  outputFormat: OutputFormat,
-) =>
-  effect.pipe(
-    Effect.provide(outputLayerFor(outputFormat)),
-    Effect.provide(CliRuntimeLive),
-  );
 
 const configureLogging = Effect.gen(function* () {
   const processControl = yield* ProcessControl;
@@ -61,141 +49,89 @@ function outputFormatFor(args: ReadonlyArray<string>): OutputFormat {
   return format === "json" || format === "stream-json" ? format : "text";
 }
 
-function hasMissingCompletionsShell(argv: readonly string[]): boolean {
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (token === "--completions") {
-      const next = argv[i + 1];
-      return next === undefined || next.startsWith("-");
-    }
-    if (token.startsWith("--completions=")) {
-      return token.slice("--completions=".length).length === 0;
-    }
-  }
-  return false;
-}
+export async function runPgDeltaCli() {
+  const args = await Effect.runPromise(
+    Effect.gen(function* () {
+      const stdio = yield* Stdio.Stdio;
+      return yield* stdio.args;
+    }).pipe(Effect.provide(CliRuntimeLive)),
+  );
 
-function hasUnsupportedCompletionsShell(argv: readonly string[]): boolean {
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (token === "--completions") {
-      const next = argv[i + 1];
-      return (
-        next !== undefined &&
-        !next.startsWith("-") &&
-        !isSupportedCompletionShell(next)
-      );
-    }
-    if (token.startsWith("--completions=")) {
-      const shell = token.slice("--completions=".length);
-      return shell.length > 0 && !isSupportedCompletionShell(shell);
-    }
-  }
-  return false;
-}
+  const outputFormat = outputFormatFor(args);
 
-function cliProgramFor(args: ReadonlyArray<string>) {
-  return Effect.gen(function* () {
-    yield* configureLogging;
-    return yield* Command.runWith(root, {
-      version: packageVersion,
-    })(args);
-  });
-}
+  return await Effect.runPromise(
+    Effect.gen(function* () {
+      const processControl = yield* ProcessControl;
+      const output = yield* Output;
 
-const args = await Effect.runPromise(
-  Effect.gen(function* () {
-    const stdio = yield* Stdio.Stdio;
-    return yield* stdio.args;
-  }).pipe(Effect.provide(CliRuntimeLive)),
-);
+      const program = Effect.gen(function* () {
+        yield* configureLogging;
 
-const outputFormat = outputFormatFor(args);
+        const rawCompletionMode =
+          (yield* processControl.env("PGDELTA_INTERNAL_RAW_COMPLETIONS")) ===
+          "1";
 
-const program = Effect.gen(function* () {
-  const processControl = yield* ProcessControl;
-  const output = yield* Output;
-
-  const rawCompletionMode =
-    (yield* processControl.env("PGDELTA_INTERNAL_RAW_COMPLETIONS")) === "1";
-  const completionShell = rawCompletionMode
-    ? undefined
-    : parseCompletionShell(args);
-
-  if (!rawCompletionMode && hasMissingCompletionsShell(args)) {
-    return yield* Effect.fail(
-      new CliExitError({
-        exitCode: 1,
-        message:
-          "Missing value for --completions. Supported shells: bash, zsh, fish, sh.",
-      }),
-    );
-  }
-
-  if (!rawCompletionMode && hasUnsupportedCompletionsShell(args)) {
-    return yield* Effect.fail(
-      new CliExitError({
-        exitCode: 1,
-        message:
-          "Unsupported shell for --completions. Supported shells: bash, zsh, fish, sh.",
-      }),
-    );
-  }
-
-  if (completionShell) {
-    const script = yield* generateCompletionScript(completionShell);
-    yield* output.write(script.endsWith("\n") ? script.trimEnd() : script);
-    return;
-  }
-
-  return yield* cliProgramFor(args);
-});
-
-const handledProgram = <R>(program: Effect.Effect<unknown, unknown, R>) =>
-  Effect.gen(function* () {
-    const processControl = yield* ProcessControl;
-    const output = yield* Output;
-    const exit = yield* program.pipe(Effect.exit);
-
-    if (Exit.isSuccess(exit)) {
-      return yield* processControl.exit(0);
-    }
-
-    if (Cause.hasInterruptsOnly(exit.cause)) {
-      return yield* processControl.exit(130);
-    }
-
-    const errorOption = Cause.findErrorOption(exit.cause);
-    if (Option.isSome(errorOption)) {
-      const error = errorOption.value;
-
-      if (CliError.isCliError(error)) {
-        if (error._tag === "ShowHelp") {
-          return yield* processControl.exit(error.errors.length > 0 ? 1 : 0);
+        if (!rawCompletionMode) {
+          const completionShell = yield* resolveCompletionShell(args);
+          if (Option.isSome(completionShell)) {
+            const script = yield* generateCompletionScript(
+              completionShell.value,
+            );
+            yield* output.write(
+              script.endsWith("\n") ? script.trimEnd() : script,
+            );
+            return;
+          }
         }
 
-        yield* output.fail(normalizeCliError(error));
-        return yield* processControl.exit(1);
+        return yield* Command.runWith(root, {
+          version: PGDELTA_CLI_VERSION,
+        })(args);
+      });
+
+      const exit = yield* program.pipe(Effect.exit);
+
+      if (Exit.isSuccess(exit)) {
+        return yield* processControl.exit(0);
       }
 
-      if (error instanceof ChangesDetected || error instanceof UserCancelled) {
-        return yield* processControl.exit(2);
+      if (Cause.hasInterruptsOnly(exit.cause)) {
+        return yield* processControl.exit(130);
       }
 
-      if (error instanceof CliExitError) {
-        if (!error.alreadyReported) {
+      const errorOption = Cause.findErrorOption(exit.cause);
+      if (Option.isSome(errorOption)) {
+        const error = errorOption.value;
+
+        if (CliError.isCliError(error)) {
+          if (error._tag === "ShowHelp") {
+            return yield* processControl.exit(error.errors.length > 0 ? 1 : 0);
+          }
+
           yield* output.fail(normalizeCliError(error));
+          return yield* processControl.exit(1);
         }
-        return yield* processControl.exit(error.exitCode);
+
+        if (
+          error instanceof ChangesDetected ||
+          error instanceof UserCancelled
+        ) {
+          return yield* processControl.exit(2);
+        }
+
+        if (error instanceof CliExitError) {
+          if (!error.alreadyReported) {
+            yield* output.fail(normalizeCliError(error));
+          }
+          return yield* processControl.exit(error.exitCode);
+        }
       }
-    }
 
-    yield* output.fail(normalizeCause(exit.cause));
-    return yield* processControl.exit(1);
-  });
-
-export async function runPgDeltaCli(): Promise<void> {
-  await Effect.runPromise(
-    provideCliRuntime(handledProgram(program), outputFormat),
+      yield* output.fail(normalizeCause(exit.cause));
+      return yield* processControl.exit(1);
+    }).pipe(
+      Effect.provide(outputLayerFor(outputFormat)),
+      Effect.provide(CliRuntimeLive),
+    ),
   );
 }

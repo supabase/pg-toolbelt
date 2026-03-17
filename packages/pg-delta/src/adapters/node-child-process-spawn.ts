@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { Effect } from "effect";
+import { RuntimeHostError } from "../core/errors.ts";
 
 interface SpawnOptions {
   readonly cwd: string;
@@ -10,7 +11,7 @@ export const spawnAndCaptureOutput = (
   command: string,
   args: readonly string[],
   options: SpawnOptions,
-): Effect.Effect<string, Error> =>
+) =>
   Effect.tryPromise({
     try: () =>
       new Promise<string>((resolve, reject) => {
@@ -42,7 +43,10 @@ export const spawnAndCaptureOutput = (
         });
       }),
     catch: (error) =>
-      error instanceof Error
-        ? error
-        : new Error("Failed to generate completion script."),
+      new RuntimeHostError({
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate completion script.",
+      }),
   });

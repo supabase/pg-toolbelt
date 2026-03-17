@@ -263,6 +263,7 @@ function stableStringify(value: unknown): string {
     return `[${value.map(stableStringify).join(",")}]`;
   }
 
+  // Object.entries on a non-null, non-array object — cast is the idiomatic narrowing for unknown
   const entries = Object.entries(value as Record<string, unknown>).sort(
     ([a], [b]) => a.localeCompare(b),
   );

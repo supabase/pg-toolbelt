@@ -76,13 +76,13 @@ export const sortChanges = Effect.fn("sortChanges")(function* (
  * @param changeList - list of Change objects to order
  * @returns ordered list of Change objects
  */
-function sortChangesByPhasedGraph(
+const sortChangesByPhasedGraph = Effect.fnUntraced(function* (
   catalogContext: {
     mainCatalog: { depends: PgDependRow[] };
     branchCatalog: { depends: PgDependRow[] };
   },
   changeList: Change[],
-): Effect.Effect<Change[], SortCycleError> {
+) {
   const changesByPhase: Record<Phase, Change[]> = {
     drop: [],
     create_alter_object: [],
@@ -95,23 +95,21 @@ function sortChangesByPhasedGraph(
   }
 
   // Sort DROP phase: reverse dependency order using main catalog dependencies
-  return Effect.gen(function* () {
-    const sortedDropPhase = yield* sortPhaseChanges(
-      changesByPhase.drop,
-      catalogContext.mainCatalog.depends,
-      { invert: true },
-    );
+  const sortedDropPhase = yield* sortPhaseChanges(
+    changesByPhase.drop,
+    catalogContext.mainCatalog.depends,
+    { invert: true },
+  );
 
-    // Sort CREATE/ALTER phase: forward dependency order using branch catalog dependencies
-    const sortedCreateAlterPhase = yield* sortPhaseChanges(
-      changesByPhase.create_alter_object,
-      catalogContext.branchCatalog.depends,
-      {},
-    );
+  // Sort CREATE/ALTER phase: forward dependency order using branch catalog dependencies
+  const sortedCreateAlterPhase = yield* sortPhaseChanges(
+    changesByPhase.create_alter_object,
+    catalogContext.branchCatalog.depends,
+    {},
+  );
 
-    return [...sortedDropPhase, ...sortedCreateAlterPhase];
-  });
-}
+  return [...sortedDropPhase, ...sortedCreateAlterPhase];
+});
 
 /**
  * Sort changes within a phase using Constraints derived from all dependency sources.
@@ -125,126 +123,120 @@ function sortChangesByPhasedGraph(
  *
  * In DROP phase, edges are inverted so drops run in reverse dependency order.
  */
-function sortPhaseChanges(
+const sortPhaseChanges = Effect.fnUntraced(function* (
   phaseChanges: Change[],
   dependencyRows: PgDependRow[],
   options: PhaseSortOptions = {},
-): Effect.Effect<Change[], SortCycleError> {
-  if (phaseChanges.length <= 1) return Effect.succeed(phaseChanges);
+) {
+  if (phaseChanges.length <= 1) return phaseChanges;
 
-  return Effect.gen(function* () {
-    // Step 1: Build graph data structures
-    const graphData = buildGraphData(phaseChanges, options);
+  // Step 1: Build graph data structures
+  const graphData = buildGraphData(phaseChanges, options);
 
-    // Step 2: Convert all sources to Constraints
-    const catalogConstraints = convertCatalogDependenciesToConstraints(
-      dependencyRows,
-      graphData,
-    );
-    const explicitConstraints = convertExplicitRequirementsToConstraints(
-      phaseChanges,
-      graphData,
-    );
-    const customConstraintObjects = generateCustomConstraints(phaseChanges);
-    const allConstraints = [
-      ...catalogConstraints,
-      ...explicitConstraints,
-      ...customConstraintObjects,
+  // Step 2: Convert all sources to Constraints
+  const catalogConstraints = convertCatalogDependenciesToConstraints(
+    dependencyRows,
+    graphData,
+  );
+  const explicitConstraints = convertExplicitRequirementsToConstraints(
+    phaseChanges,
+    graphData,
+  );
+  const customConstraintObjects = generateCustomConstraints(phaseChanges);
+  const allConstraints = [
+    ...catalogConstraints,
+    ...explicitConstraints,
+    ...customConstraintObjects,
+  ];
+
+  // Step 3: Convert constraints to edges and deduplicate immediately
+  let edges = dedupeEdges(convertConstraintsToEdges(allConstraints, options));
+
+  // Step 4: Iteratively detect and break cycles
+  // Track cycles we've seen to detect when filtering fails to break a cycle.
+  // The only way we loop indefinitely is if we encounter a cycle we've already seen,
+  // which means filtering didn't break it. Otherwise, we continue until all cycles are broken.
+  const seenCycles = new Set<string>();
+
+  /**
+   * Normalize a cycle by rotating it to start with the smallest node index.
+   * This allows us to compare cycles regardless of where they start.
+   */
+  function normalizeCycle(cycleNodeIndexes: number[]): string {
+    if (cycleNodeIndexes.length === 0) return "";
+    const minIndex = Math.min(...cycleNodeIndexes);
+    const minIndexPos = cycleNodeIndexes.indexOf(minIndex);
+    const rotated = [
+      ...cycleNodeIndexes.slice(minIndexPos),
+      ...cycleNodeIndexes.slice(0, minIndexPos),
     ];
+    return rotated.join(",");
+  }
 
-    // Step 3: Convert constraints to edges and deduplicate immediately
-    let edges = dedupeEdges(convertConstraintsToEdges(allConstraints, options));
+  while (true) {
+    // Edge deduplication moved outside loop
+    const edgePairs = edgesToPairs(edges);
 
-    // Step 4: Iteratively detect and break cycles
-    // Track cycles we've seen to detect when filtering fails to break a cycle.
-    // The only way we loop indefinitely is if we encounter a cycle we've already seen,
-    // which means filtering didn't break it. Otherwise, we continue until all cycles are broken.
-    const seenCycles = new Set<string>();
+    // Detect cycles
+    const cycleNodeIndexes = findCycle(phaseChanges.length, edgePairs);
 
-    /**
-     * Normalize a cycle by rotating it to start with the smallest node index.
-     * This allows us to compare cycles regardless of where they start.
-     */
-    function normalizeCycle(cycleNodeIndexes: number[]): string {
-      if (cycleNodeIndexes.length === 0) return "";
-      const minIndex = Math.min(...cycleNodeIndexes);
-      const minIndexPos = cycleNodeIndexes.indexOf(minIndex);
-      const rotated = [
-        ...cycleNodeIndexes.slice(minIndexPos),
-        ...cycleNodeIndexes.slice(0, minIndexPos),
-      ];
-      return rotated.join(",");
+    if (!cycleNodeIndexes) {
+      // No cycles found, we're done
+      break;
     }
 
-    while (true) {
-      // Edge deduplication moved outside loop
-      const edgePairs = edgesToPairs(edges);
-
-      // Detect cycles
-      const cycleNodeIndexes = findCycle(phaseChanges.length, edgePairs);
-
-      if (!cycleNodeIndexes) {
-        // No cycles found, we're done
-        break;
-      }
-
-      // Normalize cycle to check if we've seen it before
-      const cycleSignature = normalizeCycle(cycleNodeIndexes);
-      if (seenCycles.has(cycleSignature)) {
-        // We've seen this cycle before - filtering didn't break it
-        // Get edges involved in the cycle for detailed error message
-        const cycleEdges = getEdgesInCycle(cycleNodeIndexes, edges);
-        return yield* Effect.fail(
-          new SortCycleError({
-            message: formatCycleError(
-              cycleNodeIndexes,
-              phaseChanges,
-              cycleEdges,
-            ),
-          }),
-        );
-      }
-
-      // Track this cycle
-      seenCycles.add(cycleSignature);
-
-      // Filter only edges involved in the cycle to break it
-      edges = filterEdgesForCycleBreaking(
-        edges,
-        cycleNodeIndexes,
-        phaseChanges,
-        graphData,
-      );
-    }
-
-    const finalEdgePairs = edgesToPairs(edges);
-
-    // Debug visualization
-    if (logger.isEnabledFor("debug")) {
-      printDebugGraph(
-        phaseChanges,
-        graphData,
-        finalEdgePairs,
-        dependencyRows,
-        allConstraints,
-      );
-    }
-
-    // Step 5: Perform stable topological sort (no cycles, so this will succeed)
-    const topologicalOrder = performStableTopologicalSort(
-      phaseChanges.length,
-      finalEdgePairs,
-    );
-
-    if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
-      // This should never happen if findCycle returned null, but guard anyway
+    // Normalize cycle to check if we've seen it before
+    const cycleSignature = normalizeCycle(cycleNodeIndexes);
+    if (seenCycles.has(cycleSignature)) {
+      // We've seen this cycle before - filtering didn't break it
+      // Get edges involved in the cycle for detailed error message
+      const cycleEdges = getEdgesInCycle(cycleNodeIndexes, edges);
       return yield* Effect.fail(
         new SortCycleError({
-          message: "CycleError: dependency graph contains a cycle",
+          message: formatCycleError(cycleNodeIndexes, phaseChanges, cycleEdges),
         }),
       );
     }
 
-    return topologicalOrder.map((changeIndex) => phaseChanges[changeIndex]);
-  });
-}
+    // Track this cycle
+    seenCycles.add(cycleSignature);
+
+    // Filter only edges involved in the cycle to break it
+    edges = filterEdgesForCycleBreaking(
+      edges,
+      cycleNodeIndexes,
+      phaseChanges,
+      graphData,
+    );
+  }
+
+  const finalEdgePairs = edgesToPairs(edges);
+
+  // Debug visualization
+  if (logger.isEnabledFor("debug")) {
+    printDebugGraph(
+      phaseChanges,
+      graphData,
+      finalEdgePairs,
+      dependencyRows,
+      allConstraints,
+    );
+  }
+
+  // Step 5: Perform stable topological sort (no cycles, so this will succeed)
+  const topologicalOrder = performStableTopologicalSort(
+    phaseChanges.length,
+    finalEdgePairs,
+  );
+
+  if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
+    // This should never happen if findCycle returned null, but guard anyway
+    return yield* Effect.fail(
+      new SortCycleError({
+        message: "CycleError: dependency graph contains a cycle",
+      }),
+    );
+  }
+
+  return topologicalOrder.map((changeIndex) => phaseChanges[changeIndex]);
+});

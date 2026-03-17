@@ -6,35 +6,40 @@ import { Schema } from "./objects/schema/schema.model.ts";
 let _pg1516Baseline: Catalog | null = null;
 let _pg17Baseline: Catalog | null = null;
 
-const loadBaselineJson = Effect.promise(() =>
-  import("./fixtures/empty-catalogs/postgres-15-16-baseline.json").then(
-    (mod) => mod.default as Record<string, unknown>,
-  ),
-);
+const loadBaselineJson = Effect.tryPromise({
+  try: () =>
+    import("./fixtures/empty-catalogs/postgres-15-16-baseline.json").then(
+      (mod) => mod.default as Record<string, unknown>,
+    ),
+  catch: (e) => e,
+}).pipe(Effect.orDie);
 
-const getPg1516Baseline: Effect.Effect<Catalog> = Effect.suspend(() => {
+const getPg1516Baseline = Effect.suspend(() => {
   if (_pg1516Baseline) return Effect.succeed(_pg1516Baseline);
   return Effect.gen(function* () {
-    const { deserializeCatalog } = yield* Effect.promise(
-      () => import("./catalog.snapshot.ts"),
-    );
+    const { deserializeCatalog } = yield* Effect.tryPromise({
+      try: () => import("./catalog.snapshot.ts"),
+      catch: (e) => e,
+    }).pipe(Effect.orDie);
     const json = yield* loadBaselineJson;
     _pg1516Baseline = deserializeCatalog(json);
     return _pg1516Baseline;
   });
 });
 
-const getPg17Baseline: Effect.Effect<Catalog> = Effect.suspend(() => {
+const getPg17Baseline = Effect.suspend(() => {
   if (_pg17Baseline) return Effect.succeed(_pg17Baseline);
   return Effect.gen(function* () {
-    const { deserializeCatalog } = yield* Effect.promise(
-      () => import("./catalog.snapshot.ts"),
-    );
+    const { deserializeCatalog } = yield* Effect.tryPromise({
+      try: () => import("./catalog.snapshot.ts"),
+      catch: (e) => e,
+    }).pipe(Effect.orDie);
     // PG 17 is identical to PG 15-16 except for a single addition:
     // the MAINTAIN privilege on default relation (objtype "r") privileges.
     // We patch the 15-16 baseline to avoid shipping a second full JSON file.
     const json = yield* loadBaselineJson;
     const patched = structuredClone(json);
+    // Cast acceptable: navigating untyped deserialized JSON
     const roles = patched.roles as
       | Record<string, Record<string, unknown>>
       | undefined;

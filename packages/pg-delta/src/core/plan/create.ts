@@ -8,15 +8,6 @@ import type { Catalog } from "../catalog.model.ts";
 import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
-import type {
-  CatalogExtractionError,
-  ConnectionError,
-  ConnectionTimeoutError,
-  IntegrationSerializationError,
-  InvariantViolationError,
-  SortCycleError,
-  SslConfigError,
-} from "../errors.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import {
   compileFilterDSL,
@@ -34,7 +25,7 @@ import { sortChanges } from "../sort/sort-changes.ts";
 import type { PgDependRow } from "../sort/types.ts";
 import { quoteIdentifier } from "../sql-identifier.ts";
 import { classifyChangesRisk } from "./risk.ts";
-import type { CreatePlanOptions, Plan } from "./types.ts";
+import type { CreatePlanOptions } from "./types.ts";
 
 // ============================================================================
 // Plan Creation
@@ -69,14 +60,11 @@ function isResolvedCatalog(input: CatalogInput): input is Catalog {
 /**
  * Build a plan (and supporting artifacts) from already extracted catalogs.
  */
-function buildPlanForCatalogs(
+const buildPlanForCatalogs = Effect.fnUntraced(function* (
   fromCatalog: Catalog,
   toCatalog: Catalog,
   options: CreatePlanOptions = {},
-): Effect.Effect<
-  { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
-  InvariantViolationError | IntegrationSerializationError | SortCycleError
-> {
+) {
   const changes = diffCatalogs(fromCatalog, toCatalog, {
     role: options.role,
     skipDefaultPrivilegeSubtraction: options.skipDefaultPrivilegeSubtraction,
@@ -139,23 +127,21 @@ function buildPlanForCatalogs(
   }
 
   if (filteredChanges.length === 0) {
-    return Effect.succeed(null);
+    return null;
   }
 
-  return Effect.gen(function* () {
-    const sortedChanges = yield* sortChanges(ctx, filteredChanges);
-    const plan = yield* buildPlan(
-      ctx,
-      sortedChanges,
-      options,
-      filterDSL,
-      serializeDSL,
-      finalIntegration,
-    );
+  const sortedChanges = yield* sortChanges(ctx, filteredChanges);
+  const plan = yield* buildPlan(
+    ctx,
+    sortedChanges,
+    options,
+    filterDSL,
+    serializeDSL,
+    finalIntegration,
+  );
 
-    return { plan, sortedChanges, ctx };
-  });
-}
+  return { plan, sortedChanges, ctx };
+});
 
 // ============================================================================
 // Dependency Cascading
@@ -257,78 +243,68 @@ function cascadeExclusions(
 /**
  * Build a Plan from sorted changes.
  */
-function buildPlan(
+const buildPlan = Effect.fnUntraced(function* (
   ctx: DiffContext,
   changes: Change[],
   options?: CreatePlanOptions,
   filterDSL?: FilterDSL,
   serializeDSL?: SerializeDSL,
   integration?: Integration,
-): Effect.Effect<
-  Plan,
-  InvariantViolationError | IntegrationSerializationError
-> {
-  return Effect.gen(function* () {
-    const role = options?.role;
-    const statements = yield* generateStatements(changes, {
-      integration,
-      role,
-    });
-    const risk = classifyChangesRisk(changes);
-
-    const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
-      ctx.mainCatalog,
-      changes,
-    );
-    const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
-
-    return {
-      version: 1,
-      source: { fingerprint: fingerprintFrom },
-      target: { fingerprint: fingerprintTo },
-      statements,
-      role,
-      filter: filterDSL,
-      serialize: serializeDSL,
-      risk,
-    };
+) {
+  const role = options?.role;
+  const statements = yield* generateStatements(changes, {
+    integration,
+    role,
   });
-}
+  const risk = classifyChangesRisk(changes);
+
+  const { hash: fingerprintFrom, stableIds } = buildPlanScopeFingerprint(
+    ctx.mainCatalog,
+    changes,
+  );
+  const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
+
+  return {
+    version: 1,
+    source: { fingerprint: fingerprintFrom },
+    target: { fingerprint: fingerprintTo },
+    statements,
+    role,
+    filter: filterDSL,
+    serialize: serializeDSL,
+    risk,
+  };
+});
 
 /**
  * Generate the individual SQL statements that make up the plan.
  */
-function generateStatements(
+const generateStatements = Effect.fnUntraced(function* (
   changes: Change[],
   options?: {
     integration?: Integration;
     role?: string;
   },
-): Effect.Effect<
-  string[],
-  InvariantViolationError | IntegrationSerializationError
-> {
-  return Effect.gen(function* () {
-    const statements: string[] = [];
+) {
+  const statements: string[] = [];
 
-    if (options?.role) {
-      statements.push(`SET ROLE ${quoteIdentifier(options.role)}`);
-    }
+  if (options?.role) {
+    statements.push(`SET ROLE ${quoteIdentifier(options.role)}`);
+  }
 
-    if (hasRoutineChanges(changes)) {
-      statements.push("SET check_function_bodies = false");
-    }
+  if (hasRoutineChanges(changes)) {
+    statements.push("SET check_function_bodies = false");
+  }
 
-    const serialized = yield* Effect.all(
-      changes.map((change) =>
-        serializeChange(change, options?.integration?.serialize),
-      ),
-    );
+  const serialized = yield* Effect.all(
+    changes.map((change) =>
+      serializeChange(change, options?.integration?.serialize),
+    ),
+  );
 
-    statements.push(...serialized);
-    return statements;
-  });
-}
+  statements.push(...serialized);
+  return statements;
+});
 
 /**
  * Check if any changes involve routines (procedures or aggregates).
@@ -341,42 +317,26 @@ function hasRoutineChanges(changes: Change[]): boolean {
   );
 }
 
-export const createPlan = (
+export const createPlan = Effect.fnUntraced(function* (
   source: CatalogInput | null,
   target: CatalogInput,
   options: CreatePlanOptions = {},
-): Effect.Effect<
-  { plan: Plan; sortedChanges: Change[]; ctx: DiffContext } | null,
-  | CatalogExtractionError
-  | ConnectionError
-  | ConnectionTimeoutError
-  | IntegrationSerializationError
-  | InvariantViolationError
-  | SortCycleError
-  | SslConfigError
-> =>
-  Effect.gen(function* () {
-    const toCatalog = yield* resolveCatalog(target, "target", options);
+) {
+  const toCatalog = yield* resolveCatalog(target, "target", options);
 
-    const fromCatalog =
-      source !== null
-        ? yield* resolveCatalog(source, "source", options)
-        : yield* createEmptyCatalog(toCatalog.version, toCatalog.currentUser);
+  const fromCatalog =
+    source !== null
+      ? yield* resolveCatalog(source, "source", options)
+      : yield* createEmptyCatalog(toCatalog.version, toCatalog.currentUser);
 
-    return yield* buildPlanForCatalogs(fromCatalog, toCatalog, options);
-  });
+  return yield* buildPlanForCatalogs(fromCatalog, toCatalog, options);
+});
 
 const resolveCatalog = (
   input: CatalogInput,
   label: "source" | "target",
   options: CreatePlanOptions,
-): Effect.Effect<
-  Catalog,
-  | CatalogExtractionError
-  | ConnectionError
-  | ConnectionTimeoutError
-  | SslConfigError
-> => {
+) => {
   if (isResolvedCatalog(input)) {
     return Effect.succeed(input);
   }

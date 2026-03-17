@@ -48,7 +48,8 @@ const hasPathTo = (
   const visited = new Set<number>();
   const queue = [source];
   while (queue.length > 0) {
-    const current = queue.shift() as number;
+    const current = queue.shift();
+    if (current === undefined) break;
     if (current === target) {
       return true;
     }

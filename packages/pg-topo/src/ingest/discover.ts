@@ -7,6 +7,7 @@ const resolveFromWorkingDirectory = (
   inputPath: string,
 ): string => pathService.resolve(cwd, inputPath);
 
+// Recursive function — annotation required for TypeScript to infer return type
 const readSqlFilesInDirectory = (
   directoryPath: string,
   outFiles: Set<string>,

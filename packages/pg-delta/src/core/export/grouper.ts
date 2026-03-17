@@ -47,39 +47,37 @@ function sortChangesWithinFile(changes: Change[]): Change[] {
   return tagged.map((t) => t.change);
 }
 
-export function groupChangesByFile(
+export const groupChangesByFile = Effect.fnUntraced(function* (
   changes: Change[],
   mapper: (
     change: Change,
   ) => Effect.Effect<FilePath, InvariantViolationError> = getFilePath,
-): Effect.Effect<FileGroup[], InvariantViolationError> {
-  return Effect.gen(function* () {
-    const groups = new Map<string, FileGroup>();
+) {
+  const groups = new Map<string, FileGroup>();
 
-    for (const change of changes) {
-      const file = yield* mapper(change);
+  for (const change of changes) {
+    const file = yield* mapper(change);
 
-      const existing = groups.get(file.path);
-      if (!existing) {
-        groups.set(file.path, {
-          path: file.path,
-          category: file.category,
-          metadata: file.metadata,
-          changes: [change],
-        });
-        continue;
-      }
-
-      existing.changes.push(change);
+    const existing = groups.get(file.path);
+    if (!existing) {
+      groups.set(file.path, {
+        path: file.path,
+        category: file.category,
+        metadata: file.metadata,
+        changes: [change],
+      });
+      continue;
     }
 
-    for (const group of groups.values()) {
-      group.changes = sortChangesWithinFile(group.changes);
-    }
+    existing.changes.push(change);
+  }
 
-    return Array.from(groups.values()).sort(sortByCategory);
-  });
-}
+  for (const group of groups.values()) {
+    group.changes = sortChangesWithinFile(group.changes);
+  }
+
+  return Array.from(groups.values()).sort(sortByCategory);
+});
 
 function sortByCategory(a: FileGroup, b: FileGroup): number {
   const categoryDiff =

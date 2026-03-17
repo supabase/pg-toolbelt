@@ -4,17 +4,16 @@
 
 import { Effect, FileSystem } from "effect";
 import type { IntegrationDSL } from "../../core/integrations/integration-dsl.ts";
+import { CliExitError } from "../errors.ts";
 
-const parseIntegrationDsl = (
-  content: string,
-  path: string,
-): Effect.Effect<IntegrationDSL, Error> =>
+const parseIntegrationDsl = (content: string, path: string) =>
   Effect.try({
     try: () => JSON.parse(content) as IntegrationDSL,
     catch: (error) =>
-      new Error(
-        `Invalid integration DSL in '${path}': ${error instanceof Error ? error.message : String(error)}`,
-      ),
+      new CliExitError({
+        exitCode: 1,
+        message: `Invalid integration DSL in '${path}': ${error instanceof Error ? error.message : String(error)}`,
+      }),
   });
 
 /**
@@ -23,42 +22,41 @@ const parseIntegrationDsl = (
  * Otherwise, tries to load from core integrations (TypeScript) first,
  * then falls back to treating as a JSON file path.
  */
-export const loadIntegrationDSL = (
+export const loadIntegrationDSL = Effect.fnUntraced(function* (
   nameOrPath: string,
-): Effect.Effect<IntegrationDSL, Error, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
+) {
+  const fs = yield* FileSystem.FileSystem;
 
-    if (nameOrPath.endsWith(".json")) {
-      const content = yield* fs
-        .readFileString(nameOrPath)
-        .pipe(
-          Effect.mapError(
-            (error) =>
-              new Error(
-                `Cannot read integration file '${nameOrPath}': ${error.message}`,
-              ),
-          ),
-        );
-      return yield* parseIntegrationDsl(content, nameOrPath);
-    }
-
-    const module = yield* Effect.promise(() =>
-      import(`../../core/integrations/${nameOrPath}.ts`).catch(() => undefined),
+  if (nameOrPath.endsWith(".json")) {
+    const content = yield* fs.readFileString(nameOrPath).pipe(
+      Effect.mapError(
+        (error) =>
+          new CliExitError({
+            exitCode: 1,
+            message: `Cannot read integration file '${nameOrPath}': ${error.message}`,
+          }),
+      ),
     );
-    if (module && nameOrPath in module) {
-      return module[nameOrPath] as IntegrationDSL;
-    }
-
-    const content = yield* fs
-      .readFileString(nameOrPath)
-      .pipe(
-        Effect.mapError(
-          (error) =>
-            new Error(
-              `Cannot read integration file '${nameOrPath}': ${error.message}`,
-            ),
-        ),
-      );
     return yield* parseIntegrationDsl(content, nameOrPath);
-  });
+  }
+
+  const module = yield* Effect.tryPromise({
+    try: () =>
+      import(`../../core/integrations/${nameOrPath}.ts`).catch(() => undefined),
+    catch: () => undefined as never,
+  }).pipe(Effect.orElseSucceed(() => undefined));
+  if (module && nameOrPath in module) {
+    return module[nameOrPath] as IntegrationDSL;
+  }
+
+  const content = yield* fs.readFileString(nameOrPath).pipe(
+    Effect.mapError(
+      (error) =>
+        new CliExitError({
+          exitCode: 1,
+          message: `Cannot read integration file '${nameOrPath}': ${error.message}`,
+        }),
+    ),
+  );
+  return yield* parseIntegrationDsl(content, nameOrPath);
+});

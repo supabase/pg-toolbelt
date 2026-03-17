@@ -112,22 +112,28 @@ export const fromPgClient = (
   };
 };
 
+function isQueryResult(
+  raw: unknown,
+): raw is { rows?: unknown[]; rowCount?: number | null } {
+  return typeof raw === "object" && raw !== null && "rows" in raw;
+}
+
 function normalizeRawResult<R>(raw: unknown): QueryResult<R> {
   if (Array.isArray(raw)) {
-    const last = raw[raw.length - 1] as
-      | { rows?: R[]; rowCount?: number | null }
-      | undefined;
-    return {
-      rows: last?.rows ?? [],
-      rowCount: last?.rowCount ?? null,
-    };
+    const last = raw[raw.length - 1];
+    if (isQueryResult(last)) {
+      return {
+        rows: (last.rows ?? []) as R[],
+        rowCount: last.rowCount ?? null,
+      };
+    }
+    return { rows: [], rowCount: null };
   }
 
-  if (typeof raw === "object" && raw !== null) {
-    const result = raw as { rows?: R[]; rowCount?: number | null };
+  if (isQueryResult(raw)) {
     return {
-      rows: result.rows ?? [],
-      rowCount: result.rowCount ?? null,
+      rows: (raw.rows ?? []) as R[],
+      rowCount: raw.rowCount ?? null,
     };
   }
 

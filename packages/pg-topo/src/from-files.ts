@@ -18,15 +18,10 @@ const EMPTY_RESULT: AnalyzeResult = {
   },
 };
 
-const resolveRoots = (
-  pathService: Path.Path,
-  roots: string[],
-  cwd: string,
-): string[] => roots.map((root) => pathService.resolve(cwd, root));
+const resolveRoots = (pathService: Path.Path, roots: string[], cwd: string) =>
+  roots.map((root) => pathService.resolve(cwd, root));
 
-const computeCommonBase = (
-  resolvedRoots: string[],
-): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path> =>
+const computeCommonBase = (resolvedRoots: string[]) =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
     if (resolvedRoots.length === 0) {
@@ -66,7 +61,7 @@ const toStablePath = (
   pathService: Path.Path,
   absolutePath: string,
   basePath: string,
-): string =>
+) =>
   pathService.relative(basePath, absolutePath).split(pathService.sep).join("/");
 
 const remapResult = (
@@ -84,7 +79,7 @@ const remapResult = (
     );
   }
 
-  const remapFilePath = (filePath: string): string =>
+  const remapFilePath = (filePath: string) =>
     filePathMap.get(filePath) ?? filePath;
 
   return {

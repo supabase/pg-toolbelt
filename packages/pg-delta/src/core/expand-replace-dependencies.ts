@@ -116,7 +116,8 @@ export function expandReplaceDependencies({
   const queue: string[] = [...replaceRoots];
 
   while (queue.length > 0) {
-    const refId = queue.shift() as string;
+    const refId = queue.shift();
+    if (refId === undefined) continue;
     const dependents = dependentsByReferenced.get(refId);
     if (!dependents) continue;
 

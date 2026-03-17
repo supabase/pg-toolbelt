@@ -1,6 +1,8 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { spawnAndCaptureOutput } from "../adapters/node-child-process-spawn.ts";
 import { getRuntimeProcess } from "../adapters/runtime-process.ts";
+import { RuntimeHostError } from "../core/errors.ts";
+import { CliExitError } from "./errors.ts";
 
 const SUPPORTED_COMPLETION_SHELLS = ["bash", "zsh", "fish", "sh"] as const;
 
@@ -32,20 +34,71 @@ export function isSupportedCompletionShell(
   );
 }
 
-export const generateCompletionScript = (
-  shell: SupportedCompletionShell,
-): Effect.Effect<string, Error> =>
+export const resolveCompletionShell = (
+  argv: readonly string[],
+): Effect.Effect<Option.Option<SupportedCompletionShell>, CliExitError> => {
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i];
+    if (token === "--completions") {
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("-")) {
+        return Effect.fail(
+          new CliExitError({
+            exitCode: 1,
+            message:
+              "Missing value for --completions. Supported shells: bash, zsh, fish, sh.",
+          }),
+        );
+      }
+      if (!isSupportedCompletionShell(next)) {
+        return Effect.fail(
+          new CliExitError({
+            exitCode: 1,
+            message:
+              "Unsupported shell for --completions. Supported shells: bash, zsh, fish, sh.",
+          }),
+        );
+      }
+      return Effect.succeed(Option.some(next));
+    }
+    if (token.startsWith("--completions=")) {
+      const shell = token.slice("--completions=".length);
+      if (shell.length === 0) {
+        return Effect.fail(
+          new CliExitError({
+            exitCode: 1,
+            message:
+              "Missing value for --completions. Supported shells: bash, zsh, fish, sh.",
+          }),
+        );
+      }
+      if (!isSupportedCompletionShell(shell)) {
+        return Effect.fail(
+          new CliExitError({
+            exitCode: 1,
+            message:
+              "Unsupported shell for --completions. Supported shells: bash, zsh, fish, sh.",
+          }),
+        );
+      }
+      return Effect.succeed(Option.some(shell));
+    }
+  }
+  return Effect.succeed(Option.none());
+};
+
+export const generateCompletionScript = (shell: SupportedCompletionShell) =>
   Effect.gen(function* () {
     const generatorShell = shell === "sh" ? "bash" : shell;
-    const runtimeProcess = yield* getRuntimeProcess().pipe(
-      Effect.mapError((error) => new Error(error.message)),
-    );
+    const runtimeProcess = yield* getRuntimeProcess();
 
     const runtimeCommand = runtimeProcess.argv[0];
     const runtimeEntry = runtimeProcess.argv[1];
     if (runtimeCommand === undefined || runtimeEntry === undefined) {
       return yield* Effect.fail(
-        new Error("Failed to resolve the current CLI runtime entrypoint."),
+        new RuntimeHostError({
+          message: "Failed to resolve the current CLI runtime entrypoint.",
+        }),
       );
     }
 

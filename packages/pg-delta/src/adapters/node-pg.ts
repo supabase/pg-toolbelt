@@ -68,7 +68,7 @@ const createManagedPoolEffect = (
         createPool(
           sslConfig.cleanedUrl,
           {
-            ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+            ...{ ssl: sslConfig.ssl },
             onError: (err: Error & { code?: string }) => {
               if (err.code !== "57P01") {
                 logger.error("Pool error for {label} connection", {

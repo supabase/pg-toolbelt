@@ -217,56 +217,50 @@ function isExistingPartition(
  * 3. Parent > Child (e.g., Table > Index, Table > Column)
  * 4. Partitioned Table > Partition
  */
-export function groupChangesHierarchically(
+export const groupChangesHierarchically = Effect.fnUntraced(function* (
   ctx: DiffContext,
   changes: Change[],
-): Effect.Effect<HierarchicalPlan, InvariantViolationError> {
-  return Effect.gen(function* () {
-    const result: HierarchicalPlan = {
-      cluster: emptyClusterGroup(),
-      schemas: {},
-    };
+) {
+  const result: HierarchicalPlan = {
+    cluster: emptyClusterGroup(),
+    schemas: {},
+  };
 
-    for (const change of changes) {
-      const columnName = isColumnOperation(change);
-      let partitionOf: string | null = null;
-      const changeSchema = getObjectSchema(change);
-      if (change.objectType === "table" && changeSchema) {
-        partitionOf = isPartitionTable(change);
-        if (!partitionOf) {
-          partitionOf = isExistingPartition(
-            ctx,
-            changeSchema,
-            change.table.name,
-          );
-        }
+  for (const change of changes) {
+    const columnName = isColumnOperation(change);
+    let partitionOf: string | null = null;
+    const changeSchema = getObjectSchema(change);
+    if (change.objectType === "table" && changeSchema) {
+      partitionOf = isPartitionTable(change);
+      if (!partitionOf) {
+        partitionOf = isExistingPartition(ctx, changeSchema, change.table.name);
       }
-
-      if (!changeSchema) {
-        yield* addClusterChange(result.cluster, change);
-        continue;
-      }
-
-      if (!result.schemas[changeSchema]) {
-        result.schemas[changeSchema] = emptySchemaGroup();
-      }
-      const schemaGroup = result.schemas[changeSchema];
-
-      const parent = getParentInfo(change);
-      if (parent) {
-        yield* addChildChange(schemaGroup, change);
-        continue;
-      }
-
-      yield* addSchemaLevelChange(schemaGroup, change, {
-        columnName,
-        partitionOf,
-      });
     }
 
-    return result;
-  });
-}
+    if (!changeSchema) {
+      yield* addClusterChange(result.cluster, change);
+      continue;
+    }
+
+    if (!result.schemas[changeSchema]) {
+      result.schemas[changeSchema] = emptySchemaGroup();
+    }
+    const schemaGroup = result.schemas[changeSchema];
+
+    const parent = getParentInfo(change);
+    if (parent) {
+      yield* addChildChange(schemaGroup, change);
+      continue;
+    }
+
+    yield* addSchemaLevelChange(schemaGroup, change, {
+      columnName,
+      partitionOf,
+    });
+  }
+
+  return result;
+});
 
 // ============================================================================
 // Add Functions (exhaustive on object types)
@@ -275,10 +269,10 @@ export function groupChangesHierarchically(
 /**
  * Add a change to the cluster group (exhaustive on cluster-wide types).
  */
-function addClusterChange(
+const addClusterChange = Effect.fnUntraced(function* (
   cluster: ClusterGroup,
   change: Change,
-): Effect.Effect<void, InvariantViolationError> {
+) {
   const objectType = change.objectType;
 
   switch (objectType) {
@@ -330,7 +324,7 @@ function addClusterChange(
       break;
     default: {
       const _exhaustive: never = objectType;
-      return Effect.fail(
+      return yield* Effect.fail(
         new InvariantViolationError({
           area: "hierarchy",
           message: `Unhandled object type: ${_exhaustive}`,
@@ -338,18 +332,17 @@ function addClusterChange(
       );
     }
   }
-  return Effect.void;
-}
+});
 
 /**
  * Add a child change (index, trigger, policy, rule) to its parent (exhaustive).
  */
-function addChildChange(
+const addChildChange = Effect.fnUntraced(function* (
   schema: SchemaGroup,
   change: Change,
-): Effect.Effect<void, InvariantViolationError> {
+) {
   const parentInfo = getParentInfo(change);
-  if (!parentInfo) return Effect.void;
+  if (!parentInfo) return;
 
   const parentName = parentInfo.name;
   const parentType = parentInfo.type;
@@ -383,7 +376,7 @@ function addChildChange(
       break;
     default: {
       const _exhaustive: never = parentType;
-      return Effect.fail(
+      return yield* Effect.fail(
         new InvariantViolationError({
           area: "hierarchy",
           message: `Unhandled parent type: ${_exhaustive}`,
@@ -438,7 +431,7 @@ function addChildChange(
       break;
     default: {
       const _exhaustive: never = objectType;
-      return Effect.fail(
+      return yield* Effect.fail(
         new InvariantViolationError({
           area: "hierarchy",
           message: `Unhandled object type: ${_exhaustive}`,
@@ -446,8 +439,7 @@ function addChildChange(
       );
     }
   }
-  return Effect.void;
-}
+});
 
 /**
  * Enrichment info detected from original Change objects.
@@ -460,11 +452,11 @@ interface ChangeEnrichment {
 /**
  * Add a schema-level change to the appropriate group (exhaustive).
  */
-function addSchemaLevelChange(
+const addSchemaLevelChange = Effect.fnUntraced(function* (
   schema: SchemaGroup,
   change: Change,
   enrichment: ChangeEnrichment,
-): Effect.Effect<void, InvariantViolationError> {
+) {
   const objectType = change.objectType;
 
   switch (objectType) {
@@ -596,7 +588,7 @@ function addSchemaLevelChange(
       break;
     default: {
       const _exhaustive: never = objectType;
-      return Effect.fail(
+      return yield* Effect.fail(
         new InvariantViolationError({
           area: "hierarchy",
           message: `Unhandled object type: ${_exhaustive}`,
@@ -604,5 +596,4 @@ function addSchemaLevelChange(
       );
     }
   }
-  return Effect.void;
-}
+});

@@ -10,7 +10,7 @@ import { SslConfigError } from "./errors.ts";
 import type { PgRuntimeConfigApi } from "./runtime-config.ts";
 
 type SslConfig = {
-  ssl?:
+  ssl:
     | boolean
     | {
         rejectUnauthorized: boolean;
@@ -53,10 +53,7 @@ export const parseSslConfig = Effect.fn("parseSslConfig")(function* (
     return { cleanedUrl, ssl: false } satisfies SslConfig;
   }
 
-  const getCertValue = (
-    queryParam: string | null,
-    envVarName: string,
-  ): Effect.Effect<string | undefined, SslConfigError> =>
+  const getCertValue = (queryParam: string | null, envVarName: string) =>
     queryParam
       ? fs.readFileString(queryParam, "utf-8").pipe(
           Effect.mapError(

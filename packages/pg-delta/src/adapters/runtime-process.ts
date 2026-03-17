@@ -14,14 +14,21 @@ interface RuntimeProcess {
   exitCode?: number;
 }
 
-export const getRuntimeProcess = (): Effect.Effect<
-  RuntimeProcess,
-  RuntimeHostError
-> =>
+function isRuntimeProcess(value: unknown): value is RuntimeProcess {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "argv" in value &&
+    "env" in value &&
+    "cwd" in value
+  );
+}
+
+export const getRuntimeProcess = () =>
   Effect.sync(() => globalThis.process).pipe(
     Effect.flatMap((runtimeProcess) =>
-      runtimeProcess
-        ? Effect.succeed(runtimeProcess as unknown as RuntimeProcess)
+      runtimeProcess && isRuntimeProcess(runtimeProcess)
+        ? Effect.succeed(runtimeProcess)
         : Effect.fail(
             new RuntimeHostError({
               message: "pgdelta runtime requires a process-like host",
@@ -30,9 +37,7 @@ export const getRuntimeProcess = (): Effect.Effect<
     ),
   );
 
-export const getRuntimeEnv = (
-  name: string,
-): Effect.Effect<string | undefined, RuntimeHostError> =>
+export const getRuntimeEnv = (name: string) =>
   getRuntimeProcess().pipe(
     Effect.map((runtimeProcess) => runtimeProcess.env[name]),
   );

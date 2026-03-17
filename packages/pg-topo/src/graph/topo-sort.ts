@@ -168,7 +168,8 @@ const stronglyConnectedComponents = (
 
     const component: number[] = [];
     while (stack.length > 0) {
-      const stackNode = stack.pop() as number;
+      const stackNode = stack.pop();
+      if (stackNode === undefined) break;
       onStack.delete(stackNode);
       component.push(stackNode);
       if (stackNode === nodeIndex) {
@@ -212,7 +213,8 @@ export const topoSort = (
 
   const orderedIndices: number[] = [];
   while (queue.length > 0) {
-    const current = queue.shift() as number;
+    const current = queue.shift();
+    if (current === undefined) break;
     orderedIndices.push(current);
 
     const neighbors = [...(edges.get(current) ?? new Set<number>())];
