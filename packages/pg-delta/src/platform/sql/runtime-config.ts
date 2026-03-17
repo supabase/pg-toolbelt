@@ -49,6 +49,9 @@ export const loadPgRuntimeConfig = (
     Effect.orDie,
   );
 
+export const getDefaultRuntimeConfig = () =>
+  Effect.runSync(loadPgRuntimeConfig(ConfigProvider.fromEnv()));
+
 export const makePgRuntimeConfigLayer = (
   provider: ConfigProvider.ConfigProvider = ConfigProvider.fromEnv(),
   getEnv: (name: string) => string | undefined = defaultGetEnv,

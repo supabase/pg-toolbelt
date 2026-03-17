@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Option, Schedule } from "effect";
+import { Effect } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import {
   escapeIdentifier,
@@ -14,16 +14,13 @@ import {
   fromPgClient,
   type QueryInput,
 } from "./database.service.ts";
-import { ConnectionError, ConnectionTimeoutError } from "./errors.ts";
-import { createPool, endPool } from "./pool.ts";
+import { ConnectionError } from "./errors.ts";
+import { createPool, endPool, validatePoolConnection } from "./pool.ts";
 import {
   makePgRuntimeConfigLayer,
   PgRuntimeConfigService,
 } from "./runtime-config.ts";
 import { parseSslConfig } from "./ssl-config.ts";
-
-const CONNECT_RETRY_BASE_DELAY = "50 millis";
-const CONNECT_RETRY_TIMES = 2;
 
 const queryError = (error: unknown) =>
   new CatalogExtractionError({
@@ -166,35 +163,7 @@ export const createDatabaseLayer = (
 
       const compatiblePool = createSqlPgCompatiblePool(pool);
 
-      yield* Effect.retry(
-        Effect.gen(function* () {
-          const connected = yield* Effect.tryPromise({
-            try: async () => {
-              const client = await pool.connect();
-              client.release();
-            },
-            catch: (error) =>
-              new ConnectionError({
-                message: `Failed to connect to ${label} database: ${error instanceof Error ? error.message : String(error)}`,
-                label,
-                cause: ensureError(error),
-              }),
-          }).pipe(Effect.timeoutOption(connectTimeoutMs));
-
-          if (Option.isNone(connected)) {
-            return yield* Effect.fail(
-              new ConnectionTimeoutError({
-                message: `Connection to ${label} database timed out after ${connectTimeoutMs}ms`,
-                label,
-                timeoutMs: connectTimeoutMs,
-              }),
-            );
-          }
-        }),
-        Schedule.exponential(CONNECT_RETRY_BASE_DELAY).pipe(
-          Schedule.compose(Schedule.recurs(CONNECT_RETRY_TIMES)),
-        ),
-      );
+      yield* validatePoolConnection(pool, label, connectTimeoutMs);
 
       const pgClient = yield* dependencies
         .pgClientFromPool({

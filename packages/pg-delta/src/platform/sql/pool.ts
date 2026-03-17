@@ -3,17 +3,18 @@
  * Shared pg pool factory kept in the runtime boundary.
  */
 
-import { ConfigProvider, Effect } from "effect";
+import { Effect, Option, Schedule } from "effect";
 import {
   Pool,
   type NodePgPoolClient as PoolClient,
   type NodePgPoolConfig as PoolConfig,
   types,
 } from "../../adapters/pg-runtime.ts";
-import {
-  loadPgRuntimeConfig,
-  type PgRuntimeConfigApi,
-} from "./runtime-config.ts";
+import { ensureError } from "../../utils.ts";
+import { ConnectionError, ConnectionTimeoutError } from "./errors.ts";
+import type { PgRuntimeConfigApi } from "./runtime-config.ts";
+import { getDefaultRuntimeConfig } from "./runtime-config.ts";
+import { parseSslConfig } from "./ssl-config.ts";
 
 // ============================================================================
 // Array Parser
@@ -26,7 +27,7 @@ import {
 function parseArray(
   value: string,
   parseElement: (val: string) => unknown = (v) => v,
-): unknown[] {
+) {
   if (!value || value === "{}") return [];
 
   // Remove outer braces
@@ -117,9 +118,6 @@ types.setTypeParser(1016, (val: string) => parseArray(val, parseIntElement)); //
 // Pool Factory
 // ============================================================================
 
-const getDefaultRuntimeConfig = (): PgRuntimeConfigApi =>
-  Effect.runSync(loadPgRuntimeConfig(ConfigProvider.fromEnv()));
-
 /**
  * Options for creating a Pool with event listeners.
  */
@@ -141,7 +139,7 @@ export function createPool(
   connectionString: string,
   options?: CreatePoolOptions,
   runtimeConfig: PgRuntimeConfigApi = getDefaultRuntimeConfig(),
-): Pool {
+) {
   const { onConnect, onError, onAcquire, onRemove, ...config } = options ?? {};
   const pool = new Pool({
     connectionString,
@@ -172,7 +170,7 @@ export function createPool(
  * inside each `client.end()` callback — ensuring all sockets are
  * truly closed before it resolves.
  */
-export function endPool(pool: Pool): Promise<void> {
+export function endPool(pool: Pool) {
   const clientCount = pool.totalCount;
 
   if (clientCount === 0) {
@@ -190,3 +188,121 @@ export function endPool(pool: Pool): Promise<void> {
     pool.end().catch(reject);
   });
 }
+
+// ============================================================================
+// Validated Pool (SSL + create + connection validation)
+// ============================================================================
+
+const CONNECT_RETRY_BASE_DELAY = "200 millis";
+const CONNECT_RETRY_TIMES = 2;
+
+interface CreateValidatedPoolOptions {
+  label?: "source" | "target";
+  onConnect?: (client: PoolClient) => Promise<void>;
+  onError?: (err: Error & { code?: string }) => void;
+  retries?: number;
+}
+
+/**
+ * Validate that a pool can successfully connect.
+ * Acquires and immediately releases one client, with configurable timeout and retry.
+ */
+export const validatePoolConnection = (
+  pool: Pool,
+  label: "source" | "target",
+  connectTimeoutMs: number,
+  retries = CONNECT_RETRY_TIMES,
+) => {
+  const connectAndRelease = Effect.gen(function* () {
+    const connected = yield* Effect.tryPromise({
+      try: async () => {
+        const client = await pool.connect();
+        client.release();
+      },
+      catch: (error) =>
+        new ConnectionError({
+          message: `Failed to connect to ${label} database: ${error instanceof Error ? error.message : String(error)}`,
+          label,
+          cause: ensureError(error),
+        }),
+    }).pipe(Effect.timeoutOption(connectTimeoutMs));
+
+    if (Option.isNone(connected)) {
+      return yield* Effect.fail(
+        new ConnectionTimeoutError({
+          message:
+            `Connection to ${label} database timed out after ${connectTimeoutMs}ms. ` +
+            "The server may require SSL, use an invalid certificate, or be unreachable.",
+          label,
+          timeoutMs: connectTimeoutMs,
+        }),
+      );
+    }
+  });
+
+  return retries > 0
+    ? Effect.retry(
+        connectAndRelease,
+        Schedule.exponential(CONNECT_RETRY_BASE_DELAY).pipe(
+          Schedule.compose(Schedule.recurs(retries)),
+        ),
+      )
+    : connectAndRelease;
+};
+
+/**
+ * Create a validated pool: parse SSL, create pool, validate connection.
+ * Returns `{ pool, close }` for manual lifecycle management.
+ */
+export const createValidatedPool = (
+  url: string,
+  options: CreateValidatedPoolOptions = {},
+  runtimeConfig: PgRuntimeConfigApi = getDefaultRuntimeConfig(),
+) =>
+  Effect.gen(function* () {
+    const label = options.label ?? "target";
+    const retries = options.retries ?? 0;
+
+    const sslConfig = yield* parseSslConfig(url, label, runtimeConfig);
+
+    const pool = yield* Effect.try({
+      try: () =>
+        createPool(
+          sslConfig.cleanedUrl,
+          {
+            ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
+            ...(options.onConnect ? { onConnect: options.onConnect } : {}),
+            ...(options.onError
+              ? { onError: options.onError as CreatePoolOptions["onError"] }
+              : {}),
+          },
+          runtimeConfig,
+        ),
+      catch: (error) =>
+        new ConnectionError({
+          label,
+          message: `Failed to create ${label} pool.`,
+          cause: ensureError(error),
+        }),
+    });
+
+    yield* validatePoolConnection(
+      pool,
+      label,
+      runtimeConfig.connectTimeoutMs,
+      retries,
+    ).pipe(
+      Effect.tapError(() =>
+        Effect.tryPromise({
+          try: () => pool.end().catch(() => {}),
+          catch: () =>
+            new ConnectionError({
+              label,
+              message: `Failed to clean up ${label} pool after connection validation.`,
+            }),
+        }).pipe(Effect.catch(() => Effect.void)),
+      ),
+    );
+
+    return { pool, close: () => endPool(pool) };
+  });
