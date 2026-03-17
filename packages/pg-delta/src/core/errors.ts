@@ -4,7 +4,7 @@ import type {
   ConnectionError,
   ConnectionTimeoutError,
   SslConfigError,
-} from "./errors.ts";
+} from "../platform/sql/errors.ts";
 
 // ---------------------------------------------------------------------------
 // Connection errors (re-exported from platform)
