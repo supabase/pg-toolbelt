@@ -4,7 +4,6 @@
 
 import { expect } from "bun:test";
 import { inspect } from "node:util";
-import debug from "debug";
 import { Effect } from "effect";
 import type { Pool } from "pg";
 import { diffCatalogs } from "../../src/core/catalog.diff.ts";
@@ -22,6 +21,7 @@ import {
   hashStableIds,
 } from "../../src/core/fingerprint.ts";
 import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import { getPgDeltaLogger } from "../../src/core/logging.ts";
 import { serializeChange } from "../../src/core/serialize-effect.ts";
 import { wrapPool } from "../../src/core/services/database-live.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
@@ -36,8 +36,8 @@ import {
   createPlan,
 } from "../promise-helpers.ts";
 
-const debugTest = debug("pg-delta:test");
-const debugDependencies = debug("pg-delta:dependencies");
+const logTest = getPgDeltaLogger("test");
+const logDeps = getPgDeltaLogger("dependencies");
 
 const runSyncEffect = <A, E>(effect: Effect.Effect<A, E>): A =>
   Effect.runSync(effect as Effect.Effect<A, E, never>);
@@ -149,9 +149,9 @@ export async function roundtripFidelityTest(
   }
 
   // Extract catalogs from both databases
-  debugTest("mainCatalog: ");
+  logTest.debug("mainCatalog: ");
   const mainCatalog = await Effect.runPromise(extractCatalog(mainDb));
-  debugTest("branchCatalog: ");
+  logTest.debug("branchCatalog: ");
   const branchCatalog = await Effect.runPromise(extractCatalog(branchDb));
 
   if (expectedMainDependencies && expectedBranchDependencies) {
@@ -180,18 +180,14 @@ export async function roundtripFidelityTest(
     sortedChanges = [...sortedChanges].sort(sortChangesCallback);
   }
 
-  debugDependencies("\n==== Sorted Changes ====");
+  logDeps.debug("\n==== Sorted Changes ====");
   for (let i = 0; i < sortedChanges.length; i++) {
     const change = sortedChanges[i];
-    debugDependencies(
-      "[%d] %s creates: %O requires: %O",
-      i,
-      change.constructor.name,
-      change.creates,
-      change.requires ?? [],
+    logDeps.debug(
+      `[${i}] ${change.constructor.name} creates: ${JSON.stringify(change.creates)} requires: ${JSON.stringify(change.requires ?? [])}`,
     );
   }
-  debugDependencies("==== End Sorted Changes ====\n");
+  logDeps.debug("==== End Sorted Changes ====\n");
 
   if (expectedOperationOrder) {
     validateOperationOrder(sortedChanges, expectedOperationOrder);
@@ -224,7 +220,7 @@ export async function roundtripFidelityTest(
     }
   }
 
-  debugTest("migrationScript: %s", migrationScript);
+  logTest.debug(`migrationScript: ${migrationScript}`);
 
   // Apply migration using core apply
   const applyResult = await applyPlan(plan, mainDb, branchDb, {
@@ -437,7 +433,7 @@ async function verifyNoRemainingChanges(
   integrationFilter: Integration["filter"] | undefined,
   migrationScript: string,
 ): Promise<void> {
-  debugTest("mainCatalogAfter: ");
+  logTest.debug("mainCatalogAfter: ");
   const mainCatalogAfter = await Effect.runPromise(extractCatalog(mainDb));
 
   // Verify semantic equality by diffing the catalogs again
@@ -575,8 +571,8 @@ function validateDependencies(
       !dep.includes("graphql") &&
       !dep.includes("defaultAcl"),
   );
-  debugTest("mainDependencies: %O", filteredMainDeps);
-  debugTest("branchDependencies: %O", filteredBranchDeps);
+  logTest.debug("mainDependencies:", { deps: filteredMainDeps });
+  logTest.debug("branchDependencies:", { deps: filteredBranchDeps });
 
   // Extract dependencies from main catalog
   const expectedMainSet = new Set(

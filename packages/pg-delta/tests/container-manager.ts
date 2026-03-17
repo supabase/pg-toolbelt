@@ -1,5 +1,5 @@
-import debug from "debug";
 import type { Pool } from "pg";
+import { getPgDeltaLogger } from "../src/core/logging.ts";
 import { createPool } from "../src/platform/sql/pool.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
@@ -10,7 +10,7 @@ import {
   type StartedPostgresAlpineContainer,
 } from "./postgres-alpine.ts";
 
-const debugContainer = debug("pg-delta:container");
+const logger = getPgDeltaLogger("container");
 
 /**
  * Suppress expected errors from idle pool connections.
@@ -82,9 +82,8 @@ class ContainerManager {
     const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
 
     try {
-      debugContainer(
-        "[ContainerManager] Starting container for PostgreSQL %d...",
-        version,
+      logger.debug(
+        `[ContainerManager] Starting container for PostgreSQL ${version}...`,
       );
       const container = await new PostgresAlpineContainer(image).start();
       this.containers.set(version, container);
@@ -97,9 +96,8 @@ class ContainerManager {
       });
       this.adminPools.set(version, adminPool);
 
-      debugContainer(
-        "[ContainerManager] Successfully started container for PostgreSQL %d",
-        version,
+      logger.debug(
+        `[ContainerManager] Successfully started container for PostgreSQL ${version}`,
       );
     } catch (error) {
       console.error(
@@ -132,9 +130,8 @@ class ContainerManager {
     branchUrl: string;
     cleanup: () => Promise<void>;
   }> {
-    debugContainer(
-      "[ContainerManager] Getting database pair for PostgreSQL %d",
-      version,
+    logger.debug(
+      `[ContainerManager] Getting database pair for PostgreSQL ${version}`,
     );
     await this.ensureInitialized([version]);
 
