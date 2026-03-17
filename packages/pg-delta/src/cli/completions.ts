@@ -25,7 +25,7 @@ export function parseCompletionShell(
   return undefined;
 }
 
-export function isSupportedCompletionShell(
+function isSupportedCompletionShell(
   value: string | undefined,
 ): value is SupportedCompletionShell {
   return (
