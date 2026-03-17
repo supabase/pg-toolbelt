@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { extractVersion } from "../../context.ts";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
@@ -186,8 +186,16 @@ export const extractSubscriptions = (
 
     const { rows } = yield* db.query<SubscriptionProps>(queryText);
 
-    const validated = rows.map((row) =>
-      Schema.decodeUnknownSync(subscriptionPropsSchema)(row),
+    const validated = yield* Effect.forEach(rows, (row: unknown) =>
+      Schema.decodeUnknownEffect(subscriptionPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractSubscriptions: ${String(parseError)}`,
+              extractor: "extractSubscriptions",
+            }),
+        ),
+      ),
     );
     return validated.map((row) => new Subscription(row));
   });

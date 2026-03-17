@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../../errors.ts";
+import { CatalogExtractionError } from "../../../errors.ts";
 import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -189,8 +189,18 @@ order by
       grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });
     }
     // Validate and parse each enum using the schema
-    const validatedEnums = Object.values(grouped).map((e) =>
-      Schema.decodeUnknownSync(enumPropsSchema)(e),
+    const validatedEnums = yield* Effect.forEach(
+      Object.values(grouped),
+      (e: unknown) =>
+        Schema.decodeUnknownEffect(enumPropsSchema)(e).pipe(
+          Effect.mapError(
+            (parseError) =>
+              new CatalogExtractionError({
+                message: `Schema validation failed in extractEnums: ${String(parseError)}`,
+                extractor: "extractEnums",
+              }),
+          ),
+        ),
     );
     return validatedEnums.map((e: EnumProps) => new Enum(e));
   });

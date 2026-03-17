@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -317,8 +317,16 @@ order by
   1, 2, 3
   `);
 
-    const validatedRows = aggregateRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(aggregatePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(aggregateRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(aggregatePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractAggregates: ${String(parseError)}`,
+              extractor: "extractAggregates",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: AggregateProps) => new Aggregate(row));
   });

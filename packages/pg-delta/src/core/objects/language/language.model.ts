@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -147,8 +147,16 @@ const _extractLanguages = (
     }));
 
     // Validate and parse each row using the Effect Schema
-    const validatedRows = processedRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(languagePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(processedRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(languagePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractLanguages: ${String(parseError)}`,
+              extractor: "extractLanguages",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: LanguageProps) => new Language(row));
   });

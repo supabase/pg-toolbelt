@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../../errors.ts";
+import { CatalogExtractionError } from "../../../errors.ts";
 import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -116,8 +116,18 @@ export const extractServers = (
   `);
 
     // Validate and parse each row using the schema
-    const validatedRows = serverRows.map((row: unknown) => {
-      const parsed = Schema.decodeUnknownSync(serverPropsSchema)(row);
+    const decodedRows = yield* Effect.forEach(serverRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(serverPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractServers: ${String(parseError)}`,
+              extractor: "extractServers",
+            }),
+        ),
+      ),
+    );
+    const validatedRows = decodedRows.map((parsed) => {
       // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
       let options = parsed.options;
       if (options && options.length > 0) {

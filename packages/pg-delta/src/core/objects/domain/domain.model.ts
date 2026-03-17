@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -185,8 +185,16 @@ export const extractDomains = (
         1, 2
     `);
     // Validate and parse each row using the schema
-    const validatedRows = domainRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(domainPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(domainRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(domainPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractDomains: ${String(parseError)}`,
+              extractor: "extractDomains",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: DomainProps) => new Domain(row));
   });

@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import {
@@ -182,8 +182,16 @@ order by
   1, 2
   `);
     // Validate and parse each row using the Effect Schema
-    const validatedRows = sequenceRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(sequencePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(sequenceRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(sequencePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractSequences: ${String(parseError)}`,
+              extractor: "extractSequences",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row) => new Sequence(row));
   });

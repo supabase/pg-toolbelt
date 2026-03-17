@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 import { stableId } from "../utils.ts";
@@ -173,8 +173,16 @@ export const extractRules = (
         1, 3, 2
   `);
 
-    const validatedRows = ruleRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(rulePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(ruleRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(rulePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractRules: ${String(parseError)}`,
+              extractor: "extractRules",
+            }),
+        ),
+      ),
     );
 
     return validatedRows.map((row) => new Rule(row));

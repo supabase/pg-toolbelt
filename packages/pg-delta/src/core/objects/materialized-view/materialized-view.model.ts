@@ -1,19 +1,18 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
   normalizeColumns,
+  ReplicaIdentitySchema,
   type TableLikeObject,
 } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-
-const ReplicaIdentitySchema = Schema.Literals(["d", "n", "f", "i"]);
 
 const materializedViewPropsSchema = Schema.Struct({
   schema: Schema.String,
@@ -237,8 +236,16 @@ order by
   c.relnamespace::regnamespace, c.relname
     `);
     // Validate and parse each row using the schema
-    const validatedRows = mvRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(materializedViewPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(mvRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(materializedViewPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractMaterializedViews: ${String(parseError)}`,
+              extractor: "extractMaterializedViews",
+            }),
+        ),
+      ),
     );
     return validatedRows.map(
       (row: MaterializedViewProps) => new MaterializedView(row),

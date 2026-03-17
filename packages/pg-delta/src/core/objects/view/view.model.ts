@@ -1,24 +1,18 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
   normalizeColumns,
+  ReplicaIdentitySchema,
   type TableLikeObject,
 } from "../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-
-const ReplicaIdentitySchema = Schema.Literals([
-  "d", // DEFAULT (use default key)
-  "n", // NOTHING (no replica identity)
-  "f", // FULL (all columns)
-  "i", // INDEX (specific index)
-]);
 
 const viewPropsSchema = Schema.Struct({
   schema: Schema.String,
@@ -264,8 +258,16 @@ order by
   v.schema, v.name
   `);
     // Validate and parse each row using the schema
-    const validatedRows = viewRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(viewPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(viewRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(viewPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractViews: ${String(parseError)}`,
+              extractor: "extractViews",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: ViewProps) => new View(row));
   });

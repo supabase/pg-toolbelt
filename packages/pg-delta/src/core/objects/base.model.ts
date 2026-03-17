@@ -1,6 +1,13 @@
 import { Schema } from "effect";
 import { deepEqual } from "./utils.ts";
 
+export const ReplicaIdentitySchema = Schema.Literals([
+  "d", // DEFAULT (use default key)
+  "n", // NOTHING (no replica identity)
+  "f", // FULL (all columns)
+  "i", // INDEX (specific index)
+]);
+
 export const columnPropsSchema = Schema.Struct({
   name: Schema.String,
   position: Schema.Number,

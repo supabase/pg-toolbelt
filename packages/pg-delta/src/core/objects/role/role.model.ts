@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
@@ -458,8 +458,16 @@ export const extractRoles = (
     }
 
     // Validate and parse each row using the schema
-    const validatedRows = roleRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(rolePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(roleRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(rolePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractRoles: ${String(parseError)}`,
+              extractor: "extractRoles",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: RoleProps) => new Role(row));
   });

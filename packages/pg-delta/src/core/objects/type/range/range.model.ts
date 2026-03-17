@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../../errors.ts";
+import { CatalogExtractionError } from "../../../errors.ts";
 import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 import {
@@ -185,8 +185,16 @@ where not t.typnamespace::regnamespace::text like any(array['pg\_%', 'informatio
   and e.objid is null
 order by 1, 2
   `);
-    const validated = rows.map((row: unknown) =>
-      Schema.decodeUnknownSync(rangePropsSchema)(row),
+    const validated = yield* Effect.forEach(rows, (row: unknown) =>
+      Schema.decodeUnknownEffect(rangePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractRanges: ${String(parseError)}`,
+              extractor: "extractRanges",
+            }),
+        ),
+      ),
     );
     return validated.map((row: RangeProps) => new Range(row));
   });

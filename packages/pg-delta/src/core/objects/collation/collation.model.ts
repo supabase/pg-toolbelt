@@ -1,7 +1,7 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
 import { extractVersion } from "../../context.ts";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
@@ -220,8 +220,16 @@ export const extractCollations = (
     }
 
     // Validate and parse each row using the schema
-    const validatedRows = collationRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(collationPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(collationRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(collationPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractCollations: ${String(parseError)}`,
+              extractor: "extractCollations",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: CollationProps) => new Collation(row));
   });

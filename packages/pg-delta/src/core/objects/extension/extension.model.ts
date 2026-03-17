@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
@@ -276,8 +276,16 @@ export const extractExtensions = (
     er.name
   `);
     // Validate and parse each row using the Effect Schema
-    const validatedRows = extensionRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(extensionPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(extensionRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(extensionPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractExtensions: ${String(parseError)}`,
+              extractor: "extractExtensions",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: ExtensionProps) => new Extension(row));
   });

@@ -1,19 +1,18 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../../errors.ts";
+import { CatalogExtractionError } from "../../../errors.ts";
 import type { DatabaseApi } from "../../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
   normalizeColumns,
+  ReplicaIdentitySchema,
   type TableLikeObject,
 } from "../../base.model.ts";
 import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
-
-const ReplicaIdentitySchema = Schema.Literals(["d", "n", "f", "i"]);
 
 const compositeTypePropsSchema = Schema.Struct({
   schema: Schema.String,
@@ -234,8 +233,18 @@ export const extractCompositeTypes = (
   `);
 
     // Validate and parse each row using the schema
-    const validatedRows = compositeTypeRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(compositeTypePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(
+      compositeTypeRows,
+      (row: unknown) =>
+        Schema.decodeUnknownEffect(compositeTypePropsSchema)(row).pipe(
+          Effect.mapError(
+            (parseError) =>
+              new CatalogExtractionError({
+                message: `Schema validation failed in extractCompositeTypes: ${String(parseError)}`,
+                extractor: "extractCompositeTypes",
+              }),
+          ),
+        ),
     );
     return validatedRows.map(
       (row: CompositeTypeProps) => new CompositeType(row),

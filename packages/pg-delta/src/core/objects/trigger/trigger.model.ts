@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import { BasePgModel } from "../base.model.ts";
 
@@ -260,8 +260,16 @@ export const extractTriggers = (
       order by 1, 2
   `);
     // Validate and parse each row using the schema
-    const validatedRows = triggerRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(triggerPropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(triggerRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(triggerPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractTriggers: ${String(parseError)}`,
+              extractor: "extractTriggers",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: TriggerProps) => new Trigger(row));
   });

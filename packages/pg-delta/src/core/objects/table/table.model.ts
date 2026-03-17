@@ -1,11 +1,12 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../errors.ts";
+import { CatalogExtractionError } from "../../errors.ts";
 import type { DatabaseApi } from "../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
   normalizeColumns,
+  ReplicaIdentitySchema,
   type TableLikeObject,
 } from "../base.model.ts";
 import { normalizePrivileges } from "../base.privilege.ts";
@@ -18,13 +19,6 @@ const RelationPersistenceSchema = Schema.Literals([
   "p", // permanent
   "u", // unlogged
   "t", // temporary
-]);
-
-const ReplicaIdentitySchema = Schema.Literals([
-  "d", // DEFAULT (use default key)
-  "n", // NOTHING (no replica identity)
-  "f", // FULL (all columns)
-  "i", // INDEX (specific index)
 ]);
 
 const ForeignKeyActionSchema = Schema.Literals([
@@ -459,8 +453,16 @@ order by
   t.schema, t.name
   `);
     // Validate and parse each row using the Effect Schema
-    const validatedRows = tableRows.map((row: unknown) =>
-      Schema.decodeUnknownSync(tablePropsSchema)(row),
+    const validatedRows = yield* Effect.forEach(tableRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(tablePropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractTables: ${String(parseError)}`,
+              extractor: "extractTables",
+            }),
+        ),
+      ),
     );
     return validatedRows.map((row: TableProps) => new Table(row));
   });

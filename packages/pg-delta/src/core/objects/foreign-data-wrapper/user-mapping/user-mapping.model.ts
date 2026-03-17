@@ -1,6 +1,6 @@
 import { sql } from "@ts-safeql/sql-tag";
 import { Effect, Schema } from "effect";
-import type { CatalogExtractionError } from "../../../errors.ts";
+import { CatalogExtractionError } from "../../../errors.ts";
 import type { DatabaseApi } from "../../../services/database.ts";
 import { BasePgModel } from "../../base.model.ts";
 
@@ -79,8 +79,18 @@ export const extractUserMappings = (
   `);
 
     // Validate and parse each row using the schema
-    const validatedRows = mappingRows.map((row: unknown) => {
-      const parsed = Schema.decodeUnknownSync(userMappingPropsSchema)(row);
+    const decodedRows = yield* Effect.forEach(mappingRows, (row: unknown) =>
+      Schema.decodeUnknownEffect(userMappingPropsSchema)(row).pipe(
+        Effect.mapError(
+          (parseError) =>
+            new CatalogExtractionError({
+              message: `Schema validation failed in extractUserMappings: ${String(parseError)}`,
+              extractor: "extractUserMappings",
+            }),
+        ),
+      ),
+    );
+    const validatedRows = decodedRows.map((parsed) => {
       // Parse options from PostgreSQL format ['key=value'] to ['key', 'value']
       let options = parsed.options;
       if (options && options.length > 0) {
