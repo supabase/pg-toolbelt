@@ -65,7 +65,7 @@ export abstract class BasePgModel {
   equals(other: BasePgModel): boolean {
     return (
       this.stableId === other.stableId &&
-      deepEqual(this.dataFields, other.dataFields)
+      deepEqual(this.stableSnapshot().data, other.stableSnapshot().data)
     );
   }
 
