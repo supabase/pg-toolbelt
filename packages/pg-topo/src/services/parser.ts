@@ -14,9 +14,11 @@ export interface ParserApi {
   readonly collectExpressionDependencies: (
     expressionNode: unknown,
     options?: { qualifiedOnly?: boolean },
+    diagnostics?: Diagnostic[],
   ) => ReadonlyArray<ObjectRef>;
   readonly collectRoutineBodyDependencies: (
     statementNode: Record<string, unknown>,
+    diagnostics?: Diagnostic[],
   ) => ReadonlyArray<ObjectRef>;
 }
 

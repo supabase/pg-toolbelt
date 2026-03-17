@@ -176,6 +176,7 @@ describe("logicalSort", () => {
   describe("default_privilege scope", () => {
     test("groups by role + schema combination", () => {
       const defPriv = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:public.tables"],
@@ -190,6 +191,7 @@ describe("logicalSort", () => {
 
     test("groups by role only when no schema", () => {
       const defPriv = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:tables"],
@@ -306,6 +308,7 @@ describe("logicalSort", () => {
         schema: null,
       });
       const defPriv = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:public.tables"],
@@ -323,6 +326,7 @@ describe("logicalSort", () => {
     test("default_privilege orders deterministically by objtype then grantee", () => {
       const baseRequires = ["role:postgres", "schema:public"];
       const defPrivTablesAnon = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:postgres:r:schema:public:grantee:anon"],
@@ -332,6 +336,7 @@ describe("logicalSort", () => {
         grantee: "anon",
       });
       const defPrivTablesAuthenticated = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:postgres:r:schema:public:grantee:authenticated"],
@@ -341,6 +346,7 @@ describe("logicalSort", () => {
         grantee: "authenticated",
       });
       const defPrivSequencesAnon = mockChange({
+        objectType: "role",
         scope: "default_privilege",
         operation: "create",
         creates: ["defacl:postgres:S:schema:public:grantee:anon"],

@@ -5,6 +5,7 @@ import type { DatabaseApi } from "../../../services/database.ts";
 import {
   BasePgModel,
   columnPropsSchema,
+  normalizeColumns,
   type TableLikeObject,
 } from "../../base.model.ts";
 import {
@@ -112,26 +113,11 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
   }
 
   override stableSnapshot() {
-    const normalizeColumns = () =>
-      [...this.columns]
-        .map((col) => {
-          const { position: _pos, ...rest } = col as unknown as Record<
-            string,
-            unknown
-          >;
-          return rest;
-        })
-        .sort((a, b) => {
-          const nameA = (a.name as string | undefined) ?? "";
-          const nameB = (b.name as string | undefined) ?? "";
-          return nameA.localeCompare(nameB);
-        });
-
     return {
       identity: this.identityFields,
       data: {
         ...this.dataFields,
-        columns: normalizeColumns(),
+        columns: normalizeColumns(this.columns),
       },
     };
   }

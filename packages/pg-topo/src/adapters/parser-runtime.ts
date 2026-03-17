@@ -266,10 +266,16 @@ const addExpressionDependenciesWithOptions = (
   expressionNode: unknown,
   requires: ObjectRef[],
   options: ExpressionDependencyOptions,
+  diagnostics?: Diagnostic[],
 ): void => {
   try {
     walkSqlAst(expressionNode, createSqlDependencyVisitor(requires, options));
-  } catch {}
+  } catch (error) {
+    diagnostics?.push({
+      code: "EXPRESSION_WALK_ERROR",
+      message: `Failed to walk SQL expression AST: ${error instanceof Error ? error.message : "Unknown error"}`,
+    });
+  }
 };
 
 const functionOptionElements = (
@@ -345,18 +351,25 @@ const pickPlpgsqlDelimiter = (bodyBlock: string): string => {
 const addHydratedPlpgsqlDependencies = (
   hydratedPlpgsqlAst: unknown,
   requires: ObjectRef[],
+  diagnostics?: Diagnostic[],
 ): void => {
   try {
     walkPlpgsqlAst(hydratedPlpgsqlAst, () => {}, {
       walkSqlExpressions: true,
       sqlVisitor: createSqlDependencyVisitor(requires, { qualifiedOnly: true }),
     });
-  } catch {}
+  } catch (error) {
+    diagnostics?.push({
+      code: "EXPRESSION_WALK_ERROR",
+      message: `Failed to walk PL/pgSQL AST: ${error instanceof Error ? error.message : "Unknown error"}`,
+    });
+  }
 };
 
 const addSqlRoutineBodyDependencies = (
   bodyBlock: string,
   requires: ObjectRef[],
+  diagnostics?: Diagnostic[],
 ): void => {
   const parsedBody = parseSqlScriptSync(bodyBlock) as {
     stmts?: Array<{ stmt?: unknown }>;
@@ -365,9 +378,14 @@ const addSqlRoutineBodyDependencies = (
   for (const parsedStatement of statements) {
     const statementAst = asRecord(parsedStatement)?.stmt;
     if (statementAst) {
-      addExpressionDependenciesWithOptions(statementAst, requires, {
-        qualifiedOnly: true,
-      });
+      addExpressionDependenciesWithOptions(
+        statementAst,
+        requires,
+        {
+          qualifiedOnly: true,
+        },
+        diagnostics,
+      );
     }
   }
 };
@@ -375,6 +393,7 @@ const addSqlRoutineBodyDependencies = (
 const addPlpgsqlRoutineBodyDependencies = (
   bodyBlock: string,
   requires: ObjectRef[],
+  diagnostics?: Diagnostic[],
 ): void => {
   const delimiter = pickPlpgsqlDelimiter(bodyBlock);
   const syntheticFunctionSql = [
@@ -400,7 +419,7 @@ const addPlpgsqlRoutineBodyDependencies = (
     asRecord(parsedFunction)?.plpgsql,
   )?.hydrated;
   if (hydratedPlpgsqlAst) {
-    addHydratedPlpgsqlDependencies(hydratedPlpgsqlAst, requires);
+    addHydratedPlpgsqlDependencies(hydratedPlpgsqlAst, requires, diagnostics);
   }
 };
 
@@ -410,6 +429,7 @@ const ensureStatementTerminator = (sql: string): string =>
 const extractStatementSql = async (
   fileContent: string,
   statement: RawParserStatement,
+  diagnostics?: Diagnostic[],
 ): Promise<string> => {
   const location = statement.stmt_location ?? 0;
   const length = statement.stmt_len ?? 0;
@@ -428,7 +448,12 @@ const extractStatementSql = async (
         if ((parsed.stmts ?? []).length > 0) {
           return candidate;
         }
-      } catch {}
+      } catch (error) {
+        diagnostics?.push({
+          code: "EXPRESSION_WALK_ERROR",
+          message: `Failed to re-parse extracted SQL statement: ${error instanceof Error ? error.message : "Unknown error"}`,
+        });
+      }
     }
   }
 
@@ -480,7 +505,7 @@ export const parseSqlContentImpl = async (
       continue;
     }
 
-    const sql = await extractStatementSql(content, statement);
+    const sql = await extractStatementSql(content, statement, diagnostics);
     const annotationResult = parseAnnotations(sql);
 
     let sourceOffset = statement.stmt_location ?? 0;
@@ -520,16 +545,23 @@ export const parseSqlContentImpl = async (
 export const collectExpressionDependencies = (
   expressionNode: unknown,
   options?: Partial<ExpressionDependencyOptions>,
+  diagnostics?: Diagnostic[],
 ): ObjectRef[] => {
   const requires: ObjectRef[] = [];
-  addExpressionDependenciesWithOptions(expressionNode, requires, {
-    qualifiedOnly: options?.qualifiedOnly ?? false,
-  });
+  addExpressionDependenciesWithOptions(
+    expressionNode,
+    requires,
+    {
+      qualifiedOnly: options?.qualifiedOnly ?? false,
+    },
+    diagnostics,
+  );
   return requires;
 };
 
 export const collectRoutineBodyDependencies = (
   statementNode: Record<string, unknown>,
+  diagnostics?: Diagnostic[],
 ): ObjectRef[] => {
   const languageName = extractRoutineLanguage(statementNode);
   if (languageName !== "sql" && languageName !== "plpgsql") {
@@ -541,11 +573,16 @@ export const collectRoutineBodyDependencies = (
   for (const bodyBlock of bodyBlocks) {
     try {
       if (languageName === "sql") {
-        addSqlRoutineBodyDependencies(bodyBlock, requires);
+        addSqlRoutineBodyDependencies(bodyBlock, requires, diagnostics);
       } else {
-        addPlpgsqlRoutineBodyDependencies(bodyBlock, requires);
+        addPlpgsqlRoutineBodyDependencies(bodyBlock, requires, diagnostics);
       }
-    } catch {}
+    } catch (error) {
+      diagnostics?.push({
+        code: "EXPRESSION_WALK_ERROR",
+        message: `Failed to extract routine body dependencies: ${error instanceof Error ? error.message : "Unknown error"}`,
+      });
+    }
   }
 
   return requires;

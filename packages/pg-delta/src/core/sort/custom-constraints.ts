@@ -1,9 +1,6 @@
+import { isRoleDefaultPrivilegeChange } from "../change.guards.ts";
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../integrations/filter/extractors.ts";
-import {
-  GrantRoleDefaultPrivileges,
-  RevokeRoleDefaultPrivileges,
-} from "../objects/role/changes/role.privilege.ts";
 import type { Constraint } from "./types.ts";
 
 /**
@@ -64,10 +61,7 @@ function generateDefaultPrivilegeConstraints(changes: Change[]): Constraint[] {
     const change = changes[i];
 
     // Identify default privilege changes
-    if (
-      change instanceof GrantRoleDefaultPrivileges ||
-      change instanceof RevokeRoleDefaultPrivileges
-    ) {
+    if (isRoleDefaultPrivilegeChange(change)) {
       defaultPrivilegeIndices.push(i);
       continue;
     }
@@ -103,12 +97,10 @@ function generateDefaultPrivilegeConstraints(changes: Change[]): Constraint[] {
 
   // Pass 2: Generate constraints
   for (const privIndex of defaultPrivilegeIndices) {
-    const privChange = changes[privIndex] as {
-      inSchema: string | null;
-      objtype: string;
-    };
-    const privSchema = privChange.inSchema;
-    const privObjType = privChange.objtype;
+    const change = changes[privIndex];
+    if (!isRoleDefaultPrivilegeChange(change)) continue;
+    const privSchema = change.inSchema;
+    const privObjType = change.objtype;
 
     const schemaMap = createsByObjTypeAndSchema.get(privObjType);
     if (!schemaMap) continue;

@@ -31,7 +31,8 @@ export function performStableTopologicalSort(
 
   const orderedNodeIndexes: number[] = [];
   while (candidateQueue.length > 0) {
-    const nodeIndex = candidateQueue.shift() as number;
+    // biome-ignore lint/style/noNonNullAssertion: guarded by while (candidateQueue.length > 0)
+    const nodeIndex = candidateQueue.shift()!;
     orderedNodeIndexes.push(nodeIndex);
     for (const neighborIndex of adjacencyList[nodeIndex]) {
       inDegreeCounts[neighborIndex]--;

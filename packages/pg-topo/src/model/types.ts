@@ -79,7 +79,8 @@ export type DiagnosticCode =
   | "DUPLICATE_PRODUCER"
   | "CYCLE_DETECTED"
   | "CYCLE_EDGE_SKIPPED"
-  | "INVALID_ANNOTATION";
+  | "INVALID_ANNOTATION"
+  | "EXPRESSION_WALK_ERROR";
 
 export type Diagnostic = {
   code: DiagnosticCode;

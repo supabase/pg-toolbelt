@@ -9,6 +9,7 @@
  * resolver to reorder within groups when necessary.
  */
 
+import { isRoleDefaultPrivilegeChange } from "../change.guards.ts";
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../integrations/filter/extractors.ts";
 import { getExecutionPhase, isMetadataStableId, type Phase } from "./utils.ts";
@@ -87,6 +88,32 @@ function findObjectStableId(stableIds: string[]): string | null {
 }
 
 /**
+ * Resolve a sub-entity stable ID (constraint or column) to its parent table stable ID.
+ * Returns the original stable ID if it's not a sub-entity prefix.
+ *
+ * - `constraint:schema.table.name` → `table:schema.table`
+ * - `column:schema.table.name` → `table:schema.table`
+ * - anything else → returned as-is
+ */
+function resolveSubEntityToParent(stableId: string): string {
+  if (stableId.startsWith("constraint:")) {
+    const match = stableId.match(CONSTRAINT_REGEX);
+    if (match) {
+      const [, schema, table] = match;
+      return `table:${schema}.${table}`;
+    }
+  }
+  if (stableId.startsWith("column:")) {
+    const match = stableId.match(COLUMN_REGEX);
+    if (match) {
+      const [, schema, table] = match;
+      return `table:${schema}.${table}`;
+    }
+  }
+  return stableId;
+}
+
+/**
  * Extract the main stable ID that a change is touching.
  *
  * For sub-entities (indexes, triggers, constraints, etc.), returns the parent's stable ID.
@@ -108,24 +135,7 @@ function getMainStableId(change: Change): string | null {
       if (isMetadataStableId(createdId)) {
         const objectId = findObjectStableId(change.requires);
         if (objectId) {
-          // Check if commenting on a constraint - extract table from it
-          if (objectId.startsWith("constraint:")) {
-            const match = objectId.match(CONSTRAINT_REGEX);
-            if (match) {
-              const [, schema, table] = match;
-              return `table:${schema}.${table}`;
-            }
-          }
-          // Check if commenting on a column - extract table from it
-          // Format: column:schema.table.column
-          if (objectId.startsWith("column:")) {
-            const match = objectId.match(COLUMN_REGEX);
-            if (match) {
-              const [, schema, table] = match;
-              return `table:${schema}.${table}`;
-            }
-          }
-          return objectId;
+          return resolveSubEntityToParent(objectId);
         }
       }
     }
@@ -133,24 +143,7 @@ function getMainStableId(change: Change): string | null {
     if (change.requires.length > 0) {
       const objectId = findObjectStableId(change.requires);
       if (objectId) {
-        // Check if commenting on a constraint - extract table from it
-        if (objectId.startsWith("constraint:")) {
-          const match = objectId.match(CONSTRAINT_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        // Check if commenting on a column - extract table from it
-        // Format: column:schema.table.column
-        if (objectId.startsWith("column:")) {
-          const match = objectId.match(COLUMN_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        return objectId;
+        return resolveSubEntityToParent(objectId);
       }
     }
     return null;
@@ -180,16 +173,7 @@ function getMainStableId(change: Change): string | null {
     // Iterate through creates to find the first non-metadata stable ID
     const createdId = findObjectStableId(change.creates);
     if (createdId) {
-      if (createdId.startsWith("constraint:")) {
-        // Extract table stable ID from constraint stable ID
-        // Format: constraint:schema.table.constraint_name
-        const match = createdId.match(CONSTRAINT_REGEX);
-        if (match) {
-          const [, schema, table] = match;
-          return `table:${schema}.${table}`;
-        }
-      }
-      return createdId;
+      return resolveSubEntityToParent(createdId);
     }
     // Fallback: if all creates are metadata (shouldn't happen for non-comment scopes), use first
     return change.creates[0] ?? null;
@@ -200,15 +184,7 @@ function getMainStableId(change: Change): string | null {
     // Iterate through drops to find the first non-metadata stable ID
     const droppedId = findObjectStableId(change.drops);
     if (droppedId) {
-      if (droppedId.startsWith("constraint:")) {
-        // Extract table stable ID from constraint stable ID
-        const match = droppedId.match(CONSTRAINT_REGEX);
-        if (match) {
-          const [, schema, table] = match;
-          return `table:${schema}.${table}`;
-        }
-      }
-      return droppedId;
+      return resolveSubEntityToParent(droppedId);
     }
     // Fallback: if all drops are metadata, use first
     return change.drops[0] ?? null;
@@ -221,23 +197,7 @@ function getMainStableId(change: Change): string | null {
     if (change.creates.length > 0) {
       const createdId = findObjectStableId(change.creates);
       if (createdId) {
-        if (createdId.startsWith("constraint:")) {
-          const match = createdId.match(CONSTRAINT_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        // Extract table stable ID from column stable IDs (for ALTER TABLE ADD COLUMN)
-        // Format: column:schema.table.column
-        if (createdId.startsWith("column:")) {
-          const match = createdId.match(COLUMN_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        return createdId;
+        return resolveSubEntityToParent(createdId);
       }
       // Fallback: if all creates are metadata, use first
       return change.creates[0] ?? null;
@@ -246,14 +206,7 @@ function getMainStableId(change: Change): string | null {
     if (change.drops && change.drops.length > 0) {
       const droppedId = findObjectStableId(change.drops);
       if (droppedId) {
-        if (droppedId.startsWith("constraint:")) {
-          const match = droppedId.match(CONSTRAINT_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        return droppedId;
+        return resolveSubEntityToParent(droppedId);
       }
       // Fallback: if all drops are metadata, use first
       return change.drops[0] ?? null;
@@ -262,15 +215,7 @@ function getMainStableId(change: Change): string | null {
     if (change.requires.length > 0) {
       const requiredId = findObjectStableId(change.requires);
       if (requiredId) {
-        // Check if requiring a constraint - extract table from it
-        if (requiredId.startsWith("constraint:")) {
-          const match = requiredId.match(CONSTRAINT_REGEX);
-          if (match) {
-            const [, schema, table] = match;
-            return `table:${schema}.${table}`;
-          }
-        }
-        return requiredId;
+        return resolveSubEntityToParent(requiredId);
       }
       // Fallback: if all requires are metadata, use first
       return change.requires[0] ?? null;
@@ -318,9 +263,8 @@ function getParentStableId(change: Change): string | null {
  */
 function extractSchemaFromChange(change: Change): string | null {
   // Handle default_privilege changes specially (they have inSchema property)
-  if (change.scope === "default_privilege") {
-    // TypeScript doesn't know about inSchema, but we know it exists for default_privilege changes
-    return (change as { inSchema: string | null }).inSchema ?? null;
+  if (isRoleDefaultPrivilegeChange(change)) {
+    return change.inSchema ?? null;
   }
 
   // Handle event_trigger changes specially - group by their function's schema
@@ -577,15 +521,16 @@ function sortPhase(changes: Change[], phase: Phase): Change[] {
     }
 
     // 6b. For default_privilege: deterministic tiebreaker by objtype then grantee (canonical order for objtype)
-    if (scopeA === "default_privilege" && scopeB === "default_privilege") {
-      const defPrivA = changeA as { objtype: string; grantee: string };
-      const defPrivB = changeB as { objtype: string; grantee: string };
+    if (
+      isRoleDefaultPrivilegeChange(changeA) &&
+      isRoleDefaultPrivilegeChange(changeB)
+    ) {
       const objtypeOrder = (code: string) =>
         ({ n: 0, r: 1, S: 2, f: 3, T: 4 })[code] ?? 99;
       const objtypeCompare =
-        objtypeOrder(defPrivA.objtype) - objtypeOrder(defPrivB.objtype);
+        objtypeOrder(changeA.objtype) - objtypeOrder(changeB.objtype);
       if (objtypeCompare !== 0) return objtypeCompare;
-      const granteeCompare = defPrivA.grantee.localeCompare(defPrivB.grantee);
+      const granteeCompare = changeA.grantee.localeCompare(changeB.grantee);
       if (granteeCompare !== 0) return granteeCompare;
     }
 

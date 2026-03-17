@@ -3,6 +3,7 @@
  */
 
 import { Effect } from "effect";
+import { isRoleDefaultPrivilegeChange } from "../change.guards.ts";
 import type { Change } from "../change.types.ts";
 import { InvariantViolationError } from "../errors.ts";
 import { getPgDeltaLogger } from "../logging.ts";
@@ -18,22 +19,6 @@ const logger = getPgDeltaLogger("export");
 // ============================================================================
 // Helpers
 // ============================================================================
-
-type RoleDefaultPrivilegeChange = Change & {
-  objectType: "role";
-  scope: "default_privilege";
-  inSchema: string | null;
-};
-
-function isRoleDefaultPrivilegeChange(
-  change: Change,
-): change is RoleDefaultPrivilegeChange {
-  return (
-    change.objectType === "role" &&
-    change.scope === "default_privilege" &&
-    "inSchema" in change
-  );
-}
 
 function requireSchema(change: Change) {
   const schema = getObjectSchema(change);
