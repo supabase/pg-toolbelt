@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, References } from "effect";
 
 const ROOT_CATEGORY = "pg-delta";
 
@@ -222,6 +222,7 @@ function emitLog(
           category: category.join(":"),
           ...(properties ?? {}),
         }),
+        Effect.provideService(References.MinimumLogLevel, "All"),
       ),
     );
   } catch {

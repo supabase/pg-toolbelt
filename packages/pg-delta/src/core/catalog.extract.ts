@@ -3,7 +3,7 @@ import { normalizeCatalog } from "./catalog.normalize.ts";
 import { Catalog } from "./catalog.ts";
 import { extractCurrentUser, extractVersion } from "./context.ts";
 import { extractDepends } from "./depend.ts";
-import type { CatalogExtractionError } from "./errors.ts";
+import { CatalogExtractionError } from "./errors.ts";
 import { extractAggregates } from "./objects/aggregate/aggregate.model.ts";
 import type { BasePgModel, TableLikeObject } from "./objects/base.model.ts";
 import { extractCollations } from "./objects/collation/collation.model.ts";
@@ -32,43 +32,56 @@ import { extractRanges } from "./objects/type/range/range.model.ts";
 import { extractViews } from "./objects/view/view.model.ts";
 import type { DatabaseApi } from "./services/database.ts";
 
+const labeled = <A>(label: string, effect: Effect.Effect<A, CatalogExtractionError>) =>
+  effect.pipe(
+    Effect.mapError((e) =>
+      e.extractor
+        ? e
+        : new CatalogExtractionError({
+            message: e.message,
+            cause: e.cause,
+            extractor: label,
+          }),
+    ),
+  );
+
 export const extractCatalog = (
   db: DatabaseApi,
 ): Effect.Effect<Catalog, CatalogExtractionError> =>
   Effect.gen(function* () {
     const results = yield* Effect.all(
       {
-        aggregates: extractAggregates(db).pipe(Effect.map(listToRecord)),
-        collations: extractCollations(db).pipe(Effect.map(listToRecord)),
-        compositeTypes: extractCompositeTypes(db).pipe(
+        aggregates: labeled("aggregates", extractAggregates(db).pipe(Effect.map(listToRecord))),
+        collations: labeled("collations", extractCollations(db).pipe(Effect.map(listToRecord))),
+        compositeTypes: labeled("compositeTypes", extractCompositeTypes(db).pipe(
           Effect.map(listToRecord),
-        ),
-        domains: extractDomains(db).pipe(Effect.map(listToRecord)),
-        enums: extractEnums(db).pipe(Effect.map(listToRecord)),
-        extensions: extractExtensions(db).pipe(Effect.map(listToRecord)),
-        indexes: extractIndexes(db).pipe(Effect.map(listToRecord)),
-        materializedViews: extractMaterializedViews(db).pipe(
+        )),
+        domains: labeled("domains", extractDomains(db).pipe(Effect.map(listToRecord))),
+        enums: labeled("enums", extractEnums(db).pipe(Effect.map(listToRecord))),
+        extensions: labeled("extensions", extractExtensions(db).pipe(Effect.map(listToRecord))),
+        indexes: labeled("indexes", extractIndexes(db).pipe(Effect.map(listToRecord))),
+        materializedViews: labeled("materializedViews", extractMaterializedViews(db).pipe(
           Effect.map(listToRecord),
-        ),
-        subscriptions: extractSubscriptions(db).pipe(Effect.map(listToRecord)),
-        publications: extractPublications(db).pipe(Effect.map(listToRecord)),
-        procedures: extractProcedures(db).pipe(Effect.map(listToRecord)),
-        rlsPolicies: extractRlsPolicies(db).pipe(Effect.map(listToRecord)),
-        roles: extractRoles(db).pipe(Effect.map(listToRecord)),
-        schemas: extractSchemas(db).pipe(Effect.map(listToRecord)),
-        sequences: extractSequences(db).pipe(Effect.map(listToRecord)),
-        tables: extractTables(db).pipe(Effect.map(listToRecord)),
-        triggers: extractTriggers(db).pipe(Effect.map(listToRecord)),
-        eventTriggers: extractEventTriggers(db).pipe(Effect.map(listToRecord)),
-        rules: extractRules(db).pipe(Effect.map(listToRecord)),
-        ranges: extractRanges(db).pipe(Effect.map(listToRecord)),
-        views: extractViews(db).pipe(Effect.map(listToRecord)),
-        foreignDataWrappers: extractForeignDataWrappers(db).pipe(
+        )),
+        subscriptions: labeled("subscriptions", extractSubscriptions(db).pipe(Effect.map(listToRecord))),
+        publications: labeled("publications", extractPublications(db).pipe(Effect.map(listToRecord))),
+        procedures: labeled("procedures", extractProcedures(db).pipe(Effect.map(listToRecord))),
+        rlsPolicies: labeled("rlsPolicies", extractRlsPolicies(db).pipe(Effect.map(listToRecord))),
+        roles: labeled("roles", extractRoles(db).pipe(Effect.map(listToRecord))),
+        schemas: labeled("schemas", extractSchemas(db).pipe(Effect.map(listToRecord))),
+        sequences: labeled("sequences", extractSequences(db).pipe(Effect.map(listToRecord))),
+        tables: labeled("tables", extractTables(db).pipe(Effect.map(listToRecord))),
+        triggers: labeled("triggers", extractTriggers(db).pipe(Effect.map(listToRecord))),
+        eventTriggers: labeled("eventTriggers", extractEventTriggers(db).pipe(Effect.map(listToRecord))),
+        rules: labeled("rules", extractRules(db).pipe(Effect.map(listToRecord))),
+        ranges: labeled("ranges", extractRanges(db).pipe(Effect.map(listToRecord))),
+        views: labeled("views", extractViews(db).pipe(Effect.map(listToRecord))),
+        foreignDataWrappers: labeled("foreignDataWrappers", extractForeignDataWrappers(db).pipe(
           Effect.map(listToRecord),
-        ),
-        servers: extractServers(db).pipe(Effect.map(listToRecord)),
-        userMappings: extractUserMappings(db).pipe(Effect.map(listToRecord)),
-        foreignTables: extractForeignTables(db).pipe(Effect.map(listToRecord)),
+        )),
+        servers: labeled("servers", extractServers(db).pipe(Effect.map(listToRecord))),
+        userMappings: labeled("userMappings", extractUserMappings(db).pipe(Effect.map(listToRecord))),
+        foreignTables: labeled("foreignTables", extractForeignTables(db).pipe(Effect.map(listToRecord))),
         depends: extractDepends(db),
         version: extractVersion(db),
         currentUser: extractCurrentUser(db),

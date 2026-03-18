@@ -5,6 +5,7 @@ import { compileSerializeDSL } from "../../../core/integrations/serialize/dsl.ts
 import type { SqlFormatOptions } from "../../../core/plan/sql-format.ts";
 import { createPlan } from "../../../effect.ts";
 import { CliExitError } from "../../errors.ts";
+import { extractDeepestCliMessage } from "../../output/normalize-error.ts";
 import { Output } from "../../output/output.service.ts";
 import {
   assertSafePath,
@@ -85,7 +86,7 @@ export const handleDeclarativeExport = Effect.fnUntraced(function* (flags: {
       (error) =>
         new CliExitError({
           exitCode: 1,
-          message: `Error creating plan: ${error.message}`,
+          message: `Error creating plan: ${extractDeepestCliMessage(error)}`,
         }),
     ),
   );
