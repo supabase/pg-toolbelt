@@ -173,7 +173,7 @@ export function createPool(
             await waitForClientSetup(client);
             return client;
           } catch (setupError) {
-            (client as any).release?.(setupError as Error);
+            (client as PoolClient).release?.(setupError as Error);
             throw setupError;
           }
         });
