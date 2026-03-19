@@ -35,8 +35,8 @@ pg-delta --source <source-url> --target <target-url> [options]
 - `-s, --source <url>` (required): Source database connection URL (current state)
 - `-t, --target <url>` (required): Target database connection URL (desired state)
 - `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
-- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
-- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
+- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"*/schema":"public"}'`)
+- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"objectType":"schema"},"options":{"skipAuthorization":true}}]'`)
 - `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
 - `-y, --yes`: Skip confirmation prompt and apply changes automatically
 - `-u, --unsafe`: Allow data-loss operations (unsafe mode)
@@ -84,7 +84,7 @@ pg-delta sync \
 pg-delta sync \
   --source postgresql://user:pass@localhost:5432/source_db \
   --target postgresql://user:pass@localhost:5432/target_db \
-  --filter '{"schema":"public"}'
+  --filter '{"*/schema":"public"}'
 ```
 
 #### Exit Codes
@@ -114,8 +114,8 @@ pg-delta plan --target <target-url-or-snapshot> [options]
 - `-o, --output <file>`: Write output to file (stdout by default). If format is not set: `.sql` infers sql, `.json` infers json, otherwise uses human output
 - `--format <format>`: Output format override: `json` (plan) or `sql` (script)
 - `--role <role>`: Role to use when executing the migration (SET ROLE will be added to statements)
-- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"schema":"public"}'`)
-- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'`)
+- `--filter <json>`: Filter DSL as inline JSON to filter changes (e.g., `'{"*/schema":"public"}'`)
+- `--serialize <json>`: Serialize DSL as inline JSON array (e.g., `'[{"when":{"objectType":"schema"},"options":{"skipAuthorization":true}}]'`)
 - `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file (must end with `.json`)
 - `--sql-format`: Format SQL output (opt-in for `--format sql` or `.sql` output)
 - `--sql-format-options <json>`: SQL format options as inline JSON (e.g., `'{"keywordCase":"upper","maxWidth":100"}'`)
@@ -278,7 +278,7 @@ pg-delta declarative export --target <target-url> --output <dir> [options]
 - `-o, --output <dir>` (required): Output directory for `.sql` files
 - `-s, --source <url|path>`: Source (current state): Postgres URL or catalog snapshot. Omit for full export
 - `--integration <name|path>`: Integration name (e.g., `supabase`) or path to integration JSON file
-- `--filter <json>`: Filter DSL as inline JSON (e.g., `'{"schema":"public"}'`)
+- `--filter <json>`: Filter DSL as inline JSON (e.g., `'{"*/schema":"public"}'`)
 - `--serialize <json>`: Serialize DSL as inline JSON array
 - `--grouping-mode <mode>`: How grouped entities are organized: `single-file` or `subdirectory`
 - `--group-patterns <json>`: JSON array of `{pattern, name}` objects for name-based grouping
