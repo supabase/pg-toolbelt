@@ -345,7 +345,7 @@ pg-delta declarative apply --path <dir-or-file> --target <target-url> [options]
 - `-p, --path <dir|file>` (required): Path to the schema directory (containing `.sql` files) or a single `.sql` file
 - `-t, --target <url>` (required): Target database connection URL
 - `--max-rounds <n>`: Maximum application rounds before giving up (default: 100)
-- `--no-validate-functions`: Skip final function body validation pass
+- `--skip-function-validation`: Skip final function body validation pass
 - `-v, --verbose`: Show detailed per-round progress (applied/deferred/failed)
 - `--ungroup-diagnostics`: Show full per-diagnostic detail instead of grouped summary
 
@@ -374,7 +374,7 @@ pg-delta declarative apply \
 pg-delta declarative apply \
   --path ./declarative-schemas/ \
   --target postgresql://user:pass@localhost:5432/fresh_db \
-  --no-validate-functions
+  --skip-function-validation
 ```
 
 **Debug logging:**
