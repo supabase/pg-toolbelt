@@ -11,6 +11,14 @@ function suppressShutdownError(err: Error & { code?: string }) {
   console.error("Pool error:", err);
 }
 
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 const CLIENT_QUERY_DEPRECATION_WARNING_FRAGMENT =
   "client is already executing a query";
 // Multiple queued queries against a max=1 pool make the setup/query overlap deterministic.
@@ -25,14 +33,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const container = await new PostgresAlpineContainer(image).start();
       const warnings: string[] = [];
       let setupCompletedCount = 0;
-      let resolveSetupStarted: (() => void) | undefined;
-      const setupStarted = new Promise<void>((resolve) => {
-        resolveSetupStarted = resolve;
-      });
-      let allowSetup: (() => void) | undefined;
-      const setupGate = new Promise<void>((resolve) => {
-        allowSetup = resolve;
-      });
+      const setupStarted = createDeferred();
+      const setupGate = createDeferred();
       const onWarning = (warning: Error) => {
         if (
           warning.message.includes(CLIENT_QUERY_DEPRECATION_WARNING_FRAGMENT)
@@ -47,8 +49,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         max: 1,
         onError: suppressShutdownError,
         onConnect: async (client) => {
-          resolveSetupStarted?.();
-          await setupGate;
+          setupStarted.resolve();
+          await setupGate.promise;
           await client.query("SET application_name = 'pgdelta_onconnect'");
           setupCompletedCount += 1;
         },
@@ -67,13 +69,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           return results;
         });
 
-        await setupStarted;
+        await setupStarted.promise;
         await new Promise((resolve) =>
           setTimeout(resolve, BLOCKED_QUERY_CHECK_DELAY_MS),
         );
         expect(queriesResolved).toBeFalse();
 
-        allowSetup?.();
+        setupGate.resolve();
         const results = await queryBatch;
 
         for (const result of results) {

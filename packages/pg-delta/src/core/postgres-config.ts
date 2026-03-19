@@ -148,7 +148,7 @@ export function createPool(
         return;
       }
       throw new Error(
-        "Internal error: pool client was acquired before async onConnect setup was registered",
+        "Internal error: pool client was acquired before async onConnect setup was registered. This indicates a bug in the pool wrapper logic; please report it with reproduction steps.",
       );
     };
     const originalConnect = pool.connect.bind(pool);
