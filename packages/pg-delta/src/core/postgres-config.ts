@@ -154,7 +154,10 @@ export function createPool(
     const originalConnect = pool.connect.bind(pool);
 
     pool.on("connect", (client) => {
-      pendingClientSetup.set(client, Promise.resolve(onConnect(client)));
+      pendingClientSetup.set(
+        client,
+        Promise.resolve().then(() => onConnect(client)),
+      );
     });
 
     pool.connect = ((
@@ -166,8 +169,13 @@ export function createPool(
     ) => {
       if (!callback) {
         return originalConnect().then(async (client) => {
-          await waitForClientSetup(client);
-          return client;
+          try {
+            await waitForClientSetup(client);
+            return client;
+          } catch (setupError) {
+            (client as any).release?.(setupError as Error);
+            throw setupError;
+          }
         });
       }
 
