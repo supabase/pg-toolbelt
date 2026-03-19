@@ -11,12 +11,12 @@ function suppressShutdownError(err: Error & { code?: string }) {
   console.error("Pool error:", err);
 }
 
-const CLIENT_QUERY_DEPRECATION_WARNING =
-  "Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.";
-// 25ms keeps the setup visibly asynchronous without adding noticeable test time.
-const ONCONNECT_SETUP_DELAY_MS = 25;
+const CLIENT_QUERY_DEPRECATION_WARNING_FRAGMENT =
+  "client is already executing a query";
 // Multiple queued queries against a max=1 pool make the setup/query overlap deterministic.
 const CONCURRENT_QUERY_COUNT = 8;
+// Give blocked queries a brief chance to resolve if they are not waiting for setup.
+const BLOCKED_QUERY_CHECK_DELAY_MS = 10;
 
 const POSTGRES_VERSIONS: PostgresVersion[] = [17];
 
@@ -27,8 +27,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const container = await new PostgresAlpineContainer(image).start();
       const warnings: string[] = [];
       let setupCompletedCount = 0;
+      let resolveSetupStarted: (() => void) | undefined;
+      const setupStarted = new Promise<void>((resolve) => {
+        resolveSetupStarted = resolve;
+      });
+      let allowSetup: (() => void) | undefined;
+      const setupGate = new Promise<void>((resolve) => {
+        allowSetup = resolve;
+      });
       const onWarning = (warning: Error) => {
-        if (warning.message === CLIENT_QUERY_DEPRECATION_WARNING) {
+        if (
+          warning.message.includes(CLIENT_QUERY_DEPRECATION_WARNING_FRAGMENT)
+        ) {
           warnings.push(warning.message);
         }
       };
@@ -39,22 +49,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         max: 1,
         onError: suppressShutdownError,
         onConnect: async (client) => {
-          await new Promise((resolve) =>
-            setTimeout(resolve, ONCONNECT_SETUP_DELAY_MS),
-          );
+          resolveSetupStarted?.();
+          await setupGate;
           await client.query("SET application_name = 'pgdelta_onconnect'");
           setupCompletedCount += 1;
         },
       });
 
       try {
-        const results = await Promise.all(
+        let queriesResolved = false;
+        const queryBatch = Promise.all(
           Array.from({ length: CONCURRENT_QUERY_COUNT }, () =>
             pool.query(
               "SELECT current_setting('application_name') AS application_name",
             ),
           ),
+        ).then((results) => {
+          queriesResolved = true;
+          return results;
+        });
+
+        await setupStarted;
+        await new Promise((resolve) =>
+          setTimeout(resolve, BLOCKED_QUERY_CHECK_DELAY_MS),
         );
+        expect(queriesResolved).toBeFalse();
+
+        allowSetup?.();
+        const results = await queryBatch;
 
         for (const result of results) {
           expect(result.rows[0]?.application_name).toBe("pgdelta_onconnect");
