@@ -13,7 +13,9 @@ function suppressShutdownError(err: Error & { code?: string }) {
 
 const CLIENT_QUERY_DEPRECATION_WARNING =
   "Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.";
+// 25ms keeps the setup visibly asynchronous without adding noticeable test time.
 const ONCONNECT_SETUP_DELAY_MS = 25;
+// Multiple queued queries against a max=1 pool make the setup/query overlap deterministic.
 const CONCURRENT_QUERY_COUNT = 8;
 
 const POSTGRES_VERSIONS: PostgresVersion[] = [17];
