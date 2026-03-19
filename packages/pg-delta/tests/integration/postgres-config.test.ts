@@ -13,6 +13,8 @@ function suppressShutdownError(err: Error & { code?: string }) {
 
 const CLIENT_QUERY_DEPRECATION_WARNING =
   "Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.";
+const ONCONNECT_SETUP_DELAY_MS = 25;
+const CONCURRENT_QUERY_COUNT = 8;
 
 const POSTGRES_VERSIONS: PostgresVersion[] = [17];
 
@@ -34,14 +36,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         max: 1,
         onError: suppressShutdownError,
         onConnect: async (client) => {
-          await new Promise((resolve) => setTimeout(resolve, 25));
+          await new Promise((resolve) =>
+            setTimeout(resolve, ONCONNECT_SETUP_DELAY_MS),
+          );
           await client.query("SET application_name = 'pgdelta_onconnect'");
         },
       });
 
       try {
         const results = await Promise.all(
-          Array.from({ length: 8 }, () =>
+          Array.from({ length: CONCURRENT_QUERY_COUNT }, () =>
             pool.query(
               "SELECT current_setting('application_name') AS application_name",
             ),

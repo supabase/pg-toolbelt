@@ -142,6 +142,8 @@ export function createPool(
   if (onConnect) {
     const pendingClientSetup = new WeakMap<PoolClient, Promise<void>>();
     const waitForClientSetup = async (client: PoolClient) => {
+      // Yield once so the synchronous "connect" event has a chance to record
+      // the async setup promise before the caller proceeds with the client.
       await Promise.resolve();
       await pendingClientSetup.get(client);
     };
