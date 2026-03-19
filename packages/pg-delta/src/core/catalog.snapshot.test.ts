@@ -289,6 +289,19 @@ describe("catalog snapshot serde", () => {
     expect(result).toBeNull();
   });
 
+  test("createPlan accepts catalog-shaped plain object (bundle-boundary regression)", async () => {
+    const { createPlan } = await import("./plan/create.ts");
+
+    const sourceCatalog = await createEmptyCatalog(160000, "postgres");
+    const targetCatalog = await createEmptyCatalog(160000, "postgres");
+    const source = { ...sourceCatalog };
+
+    expect(source instanceof Catalog).toBe(false);
+
+    const result = await createPlan(source as Catalog, targetCatalog);
+    expect(result).toBeNull();
+  });
+
   test("createPlan with null source produces plan when target has objects", async () => {
     const { createPlan } = await import("./plan/create.ts");
 

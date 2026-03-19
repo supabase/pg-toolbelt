@@ -42,7 +42,7 @@ export const declarativeApplyCommand = buildCommand({
         parse: Number,
         optional: true,
       },
-      "no-validate-functions": {
+      "skip-function-validation": {
         kind: "boolean",
         brief: "Skip final function body validation pass",
         optional: true,
@@ -93,7 +93,7 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
       path: string;
       target: string;
       "max-rounds"?: number;
-      "no-validate-functions"?: boolean;
+      "skip-function-validation"?: boolean;
       verbose?: boolean;
       "ungroup-diagnostics"?: boolean;
     },
@@ -144,7 +144,7 @@ Tip: Use DEBUG=pg-delta:declarative-apply for detailed defer/skip/fail logs (whi
         content,
         targetUrl: flags.target,
         maxRounds: flags["max-rounds"],
-        validateFunctionBodies: !flags["no-validate-functions"],
+        validateFunctionBodies: !flags["skip-function-validation"],
         onRoundComplete,
       });
     } catch (error) {

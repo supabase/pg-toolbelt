@@ -36,3 +36,6 @@ export { createPlan } from "./core/plan/create.ts";
 export type { SqlFormatOptions } from "./core/plan/sql-format.ts";
 export { formatSqlStatements } from "./core/plan/sql-format.ts";
 export type { CreatePlanOptions, Plan } from "./core/plan/types.ts";
+
+// Postgres config
+export { createManagedPool } from "./core/postgres-config.ts";
