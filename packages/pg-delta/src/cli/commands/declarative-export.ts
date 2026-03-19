@@ -6,13 +6,17 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
-import type { CatalogSnapshot } from "../../core/catalog.snapshot.ts";
+import {
+  deserializeCatalog,
+  type CatalogSnapshot,
+} from "../../core/catalog.snapshot.ts";
 import { exportDeclarativeSchema } from "../../core/export/index.ts";
 import type { Grouping, GroupingPattern } from "../../core/export/types.ts";
-import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
+import { type FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
+import { compileSerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import {
@@ -185,10 +189,6 @@ After export, a tip is printed with the command to apply the schema to an empty 
       verbose?: boolean;
     },
   ) {
-    const { compileSerializeDSL } = await import(
-      "../../core/integrations/serialize/dsl.ts"
-    );
-
     let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
     let serializeOption: SerializeDSL | ChangeSerializer | undefined =
       flags.serialize;
@@ -205,7 +205,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
       if (integrationDSL.serialize && serializeOption) {
         serializeOption = [
           ...integrationDSL.serialize,
-          ...(serializeOption as import("../../core/integrations/serialize/dsl.ts").SerializeDSL),
+          ...(serializeOption as SerializeDSL),
         ];
       } else {
         serializeOption = serializeOption ?? integrationDSL.serialize;
@@ -218,9 +218,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
         ? flags.source
         : await loadCatalogFromFile(flags.source)
       : integrationEmptyCatalog
-        ? (await import("../../core/catalog.snapshot.ts")).deserializeCatalog(
-            integrationEmptyCatalog,
-          )
+        ? deserializeCatalog(integrationEmptyCatalog)
         : null;
 
     const resolvedTarget = isPostgresUrl(flags.target)

@@ -9,7 +9,12 @@ import {
   getObjectSchema,
   getParentInfo,
 } from "../plan/serialize.ts";
-import type { FileCategory, FilePath, Grouping } from "./types.ts";
+import type {
+  FileCategory,
+  FilePath,
+  Grouping,
+  GroupingPattern,
+} from "./types.ts";
 
 const debugExport = createDebug("pg-delta:export");
 
@@ -380,7 +385,7 @@ interface CompilePatternsResult {
  * Any skipped patterns are reported in `warnings`.
  */
 export function compilePatterns(
-  patterns: import("./types.ts").GroupingPattern[],
+  patterns: GroupingPattern[],
 ): CompilePatternsResult {
   const compiled: CompiledPattern[] = [];
   const warnings: string[] = [];

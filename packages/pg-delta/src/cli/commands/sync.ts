@@ -136,7 +136,7 @@ Exit codes:
       if (integrationDSL.serialize && serializeOption) {
         serializeOption = [
           ...integrationDSL.serialize,
-          ...(serializeOption as import("../../core/integrations/serialize/dsl.ts").SerializeDSL),
+          ...(serializeOption as SerializeDSL),
         ];
       } else {
         serializeOption = serializeOption ?? integrationDSL.serialize;

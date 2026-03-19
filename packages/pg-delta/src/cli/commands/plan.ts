@@ -14,6 +14,10 @@ import { setCommandExitCode } from "../exit-code.ts";
 import { loadIntegrationDSL } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay } from "../utils.ts";
+import {
+  deserializeCatalog,
+  type CatalogSnapshot,
+} from "../../core/catalog.snapshot.ts";
 
 export const planCommand = buildCommand({
   parameters: {
@@ -141,9 +145,7 @@ json/sql outputs are available for artifacts or piping.
     let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
     let serializeOption: SerializeDSL | ChangeSerializer | undefined =
       flags.serialize;
-    let integrationEmptyCatalog:
-      | import("../../core/catalog.snapshot.ts").CatalogSnapshot
-      | undefined;
+    let integrationEmptyCatalog: CatalogSnapshot | undefined;
     if (flags.integration) {
       const integrationDSL = await loadIntegrationDSL(flags.integration);
       // AND-combine integration filter with --filter (not override)
@@ -156,7 +158,7 @@ json/sql outputs are available for artifacts or piping.
       if (integrationDSL.serialize && serializeOption) {
         serializeOption = [
           ...integrationDSL.serialize,
-          ...(serializeOption as import("../../core/integrations/serialize/dsl.ts").SerializeDSL),
+          ...(serializeOption as SerializeDSL),
         ];
       } else {
         serializeOption = serializeOption ?? integrationDSL.serialize;
@@ -169,9 +171,7 @@ json/sql outputs are available for artifacts or piping.
         ? flags.source
         : await loadCatalogFromFile(flags.source)
       : integrationEmptyCatalog
-        ? (await import("../../core/catalog.snapshot.ts")).deserializeCatalog(
-            integrationEmptyCatalog,
-          )
+        ? deserializeCatalog(integrationEmptyCatalog)
         : null;
 
     const resolvedTarget = isPostgresUrl(flags.target)
