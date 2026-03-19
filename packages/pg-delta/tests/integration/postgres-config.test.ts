@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createPool, endPool } from "../../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
-  type PostgresVersion,
+  POSTGRES_VERSIONS,
 } from "../constants.ts";
 import { PostgresAlpineContainer } from "../postgres-alpine.ts";
 
@@ -17,8 +17,6 @@ const CLIENT_QUERY_DEPRECATION_WARNING_FRAGMENT =
 const CONCURRENT_QUERY_COUNT = 8;
 // Give blocked queries a brief chance to resolve if they are not waiting for setup.
 const BLOCKED_QUERY_CHECK_DELAY_MS = 10;
-
-const POSTGRES_VERSIONS: PostgresVersion[] = [17];
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`postgres config (pg${pgVersion})`, () => {

@@ -148,7 +148,7 @@ export function createPool(
         return;
       }
       throw new Error(
-        "Pool client setup was not registered before client acquisition",
+        "Internal error: pool client was acquired before async onConnect setup was registered",
       );
     };
     const originalConnect = pool.connect.bind(pool);
@@ -182,7 +182,7 @@ export function createPool(
           callback(err, client, release);
         } catch (setupError) {
           release(setupError as Error);
-          callback(setupError as Error, client, release);
+          callback(setupError as Error, undefined, () => {});
         }
       });
     }) as Pool["connect"];
