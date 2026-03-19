@@ -26,6 +26,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[pgVersion]}`;
       const container = await new PostgresAlpineContainer(image).start();
       const warnings: string[] = [];
+      let setupCompletedCount = 0;
       const onWarning = (warning: Error) => {
         if (warning.message === CLIENT_QUERY_DEPRECATION_WARNING) {
           warnings.push(warning.message);
@@ -42,6 +43,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             setTimeout(resolve, ONCONNECT_SETUP_DELAY_MS),
           );
           await client.query("SET application_name = 'pgdelta_onconnect'");
+          setupCompletedCount += 1;
         },
       });
 
@@ -57,6 +59,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         for (const result of results) {
           expect(result.rows[0]?.application_name).toBe("pgdelta_onconnect");
         }
+        expect(setupCompletedCount).toBe(1);
         expect(warnings).toEqual([]);
       } finally {
         process.off("warning", onWarning);
