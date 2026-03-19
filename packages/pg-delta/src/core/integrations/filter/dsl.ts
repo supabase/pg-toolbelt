@@ -35,7 +35,7 @@ type RegexOperator = {
 /**
  * A value matcher for a path pattern key.
  */
-export type ValueMatcher = string | string[] | boolean | number | RegexOperator;
+type ValueMatcher = string | string[] | boolean | number | RegexOperator;
 
 /**
  * Path pattern — matches against flattened change properties.

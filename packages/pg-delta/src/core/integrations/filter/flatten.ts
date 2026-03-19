@@ -8,44 +8,12 @@
  */
 
 import type { Change } from "../../change.types.ts";
+import { OBJECT_TYPE_TO_PROPERTY_KEY } from "../../change.types.ts";
 
 /**
  * A flat value extracted from a Change: scalar types or string arrays.
  */
 export type FlatValue = string | number | boolean | null | string[];
-
-/**
- * Maps objectType values to the JS property key on the Change object
- * that holds the model sub-object.
- */
-export const OBJECT_TYPE_TO_PROPERTY_KEY: Record<string, string> = {
-  aggregate: "aggregate",
-  collation: "collation",
-  composite_type: "compositeType",
-  domain: "domain",
-  enum: "enum",
-  event_trigger: "eventTrigger",
-  extension: "extension",
-  foreign_data_wrapper: "foreignDataWrapper",
-  foreign_table: "foreignTable",
-  index: "index",
-  language: "language",
-  materialized_view: "materializedView",
-  procedure: "procedure",
-  publication: "publication",
-  range: "range",
-  rls_policy: "policy",
-  role: "role",
-  rule: "rule",
-  schema: "schema",
-  sequence: "sequence",
-  server: "server",
-  subscription: "subscription",
-  table: "table",
-  trigger: "trigger",
-  user_mapping: "userMapping",
-  view: "view",
-};
 
 /**
  * WeakMap cache to avoid re-flattening the same Change instance.
@@ -141,6 +109,9 @@ export function compileGlob(pattern: string): (path: string) => boolean {
  * `schema` (or `name` for schema objectType) from the model sub-object.
  */
 export function getSchema(change: Change): string | null {
+  if (change.scope === "default_privilege") {
+    return change.inSchema;
+  }
   switch (change.objectType) {
     case "aggregate":
       return change.aggregate.schema;
@@ -153,7 +124,7 @@ export function getSchema(change: Change): string | null {
     case "enum":
       return change.enum.schema;
     case "event_trigger":
-      return null;
+      return change.eventTrigger.function_schema;
     case "extension":
       return change.extension.schema;
     case "index":
