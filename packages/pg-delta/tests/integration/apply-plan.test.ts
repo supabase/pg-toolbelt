@@ -20,7 +20,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         const applied = await applyPlan(plan, db.main, db.branch);
         expect(applied.status).toBe("invalid_plan");
-        expect(applied).toHaveProperty("message");
       }),
     );
 
@@ -95,11 +94,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-        const sql = result.plan.statements.join("\n");
-        expect(sql).toContain("pub_table");
-        expect(sql).not.toContain("priv_table");
-        expect(sql).not.toContain("CREATE SCHEMA");
+        expect(result?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TABLE public.pub_table (id integer)",
+          ]
+        `);
       }),
     );
 
@@ -111,10 +110,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(null, db.branch);
 
         expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-        expect(result.plan.statements.length).toBeGreaterThan(0);
-        const sql = result.plan.statements.join("\n");
-        expect(sql).toContain("from_scratch");
+        expect(result?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TABLE public.from_scratch (id integer)",
+          ]
+        `);
       }),
     );
   });

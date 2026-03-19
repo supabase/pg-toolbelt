@@ -137,6 +137,80 @@ describe("flattenChange", () => {
     expect(flat.drops).toEqual([]);
   });
 
+  test("normalizes schema/schema for schema changes", () => {
+    const change = {
+      objectType: "schema",
+      operation: "create",
+      scope: "object",
+      schema: { name: "auth" },
+      requires: [],
+    } as unknown as Change;
+
+    const flat = flattenChange(change);
+    expect(flat["schema/name"]).toBe("auth");
+    expect(flat["schema/schema"]).toBe("auth");
+  });
+
+  test("normalizes event_trigger/schema from function_schema", () => {
+    const change = {
+      objectType: "event_trigger",
+      operation: "create",
+      scope: "object",
+      eventTrigger: { name: "my_trigger", function_schema: "public", function_name: "my_func" },
+      requires: [],
+    } as unknown as Change;
+
+    const flat = flattenChange(change);
+    expect(flat["event_trigger/function_schema"]).toBe("public");
+    expect(flat["event_trigger/schema"]).toBe("public");
+  });
+
+  test("flattens rls_policy model properties (camelCase mapping)", () => {
+    const change = {
+      objectType: "rls_policy",
+      operation: "create",
+      scope: "object",
+      policy: { schema: "public", table: "users", name: "select_policy" },
+      requires: [],
+    } as unknown as Change;
+
+    const flat = flattenChange(change);
+    expect(flat["rls_policy/schema"]).toBe("public");
+    expect(flat["rls_policy/table"]).toBe("users");
+    expect(flat["rls_policy/name"]).toBe("select_policy");
+  });
+
+  test("flattens all top-level scalar properties systematically", () => {
+    const change = {
+      objectType: "role",
+      operation: "create",
+      scope: "membership",
+      member: "app_user",
+      role: { name: "admin" },
+      requires: [],
+    } as unknown as Change;
+
+    const flat = flattenChange(change);
+    expect(flat.member).toBe("app_user");
+  });
+
+  test("flattens inSchema for default_privilege changes", () => {
+    const change = {
+      objectType: "role",
+      operation: "create",
+      scope: "default_privilege",
+      inSchema: "public",
+      objtype: "table",
+      role: { name: "admin" },
+      requires: [],
+    } as unknown as Change;
+
+    const flat = flattenChange(change);
+    expect(flat.inSchema).toBe("public");
+    expect(flat.objtype).toBe("table");
+    expect(flat["role/schema"]).toBe("public");
+  });
+
   test("caches results (returns same reference)", () => {
     const change = {
       objectType: "table",
