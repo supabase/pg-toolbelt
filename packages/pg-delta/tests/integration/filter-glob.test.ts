@@ -22,16 +22,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "CREATE VIEW app.app_v AS SELECT id FROM app.app_t",
         );
 
+        const resultWithoutFilter = await createPlan(db.main, db.branch);
+        expect(resultWithoutFilter?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE SCHEMA app AUTHORIZATION postgres",
+            "CREATE TABLE app.app_t (id integer)",
+            
+          "CREATE VIEW app.app_v AS SELECT id
+             FROM app.app_t"
+          ,
+            "CREATE TABLE public.pub_t (id integer)",
+          ]
+        `);
+
         const result = await createPlan(db.main, db.branch, {
           filter: { "*/schema": "app" },
         });
 
         expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-        const sql = result.plan.statements.join("\n");
-        expect(sql).toContain("app_t");
-        expect(sql).toContain("app_v");
-        expect(sql).not.toContain("pub_t");
+        expect(result?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE SCHEMA app AUTHORIZATION postgres",
+            "CREATE TABLE app.app_t (id integer)",
+            
+          "CREATE VIEW app.app_v AS SELECT id
+             FROM app.app_t"
+          ,
+          ]
+        `);
       }),
     );
 
@@ -48,9 +66,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-        const types = result.sortedChanges.map((c) => c.objectType);
-        expect(types.every((t) => t === "table")).toBe(true);
+        expect(result?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TABLE public.t1 (id integer)",
+          ]
+        `);
       }),
     );
 
@@ -64,17 +84,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch, {
           filter: {
             not: {
-              or: [{ "*/schema": "excluded" }, { "schema/name": "excluded" }],
+              or: [{ "*/schema": "excluded" }],
             },
           },
         });
 
         expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-        const sql = result.plan.statements.join("\n");
-        expect(sql).toContain("visible");
-        expect(sql).not.toContain("secret");
-        expect(sql).not.toContain("CREATE SCHEMA");
+        expect(result?.plan.statements).toMatchInlineSnapshot(`
+          [
+            "CREATE TABLE public.visible (id integer)",
+          ]
+        `);
       }),
     );
 
