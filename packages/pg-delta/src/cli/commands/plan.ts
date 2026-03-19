@@ -146,8 +146,21 @@ json/sql outputs are available for artifacts or piping.
       | undefined;
     if (flags.integration) {
       const integrationDSL = await loadIntegrationDSL(flags.integration);
-      filterOption = filterOption ?? integrationDSL.filter;
-      serializeOption = serializeOption ?? integrationDSL.serialize;
+      // AND-combine integration filter with --filter (not override)
+      if (integrationDSL.filter && filterOption) {
+        filterOption = { and: [integrationDSL.filter, filterOption] };
+      } else {
+        filterOption = filterOption ?? integrationDSL.filter;
+      }
+      // Concatenate serialize rules (integration first = higher priority)
+      if (integrationDSL.serialize && serializeOption) {
+        serializeOption = [
+          ...integrationDSL.serialize,
+          ...(serializeOption as import("../../core/integrations/serialize/dsl.ts").SerializeDSL),
+        ];
+      } else {
+        serializeOption = serializeOption ?? integrationDSL.serialize;
+      }
       integrationEmptyCatalog = integrationDSL.emptyCatalog;
     }
 

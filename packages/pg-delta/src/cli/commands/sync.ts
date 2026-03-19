@@ -126,9 +126,21 @@ Exit codes:
       flags.serialize;
     if (flags.integration) {
       const integrationDSL = await loadIntegrationDSL(flags.integration);
-      // Use integration DSL if explicit flags not provided
-      filterOption = filterOption ?? integrationDSL.filter;
-      serializeOption = serializeOption ?? integrationDSL.serialize;
+      // AND-combine integration filter with --filter (not override)
+      if (integrationDSL.filter && filterOption) {
+        filterOption = { and: [integrationDSL.filter, filterOption] };
+      } else {
+        filterOption = filterOption ?? integrationDSL.filter;
+      }
+      // Concatenate serialize rules (integration first = higher priority)
+      if (integrationDSL.serialize && serializeOption) {
+        serializeOption = [
+          ...integrationDSL.serialize,
+          ...(serializeOption as import("../../core/integrations/serialize/dsl.ts").SerializeDSL),
+        ];
+      } else {
+        serializeOption = serializeOption ?? integrationDSL.serialize;
+      }
     }
 
     // 1. Create the plan

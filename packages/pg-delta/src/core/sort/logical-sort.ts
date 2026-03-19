@@ -10,7 +10,7 @@
  */
 
 import type { Change } from "../change.types.ts";
-import { getSchema } from "../integrations/filter/extractors.ts";
+import { getSchema } from "../integrations/filter/flatten.ts";
 import { getExecutionPhase, isMetadataStableId, type Phase } from "./utils.ts";
 
 /**

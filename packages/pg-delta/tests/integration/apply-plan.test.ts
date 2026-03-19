@@ -91,7 +91,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
 
         const result = await createPlan(db.main, db.branch, {
-          filter: { schema: "public" },
+          filter: { "*/schema": "public" },
         });
 
         expect(result).not.toBeNull();
