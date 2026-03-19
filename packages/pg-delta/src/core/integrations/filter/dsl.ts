@@ -1,126 +1,153 @@
 /**
  * Filter DSL - A serializable domain-specific language for change filtering.
+ *
+ * Uses glob-based path matching on flattened change properties.
+ * Path patterns as keys, values as matchers. Multiple keys in one object = AND.
+ *
+ * Path convention:
+ * - Top-level change properties are bare keys: `objectType`, `operation`, `scope`, `member`, `grantee`
+ * - Model sub-object properties use `<objectType>/<field>`: `table/schema`, `role/name`
+ * - Wildcard `*` matches any single path segment: `* /schema` → `table/schema`, `view/schema`, etc.
+ * - Separator is `/`
+ *
+ * Value matching:
+ * - string → exact equality
+ * - string[] → value must be in array (inclusion)
+ * - boolean → exact equality
+ * - number → exact equality
+ * - { op: "regex", value: string | string[] } → regex test
+ *
+ * When the flat value is an array (e.g. `requires`), match succeeds if any element satisfies.
  */
 
 import type { Change } from "../../change.types.ts";
-import { PROPERTY_EXTRACTORS } from "./extractors.ts";
 import type { ChangeFilter } from "./filter.types.ts";
+import { compileGlob, type FlatValue, flattenChange } from "./flatten.ts";
 
 /**
- * Core properties that all changes have.
+ * Regex operator for advanced value matching.
  */
-type CoreProperties = {
-  type?: Change["objectType"];
-  operation?: "create" | "alter" | "drop";
-  scope?: Change["scope"];
+type RegexOperator = {
+  op: "regex";
+  value: string | string[];
 };
 
 /**
- * Extracted properties that are extracted from changes via extractor functions.
- * String value = exact match, Array value = value must be in array
+ * A value matcher for a path pattern key.
  */
-type ExtractedProperties = {
-  schema?: string | string[];
-  owner?: string | string[];
-  member?: string | string[];
-  grantee?: string | string[];
-  publication?: string | string[];
-  extension?: string | string[];
-  procedureLanguage?: string | string[];
-  eventTriggerName?: string | string[];
-  procedureBinaryPath?: string | string[];
-  triggerFunctionSchema?: string | string[];
-};
+export type ValueMatcher = string | string[] | boolean | number | RegexOperator;
 
 /**
- * Special properties that use custom matching logic (not extractor-based).
+ * Path pattern — matches against flattened change properties.
+ * Keys are path patterns (with optional glob wildcards), values are matchers.
+ * Multiple keys are combined with AND (all must match).
+ *
+ * Reserved keys: `and`, `or`, `not`, `cascade`.
  */
-type SpecialProperties = {
-  /**
-   * Prefix match on `change.requires`.
-   * Matches when any element of `change.requires` starts with any of the given prefixes.
-   * Useful for excluding changes that depend on specific schemas/types.
-   *
-   * @example Filter out changes that require auth or extensions types:
-   * ```ts
-   * { not: { requiresMatching: ["type:auth.", "type:extensions."] } }
-   * ```
-   */
-  requiresMatching?: string[];
+export type PathPattern = {
+  [path: string]: ValueMatcher;
+} & {
+  cascade?: boolean;
+  and?: never;
+  or?: never;
+  not?: never;
 };
-
-/**
- * Property pattern - matches against change properties.
- * Multiple properties are combined with AND (all must match).
- */
-type PropertyPattern = CoreProperties &
-  ExtractedProperties &
-  SpecialProperties & {
-    /**
-     * When true, exclusions from this filter cascade to dependents (requires/pg_depend).
-     * Default false for DSL filters (opt-in).
-     */
-    cascade?: boolean;
-    // Composition operators are NOT allowed in property patterns
-    and?: never;
-    or?: never;
-    not?: never;
-  };
 
 /**
  * Composition pattern - combines other patterns using logical operators.
- * Composition operators are exclusive - cannot be mixed with properties.
+ * Composition operators are exclusive - cannot be mixed with path keys.
  */
 type CompositionPattern =
-  | ({
+  | {
       and: FilterPattern[];
       cascade?: boolean;
       or?: never;
       not?: never;
-    } & {
-      [K in keyof CoreProperties]?: never;
-    } & {
-      [K in keyof ExtractedProperties]?: never;
-    } & {
-      [K in keyof SpecialProperties]?: never;
-    })
-  | ({
+    }
+  | {
       or: FilterPattern[];
       cascade?: boolean;
       and?: never;
       not?: never;
-    } & {
-      [K in keyof CoreProperties]?: never;
-    } & {
-      [K in keyof ExtractedProperties]?: never;
-    } & {
-      [K in keyof SpecialProperties]?: never;
-    })
-  | ({
+    }
+  | {
       not: FilterPattern;
       cascade?: boolean;
       and?: never;
       or?: never;
-    } & {
-      [K in keyof CoreProperties]?: never;
-    } & {
-      [K in keyof ExtractedProperties]?: never;
-    } & {
-      [K in keyof SpecialProperties]?: never;
-    });
+    };
 
 /**
  * Filter pattern DSL.
- * Either a property pattern (matches against change properties) or
+ * Either a path pattern (matches against flattened change properties) or
  * a composition pattern (combines other patterns using logical operators).
- * Composition operators are exclusive - cannot be mixed with properties.
  */
-export type FilterPattern = PropertyPattern | CompositionPattern;
+export type FilterPattern = PathPattern | CompositionPattern;
 
 /**
  * Filter DSL - a single pattern expression.
  */
 export type FilterDSL = FilterPattern;
+
+// Reserved keys that are not path patterns
+const RESERVED_KEYS = new Set(["and", "or", "not", "cascade"]);
+
+/**
+ * Match a flat value against a value matcher.
+ *
+ * When the flat value is an array, the match succeeds if any element satisfies.
+ */
+function matchValue(actual: FlatValue, expected: ValueMatcher): boolean {
+  if (actual === null || actual === undefined) {
+    return false;
+  }
+
+  // String matcher → exact equality
+  if (typeof expected === "string") {
+    if (Array.isArray(actual)) {
+      return actual.some((v) => v === expected);
+    }
+    return actual === expected;
+  }
+
+  // Boolean matcher → exact equality
+  if (typeof expected === "boolean") {
+    return actual === expected;
+  }
+
+  // Number matcher → exact equality
+  if (typeof expected === "number") {
+    return actual === expected;
+  }
+
+  // Array matcher → inclusion (value must be in array)
+  if (Array.isArray(expected)) {
+    if (Array.isArray(actual)) {
+      return actual.some((v) => expected.includes(v));
+    }
+    return typeof actual === "string" && expected.includes(actual);
+  }
+
+  // Regex operator
+  if (
+    typeof expected === "object" &&
+    expected !== null &&
+    "op" in expected &&
+    expected.op === "regex"
+  ) {
+    const patterns = Array.isArray(expected.value)
+      ? expected.value
+      : [expected.value];
+    if (Array.isArray(actual)) {
+      return actual.some((a) =>
+        patterns.some((p) => new RegExp(p).test(String(a))),
+      );
+    }
+    return patterns.some((p) => new RegExp(p).test(String(actual)));
+  }
+
+  return false;
+}
 
 /**
  * Evaluate a pattern against a change.
@@ -136,110 +163,45 @@ export function evaluatePattern(
   // Handle composition operators first (they take precedence)
 
   // NOT operator - negate the result
-  if (pattern.not) {
+  if ("not" in pattern && pattern.not) {
     return !evaluatePattern(pattern.not, change);
   }
 
   // AND operator - all patterns must match
-  if (pattern.and) {
+  if ("and" in pattern && pattern.and) {
     return pattern.and.every((p) => evaluatePattern(p, change));
   }
 
   // OR operator - any pattern must match
-  if (pattern.or) {
+  if ("or" in pattern && pattern.or) {
     return pattern.or.some((p) => evaluatePattern(p, change));
   }
 
-  // Evaluate basic pattern matching
-  // Multiple properties in a pattern are combined with AND (all must match)
+  // Path pattern matching: flatten the change, then for each key in the pattern,
+  // glob-match against flat map paths and compare values.
+  const flat = flattenChange(change);
 
-  // Match objectType
-  if (pattern.type) {
-    if (change.objectType !== pattern.type) {
+  for (const [patternKey, matcher] of Object.entries(pattern)) {
+    if (RESERVED_KEYS.has(patternKey)) continue;
+
+    const globMatcher = compileGlob(patternKey);
+
+    // Find all flat keys that match this glob pattern
+    const matchingKeys = Object.keys(flat).filter((k) => globMatcher(k));
+
+    if (matchingKeys.length === 0) {
+      // No flat keys match this glob → pattern key not satisfied
       return false;
     }
-  }
 
-  // Match operation
-  if (pattern.operation) {
-    if (change.operation !== pattern.operation) {
-      return false;
-    }
-  }
-
-  // Match scope
-  if (pattern.scope) {
-    if (change.scope !== pattern.scope) {
-      return false;
-    }
-  }
-
-  // Match requiresMatching (special property - prefix match on change.requires)
-  if (pattern.requiresMatching) {
-    const requires = change.requires ?? [];
-    const prefixes = pattern.requiresMatching;
-    const hasMatch = requires.some((r) =>
-      prefixes.some((p) => r.startsWith(p)),
+    // At least one matching key must satisfy the value matcher
+    const anyMatch = matchingKeys.some((k) =>
+      matchValue(flat[k], matcher as ValueMatcher),
     );
-    if (!hasMatch) {
-      return false;
-    }
+    if (!anyMatch) return false;
   }
 
-  // Match extracted properties
-  for (const [key, value] of Object.entries(pattern)) {
-    // Skip composition operators, core properties, special properties, and cascade
-    if (
-      [
-        "and",
-        "or",
-        "not",
-        "type",
-        "operation",
-        "scope",
-        "requiresMatching",
-        "cascade",
-      ].includes(key)
-    ) {
-      continue;
-    }
-
-    // Check if this is a registered property extractor
-    const extractor = PROPERTY_EXTRACTORS[key];
-    if (!extractor) {
-      // Unknown property - ignore
-      continue;
-    }
-
-    // Extract the actual value from the change
-    const actualValue = extractor(change);
-
-    // Property matching rules:
-    // - String value: exact match
-    // - Array value: value must be in array
-    // - Missing properties (null) don't match
-
-    if (actualValue === null) {
-      return false;
-    }
-
-    if (typeof value === "string") {
-      // Exact match
-      if (actualValue !== value) {
-        return false;
-      }
-    } else if (Array.isArray(value)) {
-      // Value must be in array
-      if (!value.includes(actualValue)) {
-        return false;
-      }
-    } else {
-      // Invalid value type - don't match
-      return false;
-    }
-  }
-
-  // All checks passed
+  // All pattern keys satisfied
   return true;
 }
 
@@ -250,11 +212,11 @@ export function evaluatePattern(
  * @returns A ChangeFilter function that evaluates the pattern
  *
  * @example
- * ```ts
+ * ```
  * const filter = compileFilterDSL({
  *   or: [
- *     { type: "schema", operation: "create" },
- *     { schema: "public" }
+ *     { objectType: "schema", operation: "create" },
+ *     { "table/schema": "public" }
  *   ]
  * });
  * ```
