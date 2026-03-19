@@ -22,16 +22,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[pgVersion]}`;
       const container = await new PostgresAlpineContainer(image).start();
       const warnings: string[] = [];
-      const originalEmitWarning = process.emitWarning.bind(process);
-
-      process.emitWarning = ((warning: string | Error) => {
-        const message = typeof warning === "string" ? warning : warning.message;
-        if (message === CLIENT_QUERY_DEPRECATION_WARNING) {
-          warnings.push(message);
-          return;
+      const onWarning = (warning: Error) => {
+        if (warning.message === CLIENT_QUERY_DEPRECATION_WARNING) {
+          warnings.push(warning.message);
         }
-        return originalEmitWarning(warning);
-      }) as typeof process.emitWarning;
+      };
+
+      process.on("warning", onWarning);
 
       const pool = createPool(container.getConnectionUri(), {
         max: 1,
@@ -56,7 +53,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }
         expect(warnings).toEqual([]);
       } finally {
-        process.emitWarning = originalEmitWarning;
+        process.off("warning", onWarning);
         await endPool(pool);
         await container.stop();
       }

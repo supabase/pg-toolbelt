@@ -141,8 +141,10 @@ export function createPool(
 
   if (onConnect) {
     const pendingClientSetup = new WeakMap<PoolClient, Promise<void>>();
-    const waitForClientSetup = (client: PoolClient) =>
-      pendingClientSetup.get(client) ?? Promise.resolve();
+    const waitForClientSetup = async (client: PoolClient) => {
+      await Promise.resolve();
+      await pendingClientSetup.get(client);
+    };
     const originalConnect = pool.connect.bind(pool);
 
     pool.on("connect", (client) => {
