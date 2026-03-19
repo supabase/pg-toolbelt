@@ -309,30 +309,6 @@ function getParentStableId(change: Change): string | null {
 }
 
 /**
- * Extract schema name from a change.
- * Returns the schema name if present, or null for non-schema objects.
- *
- * Uses the getSchema helper which directly accesses schema properties from change objects.
- * For default_privilege changes, accesses the inSchema property directly.
- * For event_trigger changes, groups by their function's schema.
- */
-function extractSchemaFromChange(change: Change): string | null {
-  // Handle default_privilege changes specially (they have inSchema property)
-  if (change.scope === "default_privilege") {
-    // TypeScript doesn't know about inSchema, but we know it exists for default_privilege changes
-    return (change as { inSchema: string | null }).inSchema ?? null;
-  }
-
-  // Handle event_trigger changes specially - group by their function's schema
-  if (change.objectType === "event_trigger") {
-    return change.eventTrigger.function_schema;
-  }
-
-  // Use the getSchema helper for all other changes
-  return getSchema(change);
-}
-
-/**
  * Get the effective object type for sorting purposes.
  * For sub-entities, returns the parent's object type (table/view/materialized_view).
  * For other objects, returns the object type as-is.
@@ -438,8 +414,8 @@ function sortPhase(changes: Change[], phase: Phase): Change[] {
     const changeB = b.change;
 
     // 1. Compare schemas (group objects by schema)
-    const schemaA = extractSchemaFromChange(changeA);
-    const schemaB = extractSchemaFromChange(changeB);
+    const schemaA = getSchema(changeA);
+    const schemaB = getSchema(changeB);
 
     // Non-schema objects (roles, languages, extensions, etc.) sort first
     // Use a special prefix to ensure they come before schema objects

@@ -17,7 +17,8 @@ export type IntegrationDSL = {
    * are concatenated (extending rules first, higher priority), and the most
    * specific emptyCatalog wins.
    *
-   * Can be a single integration name or an array of names.
+   * Only core integration names are accepted (e.g., "supabase"), not file paths.
+   * Can be a single name or an array of names.
    * Circular extends are detected and rejected.
    */
   extends?: string | string[];

@@ -1,47 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "../../change.types.ts";
-import {
-  compileGlob,
-  flattenChange,
-  getSchema,
-  OBJECT_TYPE_TO_PROPERTY_KEY,
-} from "./flatten.ts";
-
-describe("OBJECT_TYPE_TO_PROPERTY_KEY", () => {
-  test("has entries for all known object types", () => {
-    const expectedTypes = [
-      "aggregate",
-      "collation",
-      "composite_type",
-      "domain",
-      "enum",
-      "event_trigger",
-      "extension",
-      "foreign_data_wrapper",
-      "foreign_table",
-      "index",
-      "language",
-      "materialized_view",
-      "procedure",
-      "publication",
-      "range",
-      "rls_policy",
-      "role",
-      "rule",
-      "schema",
-      "sequence",
-      "server",
-      "subscription",
-      "table",
-      "trigger",
-      "user_mapping",
-      "view",
-    ];
-    expect(Object.keys(OBJECT_TYPE_TO_PROPERTY_KEY).sort()).toEqual(
-      expectedTypes.sort(),
-    );
-  });
-});
+import { compileGlob, flattenChange, getSchema } from "./flatten.ts";
 
 describe("flattenChange", () => {
   test("flattens top-level scalar properties", () => {

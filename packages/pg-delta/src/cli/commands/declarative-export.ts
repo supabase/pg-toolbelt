@@ -6,17 +6,14 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import chalk from "chalk";
-import {
-  deserializeCatalog,
-  type CatalogSnapshot,
-} from "../../core/catalog.snapshot.ts";
+import { deserializeCatalog } from "../../core/catalog.snapshot.ts";
 import { exportDeclarativeSchema } from "../../core/export/index.ts";
 import type { Grouping, GroupingPattern } from "../../core/export/types.ts";
-import { type FilterDSL } from "../../core/integrations/filter/dsl.ts";
-import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
-import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
-import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
-import { compileSerializeDSL } from "../../core/integrations/serialize/dsl.ts";
+import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
+import {
+  compileSerializeDSL,
+  type SerializeDSL,
+} from "../../core/integrations/serialize/dsl.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import {
@@ -25,7 +22,7 @@ import {
   computeFileDiff,
   formatExportSummary,
 } from "../utils/export-display.ts";
-import { loadIntegrationDSL } from "../utils/integrations.ts";
+import { resolveIntegrationOptions } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 
 function parseJsonFlag<T>(label: string, value: string): T {
@@ -189,29 +186,15 @@ After export, a tip is printed with the command to apply the schema to an empty 
       verbose?: boolean;
     },
   ) {
-    let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
-    let serializeOption: SerializeDSL | ChangeSerializer | undefined =
-      flags.serialize;
-    let integrationEmptyCatalog: CatalogSnapshot | undefined;
-    if (flags.integration) {
-      const integrationDSL = await loadIntegrationDSL(flags.integration);
-      // AND-combine integration filter with --filter (not override)
-      if (integrationDSL.filter && filterOption) {
-        filterOption = { and: [integrationDSL.filter, filterOption] };
-      } else {
-        filterOption = filterOption ?? integrationDSL.filter;
-      }
-      // Concatenate serialize rules (integration first = higher priority)
-      if (integrationDSL.serialize && serializeOption) {
-        serializeOption = [
-          ...integrationDSL.serialize,
-          ...(serializeOption as SerializeDSL),
-        ];
-      } else {
-        serializeOption = serializeOption ?? integrationDSL.serialize;
-      }
-      integrationEmptyCatalog = integrationDSL.emptyCatalog;
-    }
+    const {
+      filter,
+      serialize,
+      emptyCatalog: integrationEmptyCatalog,
+    } = await resolveIntegrationOptions({
+      filter: flags.filter,
+      serialize: flags.serialize,
+      integration: flags.integration,
+    });
 
     const resolvedSource = flags.source
       ? isPostgresUrl(flags.source)
@@ -232,8 +215,8 @@ After export, a tip is printed with the command to apply the schema to an empty 
     // changes that depend on filtered objects (e.g. RLS policies that
     // reference auth.uid() when the auth schema is filtered out).
     const planResult = await createPlan(resolvedSource, resolvedTarget, {
-      filter: filterOption,
-      serialize: serializeOption,
+      filter,
+      serialize,
       skipDefaultPrivilegeSubtraction: true,
     });
 
@@ -265,9 +248,7 @@ After export, a tip is printed with the command to apply the schema to an empty 
     }
 
     const serializeFn =
-      serializeOption !== undefined
-        ? compileSerializeDSL(serializeOption)
-        : undefined;
+      serialize !== undefined ? compileSerializeDSL(serialize) : undefined;
 
     const output = exportDeclarativeSchema(planResult, {
       integration:

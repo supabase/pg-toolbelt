@@ -42,3 +42,38 @@ export type Change =
   | TypeChange
   | ViewChange
   | ForeignDataWrapperChange;
+
+/**
+ * Maps objectType values to the JS property key on the Change object
+ * Ensure the values assignations are exhaustive.
+ */
+export const OBJECT_TYPE_TO_PROPERTY_KEY: {
+  [K in Change["objectType"]]: string;
+} = {
+  aggregate: "aggregate",
+  collation: "collation",
+  composite_type: "composite_type",
+  domain: "domain",
+  enum: "enum",
+  event_trigger: "event_trigger",
+  extension: "extension",
+  foreign_data_wrapper: "foreign_data_wrapper",
+  foreign_table: "foreign_table",
+  index: "index",
+  language: "language",
+  materialized_view: "materialized_view",
+  procedure: "procedure",
+  publication: "publication",
+  range: "range",
+  rls_policy: "rls_policy",
+  role: "role",
+  rule: "rule",
+  schema: "schema",
+  sequence: "sequence",
+  server: "server",
+  subscription: "subscription",
+  table: "table",
+  trigger: "trigger",
+  user_mapping: "user_mapping",
+  view: "view",
+};
