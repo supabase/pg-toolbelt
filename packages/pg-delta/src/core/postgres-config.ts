@@ -139,7 +139,46 @@ export function createPool(
     ...config,
   });
 
-  if (onConnect) pool.on("connect", onConnect);
+  if (onConnect) {
+    const pendingClientSetup = new WeakMap<PoolClient, Promise<void>>();
+    const waitForClientSetup = (client: PoolClient) =>
+      pendingClientSetup.get(client) ?? Promise.resolve();
+    const originalConnect = pool.connect.bind(pool);
+
+    pool.on("connect", (client) => {
+      pendingClientSetup.set(client, Promise.resolve(onConnect(client)));
+    });
+
+    pool.connect = ((
+      callback?: (
+        err: Error | undefined,
+        client: PoolClient | undefined,
+        release: (err?: Error | boolean) => void,
+      ) => void,
+    ) => {
+      if (!callback) {
+        return originalConnect().then(async (client) => {
+          await waitForClientSetup(client);
+          return client;
+        });
+      }
+
+      return originalConnect(async (err, client, release) => {
+        if (err || !client) {
+          callback(err, client, release);
+          return;
+        }
+
+        try {
+          await waitForClientSetup(client);
+          callback(err, client, release);
+        } catch (setupError) {
+          release(setupError as Error);
+          callback(setupError as Error, client, release);
+        }
+      });
+    }) as Pool["connect"];
+  }
   if (onError) pool.on("error", onError);
   if (onAcquire) pool.on("acquire", onAcquire);
   if (onRemove) pool.on("remove", onRemove);
