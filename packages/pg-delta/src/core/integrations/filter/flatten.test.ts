@@ -258,4 +258,25 @@ describe("compileWildcard", () => {
     const matcher = compileWildcard("*/schema");
     expect(matcher("objectType")).toBe(false);
   });
+
+  test("brace expansion matches multiple alternatives", () => {
+    const matcher = compileWildcard("{table,view}/schema");
+    expect(matcher("table/schema")).toBe(true);
+    expect(matcher("view/schema")).toBe(true);
+    expect(matcher("role/schema")).toBe(false);
+  });
+
+  test("partial wildcard matches prefix", () => {
+    const matcher = compileWildcard("table/is_*");
+    expect(matcher("table/is_partition")).toBe(true);
+    expect(matcher("table/is_typed")).toBe(true);
+    expect(matcher("table/name")).toBe(false);
+  });
+
+  test("extglob negation excludes specific segment", () => {
+    const matcher = compileWildcard("!(role)/schema");
+    expect(matcher("table/schema")).toBe(true);
+    expect(matcher("view/schema")).toBe(true);
+    expect(matcher("role/schema")).toBe(false);
+  });
 });

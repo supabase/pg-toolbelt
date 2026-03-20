@@ -37,7 +37,12 @@ There are two kinds of keys:
 - **Bare keys** — top-level scalar properties on a Change: `objectType`, `operation`, `scope`, `member`, `grantee`, `inSchema`, `objtype`, `requires`, `creates`, `drops`
 - **Path keys** — model sub-object properties flattened as `<objectType>/<field>`: `table/schema`, `table/name`, `table/owner`, `view/schema`, `role/name`, `enum/schema`, etc.
 
-**Wildcards**: `*` matches any single segment. For example, `*/schema` matches `table/schema`, `view/schema`, `enum/schema`, etc. — any object type's `schema` field. Similarly, `*/owner` matches any object type's `owner` field.
+**Glob patterns**: Path pattern keys support full glob syntax (powered by [picomatch](https://github.com/micromatch/picomatch)):
+
+- `*` matches any single segment: `*/schema` → `table/schema`, `view/schema`, etc.
+- Brace expansion: `{table,view}/schema` → matches `table/schema` or `view/schema`
+- Partial wildcards: `table/is_*` → matches `table/is_partition`, `table/is_typed`, etc.
+- Extglob negation: `!(role)/schema` → matches any objectType's schema except `role`
 
 Pattern keys are ANDed together: `{ "objectType": "table", "*/schema": "public" }` means the change must be a table AND in the `public` schema.
 
@@ -152,6 +157,30 @@ Patterns can be combined using logical operators:
   "not": {
     "table/is_partition": true
   }
+}
+```
+
+**Brace expansion — match tables or views in public schema:**
+
+```json
+{
+  "{table,view}/schema": "public"
+}
+```
+
+**Partial wildcard — match boolean `is_*` fields:**
+
+```json
+{
+  "table/is_*": true
+}
+```
+
+**Extglob negation — match all schemas except role:**
+
+```json
+{
+  "!(role)/schema": "public"
 }
 ```
 

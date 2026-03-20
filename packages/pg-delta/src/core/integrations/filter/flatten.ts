@@ -7,6 +7,7 @@
  * against these flat paths.
  */
 
+import picomatch from "picomatch";
 import type { Change } from "../../change.types.ts";
 import { OBJECT_TYPE_TO_PROPERTY_KEY } from "../../change.types.ts";
 import { getSchema } from "../../change-utils.ts";
@@ -127,18 +128,16 @@ export function flattenChange(change: Change): Record<string, FlatValue> {
 }
 
 /**
- * Compile a wildcard pattern string into a matcher function.
+ * Compile a glob pattern string into a matcher function.
  *
- * Supports `*` as a single-segment wildcard:
+ * Uses picomatch for full glob support:
  * - `objectType` matches only `objectType`
  * - `table/schema` matches only `table/schema`
  * - `* /schema` matches `table/schema`, `view/schema`, etc.
+ * - `{table,view}/schema` matches `table/schema` and `view/schema`
+ * - `table/is_*` matches `table/is_partition`, `table/is_typed`, etc.
+ * - `!(role)/schema` matches any objectType's schema except `role`
  */
 export function compileWildcard(pattern: string): (path: string) => boolean {
-  const patternParts = pattern.split("/");
-  return (path: string): boolean => {
-    const pathParts = path.split("/");
-    if (patternParts.length !== pathParts.length) return false;
-    return patternParts.every((pp, i) => pp === "*" || pp === pathParts[i]);
-  };
+  return picomatch(pattern, { dot: true });
 }

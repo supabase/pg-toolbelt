@@ -398,3 +398,53 @@ describe("compileFilterDSL", () => {
     ).toThrow(/Invalid regex pattern "\*\*bad" in filter DSL/);
   });
 });
+
+describe("glob pattern features", () => {
+  const tableCreate = {
+    objectType: "table",
+    operation: "create",
+    scope: "object",
+    table: {
+      schema: "public",
+      name: "t",
+      owner: "postgres",
+      is_partition: false,
+    },
+    requires: ["schema:public"],
+    creates: ["table:public.t"],
+  } as unknown as Change;
+
+  const viewAlter = {
+    objectType: "view",
+    operation: "alter",
+    scope: "comment",
+    view: { schema: "private", name: "v", owner: "admin" },
+    requires: ["schema:private", "type:auth.users"],
+  } as unknown as Change;
+
+  const roleDrop = {
+    objectType: "role",
+    operation: "drop",
+    scope: "object",
+    role: { name: "admin" },
+    requires: [],
+  } as unknown as Change;
+
+  test("brace expansion in path pattern keys", () => {
+    const filter = compileFilterDSL({ "{table,view}/schema": "public" });
+    expect(filter(tableCreate)).toBe(true);
+    expect(filter(viewAlter)).toBe(false); // private, not public
+    expect(filter(roleDrop)).toBe(false); // no matching key
+  });
+
+  test("partial wildcard in field names", () => {
+    const filter = compileFilterDSL({ "table/is_*": false });
+    expect(filter(tableCreate)).toBe(true); // is_partition = false
+  });
+
+  test("extglob negation in pattern keys", () => {
+    const filter = compileFilterDSL({ "!(role)/schema": "public" });
+    expect(filter(tableCreate)).toBe(true); // table/schema = public
+    expect(filter(roleDrop)).toBe(false); // role excluded by negation
+  });
+});

@@ -123,7 +123,9 @@ function matchValue(actual: FlatValue, expected: ValueMatcher): boolean {
   // Array matcher → inclusion (value must be in array)
   if (Array.isArray(expected)) {
     if (Array.isArray(actual)) {
-      return actual.some((v) => expected.includes(v));
+      return actual.some((v) =>
+        (expected as ReadonlyArray<string | number>).includes(v),
+      );
     }
     return typeof actual === "string" && expected.includes(actual);
   }
