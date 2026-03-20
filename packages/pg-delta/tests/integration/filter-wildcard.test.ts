@@ -23,33 +23,30 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
 
         const resultWithoutFilter = await createPlan(db.main, db.branch);
-        expect(resultWithoutFilter?.plan.statements).toMatchInlineSnapshot(`
-          [
-            "CREATE SCHEMA app AUTHORIZATION postgres",
-            "CREATE TABLE app.app_t (id integer)",
-            
-          "CREATE VIEW app.app_v AS SELECT id
-             FROM app.app_t"
-          ,
-            "CREATE TABLE public.pub_t (id integer)",
-          ]
-        `);
+        const stmts = resultWithoutFilter?.plan.statements ?? [];
+        expect(stmts).toHaveLength(4);
+        expect(stmts[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
+        expect(stmts[1]).toBe("CREATE TABLE app.app_t (id integer)");
+        // View SQL varies across PG versions: PG15 qualifies columns (app_t.id)
+        // while PG17 does not (id), so we use a regex instead of an inline snapshot.
+        expect(stmts[2]).toMatch(
+          /CREATE VIEW app\.app_v AS SELECT (app_t\.)?id\s+FROM app\.app_t/,
+        );
+        expect(stmts[3]).toBe("CREATE TABLE public.pub_t (id integer)");
 
         const result = await createPlan(db.main, db.branch, {
           filter: { "*/schema": "app" },
         });
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements).toMatchInlineSnapshot(`
-          [
-            "CREATE SCHEMA app AUTHORIZATION postgres",
-            "CREATE TABLE app.app_t (id integer)",
-            
-          "CREATE VIEW app.app_v AS SELECT id
-             FROM app.app_t"
-          ,
-          ]
-        `);
+        const filtered = result?.plan.statements ?? [];
+        expect(filtered).toHaveLength(3);
+        expect(filtered[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
+        expect(filtered[1]).toBe("CREATE TABLE app.app_t (id integer)");
+        // See comment above — view SQL varies across PG versions.
+        expect(filtered[2]).toMatch(
+          /CREATE VIEW app\.app_v AS SELECT (app_t\.)?id\s+FROM app\.app_t/,
+        );
       }),
     );
 
