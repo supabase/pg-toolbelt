@@ -37,7 +37,7 @@ There are two kinds of keys:
 - **Bare keys** — top-level scalar properties on a Change: `objectType`, `operation`, `scope`, `member`, `grantee`, `inSchema`, `objtype`, `requires`, `creates`, `drops`
 - **Path keys** — model sub-object properties flattened as `<objectType>/<field>`: `table/schema`, `table/name`, `table/owner`, `view/schema`, `role/name`, `enum/schema`, etc.
 
-**Glob wildcards**: `*` matches any single segment. For example, `*/schema` matches `table/schema`, `view/schema`, `enum/schema`, etc. — any object type's `schema` field. Similarly, `*/owner` matches any object type's `owner` field.
+**Wildcards**: `*` matches any single segment. For example, `*/schema` matches `table/schema`, `view/schema`, `enum/schema`, etc. — any object type's `schema` field. Similarly, `*/owner` matches any object type's `owner` field.
 
 Pattern keys are ANDed together: `{ "objectType": "table", "*/schema": "public" }` means the change must be a table AND in the `public` schema.
 
@@ -59,7 +59,7 @@ Patterns can be combined using logical operators:
 - **`or`**: Any pattern must match (OR logic)
 - **`not`**: Negate a pattern (NOT logic)
 
-**Important**: Composition operators (`and`, `or`, `not`) are exclusive - they cannot be mixed with property patterns in the same object. `cascade` is a reserved key used for serialization control and is ignored during filter evaluation.
+**Important**: Composition operators (`and`, `or`, `not`) are exclusive - they cannot be mixed with property patterns in the same object. `cascade` is a reserved key that controls whether filter exclusions cascade to dependent objects (via `requires`/`pg_depend`) and is ignored during filter evaluation.
 
 ### Filter DSL Examples
 

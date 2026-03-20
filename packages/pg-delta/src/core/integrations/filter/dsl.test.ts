@@ -114,7 +114,7 @@ describe("evaluatePattern", () => {
     });
   });
 
-  describe("glob pattern matching", () => {
+  describe("wildcard pattern matching", () => {
     test("*/schema matches any objectType's schema", () => {
       expect(evaluatePattern({ "*/schema": "public" }, tableCreate)).toBe(true);
       expect(evaluatePattern({ "*/schema": "private" }, viewAlter)).toBe(true);
@@ -136,7 +136,7 @@ describe("evaluatePattern", () => {
       expect(evaluatePattern({ "*/name": "admin" }, roleDrop)).toBe(true);
     });
 
-    test("glob with array value", () => {
+    test("wildcard with array value", () => {
       expect(
         evaluatePattern({ "*/schema": ["public", "private"] }, tableCreate),
       ).toBe(true);
@@ -291,7 +291,7 @@ describe("evaluatePattern", () => {
       ).toBe(true);
     });
 
-    test("composition with glob patterns", () => {
+    test("composition with wildcard patterns", () => {
       expect(
         evaluatePattern(
           { not: { "*/schema": ["auth", "extensions"] } },
@@ -363,11 +363,38 @@ describe("compileFilterDSL", () => {
     expect(filter(viewAlter)).toBe(false);
   });
 
-  test("works with glob-based patterns", () => {
+  test("works with wildcard-based patterns", () => {
     const filter = compileFilterDSL({
       "*/schema": "public",
     });
     expect(filter(tableCreate)).toBe(true);
     expect(filter(viewAlter)).toBe(false);
+  });
+
+  test("throws on invalid regex pattern", () => {
+    expect(() =>
+      compileFilterDSL({
+        "table/name": { op: "regex", value: "[invalid" },
+      }),
+    ).toThrow(/Invalid regex pattern "\[invalid" in filter DSL/);
+  });
+
+  test("throws on invalid regex in array of patterns", () => {
+    expect(() =>
+      compileFilterDSL({
+        "table/name": { op: "regex", value: ["^valid$", "(unclosed"] },
+      }),
+    ).toThrow(/Invalid regex pattern "\(unclosed" in filter DSL/);
+  });
+
+  test("throws on invalid regex nested in composition", () => {
+    expect(() =>
+      compileFilterDSL({
+        or: [
+          { objectType: "table" },
+          { "table/name": { op: "regex", value: "**bad" } },
+        ],
+      }),
+    ).toThrow(/Invalid regex pattern "\*\*bad" in filter DSL/);
   });
 });

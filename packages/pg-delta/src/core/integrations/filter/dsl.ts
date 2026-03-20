@@ -1,7 +1,7 @@
 /**
  * Filter DSL - A serializable domain-specific language for change filtering.
  *
- * Uses glob-based path matching on flattened change properties.
+ * Uses wildcard-based path matching on flattened change properties.
  * Path patterns as keys, values as matchers. Multiple keys in one object = AND.
  *
  * Path convention:
@@ -22,7 +22,7 @@
 
 import type { Change } from "../../change.types.ts";
 import type { ChangeFilter } from "./filter.types.ts";
-import { compileGlob, type FlatValue, flattenChange } from "./flatten.ts";
+import { compileWildcard, type FlatValue, flattenChange } from "./flatten.ts";
 
 /**
  * Regex operator for advanced value matching.
@@ -39,7 +39,7 @@ type ValueMatcher = string | string[] | boolean | number | RegexOperator;
 
 /**
  * Path pattern — matches against flattened change properties.
- * Keys are path patterns (with optional glob wildcards), values are matchers.
+ * Keys are path patterns (with optional wildcards), values are matchers.
  * Multiple keys are combined with AND (all must match).
  *
  * Reserved keys: `and`, `or`, `not`, `cascade`.
@@ -178,19 +178,19 @@ export function evaluatePattern(
   }
 
   // Path pattern matching: flatten the change, then for each key in the pattern,
-  // glob-match against flat map paths and compare values.
+  // wildcard-match against flat map paths and compare values.
   const flat = flattenChange(change);
 
   for (const [patternKey, matcher] of Object.entries(pattern)) {
     if (RESERVED_KEYS.has(patternKey)) continue;
 
-    const globMatcher = compileGlob(patternKey);
+    const wildcardMatcher = compileWildcard(patternKey);
 
-    // Find all flat keys that match this glob pattern
-    const matchingKeys = Object.keys(flat).filter((k) => globMatcher(k));
+    // Find all flat keys that match this wildcard pattern
+    const matchingKeys = Object.keys(flat).filter((k) => wildcardMatcher(k));
 
     if (matchingKeys.length === 0) {
-      // No flat keys match this glob → pattern key not satisfied
+      // No flat keys match this wildcard → pattern key not satisfied
       return false;
     }
 
@@ -222,7 +222,49 @@ export function evaluatePattern(
  * ```
  */
 export function compileFilterDSL(dsl: FilterDSL): ChangeFilter {
+  validateRegexPatterns(dsl);
   return (change: Change): boolean => {
     return evaluatePattern(dsl, change);
   };
+}
+
+/**
+ * Walk the pattern tree and validate all regex patterns at compile time.
+ * Throws a descriptive error if any regex pattern is invalid.
+ */
+function validateRegexPatterns(pattern: FilterPattern): void {
+  if ("not" in pattern && pattern.not) {
+    validateRegexPatterns(pattern.not);
+    return;
+  }
+  if ("and" in pattern && pattern.and) {
+    for (const p of pattern.and) validateRegexPatterns(p);
+    return;
+  }
+  if ("or" in pattern && pattern.or) {
+    for (const p of pattern.or) validateRegexPatterns(p);
+    return;
+  }
+
+  for (const [key, value] of Object.entries(pattern)) {
+    if (RESERVED_KEYS.has(key)) continue;
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "op" in value &&
+      value.op === "regex"
+    ) {
+      const patterns = Array.isArray(value.value) ? value.value : [value.value];
+      for (const p of patterns) {
+        try {
+          new RegExp(p);
+        } catch (e) {
+          throw new Error(
+            `Invalid regex pattern "${p}" in filter DSL: ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+  }
 }

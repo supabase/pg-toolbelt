@@ -1,5 +1,5 @@
 /**
- * Integration tests for the glob-based filter DSL.
+ * Integration tests for the wildcard-based filter DSL.
  *
  * Validates that path-based patterns correctly filter changes
  * against real PostgreSQL databases.
@@ -11,7 +11,7 @@ import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  describe(`glob-based filter DSL (pg${pgVersion})`, () => {
+  describe(`wildcard-based filter DSL (pg${pgVersion})`, () => {
     test(
       "*/schema filters by schema across object types",
       withDb(pgVersion, async (db) => {

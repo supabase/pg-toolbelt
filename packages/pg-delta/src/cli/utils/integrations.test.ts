@@ -17,12 +17,12 @@ describe("loadIntegrationDSL", () => {
       await writeFile(
         jsonPath,
         JSON.stringify({
-          filter: { schema: "app" },
+          filter: { "*/schema": "app" },
         }),
       );
       const dsl = await loadIntegrationDSL(jsonPath);
       expect(dsl).toBeDefined();
-      expect(dsl.filter).toEqual({ schema: "app" });
+      expect(dsl.filter).toEqual({ "*/schema": "app" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -84,13 +84,13 @@ describe("extends resolution", () => {
     try {
       await writeFile(
         parentPath,
-        JSON.stringify({ filter: { schema: "app" } }),
+        JSON.stringify({ filter: { "*/schema": "app" } }),
       );
       await writeFile(
         filePath,
         JSON.stringify({
           extends: parentPath,
-          filter: { schema: "public" },
+          filter: { "*/schema": "public" },
         }),
       );
       expect(loadIntegrationDSL(filePath)).rejects.toThrow(
@@ -125,7 +125,7 @@ describe("resolveIntegrationOptions", () => {
   });
 
   test("CLI flags only → passed through unchanged", async () => {
-    const filter: FilterDSL = { schema: "public" };
+    const filter: FilterDSL = { "*/schema": "public" };
     const serialize: SerializeDSL = [
       { when: { objectType: "schema" }, options: { skipAuthorization: true } },
     ];
@@ -142,14 +142,14 @@ describe("resolveIntegrationOptions", () => {
       await writeFile(
         jsonPath,
         JSON.stringify({
-          filter: { schema: "app" },
+          filter: { "*/schema": "app" },
           serialize: [{ when: { objectType: "table" }, options: {} }],
         }),
       );
       const result = await resolveIntegrationOptions({
         integration: jsonPath,
       });
-      expect(result.filter).toEqual({ schema: "app" });
+      expect(result.filter).toEqual({ "*/schema": "app" });
       expect(result.serialize).toEqual([
         { when: { objectType: "table" }, options: {} },
       ]);
@@ -165,7 +165,7 @@ describe("resolveIntegrationOptions", () => {
       await writeFile(
         jsonPath,
         JSON.stringify({
-          filter: { schema: "app" },
+          filter: { "*/schema": "app" },
         }),
       );
       const cliFilter: FilterDSL = { objectType: "table" };
@@ -174,7 +174,7 @@ describe("resolveIntegrationOptions", () => {
         integration: jsonPath,
       });
       expect(result.filter).toEqual({
-        and: [{ schema: "app" }, { objectType: "table" }],
+        and: [{ "*/schema": "app" }, { objectType: "table" }],
       });
     } finally {
       await rm(dir, { recursive: true, force: true });

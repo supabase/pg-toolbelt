@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "../../change.types.ts";
-import { compileGlob, flattenChange, getSchema } from "./flatten.ts";
+import { compileWildcard, flattenChange } from "./flatten.ts";
 
 describe("flattenChange", () => {
   test("flattens top-level scalar properties", () => {
@@ -156,7 +156,11 @@ describe("flattenChange", () => {
       objectType: "event_trigger",
       operation: "create",
       scope: "object",
-      eventTrigger: { name: "my_trigger", function_schema: "public", function_name: "my_func" },
+      eventTrigger: {
+        name: "my_trigger",
+        function_schema: "public",
+        function_name: "my_func",
+      },
       requires: [],
     } as unknown as Change;
 
@@ -226,23 +230,23 @@ describe("flattenChange", () => {
   });
 });
 
-describe("compileGlob", () => {
+describe("compileWildcard", () => {
   test("exact match on bare key", () => {
-    const matcher = compileGlob("objectType");
+    const matcher = compileWildcard("objectType");
     expect(matcher("objectType")).toBe(true);
     expect(matcher("operation")).toBe(false);
     expect(matcher("table/objectType")).toBe(false);
   });
 
   test("exact match on path key", () => {
-    const matcher = compileGlob("table/schema");
+    const matcher = compileWildcard("table/schema");
     expect(matcher("table/schema")).toBe(true);
     expect(matcher("view/schema")).toBe(false);
     expect(matcher("table/name")).toBe(false);
   });
 
   test("wildcard matches any single segment", () => {
-    const matcher = compileGlob("*/schema");
+    const matcher = compileWildcard("*/schema");
     expect(matcher("table/schema")).toBe(true);
     expect(matcher("view/schema")).toBe(true);
     expect(matcher("aggregate/schema")).toBe(true);
@@ -251,65 +255,7 @@ describe("compileGlob", () => {
   });
 
   test("does not match different segment count", () => {
-    const matcher = compileGlob("*/schema");
+    const matcher = compileWildcard("*/schema");
     expect(matcher("objectType")).toBe(false);
-  });
-});
-
-describe("getSchema", () => {
-  test("returns schema for table", () => {
-    const change = {
-      objectType: "table",
-      table: { schema: "public" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBe("public");
-  });
-
-  test("returns schema for view", () => {
-    const change = {
-      objectType: "view",
-      view: { schema: "app" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBe("app");
-  });
-
-  test("returns schema for enum", () => {
-    const change = {
-      objectType: "enum",
-      enum: { schema: "types" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBe("types");
-  });
-
-  test("returns schema.name for schema type", () => {
-    const change = {
-      objectType: "schema",
-      schema: { name: "auth" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBe("auth");
-  });
-
-  test("returns null for role", () => {
-    const change = {
-      objectType: "role",
-      role: { name: "admin" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBeNull();
-  });
-
-  test("returns null for publication", () => {
-    const change = {
-      objectType: "publication",
-      publication: { name: "pub1" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBeNull();
-  });
-
-  test("returns null for language", () => {
-    const change = {
-      objectType: "language",
-      language: { name: "plpgsql" },
-    } as unknown as Change;
-    expect(getSchema(change)).toBeNull();
   });
 });
