@@ -33,8 +33,11 @@ type SerializeRule = {
 };
 
 /**
- * Serialization DSL - array of rules evaluated in order.
- * First matching rule's options are applied.
+ * Array of serialization rules evaluated in order. The first matching rule's
+ * options are passed to `change.serialize()`. If no rule matches, default
+ * serialization is used.
+ *
+ * @category Integration
  */
 export type SerializeDSL = SerializeRule[];
 

@@ -43,6 +43,18 @@ type ValueMatcher = string | string[] | boolean | number | RegexOperator;
  * Multiple keys are combined with AND (all must match).
  *
  * Reserved keys: `and`, `or`, `not`, `cascade`.
+ *
+ * @example
+ * ```json
+ * { "objectType": "table", "operation": "create" }
+ * ```
+ *
+ * @example Wildcard path matching any object's schema
+ * ```json
+ * { "* /schema": "public" }
+ * ```
+ *
+ * @category Filter DSL
  */
 export type PathPattern = {
   [path: string]: ValueMatcher;
@@ -78,14 +90,35 @@ type CompositionPattern =
     };
 
 /**
- * Filter pattern DSL.
- * Either a path pattern (matches against flattened change properties) or
- * a composition pattern (combines other patterns using logical operators).
+ * A single filter expression: either a {@link PathPattern} that matches against
+ * flattened change properties, or a composition pattern that combines other
+ * patterns using `and` / `or` / `not` logical operators.
+ *
+ * @example Exclude all changes in `pg_catalog`
+ * ```json
+ * { "not": { "* /schema": "pg_catalog" } }
+ * ```
+ *
+ * @category Filter DSL
  */
 export type FilterPattern = PathPattern | CompositionPattern;
 
 /**
- * Filter DSL - a single pattern expression.
+ * Top-level Filter DSL type — a single {@link FilterPattern} expression that
+ * determines which changes an integration includes or excludes.
+ *
+ * @example Include only table and view creates in `public`
+ * ```json
+ * {
+ *   "and": [
+ *     { "objectType": ["table", "view"] },
+ *     { "operation": "create" },
+ *     { "* /schema": "public" }
+ *   ]
+ * }
+ * ```
+ *
+ * @category Filter DSL
  */
 export type FilterDSL = FilterPattern;
 

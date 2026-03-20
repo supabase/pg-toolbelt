@@ -9,7 +9,13 @@ import type { FilterDSL } from "./filter/dsl.ts";
 import type { SerializeDSL } from "./serialize/dsl.ts";
 
 /**
- * Integration DSL - serializable representation of an integration.
+ * Serializable representation of a pg-delta integration.
+ *
+ * An integration combines a {@link FilterDSL} (which changes to include) with a
+ * {@link SerializeDSL} (how to render them as SQL) and an optional baseline
+ * catalog snapshot.
+ *
+ * @category Integration
  */
 export type IntegrationDSL = {
   /**

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/typedoc.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "docs/api-reference",
+  "name": "@supabase/pg-delta - Filter DSL Reference",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true
+}

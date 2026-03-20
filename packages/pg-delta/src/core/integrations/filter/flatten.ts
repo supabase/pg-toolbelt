@@ -13,7 +13,14 @@ import { OBJECT_TYPE_TO_PROPERTY_KEY } from "../../change.types.ts";
 import { getSchema } from "../../change-utils.ts";
 
 /**
- * A flat value extracted from a Change: scalar types or string arrays.
+ * A flat value extracted from a Change: scalar types or arrays of scalars.
+ *
+ * The filter DSL flattens every {@link Change} into a
+ * `Record<string, FlatValue>` before pattern matching. Only these primitive
+ * types survive the flattening step; nested objects are expanded into
+ * `<objectType>/<field>` paths.
+ *
+ * @category Filter DSL
  */
 export type FlatValue =
   | string
