@@ -4,12 +4,12 @@ runs:
   using: "composite"
   steps:
     - name: Install Bun
-      uses: oven-sh/setup-bun@v2
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
         bun-version: latest
 
     - name: Install Node.js
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
       with:
         node-version: "24"
         registry-url: https://registry.npmjs.org
