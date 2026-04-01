@@ -94,7 +94,7 @@ type CompositionPattern =
  * flattened change properties, or a composition pattern that combines other
  * patterns using `and` / `or` / `not` logical operators.
  *
- * @example Exclude all changes in `pg_catalog`
+ * @example Exclude all changes in pg_catalog
  * ```json
  * { "not": { "* /schema": "pg_catalog" } }
  * ```
@@ -107,7 +107,7 @@ export type FilterPattern = PathPattern | CompositionPattern;
  * Top-level Filter DSL type — a single {@link FilterPattern} expression that
  * determines which changes an integration includes or excludes.
  *
- * @example Include only table and view creates in `public`
+ * @example Include only table and view creates in public
  * ```json
  * {
  *   "and": [
