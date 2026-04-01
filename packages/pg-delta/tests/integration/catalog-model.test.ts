@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
-import { POSTGRES_VERSIONS } from "../constants.ts";
+import {
+  POSTGRES_VERSIONS,
+  SUPABASE_POSTGRES_VERSIONS,
+} from "../constants.ts";
 import { withDb, withDbSupabaseIsolated } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -141,6 +144,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(nameCol.not_null).toBe(true);
         expect(emailCol.not_null).toBe(false);
         expect(ageCol.not_null).toBe(false);
+        expect(
+          constrainedTable.constraints.map(
+            (constraint) => constraint.constraint_type,
+          ),
+        ).toEqual(["c", "p"]);
 
         // Test column ordering
         // biome-ignore lint/style/noNonNullAssertion: seeded data
@@ -152,54 +160,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(orderedTable.columns[1].position).toBe(2);
         expect(orderedTable.columns[2].name).toBe("second_col");
         expect(orderedTable.columns[2].position).toBe(3);
-      }),
-    );
-
-    test(
-      "extract type system and dependencies",
-      withDbSupabaseIsolated(pgVersion, async (db) => {
-        // Create types and check dependencies
-        await db.main.query(`
-        CREATE SCHEMA test_schema;
-        CREATE TYPE test_schema.address AS (
-          street varchar,
-          city varchar,
-          state varchar
-        );
-        CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending');
-        CREATE TABLE test_schema.users (
-          id serial PRIMARY KEY,
-          name text
-        );
-      `);
-
-        const catalog = await extractCatalog(db.main);
-
-        // Test composite types
-        expect(Object.keys(catalog.compositeTypes)).toHaveLength(1);
-        const compositeType = Object.values(catalog.compositeTypes)[0];
-        expect(compositeType.name).toBe("address");
-        expect(compositeType.schema).toBe("test_schema");
-        expect(compositeType.owner).toBe("supabase_admin");
-
-        // Test enum types
-        expect(Object.keys(catalog.enums)).toHaveLength(1);
-        const enumType = Object.values(catalog.enums)[0];
-        expect(enumType.name).toBe("status");
-        expect(enumType.schema).toBe("test_schema");
-        expect(enumType.labels.map((l) => l.label)).toEqual([
-          "active",
-          "inactive",
-          "pending",
-        ]);
-
-        // Test dependencies
-        expect(catalog.depends.length).toBeGreaterThan(0);
-        for (const dep of catalog.depends) {
-          expect(dep.dependent_stable_id).toBeDefined();
-          expect(dep.referenced_stable_id).toBeDefined();
-          expect(["n", "a", "i"]).toContain(dep.deptype);
-        }
       }),
     );
 
@@ -366,6 +326,59 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(policy.name).toBe("users_select_policy");
         expect(policy.schema).toBe("test_schema");
         expect(policy.table_name).toBe("users");
+      }),
+    );
+
+  });
+}
+
+for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
+  describe(`catalog extraction with supabase features (pg${pgVersion})`, () => {
+    test(
+      "extract type system and dependencies",
+      withDbSupabaseIsolated(pgVersion, async (db) => {
+        // Create types and check dependencies
+        await db.main.query(`
+        CREATE SCHEMA test_schema;
+        CREATE TYPE test_schema.address AS (
+          street varchar,
+          city varchar,
+          state varchar
+        );
+        CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending');
+        CREATE TABLE test_schema.users (
+          id serial PRIMARY KEY,
+          name text
+        );
+      `);
+
+        const catalog = await extractCatalog(db.main);
+
+        // Test composite types
+        expect(Object.keys(catalog.compositeTypes)).toHaveLength(1);
+        const compositeType = Object.values(catalog.compositeTypes)[0];
+        expect(compositeType.name).toBe("address");
+        expect(compositeType.schema).toBe("test_schema");
+        expect(compositeType.owner).toBe("supabase_admin");
+
+        // Test enum types
+        expect(Object.keys(catalog.enums)).toHaveLength(1);
+        const enumType = Object.values(catalog.enums)[0];
+        expect(enumType.name).toBe("status");
+        expect(enumType.schema).toBe("test_schema");
+        expect(enumType.labels.map((l) => l.label)).toEqual([
+          "active",
+          "inactive",
+          "pending",
+        ]);
+
+        // Test dependencies
+        expect(catalog.depends.length).toBeGreaterThan(0);
+        for (const dep of catalog.depends) {
+          expect(dep.dependent_stable_id).toBeDefined();
+          expect(dep.referenced_stable_id).toBeDefined();
+          expect(["n", "a", "i"]).toContain(dep.deptype);
+        }
       }),
     );
 

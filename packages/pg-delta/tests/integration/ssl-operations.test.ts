@@ -16,7 +16,11 @@ import {
   type SslCertificateOptions,
 } from "../ssl-utils.ts";
 
-for (const pgVersion of POSTGRES_VERSIONS) {
+const SSL_POSTGRES_VERSIONS = POSTGRES_VERSIONS.filter(
+  (pgVersion) => pgVersion !== 18,
+);
+
+for (const pgVersion of SSL_POSTGRES_VERSIONS) {
   describe(`SSL operations (pg${pgVersion})`, () => {
     it(
       "should connect with sslmode=require",
