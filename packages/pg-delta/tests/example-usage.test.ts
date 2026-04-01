@@ -4,10 +4,7 @@
 
 import { describe, test } from "bun:test";
 import { sql } from "@ts-safeql/sql-tag";
-import {
-  POSTGRES_VERSIONS,
-  SUPABASE_POSTGRES_VERSIONS,
-} from "./constants.ts";
+import { POSTGRES_VERSIONS, SUPABASE_POSTGRES_VERSIONS } from "./constants.ts";
 import { withDb, withDbIsolated, withDbSupabaseIsolated } from "./utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {

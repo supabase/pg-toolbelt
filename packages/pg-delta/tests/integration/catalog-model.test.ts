@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
-import {
-  POSTGRES_VERSIONS,
-  SUPABASE_POSTGRES_VERSIONS,
-} from "../constants.ts";
+import { POSTGRES_VERSIONS, SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbSupabaseIsolated } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -328,7 +325,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(policy.table_name).toBe("users");
       }),
     );
-
   });
 }
 
