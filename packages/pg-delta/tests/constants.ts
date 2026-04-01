@@ -14,6 +14,9 @@ export type PostgresVersion =
 export type SupabasePostgresVersion =
   keyof typeof POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG;
 
+// Alpine images define the default pg-delta integration matrix because they are
+// available for PostgreSQL 18, while Supabase test images are only available
+// for a subset of supported versions.
 export const POSTGRES_VERSIONS = process.env.PGDELTA_TEST_POSTGRES_VERSIONS
   ? process.env.PGDELTA_TEST_POSTGRES_VERSIONS.split(",").map(
       (v) => Number(v) as PostgresVersion,
