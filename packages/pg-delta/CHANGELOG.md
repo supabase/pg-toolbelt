@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.10
+
+### Patch Changes
+
+- 72dce37: Support PostgreSQL 18 table introspection for NOT NULL constraints and add pg18 test coverage.
+
 ## 1.0.0-alpha.9
 
 ### Patch Changes
