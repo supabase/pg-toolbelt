@@ -2,7 +2,7 @@
  * PostgreSQL connection configuration with custom type handlers.
  */
 
-import type { PoolClient, PoolConfig } from "pg";
+import type { ClientBase, PoolClient, PoolConfig } from "pg";
 import { escapeIdentifier, Pool, types } from "pg";
 import { parseSslConfig } from "./plan/ssl-config.ts";
 
@@ -115,7 +115,7 @@ const DEFAULT_CONNECT_TIMEOUT_MS =
  */
 interface CreatePoolOptions extends Partial<PoolConfig> {
   /** Called when a new client connects to the pool */
-  onConnect?: (client: PoolClient) => void | Promise<void>;
+  onConnect?: (client: ClientBase) => void | Promise<void>;
   /** Called when an idle client emits an error */
   onError?: (err: Error, client: PoolClient) => void;
   /** Called when a client is acquired from the pool */
