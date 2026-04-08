@@ -28,27 +28,33 @@ An integration file is a JSON object with two optional properties:
 
 The Filter DSL uses pattern matching to determine which changes to include or exclude. Patterns can match against change properties and be combined using logical operators.
 
-### Core Properties
+### Flat Key Model
 
-All changes have these core properties:
+Each change is internally flattened into a `Record<string, FlatValue>` where `FlatValue` is `string | number | boolean | null | Array<string | number>`. Patterns match against these flat keys.
 
-- **`type`**: The object type (e.g., `"schema"`, `"table"`, `"procedure"`)
-- **`operation`**: The operation type (`"create"`, `"alter"`, `"drop"`)
-- **`scope`**: The scope of the change (`"object"`, `"comment"`, `"privilege"`, `"membership"`)
+There are two kinds of keys:
 
-### Extracted Properties
+- **Bare keys** — top-level scalar properties on a Change: `objectType`, `operation`, `scope`, `member`, `grantee`, `inSchema`, `objtype`, `requires`, `creates`, `drops`
+- **Path keys** — model sub-object properties flattened as `<objectType>/<field>`: `table/schema`, `table/name`, `table/owner`, `view/schema`, `role/name`, `enum/schema`, etc.
 
-These properties are extracted from changes:
+**Glob patterns**: Path pattern keys support full glob syntax (powered by [picomatch](https://github.com/micromatch/picomatch)):
 
-- **`schema`**: The schema name (string or array of strings)
-- **`owner`**: The owner role name (string or array of strings)
-- **`member`**: The member role name (for membership changes, string or array of strings)
+- `*` matches any single segment: `*/schema` → `table/schema`, `view/schema`, etc.
+- Brace expansion: `{table,view}/schema` → matches `table/schema` or `view/schema`
+- Partial wildcards: `table/is_*` → matches `table/is_partition`, `table/is_typed`, etc.
+- Extglob negation: `!(role)/schema` → matches any objectType's schema except `role`
 
-### Property Matching
+Pattern keys are ANDed together: `{ "objectType": "table", "*/schema": "public" }` means the change must be a table AND in the `public` schema.
 
-- **String value**: Exact match (e.g., `{ "schema": "public" }`)
-- **Array value**: Value must be in the array (e.g., `{ "schema": ["public", "app"] }`)
-- **Missing properties**: Don't match (e.g., if a change has no schema, `{ "schema": "public" }` won't match)
+### Value Matching
+
+- **String**: Exact equality (e.g., `{ "objectType": "table" }`)
+- **String array**: Inclusion / any-of (e.g., `{ "*/schema": ["public", "app"] }`)
+- **Boolean**: Exact equality (e.g., `{ "table/is_partition": true }`)
+- **Number**: Exact equality
+- **Regex operator**: `{ "op": "regex", "value": "^pattern$" }` or `{ "op": "regex", "value": ["pat1", "pat2"] }`
+- **Array values** (`requires`, `creates`, `drops`): Match succeeds if **any** element satisfies the matcher
+- **Missing/null**: Doesn't match any positive pattern
 
 ### Logical Operators
 
@@ -58,7 +64,7 @@ Patterns can be combined using logical operators:
 - **`or`**: Any pattern must match (OR logic)
 - **`not`**: Negate a pattern (NOT logic)
 
-**Important**: Composition operators (`and`, `or`, `not`) are exclusive - they cannot be mixed with property patterns in the same object.
+**Important**: Composition operators (`and`, `or`, `not`) are exclusive - they cannot be mixed with property patterns in the same object. `cascade` is a reserved key that controls whether filter exclusions cascade to dependent objects (via `requires`/`pg_depend`) and is ignored during filter evaluation.
 
 ### Filter DSL Examples
 
@@ -66,7 +72,7 @@ Patterns can be combined using logical operators:
 
 ```json
 {
-  "schema": "public"
+  "*/schema": "public"
 }
 ```
 
@@ -75,7 +81,7 @@ Patterns can be combined using logical operators:
 ```json
 {
   "not": {
-    "schema": ["pg_catalog", "information_schema"]
+    "*/schema": ["pg_catalog", "information_schema"]
   }
 }
 ```
@@ -85,8 +91,8 @@ Patterns can be combined using logical operators:
 ```json
 {
   "or": [
-    { "type": "schema", "operation": "create" },
-    { "schema": "public" }
+    { "objectType": "schema", "operation": "create" },
+    { "*/schema": "public" }
   ]
 }
 ```
@@ -96,7 +102,7 @@ Patterns can be combined using logical operators:
 ```json
 {
   "not": {
-    "owner": ["postgres", "service_role"]
+    "*/owner": ["postgres", "service_role"]
   }
 }
 ```
@@ -106,17 +112,17 @@ Patterns can be combined using logical operators:
 ```json
 {
   "or": [
-    { "schema": "public" },
+    { "*/schema": "public" },
     {
       "and": [
         {
           "not": {
-            "schema": ["pg_catalog", "information_schema"]
+            "*/schema": ["pg_catalog", "information_schema"]
           }
         },
         {
           "not": {
-            "owner": ["postgres"]
+            "*/owner": ["postgres"]
           }
         }
       ]
@@ -129,9 +135,60 @@ Patterns can be combined using logical operators:
 
 ```json
 {
-  "type": "role",
+  "objectType": "role",
   "scope": "membership",
   "member": ["app_user"]
+}
+```
+
+**Match a specific schema object by name:**
+
+```json
+{
+  "objectType": "schema",
+  "schema/name": "auth"
+}
+```
+
+**Boolean matching (exclude partition tables):**
+
+```json
+{
+  "not": {
+    "table/is_partition": true
+  }
+}
+```
+
+**Brace expansion — match tables or views in public schema:**
+
+```json
+{
+  "{table,view}/schema": "public"
+}
+```
+
+**Partial wildcard — match boolean `is_*` fields:**
+
+```json
+{
+  "table/is_*": true
+}
+```
+
+**Extglob negation — match all schemas except role:**
+
+```json
+{
+  "!(role)/schema": "public"
+}
+```
+
+**Regex on dependency identifiers:**
+
+```json
+{
+  "requires": { "op": "regex", "value": "^schema:myschema$" }
 }
 ```
 
@@ -160,7 +217,7 @@ Currently supported options:
 [
   {
     "when": {
-      "type": "schema",
+      "objectType": "schema",
       "operation": "create"
     },
     "options": {
@@ -176,7 +233,7 @@ Currently supported options:
 [
   {
     "when": {
-      "owner": ["service_role", "authenticator"]
+      "*/owner": ["service_role", "authenticator"]
     },
     "options": {
       "skipAuthorization": true
@@ -191,9 +248,9 @@ Currently supported options:
 [
   {
     "when": {
-      "type": "schema",
+      "objectType": "schema",
       "operation": "create",
-      "owner": ["service_role"]
+      "schema/owner": ["service_role"]
     },
     "options": {
       "skipAuthorization": true
@@ -201,7 +258,7 @@ Currently supported options:
   },
   {
     "when": {
-      "schema": "public"
+      "*/schema": "public"
     },
     "options": {
       "skipAuthorization": false
@@ -219,17 +276,17 @@ Here's a complete integration file that combines filtering and serialization:
   "filter": {
     "or": [
       {
-        "schema": "public"
+        "*/schema": "public"
       },
       {
         "and": [
           {
-            "type": "schema",
+            "objectType": "schema",
             "operation": "create"
           },
           {
             "not": {
-              "schema": ["pg_catalog", "information_schema"]
+              "schema/name": ["pg_catalog", "information_schema"]
             }
           }
         ]
@@ -239,9 +296,9 @@ Here's a complete integration file that combines filtering and serialization:
   "serialize": [
     {
       "when": {
-        "type": "schema",
+        "objectType": "schema",
         "operation": "create",
-        "owner": ["service_role"]
+        "schema/owner": ["service_role"]
       },
       "options": {
         "skipAuthorization": true
@@ -279,12 +336,12 @@ import { createPlan, type IntegrationDSL } from "@supabase/pg-delta";
 const myIntegration: IntegrationDSL = {
   filter: {
     not: {
-      schema: ["pg_catalog", "information_schema"],
+      "*/schema": ["pg_catalog", "information_schema"],
     },
   },
   serialize: [
     {
-      when: { type: "schema", operation: "create" },
+      when: { objectType: "schema", operation: "create" },
       options: { skipAuthorization: true },
     },
   ],
@@ -324,8 +381,8 @@ You can also pass filter and serialization DSLs directly:
 pg-delta plan \
   --source postgresql://... \
   --target postgresql://... \
-  --filter '{"schema":"public"}' \
-  --serialize '[{"when":{"type":"schema"},"options":{"skipAuthorization":true}}]'
+  --filter '{"*/schema":"public"}' \
+  --serialize '[{"when":{"objectType":"schema"},"options":{"skipAuthorization":true}}]'
 ```
 
 ### Combining Integration with Overrides
@@ -337,12 +394,12 @@ pg-delta plan \
   --source postgresql://... \
   --target postgresql://... \
   --integration supabase \
-  --filter '{"schema":"custom"}'  # Overrides integration's filter
+  --filter '{"*/schema":"custom"}'  # Overrides integration's filter
 ```
 
 ## Object Types
 
-The following object types can be used in the `type` property:
+The following object types can be used in the `objectType` property:
 
 - `aggregate`
 - `collation`
@@ -368,7 +425,6 @@ The following object types can be used in the `type` property:
 - `subscription`
 - `table`
 - `trigger`
-- `type`
 - `user_mapping`
 - `view`
 
@@ -389,15 +445,18 @@ The following scopes can be used in the `scope` property:
 - `privilege`: Changes to object privileges
 - `membership`: Changes to role memberships (for role changes)
 
-## Property Availability
+## Key Availability
 
-Not all properties are available for all change types:
+Not all keys are available for all change types:
 
-- **`schema`**: Available for most object types, but not for cluster-wide objects like `role`, `publication`, `subscription`, `foreign_data_wrapper`, `server`, `event_trigger`, `language`
-- **`owner`**: Available for most object types, but not for `user_mapping`
-- **`member`**: Only available when `scope` is `"membership"` and `type` is `"role"`
+- **`*/schema`**: Matches most object types, but not cluster-wide objects like `role`, `publication`, `subscription`, `foreign_data_wrapper`, `server`, `language`, or `user_mapping`. Schema normalization maps `schema/name` for schema objects and `event_trigger/function_schema` for event triggers so that `*/schema` works consistently.
+- **`*/owner`**: Available for most object types that have an owner field.
+- **`member`**: Bare key, only present when `scope` is `"membership"`.
+- **`grantee`**: Bare key, only present when `scope` is `"privilege"`.
+- **`inSchema`** / **`objtype`**: Bare keys, only present when `scope` is `"default_privilege"`.
+- **`requires`** / **`creates`** / **`drops`**: Always available as arrays (default to `[]`). Contain stable identifiers like `"schema:public"` or `"table:public.users"`.
 
-If a property is not available for a change type, it will not match any pattern that requires that property.
+If a key is not available for a change, it will not match any pattern that requires that key.
 
 ## Plan Storage
 

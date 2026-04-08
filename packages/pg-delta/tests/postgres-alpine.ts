@@ -25,7 +25,8 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(120_000);
     this.withTmpFs({
-      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
+      // PostgreSQL 18 stores data under /var/lib/postgresql/<major>/docker instead of /data
+      "/var/lib/postgresql": "rw,noexec,nosuid,size=256m",
     });
     // Enable logical replication to be able to create subscriptions
     this.withCommand(["postgres", "-c", "wal_level=logical"]);
