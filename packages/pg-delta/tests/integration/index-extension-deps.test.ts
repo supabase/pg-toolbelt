@@ -67,8 +67,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) return;
 
         const statements = result.plan.statements;
-        const extIdx = statements.findIndex((s) =>
-          s.includes("CREATE EXTENSION") && s.includes("pg_trgm"),
+        const extIdx = statements.findIndex(
+          (s) => s.includes("CREATE EXTENSION") && s.includes("pg_trgm"),
         );
         const indexIdx = statements.findIndex((s) =>
           s.includes("idx_items_label_trgm"),
