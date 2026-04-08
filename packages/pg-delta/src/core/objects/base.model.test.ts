@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { BasePgModel } from "./base.model.ts";
 
 class NormalizedTestModel extends BasePgModel {
-  constructor(
-    private readonly id: string,
-    private readonly values: string[],
-  ) {
+  private readonly id: string;
+  private readonly values: string[];
+
+  constructor(id: string, values: string[]) {
     super();
+    this.id = id;
+    this.values = values;
   }
 
   get stableId() {
