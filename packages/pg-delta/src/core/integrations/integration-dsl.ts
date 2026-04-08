@@ -13,6 +13,16 @@ import type { SerializeDSL } from "./serialize/dsl.ts";
  */
 export type IntegrationDSL = {
   /**
+   * Base integration(s) to extend. Filters are AND-combined, serialize rules
+   * are concatenated (base rules first, higher priority in first-match-wins),
+   * and the most specific emptyCatalog wins.
+   *
+   * Only core integration names are accepted (e.g., "supabase").
+   * Can be a single name or an array of names.
+   * Circular extends are detected and rejected.
+   */
+  extends?: string | string[];
+  /**
    * Filter DSL - determines which changes to include/exclude.
    * If not provided, all changes are included.
    */

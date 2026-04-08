@@ -3,6 +3,7 @@ import { createPool } from "../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
+  type SupabasePostgresVersion,
 } from "./constants.ts";
 import { containerManager } from "./container-manager.js";
 import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
@@ -70,7 +71,7 @@ export function withDbIsolated(
  * Usage: test("name", withDbSupabaseIsolated(pgVersion, async (db) => { ... }));
  */
 export function withDbSupabaseIsolated(
-  postgresVersion: PostgresVersion,
+  postgresVersion: SupabasePostgresVersion,
   fn: (db: DbFixture) => Promise<void>,
 ): () => Promise<void> {
   return async () => {

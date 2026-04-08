@@ -1,5 +1,18 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.10
+
+### Patch Changes
+
+- 72dce37: Support PostgreSQL 18 table introspection for NOT NULL constraints and add pg18 test coverage.
+
+## 1.0.0-alpha.9
+
+### Patch Changes
+
+- 505413e: Fix async pool session setup so declarative export no longer triggers concurrent `client.query()` deprecation warnings during catalog extraction.
+- def35a5: Rename the declarative apply CLI flag for skipping final function validation to `--skip-function-validation`.
+
 ## 1.0.0-alpha.8
 
 ### Patch Changes

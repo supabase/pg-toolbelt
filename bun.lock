@@ -29,17 +29,18 @@
     },
     "packages/pg-delta": {
       "name": "@supabase/pg-delta",
-      "version": "1.0.0-alpha.4",
+      "version": "1.0.0-alpha.8",
       "bin": {
         "pgdelta": "./dist/cli/bin/cli.js",
       },
       "dependencies": {
         "@stricli/core": "^1.2.4",
-        "@supabase/pg-topo": "workspace:*",
+        "@supabase/pg-topo": "^1.0.0-alpha.1",
         "@ts-safeql/sql-tag": "^0.2.0",
         "chalk": "^5.6.2",
         "debug": "^4.3.7",
         "pg": "^8.17.2",
+        "picomatch": "^4.0.3",
         "zod": "^4.2.1",
       },
       "devDependencies": {
@@ -50,6 +51,7 @@
         "@types/debug": "^4.1.12",
         "@types/node": "^24.10.4",
         "@types/pg": "^8.11.10",
+        "@types/picomatch": "^4.0.2",
         "dedent": "^1.7.1",
         "knip": "^5.75.2",
         "testcontainers": "^11.10.0",
@@ -58,7 +60,7 @@
     },
     "packages/pg-topo": {
       "name": "@supabase/pg-topo",
-      "version": "1.0.0-alpha.0",
+      "version": "1.0.0-alpha.1",
       "dependencies": {
         "@pgsql/traverse": "^17.2.4",
         "plpgsql-parser": "^0.5.4",
@@ -338,6 +340,8 @@
     "@types/node": ["@types/node@24.10.13", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-oH72nZRfDv9lADUBSo104Aq7gPHpQZc4BTx38r9xf9pg5LfP6EzSyH2n7qFmmxRQXh7YlUXODcYsg6PuTDSxGg=="],
 
     "@types/pg": ["@types/pg@8.16.0", "", { "dependencies": { "@types/node": "*", "pg-protocol": "*", "pg-types": "^2.2.0" } }, "sha512-RmhMd/wD+CF8Dfo+cVIy3RR5cl8CyfXQ0tGgW6XBL8L4LM/UTEbNXYRbLwU6w+CgrKBNbrQWt4FUtTfaU5jSYQ=="],
+
+    "@types/picomatch": ["@types/picomatch@4.0.2", "", {}, "sha512-qHHxQ+P9PysNEGbALT8f8YOSHW0KJu6l2xU8DYY0fu/EmGxXdVnuTLvFUvBgPJMSqXq29SYHveejeAha+4AYgA=="],
 
     "@types/ssh2": ["@types/ssh2@0.5.52", "", { "dependencies": { "@types/node": "*", "@types/ssh2-streams": "*" } }, "sha512-lbLLlXxdCZOSJMCInKH2+9V/77ET2J6NPQHpFI0kda61Dd1KglJs+fPQBchizmzYSOJBgdTajhPqBO1xxLywvg=="],
 

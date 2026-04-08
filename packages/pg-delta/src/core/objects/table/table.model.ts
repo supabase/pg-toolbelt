@@ -370,8 +370,8 @@ select
       and de.refclassid = 'pg_extension'::regclass
 
       where c.conrelid = t.oid
-        -- Skip constraint triggers; they are modeled as triggers, not table constraints
-        and c.contype <> 't'
+        -- Skip constraint triggers and PG18 NOT NULL constraints; they are modeled elsewhere
+        and c.contype not in ('t', 'n')
         and not c.connamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and de.objid is null
     ),

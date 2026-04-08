@@ -52,9 +52,9 @@ export type SerializeDSL = SerializeRule[];
  * const serializer = compileSerializeDSL([
  *   {
  *     when: {
- *       type: "schema",
+ *       objectType: "schema",
  *       operation: "create",
- *       owner: ["service_role"]
+ *       "schema/owner": ["service_role"]
  *     },
  *     options: { skipAuthorization: true }
  *   }
