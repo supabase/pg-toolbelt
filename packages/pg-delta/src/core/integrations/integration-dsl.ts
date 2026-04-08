@@ -9,9 +9,25 @@ import type { FilterDSL } from "./filter/dsl.ts";
 import type { SerializeDSL } from "./serialize/dsl.ts";
 
 /**
- * Integration DSL - serializable representation of an integration.
+ * Serializable representation of a pg-delta integration.
+ *
+ * An integration combines a {@link FilterDSL} (which changes to include) with a
+ * {@link SerializeDSL} (how to render them as SQL) and an optional baseline
+ * catalog snapshot.
+ *
+ * @category Integration
  */
 export type IntegrationDSL = {
+  /**
+   * Base integration(s) to extend. Filters are AND-combined, serialize rules
+   * are concatenated (base rules first, higher priority in first-match-wins),
+   * and the most specific emptyCatalog wins.
+   *
+   * Only core integration names are accepted (e.g., "supabase").
+   * Can be a single name or an array of names.
+   * Circular extends are detected and rejected.
+   */
+  extends?: string | string[];
   /**
    * Filter DSL - determines which changes to include/exclude.
    * If not provided, all changes are included.

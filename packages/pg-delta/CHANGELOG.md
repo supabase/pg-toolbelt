@@ -1,5 +1,36 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.10
+
+### Patch Changes
+
+- 72dce37: Support PostgreSQL 18 table introspection for NOT NULL constraints and add pg18 test coverage.
+
+## 1.0.0-alpha.9
+
+### Patch Changes
+
+- 505413e: Fix async pool session setup so declarative export no longer triggers concurrent `client.query()` deprecation warnings during catalog extraction.
+- def35a5: Rename the declarative apply CLI flag for skipping final function validation to `--skip-function-validation`.
+
+## 1.0.0-alpha.8
+
+### Patch Changes
+
+- d6c9f90: fix(plan): use catalog-shape guard instead of instanceof Catalog so deserialized catalogs work in edge/bundled runtimes (declarative sync)
+
+## 1.0.0-alpha.7
+
+### Minor Changes
+
+- 28f6a9b: fix: export createManagedPool from lib core
+
+## 1.0.0-alpha.6
+
+### Patch Changes
+
+- 7acf51b: fix(package): replace workspace protocol for pg-topo runtime dependency so npm releases resolve in Deno
+
 ## 1.0.0-alpha.5
 
 ### Minor Changes
