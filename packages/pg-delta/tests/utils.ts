@@ -21,6 +21,29 @@ function suppressShutdownError(err: Error & { code?: string }) {
 export type DbFixture = { main: Pool; branch: Pool };
 
 /**
+ * Retry pool.connect() until the database is truly accepting connections.
+ * Supabase containers may pass their Docker health check before init scripts
+ * finish, and concurrent container startup adds resource pressure.
+ */
+async function waitForPool(
+  pool: Pool,
+  retries = 5,
+  delayMs = 2000,
+): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const client = await pool.connect();
+      client.release();
+      return;
+    } catch {
+      if (i === retries - 1)
+        throw new Error(`Pool not ready after ${retries} attempts`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
+/**
  * Default test utility using Alpine PostgreSQL containers with single container per version.
  * Uses CREATE/DROP DATABASE for isolation instead of creating new containers.
  * Fast and suitable for most tests.
@@ -82,12 +105,14 @@ export function withDbSupabaseIsolated(
     ]);
     const main = createPool(containerMain.getConnectionUri(), {
       onError: suppressShutdownError,
-      connectionTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 5_000,
     });
     const branch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
-      connectionTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 5_000,
     });
+
+    await Promise.all([waitForPool(main), waitForPool(branch)]);
 
     try {
       await fn({ main, branch });
