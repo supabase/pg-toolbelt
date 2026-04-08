@@ -82,9 +82,11 @@ export function withDbSupabaseIsolated(
     ]);
     const main = createPool(containerMain.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 10_000,
     });
     const branch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 10_000,
     });
 
     try {
