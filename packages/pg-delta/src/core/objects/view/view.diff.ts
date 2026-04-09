@@ -3,6 +3,7 @@ import {
   diffPrivileges,
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
+import { normalizeColumns } from "../base.model.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -130,7 +131,11 @@ export function diffViews(
       { options: deepEqual },
     );
 
-    if (!deepEqual(mainView.columns, branchView.columns)) {
+    // Normalize columns (strip position, sort by name) to match stableSnapshot().
+    // Position-only differences are safe to ignore here because column order in a
+    // view is determined by its definition, which is already checked above via
+    // NON_ALTERABLE_FIELDS - a position change always implies a definition change.
+    if (!deepEqual(normalizeColumns(mainView.columns), normalizeColumns(branchView.columns))) {
       changes.push(new DropView({ view: mainView }));
       appendCreateViewChanges(branchView);
     } else if (nonAlterablePropsChanged) {

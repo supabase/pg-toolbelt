@@ -163,6 +163,44 @@ describe.concurrent("view.diff", () => {
     expect(changes[1]).toBeInstanceOf(CreateView);
   });
 
+  test("column position-only change does not trigger drop+create", () => {
+    const col = {
+      name: "id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: "my column",
+    };
+    const main = makeView({
+      owner: "postgres",
+      comment: "old comment",
+      columns: [{ ...col, position: 1 }],
+    });
+    const branch = makeView({
+      owner: "postgres",
+      comment: "new comment",
+      columns: [{ ...col, position: 2 }],
+    });
+    const changes = diffViews(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((c) => c instanceof DropView)).toBe(false);
+    expect(changes.some((c) => c instanceof CreateCommentOnView)).toBe(true);
+  });
+
   test("create with privileges emits grant changes", () => {
     const v = makeView({
       privileges: [
