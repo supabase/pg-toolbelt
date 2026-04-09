@@ -1,5 +1,15 @@
 type ChangeOperation = "create" | "alter" | "drop";
 
+/**
+ * Abstract base class for all change objects.
+ *
+ * Every concrete change (e.g. `CreateTable`, `AlterView`) extends this class and
+ * provides an `operation`, `objectType`, and `scope`. The filter DSL flattens
+ * these properties — along with the model sub-object — into path/value pairs
+ * for pattern matching.
+ *
+ * @category Base
+ */
 export abstract class BaseChange {
   /**
    * The operation of the change.

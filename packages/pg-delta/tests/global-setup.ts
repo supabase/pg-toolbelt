@@ -3,12 +3,13 @@ import {
   POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   POSTGRES_VERSIONS,
+  SUPABASE_POSTGRES_VERSIONS,
 } from "./constants.ts";
 import { containerManager } from "./container-manager.ts";
 
 const containerRuntimeClient = await getContainerRuntimeClient();
 // pull all the images before running the tests
-const imagesSupabasePostgres = POSTGRES_VERSIONS.map(
+const imagesSupabasePostgres = SUPABASE_POSTGRES_VERSIONS.map(
   (postgresVersion) =>
     `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`,
 );
