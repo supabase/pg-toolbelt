@@ -34,7 +34,9 @@ export class CreateDomain extends CreateDomainChange {
   }
 
   get creates() {
-    const creates = [this.domain.stableId];
+    const creates: Array<
+      `domain:${string}` | `constraint:${string}.${string}.${string}`
+    > = [this.domain.stableId];
 
     for (const constraint of this.domain.constraints) {
       if (constraint.check_expression && constraint.validated) {
