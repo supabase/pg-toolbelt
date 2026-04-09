@@ -105,11 +105,11 @@ export function withDbSupabaseIsolated(
     ]);
     const main = createPool(containerMain.getConnectionUri(), {
       onError: suppressShutdownError,
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 20_000,
     });
     const branch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 20_000,
     });
 
     await Promise.all([waitForPool(main), waitForPool(branch)]);
