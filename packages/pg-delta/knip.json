@@ -1,11 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["tests/global-setup.ts", "src/**/*.test.ts", "tests/**/*.ts"],
+  "entry": [
+    "tests/global-setup.ts",
+    "src/**/*.test.ts",
+    "tests/**/*.ts",
+    "src/typedoc.ts"
+  ],
   "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"],
   "ignoreBinaries": ["biome", "changeset"],
   "ignoreFiles": ["tests/global-setup.ts", "scripts/**/*.ts"],
   "ignoreIssues": {
     "src/core/objects/**/*.model.ts": ["types"]
   },
-  "ignoreDependencies": ["@supabase/pg-topo"]
+  "ignoreDependencies": ["@supabase/pg-topo", "@supabase/bun-istanbul-coverage"]
 }

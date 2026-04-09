@@ -118,6 +118,37 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "modify composite foreign key preserves referenced column order",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.parent (
+            x int NOT NULL,
+            y int NOT NULL,
+            UNIQUE (y, x)
+          );
+          CREATE TABLE test_schema.child (
+            b int NOT NULL,
+            a int NOT NULL,
+            CONSTRAINT fk_child_parent
+              FOREIGN KEY (b, a) REFERENCES test_schema.parent (y, x)
+          );
+        `,
+          testSql: `
+          ALTER TABLE test_schema.child DROP CONSTRAINT fk_child_parent;
+          ALTER TABLE test_schema.child
+            ADD CONSTRAINT fk_child_parent
+            FOREIGN KEY (b, a) REFERENCES test_schema.parent (y, x)
+            ON DELETE CASCADE;
+        `,
+        });
+      }),
+    );
+
+    test(
       "drop unique constraint",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

@@ -1,6 +1,7 @@
 {
   "name": "@supabase/bun-istanbul-coverage",
   "version": "1.0.0-alpha.0",
+  "private": true,
   "description": "Drop-in Bun preload plugin that replaces JSC coverage with Istanbul source instrumentation",
   "type": "module",
   "exports": {
