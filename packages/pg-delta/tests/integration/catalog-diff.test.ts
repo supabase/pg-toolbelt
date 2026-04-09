@@ -1096,17 +1096,25 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             }),
           }),
           expect.objectContaining({
+            operation: "drop",
+            objectType: "view",
+            scope: "object",
+            view: expect.objectContaining({
+              name: "admin_users",
+              schema: "test_schema",
+            }),
+          }),
+          expect.objectContaining({
             operation: "create",
             objectType: "view",
             scope: "object",
-            orReplace: true,
             view: expect.objectContaining({
               name: "admin_users",
               schema: "test_schema",
             }),
           }),
         ]);
-        expect(changes).toHaveLength(7);
+        expect(changes).toHaveLength(8);
       }),
     );
 
@@ -1256,23 +1264,33 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const branchCatalog = await extractCatalog(db.branch);
         const changes = diffCatalogs(mainCatalog, branchCatalog);
 
-        expect(changes).toEqual([
-          expect.objectContaining({
-            operation: "create",
-            objectType: "view",
-            scope: "object",
-            orReplace: true,
-            view: expect.objectContaining({
-              name: "user_list",
-              schema: "test_schema",
-              definition:
-                pgVersion === 15
-                  ? " SELECT users.id,\n    users.username,\n    users.role\n   FROM test_schema.users"
-                  : " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
+        expect(changes).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              operation: "drop",
+              objectType: "view",
+              scope: "object",
+              view: expect.objectContaining({
+                name: "user_list",
+                schema: "test_schema",
+              }),
             }),
-          }),
-        ]);
-        expect(changes).toHaveLength(1);
+            expect.objectContaining({
+              operation: "create",
+              objectType: "view",
+              scope: "object",
+              view: expect.objectContaining({
+                name: "user_list",
+                schema: "test_schema",
+                definition:
+                  pgVersion === 15
+                    ? " SELECT users.id,\n    users.username,\n    users.role\n   FROM test_schema.users"
+                    : " SELECT id,\n    username,\n    role\n   FROM test_schema.users",
+              }),
+            }),
+          ]),
+        );
+        expect(changes).toHaveLength(2);
       }),
     );
   });

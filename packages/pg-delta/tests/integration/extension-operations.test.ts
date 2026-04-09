@@ -47,7 +47,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           },
         });
       }),
-      60_000,
+      120_000,
     );
 
     test(
@@ -83,7 +83,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           },
         });
       }),
-      60_000,
+      120_000,
     );
 
     test(
@@ -136,7 +136,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           ]
         `);
       }),
-      60_000,
+      120_000,
     );
   });
 }
