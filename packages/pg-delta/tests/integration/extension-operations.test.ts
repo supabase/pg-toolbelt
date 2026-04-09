@@ -136,6 +136,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           ]
         `);
       }),
+      60_000,
     );
   });
 }
