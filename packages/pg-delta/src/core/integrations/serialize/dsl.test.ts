@@ -20,7 +20,7 @@ describe("compileSerializeDSL", () => {
   test("matching rule applies its options", () => {
     const serializer = compileSerializeDSL([
       {
-        when: { type: "schema" as const, operation: "create" as const },
+        when: { objectType: "schema", operation: "create" },
         options: { skipAuthorization: true },
       },
     ]);
@@ -37,7 +37,7 @@ describe("compileSerializeDSL", () => {
   test("no matching rule uses default serialization", () => {
     const serializer = compileSerializeDSL([
       {
-        when: { type: "table" as const },
+        when: { objectType: "table" },
         options: { skipAuthorization: true },
       },
     ]);
@@ -54,11 +54,11 @@ describe("compileSerializeDSL", () => {
   test("first matching rule wins", () => {
     const serializer = compileSerializeDSL([
       {
-        when: { type: "schema" as const },
+        when: { objectType: "schema" },
         options: { skipAuthorization: true },
       },
       {
-        when: { type: "schema" as const },
+        when: { objectType: "schema" },
         options: { skipAuthorization: false },
       },
     ]);
@@ -73,11 +73,11 @@ describe("compileSerializeDSL", () => {
   test("skips non-matching first rule and applies second", () => {
     const serializer = compileSerializeDSL([
       {
-        when: { type: "table" as const },
+        when: { objectType: "table" },
         options: { skipAuthorization: true },
       },
       {
-        when: { type: "schema" as const },
+        when: { objectType: "schema" },
         options: { skipAuthorization: false },
       },
     ]);

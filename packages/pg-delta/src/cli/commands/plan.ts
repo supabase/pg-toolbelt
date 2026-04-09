@@ -4,14 +4,13 @@
 
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
+import { deserializeCatalog } from "../../core/catalog.snapshot.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
-import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
-import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { createPlan } from "../../core/plan/index.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { setCommandExitCode } from "../exit-code.ts";
-import { loadIntegrationDSL } from "../utils/integrations.ts";
+import { resolveIntegrationOptions } from "../utils/integrations.ts";
 import { isPostgresUrl, loadCatalogFromFile } from "../utils/resolve-input.ts";
 import { formatPlanForDisplay } from "../utils.ts";
 
@@ -138,27 +137,22 @@ json/sql outputs are available for artifacts or piping.
       "sql-format-options"?: SqlFormatOptions;
     },
   ) {
-    let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
-    let serializeOption: SerializeDSL | ChangeSerializer | undefined =
-      flags.serialize;
-    let integrationEmptyCatalog:
-      | import("../../core/catalog.snapshot.ts").CatalogSnapshot
-      | undefined;
-    if (flags.integration) {
-      const integrationDSL = await loadIntegrationDSL(flags.integration);
-      filterOption = filterOption ?? integrationDSL.filter;
-      serializeOption = serializeOption ?? integrationDSL.serialize;
-      integrationEmptyCatalog = integrationDSL.emptyCatalog;
-    }
+    const {
+      filter,
+      serialize,
+      emptyCatalog: integrationEmptyCatalog,
+    } = await resolveIntegrationOptions({
+      filter: flags.filter,
+      serialize: flags.serialize,
+      integration: flags.integration,
+    });
 
     const resolvedSource = flags.source
       ? isPostgresUrl(flags.source)
         ? flags.source
         : await loadCatalogFromFile(flags.source)
       : integrationEmptyCatalog
-        ? (await import("../../core/catalog.snapshot.ts")).deserializeCatalog(
-            integrationEmptyCatalog,
-          )
+        ? deserializeCatalog(integrationEmptyCatalog)
         : null;
 
     const resolvedTarget = isPostgresUrl(flags.target)
@@ -167,8 +161,8 @@ json/sql outputs are available for artifacts or piping.
 
     const planResult = await createPlan(resolvedSource, resolvedTarget, {
       role: flags.role,
-      filter: filterOption,
-      serialize: serializeOption,
+      filter,
+      serialize,
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");

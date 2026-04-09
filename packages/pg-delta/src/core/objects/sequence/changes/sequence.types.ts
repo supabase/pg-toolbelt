@@ -4,6 +4,7 @@ import type { CreateSequence } from "./sequence.create.ts";
 import type { DropSequence } from "./sequence.drop.ts";
 import type { SequencePrivilege } from "./sequence.privilege.ts";
 
+/** Union of all sequence-related change variants (`objectType: "sequence"`). @category Change Types */
 export type SequenceChange =
   | AlterSequence
   | CommentSequence

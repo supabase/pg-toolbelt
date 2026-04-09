@@ -1,5 +1,6 @@
 {
   "entry": ["test/global-setup.ts", "test/**/*.test.ts"],
   "ignoreFiles": ["scripts/run-tests.ts"],
-  "ignoreBinaries": ["biome"]
+  "ignoreBinaries": ["biome"],
+  "ignoreDependencies": ["@supabase/bun-istanbul-coverage"]
 }

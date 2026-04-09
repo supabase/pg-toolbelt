@@ -77,7 +77,7 @@ pgdelta declarative apply \
 ```
 
 Add `--verbose` to see per-round progress.
-Add `--no-validate-functions` if functions reference objects outside the schema.
+Add `--skip-function-validation` if functions reference objects outside the schema.
 
 #### Interpreting exit codes
 
@@ -85,7 +85,7 @@ Add `--no-validate-functions` if functions reference objects outside the schema.
 |-----------|---------|--------|
 | 0 | All statements applied | Done |
 | 1 | Hard failure | Read stderr for the error |
-| 2 | Stuck (unresolvable dependencies) | Check diagnostics; may need `--no-validate-functions` or manual fixes |
+| 2 | Stuck (unresolvable dependencies) | Check diagnostics; may need `--skip-function-validation` or manual fixes |
 
 #### Debugging apply failures
 
@@ -154,7 +154,7 @@ pgdelta plan --source baseline.json --target <database_url> --output migration.s
 |---------|-----------|-------------|
 | `catalog-export` | `--target`, `--output`, `--role` | Snapshot DB catalog to JSON |
 | `declarative export` | `--target`, `--output`, `--source`, `--integration`, `--force`, `--dry-run` | Export schema as `.sql` files |
-| `declarative apply` | `--path`, `--target`, `--verbose`, `--no-validate-functions` | Apply `.sql` files to DB |
+| `declarative apply` | `--path`, `--target`, `--verbose`, `--skip-function-validation` | Apply `.sql` files to DB |
 | `plan` | `--source`, `--target`, `--output`, `--format`, `--integration` | Compute diff, output plan |
 | `apply` | `--plan`, `--source`, `--target`, `--unsafe` | Apply a saved plan file |
 | `sync` | `--source`, `--target`, `--yes`, `--unsafe`, `--integration` | Plan + apply in one step |

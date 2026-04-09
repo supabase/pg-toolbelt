@@ -2,7 +2,7 @@
  * PostgreSQL connection configuration with custom type handlers.
  */
 
-import type { PoolClient, PoolConfig } from "pg";
+import type { ClientBase, PoolClient, PoolConfig } from "pg";
 import { escapeIdentifier, Pool, types } from "pg";
 import { parseSslConfig } from "./plan/ssl-config.ts";
 
@@ -115,7 +115,7 @@ const DEFAULT_CONNECT_TIMEOUT_MS =
  */
 interface CreatePoolOptions extends Partial<PoolConfig> {
   /** Called when a new client connects to the pool */
-  onConnect?: (client: PoolClient) => void | Promise<void>;
+  onConnect?: (client: ClientBase) => void | Promise<void>;
   /** Called when an idle client emits an error */
   onError?: (err: Error, client: PoolClient) => void;
   /** Called when a client is acquired from the pool */
@@ -139,7 +139,62 @@ export function createPool(
     ...config,
   });
 
-  if (onConnect) pool.on("connect", onConnect);
+  if (onConnect) {
+    const pendingClientSetup = new WeakMap<PoolClient, Promise<void>>();
+    const waitForClientSetup = async (client: PoolClient) => {
+      const setup = pendingClientSetup.get(client);
+      if (setup) {
+        await setup;
+        return;
+      }
+      throw new Error(
+        "Internal error: pool client was acquired before async onConnect setup was registered. This indicates a bug in the pool wrapper logic; please report it with reproduction steps.",
+      );
+    };
+    const originalConnect = pool.connect.bind(pool);
+
+    pool.on("connect", (client) => {
+      pendingClientSetup.set(
+        client,
+        Promise.resolve().then(() => onConnect(client)),
+      );
+    });
+
+    pool.connect = ((
+      callback?: (
+        err: Error | undefined,
+        client: PoolClient | undefined,
+        release: (err?: Error | boolean) => void,
+      ) => void,
+    ) => {
+      if (!callback) {
+        return originalConnect().then(async (client) => {
+          try {
+            await waitForClientSetup(client);
+            return client;
+          } catch (setupError) {
+            (client as PoolClient).release?.(setupError as Error);
+            throw setupError;
+          }
+        });
+      }
+
+      return originalConnect(async (err, client, release) => {
+        if (err || !client) {
+          callback(err, client, release);
+          return;
+        }
+
+        try {
+          await waitForClientSetup(client);
+          callback(err, client, release);
+        } catch (setupError) {
+          release(setupError as Error);
+          callback(setupError as Error, undefined, () => {});
+        }
+      });
+    }) as Pool["connect"];
+  }
   if (onError) pool.on("error", onError);
   if (onAcquire) pool.on("acquire", onAcquire);
   if (onRemove) pool.on("remove", onRemove);

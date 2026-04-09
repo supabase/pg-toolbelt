@@ -20,6 +20,16 @@ import type { TriggerChange } from "./objects/trigger/changes/trigger.types.ts";
 import type { TypeChange } from "./objects/type/type.types.ts";
 import type { ViewChange } from "./objects/view/changes/view.types.ts";
 
+/**
+ * Discriminated union of all PostgreSQL object change types.
+ *
+ * Every member shares a common `objectType` discriminant (e.g. `"table"`,
+ * `"view"`, `"role"`) that the filter DSL pattern-matches against. Use
+ * {@link OBJECT_TYPE_TO_PROPERTY_KEY} to map an `objectType` value to the
+ * corresponding JS property key on the Change instance.
+ *
+ * @category Change Types
+ */
 export type Change =
   | AggregateChange
   | CollationChange
@@ -42,3 +52,43 @@ export type Change =
   | TypeChange
   | ViewChange
   | ForeignDataWrapperChange;
+
+/**
+ * Exhaustive map from every `objectType` discriminant value to the JS property
+ * key that holds the model sub-object on the corresponding {@link Change}.
+ *
+ * Used internally by the filter DSL flattening logic to locate nested
+ * properties and expose them as `<objectType>/<field>` paths.
+ *
+ * @category Change Types
+ */
+export const OBJECT_TYPE_TO_PROPERTY_KEY: {
+  [K in Change["objectType"]]: string;
+} = {
+  aggregate: "aggregate",
+  collation: "collation",
+  composite_type: "compositeType",
+  domain: "domain",
+  enum: "enum",
+  event_trigger: "eventTrigger",
+  extension: "extension",
+  foreign_data_wrapper: "foreignDataWrapper",
+  foreign_table: "foreignTable",
+  index: "index",
+  language: "language",
+  materialized_view: "materializedView",
+  procedure: "procedure",
+  publication: "publication",
+  range: "range",
+  rls_policy: "policy",
+  role: "role",
+  rule: "rule",
+  schema: "schema",
+  sequence: "sequence",
+  server: "server",
+  subscription: "subscription",
+  table: "table",
+  trigger: "trigger",
+  user_mapping: "userMapping",
+  view: "view",
+};

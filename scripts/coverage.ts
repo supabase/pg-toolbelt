@@ -2,11 +2,11 @@
  * Local coverage runner: runs pg-topo, pg-delta unit, and pg-delta integration
  * shards with Istanbul instrumentation, then generates reports via nyc.
  *
- * Usage: bun run coverage [--pg-versions 15,17] [--shards 12] [--skip-tests]
+ * Usage: bun run coverage [--pg-versions 15,17] [--shards 15] [--skip-tests]
  *
  * Options:
  *   --pg-versions  Comma-separated PG versions for integration (default: 17)
- *   --shards       Number of integration shards (default: 12)
+ *   --shards       Number of integration shards (default: 15)
  *   --skip-tests   Use existing .nyc_output only; no test runs (report only)
  */
 import { existsSync } from "node:fs";
@@ -62,7 +62,7 @@ async function listPgDeltaTestFiles(): Promise<string[]> {
 function parseArgs() {
   const args = process.argv.slice(2);
   let pgVersions = [17];
-  let shards = 12;
+  let shards = 15;
   let skipTests = false;
 
   for (let i = 0; i < args.length; i++) {

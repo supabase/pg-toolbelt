@@ -36,7 +36,8 @@ export class PostgresSslContainer extends GenericContainer {
     this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(30_000);
     this.withTmpFs({
-      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
+      // PostgreSQL 18 stores data under /var/lib/postgresql/<major>/docker instead of /data
+      "/var/lib/postgresql": "rw,noexec,nosuid,size=256m",
     });
     // Copy certificates into container (more portable than bind mounts)
     const certDir = dirname(certificates.caCert);
@@ -65,7 +66,7 @@ export class PostgresSslContainer extends GenericContainer {
 set -e
 # Configure pg_hba.conf to require SSL for TCP connections
 # Allow local Unix socket connections (for psql commands inside container)
-cat > /var/lib/postgresql/data/pg_hba.conf <<EOF
+cat > "$PGDATA/pg_hba.conf" <<EOF
 # Allow local Unix socket connections (for psql commands inside container)
 local all all scram-sha-256
 # Require SSL for all TCP connections
