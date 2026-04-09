@@ -186,3 +186,7 @@ Start with empty assertions (e.g., `expect(statements).toMatchInlineSnapshot(\`\
 ### Kaizen (Continuous Improvement)
 
 Whenever you are told you made a mistake — whether in commands, coding style, or guidelines — extract a generalizable lesson and propose a change to these agent guidelines so the same mistake does not happen again.
+
+### Common Issues
+
+- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.

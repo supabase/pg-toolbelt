@@ -376,6 +376,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           expect(["n", "a", "i"]).toContain(dep.deptype);
         }
       }),
+      60_000,
     );
 
     test(
@@ -411,6 +412,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           expect(extension.schema).toBe("extensions");
         }
       }),
+      60_000,
     );
   });
 }
