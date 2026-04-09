@@ -169,6 +169,7 @@ All code changes must be covered by tests:
 - Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
 - Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
 - **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
+- Prefer `roundtripFidelityTest` for pg-delta integration coverage instead of hand-rolled `createPlan` + apply assertions. Use custom plan assertions only when validating planner internals that roundtrip utilities cannot express.
 - Follow existing test patterns in the codebase
 
 ### Snapshot Assertions
@@ -186,3 +187,7 @@ Start with empty assertions (e.g., `expect(statements).toMatchInlineSnapshot(\`\
 ### Kaizen (Continuous Improvement)
 
 Whenever you are told you made a mistake — whether in commands, coding style, or guidelines — extract a generalizable lesson and propose a change to these agent guidelines so the same mistake does not happen again.
+
+### Common Issues
+
+- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.
