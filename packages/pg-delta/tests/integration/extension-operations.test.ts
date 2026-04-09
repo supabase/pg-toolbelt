@@ -3,11 +3,11 @@ import dedent from "dedent";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
-import { POSTGRES_VERSIONS } from "../constants.ts";
+import { SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbSupabaseIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
-for (const pgVersion of POSTGRES_VERSIONS) {
+for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
   describe(`extension operations (pg${pgVersion})`, () => {
     test(
       "create extension",

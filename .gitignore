@@ -169,6 +169,9 @@ dev-debug.log
 declarative-schemas/
 
 
+# TypeDoc generated output
+docs/api-reference/
+
 # ===================
 # tldr ignore patterns
 # ===================

@@ -25,11 +25,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       pg-delta: ${{ steps.changes.outputs.pg-delta }}
+      pg-delta-package-json: ${{ steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ steps.changes.outputs.pg-topo }}
+      pg-topo-package-json: ${{ steps.changes.outputs.pg-topo-package-json }}
       root: ${{ steps.changes.outputs.root }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Detect changes
         id: changes
         uses: ./.github/actions/detect-changes
@@ -43,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Check types (pg-delta)
@@ -61,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Format and lint
@@ -76,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Knip (pg-delta)
@@ -96,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Run unit tests
@@ -108,7 +110,7 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-pg-delta-unit
           path: packages/pg-delta/.nyc_output/
@@ -127,16 +129,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres_version: [15, 17]
+        postgres_version: [15, 17, 18]
         shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         shard_total: [12]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Run integration tests (shard)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3.0.2
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -160,7 +162,7 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-integration-pg${{ matrix.postgres_version }}-shard-${{ matrix.shard_index }}
           path: packages/pg-delta/.nyc_output/
@@ -208,11 +210,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Download all coverage artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-*
           path: .nyc_output/
@@ -260,7 +262,7 @@ jobs:
       - name: Upload coverage reports
         if: hashFiles('.coverage-artifacts/**') != ''
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-report
           path: .coverage-artifacts/
@@ -277,7 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Run tests
@@ -289,12 +291,36 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-pg-topo
           path: packages/pg-topo/.nyc_output/
           retention-days: 1
           include-hidden-files: true
+
+  deno2-library-e2e:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
+        needs.detect-changes.outputs.pg-topo-package-json == 'true'
+      )
+    needs:
+      - detect-changes
+    name: "Deno 2: Library golden path e2e"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+      - name: Run Deno e2e golden-path check
+        run: node .github/scripts/deno-library-e2e.mjs
 
   release-preview:
     needs:
@@ -305,12 +331,13 @@ jobs:
       - pg-delta-integration-pg15-compat
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
+      - deno2-library-e2e
     if: always() && !cancelled()
     name: Release preview
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Build all packages
