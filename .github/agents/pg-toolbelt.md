@@ -127,8 +127,13 @@ Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
 
 - GitHub Actions with `dorny/paths-filter` detects which packages changed
 - Only affected packages are tested
-- pg-delta integration tests are sharded across 12 runners x 2 PG versions
+- pg-delta integration tests are sharded across 15 runners x 3 PG versions
 - Changesets automate releases on merge to main
+
+When changing shard count or PG versions, update all of these locations:
+- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix
+- `scripts/coverage.ts` — default `--shards` value (doc comment + code)
+- This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
 
 ## Agent Workflow
 
@@ -148,7 +153,7 @@ When implementing a **fix**, **feat**, or any change that affects package behavi
 
 ### Testing Discipline
 
-pg-delta has 45+ integration test files across 2 PG versions, sharded across 12 CI runners. Never run the full suite while iterating.
+pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 CI runners. Never run the full suite while iterating.
 
 **During development:**
 
