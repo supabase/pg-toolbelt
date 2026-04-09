@@ -2,9 +2,11 @@
  * Integration tests for PostgreSQL type operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
+import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -38,6 +40,71 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
     test(
+      "domain CHECK function dependencies are ordered before domains",
+      withDb(pgVersion, async (db) => {
+        const schemaSql = "CREATE SCHEMA test_schema;";
+        const testSql = dedent`
+          CREATE FUNCTION test_schema.check_prefix(val text, prefix text)
+          RETURNS boolean
+          LANGUAGE sql
+          IMMUTABLE
+          AS $function$
+          SELECT starts_with(val, prefix)
+          $function$;
+
+          CREATE DOMAIN test_schema.user_id AS text
+            CHECK (test_schema.check_prefix(VALUE, 'user_'));
+
+          CREATE DOMAIN test_schema.org_id AS text
+            CHECK (test_schema.check_prefix(VALUE, 'org_'));
+        `;
+
+        await db.main.query(schemaSql);
+        await db.branch.query(schemaSql);
+        await db.branch.query(testSql);
+
+        const planResult = await createPlan(db.main, db.branch);
+        expect(planResult).toBeDefined();
+        if (!planResult) {
+          throw new Error("Expected planResult to be defined");
+        }
+
+        const statements = planResult.plan.statements;
+        const checkPrefixCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE FUNCTION test_schema.check_prefix("),
+        );
+        const userDomainCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE DOMAIN test_schema.user_id"),
+        );
+        const orgDomainCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE DOMAIN test_schema.org_id"),
+        );
+
+        expect(checkPrefixCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(userDomainCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(orgDomainCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(checkPrefixCreateIndex).toBeLessThan(userDomainCreateIndex);
+        expect(checkPrefixCreateIndex).toBeLessThan(orgDomainCreateIndex);
+
+        const branchCatalog = await extractCatalog(db.branch);
+        const hasUserDomainDependency = branchCatalog.depends.some(
+          (depend) =>
+            depend.dependent_stable_id.startsWith(
+              "constraint:test_schema.user_id.",
+            ) && depend.referenced_stable_id.includes("check_prefix("),
+        );
+        const hasOrgDomainDependency = branchCatalog.depends.some(
+          (depend) =>
+            depend.dependent_stable_id.startsWith(
+              "constraint:test_schema.org_id.",
+            ) && depend.referenced_stable_id.includes("check_prefix("),
+        );
+
+        expect(hasUserDomainDependency).toBe(true);
+        expect(hasOrgDomainDependency).toBe(true);
+      }),
+    );
+    test(
       "create composite type",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -52,6 +119,59 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
         });
+      }),
+    );
+    test(
+      "domain CHECK dependency coexists with function using the domain type",
+      withDb(pgVersion, async (db) => {
+        const schemaSql = "CREATE SCHEMA test_schema;";
+        const testSql = dedent`
+          CREATE FUNCTION test_schema.check_prefix(val text, prefix text)
+          RETURNS boolean
+          LANGUAGE sql
+          IMMUTABLE
+          AS $function$
+          SELECT starts_with(val, prefix)
+          $function$;
+
+          CREATE DOMAIN test_schema.user_id AS text
+            CHECK (test_schema.check_prefix(VALUE, 'user_'));
+
+          CREATE FUNCTION test_schema.normalize_user_id(input test_schema.user_id)
+          RETURNS text
+          LANGUAGE sql
+          IMMUTABLE
+          AS $function$
+          SELECT lower(input::text)
+          $function$;
+        `;
+
+        await db.main.query(schemaSql);
+        await db.branch.query(schemaSql);
+        await db.branch.query(testSql);
+
+        const planResult = await createPlan(db.main, db.branch);
+        expect(planResult).toBeDefined();
+        if (!planResult) {
+          throw new Error("Expected planResult to be defined");
+        }
+
+        const statements = planResult.plan.statements;
+        const checkPrefixCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE FUNCTION test_schema.check_prefix("),
+        );
+        const domainCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE DOMAIN test_schema.user_id"),
+        );
+        const normalizeCreateIndex = statements.findIndex((statement) =>
+          statement.includes("CREATE FUNCTION test_schema.normalize_user_id("),
+        );
+
+        expect(checkPrefixCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(domainCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(normalizeCreateIndex).toBeGreaterThanOrEqual(0);
+        expect(checkPrefixCreateIndex).toBeLessThan(domainCreateIndex);
+        expect(domainCreateIndex).toBeLessThan(normalizeCreateIndex);
       }),
     );
     test(

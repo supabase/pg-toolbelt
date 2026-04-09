@@ -1,5 +1,5 @@
 import type { Change } from "../change.types.ts";
-import { getSchema } from "../integrations/filter/extractors.ts";
+import { getSchema } from "../change-utils.ts";
 import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,

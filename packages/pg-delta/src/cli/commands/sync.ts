@@ -4,12 +4,10 @@
 
 import { buildCommand, type CommandContext } from "@stricli/core";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
-import type { ChangeFilter } from "../../core/integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
-import type { ChangeSerializer } from "../../core/integrations/serialize/serialize.types.ts";
 import { applyPlan } from "../../core/plan/apply.ts";
 import { createPlan } from "../../core/plan/index.ts";
-import { loadIntegrationDSL } from "../utils/integrations.ts";
+import { resolveIntegrationOptions } from "../utils/integrations.ts";
 import {
   formatPlanForDisplay,
   handleApplyResult,
@@ -120,22 +118,17 @@ Exit codes:
       integration?: string;
     },
   ) {
-    // Load integration if provided and extract filter/serialize DSL
-    let filterOption: FilterDSL | ChangeFilter | undefined = flags.filter;
-    let serializeOption: SerializeDSL | ChangeSerializer | undefined =
-      flags.serialize;
-    if (flags.integration) {
-      const integrationDSL = await loadIntegrationDSL(flags.integration);
-      // Use integration DSL if explicit flags not provided
-      filterOption = filterOption ?? integrationDSL.filter;
-      serializeOption = serializeOption ?? integrationDSL.serialize;
-    }
+    const { filter, serialize } = await resolveIntegrationOptions({
+      filter: flags.filter,
+      serialize: flags.serialize,
+      integration: flags.integration,
+    });
 
     // 1. Create the plan
     const planResult = await createPlan(flags.source, flags.target, {
       role: flags.role,
-      filter: filterOption,
-      serialize: serializeOption,
+      filter,
+      serialize,
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");

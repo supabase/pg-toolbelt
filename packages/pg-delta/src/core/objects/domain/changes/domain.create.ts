@@ -34,7 +34,23 @@ export class CreateDomain extends CreateDomainChange {
   }
 
   get creates() {
-    return [this.domain.stableId];
+    const creates: Array<
+      `domain:${string}` | `constraint:${string}.${string}.${string}`
+    > = [this.domain.stableId];
+
+    for (const constraint of this.domain.constraints) {
+      if (constraint.check_expression && constraint.validated) {
+        creates.push(
+          stableId.constraint(
+            this.domain.schema,
+            this.domain.name,
+            constraint.name,
+          ),
+        );
+      }
+    }
+
+    return creates;
   }
 
   get requires() {
