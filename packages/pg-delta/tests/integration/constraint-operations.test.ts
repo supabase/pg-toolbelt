@@ -4,7 +4,7 @@
 
 import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDbIsolated } from "../utils.ts";
+import { withDbIsolated, withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
