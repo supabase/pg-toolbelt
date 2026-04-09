@@ -2,7 +2,8 @@
  * Integration tests for PostgreSQL view operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -117,6 +118,66 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           LEFT JOIN test_schema.profiles p ON u.id = p.user_id;
         `,
         });
+      }),
+    );
+
+    test(
+      "recreates select-star view when base table columns change",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+          CREATE SCHEMA test_schema;
+
+          CREATE TABLE test_schema.items (
+            id serial PRIMARY KEY,
+            title text NOT NULL,
+            status text DEFAULT 'active'
+          );
+
+          CREATE VIEW test_schema.item_details AS
+            SELECT i.* FROM test_schema.items i;
+        `;
+
+        const testSql = `
+          ALTER TABLE test_schema.items ADD COLUMN priority int DEFAULT 0;
+
+          DROP VIEW test_schema.item_details;
+          CREATE VIEW test_schema.item_details AS
+            SELECT i.* FROM test_schema.items i;
+        `;
+
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        await db.branch.query(testSql);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+        if (!result) throw new Error("expected plan result");
+
+        const { statements } = result.plan;
+        const dropViewIndex = statements.findIndex((statement) =>
+          statement.startsWith("DROP VIEW test_schema.item_details"),
+        );
+        const alterTableIndex = statements.findIndex((statement) =>
+          statement.startsWith(
+            "ALTER TABLE test_schema.items ADD COLUMN priority integer DEFAULT 0",
+          ),
+        );
+        const createViewIndex = statements.findIndex((statement) =>
+          statement.startsWith("CREATE VIEW test_schema.item_details AS"),
+        );
+
+        expect(dropViewIndex).toBeGreaterThanOrEqual(0);
+        expect(alterTableIndex).toBeGreaterThanOrEqual(0);
+        expect(createViewIndex).toBeGreaterThanOrEqual(0);
+        expect(dropViewIndex).toBeLessThan(alterTableIndex);
+        expect(alterTableIndex).toBeLessThan(createViewIndex);
+        expect(
+          statements.some((statement) =>
+            statement.startsWith(
+              "CREATE OR REPLACE VIEW test_schema.item_details AS",
+            ),
+          ),
+        ).toBe(false);
       }),
     );
 

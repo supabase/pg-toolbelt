@@ -5,9 +5,15 @@ outputs:
   pg-delta:
     description: Whether pg-delta changed
     value: ${{ steps.filter.outputs.pg-delta }}
+  pg-delta-package-json:
+    description: Whether pg-delta package.json changed
+    value: ${{ steps.filter.outputs.pg-delta-package-json }}
   pg-topo:
     description: Whether pg-topo changed
     value: ${{ steps.filter.outputs.pg-topo }}
+  pg-topo-package-json:
+    description: Whether pg-topo package.json changed
+    value: ${{ steps.filter.outputs.pg-topo-package-json }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
@@ -15,14 +21,18 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - uses: dorny/paths-filter@v3
+    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
       id: filter
       with:
         filters: |
           pg-delta:
             - 'packages/pg-delta/**'
+          pg-delta-package-json:
+            - 'packages/pg-delta/package.json'
           pg-topo:
             - 'packages/pg-topo/**'
+          pg-topo-package-json:
+            - 'packages/pg-topo/package.json'
           root:
             - 'package.json'
             - 'bunfig.toml'

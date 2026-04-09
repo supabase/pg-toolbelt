@@ -4,6 +4,7 @@ import type { CreateSchema } from "./schema.create.ts";
 import type { DropSchema } from "./schema.drop.ts";
 import type { SchemaPrivilege } from "./schema.privilege.ts";
 
+/** Union of all schema-related change variants (`objectType: "schema"`). @category Change Types */
 export type SchemaChange =
   | AlterSchema
   | CommentSchema

@@ -11,6 +11,7 @@ import type { CommentPublication } from "./publication.comment.ts";
 import type { CreatePublication } from "./publication.create.ts";
 import type { DropPublication } from "./publication.drop.ts";
 
+/** Union of all publication-related change variants (`objectType: "publication"`). @category Change Types */
 export type PublicationChange =
   | AlterPublicationAddSchemas
   | AlterPublicationAddTables
