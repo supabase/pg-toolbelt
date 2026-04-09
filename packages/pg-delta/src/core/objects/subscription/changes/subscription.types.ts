@@ -10,6 +10,7 @@ import type { CommentSubscription } from "./subscription.comment.ts";
 import type { CreateSubscription } from "./subscription.create.ts";
 import type { DropSubscription } from "./subscription.drop.ts";
 
+/** Union of all subscription-related change variants (`objectType: "subscription"`). @category Change Types */
 export type SubscriptionChange =
   | CreateSubscription
   | DropSubscription

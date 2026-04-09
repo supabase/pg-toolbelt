@@ -3,6 +3,7 @@ import { createPool } from "../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
+  type SupabasePostgresVersion,
 } from "./constants.ts";
 import { containerManager } from "./container-manager.js";
 import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
@@ -18,6 +19,29 @@ function suppressShutdownError(err: Error & { code?: string }) {
 }
 
 export type DbFixture = { main: Pool; branch: Pool };
+
+/**
+ * Retry pool.connect() until the database is truly accepting connections.
+ * Supabase containers may pass their Docker health check before init scripts
+ * finish, and concurrent container startup adds resource pressure.
+ */
+async function waitForPool(
+  pool: Pool,
+  retries = 5,
+  delayMs = 2000,
+): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const client = await pool.connect();
+      client.release();
+      return;
+    } catch {
+      if (i === retries - 1)
+        throw new Error(`Pool not ready after ${retries} attempts`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
 
 /**
  * Default test utility using Alpine PostgreSQL containers with single container per version.
@@ -70,7 +94,7 @@ export function withDbIsolated(
  * Usage: test("name", withDbSupabaseIsolated(pgVersion, async (db) => { ... }));
  */
 export function withDbSupabaseIsolated(
-  postgresVersion: PostgresVersion,
+  postgresVersion: SupabasePostgresVersion,
   fn: (db: DbFixture) => Promise<void>,
 ): () => Promise<void> {
   return async () => {
@@ -81,10 +105,14 @@ export function withDbSupabaseIsolated(
     ]);
     const main = createPool(containerMain.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 5_000,
     });
     const branch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 5_000,
     });
+
+    await Promise.all([waitForPool(main), waitForPool(branch)]);
 
     try {
       await fn({ main, branch });
