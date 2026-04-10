@@ -4,6 +4,7 @@ import type { CreateDomain } from "./domain.create.ts";
 import type { DropDomain } from "./domain.drop.ts";
 import type { DomainPrivilege } from "./domain.privilege.ts";
 
+/** Union of all domain-related change variants (`objectType: "domain"`). @category Change Types */
 export type DomainChange =
   | AlterDomain
   | CommentDomain

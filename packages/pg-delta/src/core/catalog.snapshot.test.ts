@@ -289,6 +289,19 @@ describe("catalog snapshot serde", () => {
     expect(result).toBeNull();
   });
 
+  test("createPlan accepts catalog-shaped plain object (bundle-boundary regression)", async () => {
+    const { createPlan } = await import("./plan/create.ts");
+
+    const sourceCatalog = await createEmptyCatalog(160000, "postgres");
+    const targetCatalog = await createEmptyCatalog(160000, "postgres");
+    const source = { ...sourceCatalog };
+
+    expect(source instanceof Catalog).toBe(false);
+
+    const result = await createPlan(source as Catalog, targetCatalog);
+    expect(result).toBeNull();
+  });
+
   test("createPlan with null source produces plan when target has objects", async () => {
     const { createPlan } = await import("./plan/create.ts");
 
@@ -439,7 +452,11 @@ describe("catalog snapshot serde", () => {
 
     // Filter out auth schema (no cascade): procedure is excluded but policy stays
     const resultNoCascade = await createPlan(null, target, {
-      filter: { not: { schema: ["auth"] } },
+      filter: {
+        not: {
+          or: [{ "*/schema": ["auth"] }, { "schema/name": ["auth"] }],
+        },
+      },
     });
     expect(resultNoCascade).not.toBeNull();
     if (resultNoCascade) {
@@ -451,7 +468,12 @@ describe("catalog snapshot serde", () => {
 
     // Filter out auth schema with cascade: true: policy is also excluded (depends on auth.uid())
     const resultCascade = await createPlan(null, target, {
-      filter: { not: { schema: ["auth"] }, cascade: true },
+      filter: {
+        not: {
+          or: [{ "*/schema": ["auth"] }, { "schema/name": ["auth"] }],
+        },
+        cascade: true,
+      },
     });
     expect(resultCascade).not.toBeNull();
     if (resultCascade) {

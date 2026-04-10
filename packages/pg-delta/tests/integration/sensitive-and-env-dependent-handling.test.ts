@@ -64,7 +64,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 );
             `,
             expectedSqlTerms: [
-              "CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE, create_slot = false, connect = false)",
+              `CREATE SUBSCRIPTION sub_sensitive CONNECTION 'host=__CONN_HOST__ port=__CONN_PORT__ dbname=__CONN_DBNAME__ user=__CONN_USER__ password=__CONN_PASSWORD__' PUBLICATION sub_sensitive_pub WITH (enabled = false, slot_name = NONE${
+                pgVersion >= 18 ? ", streaming = 'parallel'" : ""
+              }, create_slot = false, connect = false)`,
             ],
           });
         }),
