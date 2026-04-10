@@ -157,6 +157,9 @@ const CATALOG_COLLECTION_KEYS = [
 ] as const satisfies CatalogCollectionKey[];
 
 const PGLITE_DISABLED_COLLECTIONS = new Set<CatalogCollectionKey>([
+  // Keep this list in sync with object families that pglite cannot represent
+  // or does not need for schema diffing. If a new catalog collection is added,
+  // decide explicitly whether the reduced profile should keep or skip it.
   "extensions",
   "materializedViews",
   "subscriptions",
@@ -441,6 +444,8 @@ async function extractCatalogCollections(
   const collections = {} as CatalogCollectionRecord;
 
   if (options.client === "pglite") {
+    // pglite only exposes a single connection, so sequential extraction avoids
+    // queueing a large Promise.all batch behind one client.
     for (const key of CATALOG_COLLECTION_KEYS) {
       setCatalogCollection(
         collections,
