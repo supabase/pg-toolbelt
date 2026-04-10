@@ -232,9 +232,11 @@ class ContainerManager {
 
     const poolMain = createPool(containerMain.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 20_000,
     });
     const poolBranch = createPool(containerBranch.getConnectionUri(), {
       onError: suppressShutdownError,
+      connectionTimeoutMillis: 20_000,
     });
 
     const cleanup = async () => {
