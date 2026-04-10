@@ -305,6 +305,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ],
         });
       }),
+      120_000,
     );
   });
 }
