@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createEmptyCatalog } from "./catalog.model.ts";
 
-function collectStableIds(catalog: Awaited<ReturnType<typeof createEmptyCatalog>>) {
+function collectStableIds(
+  catalog: Awaited<ReturnType<typeof createEmptyCatalog>>,
+) {
   const stableIds = new Set<string>();
   const collections = [
     catalog.aggregates,

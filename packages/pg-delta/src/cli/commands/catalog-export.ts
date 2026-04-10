@@ -5,8 +5,8 @@
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import {
-  extractCatalog,
   type CatalogClientTag,
+  extractCatalog,
 } from "../../core/catalog.model.ts";
 import {
   serializeCatalog,

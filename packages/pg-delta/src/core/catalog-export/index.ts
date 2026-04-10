@@ -6,14 +6,14 @@
  * edge-runtime templates) without pulling in the full pg-delta API.
  */
 
+export type {
+  CatalogClientTag,
+  ExtractCatalogOptions,
+} from "../catalog.model.ts";
 export {
   Catalog,
   createEmptyCatalog,
   extractCatalog,
-} from "../catalog.model.ts";
-export type {
-  CatalogClientTag,
-  ExtractCatalogOptions,
 } from "../catalog.model.ts";
 export type { CatalogSnapshot } from "../catalog.snapshot.ts";
 export {

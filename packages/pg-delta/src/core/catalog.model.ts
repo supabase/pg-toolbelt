@@ -124,6 +124,9 @@ type CatalogCollectionKey = Exclude<
 >;
 
 type CatalogCollections = Pick<CatalogProps, CatalogCollectionKey>;
+type CatalogCollectionRecord = {
+  [K in CatalogCollectionKey]: CatalogProps[K];
+};
 
 const CATALOG_COLLECTION_KEYS = [
   "aggregates",
@@ -171,7 +174,8 @@ const PGLITE_DISABLED_COLLECTIONS = new Set<CatalogCollectionKey>([
 const CATALOG_EXTRACTORS = {
   aggregates: (pool: Pool) => extractAggregates(pool).then(listToRecord),
   collations: (pool: Pool) => extractCollations(pool).then(listToRecord),
-  compositeTypes: (pool: Pool) => extractCompositeTypes(pool).then(listToRecord),
+  compositeTypes: (pool: Pool) =>
+    extractCompositeTypes(pool).then(listToRecord),
   domains: (pool: Pool) => extractDomains(pool).then(listToRecord),
   enums: (pool: Pool) => extractEnums(pool).then(listToRecord),
   extensions: (pool: Pool) => extractExtensions(pool).then(listToRecord),
@@ -434,24 +438,28 @@ async function extractCatalogCollections(
   pool: Pool,
   options: Required<ExtractCatalogOptions>,
 ): Promise<CatalogCollections> {
-  const collections = {} as CatalogCollections;
+  const collections = {} as CatalogCollectionRecord;
 
   if (options.client === "pglite") {
     for (const key of CATALOG_COLLECTION_KEYS) {
-      collections[key] = await extractCatalogCollection(key, pool, options);
+      setCatalogCollection(
+        collections,
+        key,
+        await extractCatalogCollection(key, pool, options),
+      );
     }
     return collections;
   }
 
   const extracted = await Promise.all(
-    CATALOG_COLLECTION_KEYS.map(async (key) => [
-      key,
-      await extractCatalogCollection(key, pool, options),
-    ] as const),
+    CATALOG_COLLECTION_KEYS.map(
+      async (key) =>
+        [key, await extractCatalogCollection(key, pool, options)] as const,
+    ),
   );
 
   for (const [key, value] of extracted) {
-    collections[key] = value;
+    setCatalogCollection(collections, key, value);
   }
 
   return collections;
@@ -462,14 +470,11 @@ async function extractCatalogCollection<K extends CatalogCollectionKey>(
   pool: Pool,
   options: Required<ExtractCatalogOptions>,
 ): Promise<CatalogProps[K]> {
-  if (
-    options.client === "pglite" &&
-    PGLITE_DISABLED_COLLECTIONS.has(key)
-  ) {
+  if (options.client === "pglite" && PGLITE_DISABLED_COLLECTIONS.has(key)) {
     return {} as CatalogProps[K];
   }
 
-  return CATALOG_EXTRACTORS[key](pool);
+  return CATALOG_EXTRACTORS[key](pool) as Promise<CatalogProps[K]>;
 }
 
 async function extractCatalogMetadata(pool: Pool) {
@@ -510,16 +515,27 @@ function buildProfiledCatalogCollections(
   catalog: Catalog,
   options: Required<ExtractCatalogOptions>,
 ): CatalogCollections {
-  const collections = {} as CatalogCollections;
+  const collections = {} as CatalogCollectionRecord;
 
   for (const key of CATALOG_COLLECTION_KEYS) {
-    collections[key] =
+    setCatalogCollection(
+      collections,
+      key,
       options.client === "pglite" && PGLITE_DISABLED_COLLECTIONS.has(key)
         ? ({} as CatalogProps[typeof key])
-        : catalog[key];
+        : catalog[key],
+    );
   }
 
   return collections;
+}
+
+function setCatalogCollection<K extends CatalogCollectionKey>(
+  collections: CatalogCollectionRecord,
+  key: K,
+  value: CatalogProps[K],
+) {
+  collections[key] = value;
 }
 
 function filterDependsByExtractedStableIds(
@@ -533,7 +549,9 @@ function filterDependsByExtractedStableIds(
   );
 }
 
-function collectExtractedStableIds(collections: CatalogCollections): Set<string> {
+function collectExtractedStableIds(
+  collections: CatalogCollections,
+): Set<string> {
   const stableIds = new Set<string>();
 
   for (const key of CATALOG_COLLECTION_KEYS) {

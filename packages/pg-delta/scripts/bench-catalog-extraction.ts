@@ -63,7 +63,11 @@ async function main() {
 
     printResults(results);
   } finally {
-    await container.stop();
+    await Promise.race([
+      container.stop(),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+    process.exit(0);
   }
 }
 
@@ -182,7 +186,9 @@ function printResults(results: BenchResult[]) {
     );
   }
 
-  const singleConnection = results.find((result) => result.connectionCount === 1);
+  const singleConnection = results.find(
+    (result) => result.connectionCount === 1,
+  );
   if (singleConnection) {
     console.log("");
     console.log(

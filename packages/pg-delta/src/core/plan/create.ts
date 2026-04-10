@@ -132,7 +132,7 @@ export async function createPlan(
       options,
       source !== null
         ? options.sourceCatalog
-        : options.sourceCatalog ?? options.targetCatalog,
+        : (options.sourceCatalog ?? options.targetCatalog),
       options.targetCatalog,
     );
   } finally {

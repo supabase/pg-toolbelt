@@ -3,8 +3,8 @@
  */
 
 import z from "zod";
-import type { Change } from "../change.types.ts";
 import type { ExtractCatalogOptions } from "../catalog.model.ts";
+import type { Change } from "../change.types.ts";
 import type { FilterDSL } from "../integrations/filter/dsl.ts";
 import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
 import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
