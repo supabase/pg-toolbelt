@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL index operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -47,6 +47,94 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    if (pgVersion >= 15) {
+      test(
+        "create unique index with NULLS NOT DISTINCT",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer,
+              email character varying(255)
+            );
+          `,
+            testSql:
+              "CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts USING btree (email) NULLS NOT DISTINCT;",
+            assertSqlStatements: (statements) => {
+              expect(statements).toMatchInlineSnapshot(`
+                [
+                  "CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts (email) NULLS NOT DISTINCT",
+                ]
+              `);
+            },
+          });
+        }),
+      );
+
+      test(
+        "toggle unique index to NULLS NOT DISTINCT",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer,
+              email character varying(255)
+            );
+            CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts USING btree (email);
+          `,
+            testSql: `
+            DROP INDEX test_schema.idx_accounts_email;
+            CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts USING btree (email) NULLS NOT DISTINCT;
+          `,
+            assertSqlStatements: (statements) => {
+              expect(statements).toMatchInlineSnapshot(`
+                [
+                  "DROP INDEX test_schema.idx_accounts_email",
+                  "CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts (email) NULLS NOT DISTINCT",
+                ]
+              `);
+            },
+          });
+        }),
+      );
+
+      test(
+        "toggle unique index from NULLS NOT DISTINCT",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer,
+              email character varying(255)
+            );
+            CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts USING btree (email) NULLS NOT DISTINCT;
+          `,
+            testSql: `
+            DROP INDEX test_schema.idx_accounts_email;
+            CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts USING btree (email);
+          `,
+            assertSqlStatements: (statements) => {
+              expect(statements).toMatchInlineSnapshot(`
+                [
+                  "DROP INDEX test_schema.idx_accounts_email",
+                  "CREATE UNIQUE INDEX idx_accounts_email ON test_schema.accounts (email)",
+                ]
+              `);
+            },
+          });
+        }),
+      );
+    }
 
     test(
       "create partial index",
