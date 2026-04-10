@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import { POSTGRES_VERSIONS, SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb, withDbSupabaseIsolated } from "../utils.ts";
+import { withDb, withDbIsolated, withDbSupabaseIsolated } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`catalog extraction (pg${pgVersion})`, () => {
@@ -325,6 +325,59 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(policy.table_name).toBe("users");
       }),
     );
+
+    if (pgVersion === 18) {
+      test(
+        "extract temporal table constraints",
+        withDbIsolated(pgVersion, async (db) => {
+          await db.main.query(`
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.bookings (
+            room_id integer NOT NULL,
+            booking_period tstzrange NOT NULL,
+            CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)
+          );
+          CREATE TABLE test_schema.booking_audit (
+            room_id integer NOT NULL,
+            booking_period tstzrange NOT NULL,
+            CONSTRAINT booking_audit_fkey FOREIGN KEY (room_id, PERIOD booking_period)
+              REFERENCES test_schema.bookings (room_id, PERIOD booking_period)
+          );
+        `);
+
+          const catalog = await extractCatalog(db.main);
+          const bookings =
+            // biome-ignore lint/style/noNonNullAssertion: seeded data
+            catalog.tables["table:test_schema.bookings"]!;
+          const bookingAudit =
+            // biome-ignore lint/style/noNonNullAssertion: seeded data
+            catalog.tables["table:test_schema.booking_audit"]!;
+
+          expect(bookings.constraints).toContainEqual(
+            expect.objectContaining({
+              name: "bookings_pkey",
+              constraint_type: "p",
+              is_temporal: true,
+              key_columns: ["room_id", "booking_period"],
+              definition:
+                "PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)",
+            }),
+          );
+          expect(bookingAudit.constraints).toContainEqual(
+            expect.objectContaining({
+              name: "booking_audit_fkey",
+              constraint_type: "f",
+              is_temporal: true,
+              key_columns: ["room_id", "booking_period"],
+              foreign_key_columns: ["room_id", "booking_period"],
+              definition:
+                "FOREIGN KEY (room_id, PERIOD booking_period) REFERENCES test_schema.bookings(room_id, PERIOD booking_period)",
+            }),
+          );
+        }),
+      );
+    }
   });
 }
 

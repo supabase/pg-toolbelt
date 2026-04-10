@@ -130,6 +130,7 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
       mainC.validated !== branchC.validated ||
       mainC.is_local !== branchC.is_local ||
       mainC.no_inherit !== branchC.no_inherit ||
+      mainC.is_temporal !== branchC.is_temporal ||
       JSON.stringify(mainC.key_columns) !==
         JSON.stringify(branchC.key_columns) ||
       JSON.stringify(mainC.foreign_key_columns) !==

@@ -56,6 +56,7 @@ const tableConstraintPropsSchema = z.object({
   validated: z.boolean(),
   is_local: z.boolean(),
   no_inherit: z.boolean(),
+  is_temporal: z.boolean(),
   is_partition_clone: z.boolean(),
   parent_constraint_schema: z.string().nullable(),
   parent_constraint_name: z.string().nullable(),
@@ -284,6 +285,7 @@ select
           'validated', c.convalidated,
           'is_local', c.conislocal,
           'no_inherit', c.connoinherit,
+          'is_temporal', coalesce((to_jsonb(c)->>'conperiod')::boolean, false),
 
           -- NEW: propagated-to-partition tagging (PG15+)
           'is_partition_clone', (c.conparentid <> 0::oid),

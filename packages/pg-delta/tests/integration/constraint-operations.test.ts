@@ -307,5 +307,63 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
       120_000,
     );
+
+    if (pgVersion === 18) {
+      test(
+        "convert primary key to temporal primary key",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.bookings (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL,
+              CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period)
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.bookings DROP CONSTRAINT bookings_pkey;
+            ALTER TABLE test_schema.bookings
+              ADD CONSTRAINT bookings_pkey
+              PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS);
+          `,
+          });
+        }),
+        120_000,
+      );
+
+      test(
+        "add temporal foreign key constraint",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.bookings (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL,
+              CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)
+            );
+            CREATE TABLE test_schema.booking_audit (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.booking_audit
+              ADD CONSTRAINT booking_audit_room_id_booking_period_fkey
+              FOREIGN KEY (room_id, PERIOD booking_period)
+              REFERENCES test_schema.bookings (room_id, PERIOD booking_period);
+          `,
+          });
+        }),
+        120_000,
+      );
+    }
   });
 }
