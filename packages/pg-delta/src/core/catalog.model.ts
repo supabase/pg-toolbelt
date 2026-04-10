@@ -535,10 +535,10 @@ function buildProfiledCatalogCollections(
   return collections;
 }
 
-function setCatalogCollection<K extends CatalogCollectionKey>(
+function setCatalogCollection<TKey extends CatalogCollectionKey>(
   collections: CatalogCollectionRecord,
-  key: K,
-  value: CatalogProps[K],
+  key: TKey,
+  value: CatalogProps[TKey],
 ) {
   collections[key] = value;
 }

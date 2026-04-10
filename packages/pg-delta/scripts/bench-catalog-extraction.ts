@@ -6,7 +6,7 @@ import { PostgresAlpineContainer } from "../tests/postgres-alpine.ts";
 
 const POSTGRES_VERSION = 17;
 const CONNECTION_COUNTS = [1, 2, 4] as const;
-const ITERATIONS = Number(process.env.PGDELTA_BENCH_ITERATIONS ?? 3);
+const ITERATIONS = parseIterations(process.env.PGDELTA_BENCH_ITERATIONS);
 
 type ProfileName = "postgres" | "pglite";
 
@@ -171,6 +171,19 @@ function suppressShutdownError(err: Error & { code?: string }) {
     return;
   }
   console.error("Pool error:", err);
+}
+
+function parseIterations(rawValue: string | undefined): number {
+  if (rawValue === undefined) {
+    return 3;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 3;
+  }
+
+  return parsed;
 }
 
 function printResults(results: BenchResult[]) {
