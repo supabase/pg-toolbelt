@@ -4,7 +4,7 @@
 
 import { describe, test } from "bun:test";
 import { sql } from "@ts-safeql/sql-tag";
-import { POSTGRES_VERSIONS } from "./constants.ts";
+import { POSTGRES_VERSIONS, SUPABASE_POSTGRES_VERSIONS } from "./constants.ts";
 import { withDb, withDbIsolated, withDbSupabaseIsolated } from "./utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -38,9 +38,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // Just a simple test to verify the setup works
       }),
     );
+  });
+}
 
+for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
+  describe.skip(`supabase test utility demo (pg${pgVersion})`, () => {
     test(
-      "supabase test - for tests requiring Supabase features with full isolation betwen databases",
+      "supabase test - for tests requiring Supabase features with full isolation between databases",
       withDbSupabaseIsolated(pgVersion, async (db) => {
         // This uses Supabase PostgreSQL containers with all extensions
         // Slowest but has all Supabase-specific functionality

@@ -452,7 +452,11 @@ describe("catalog snapshot serde", () => {
 
     // Filter out auth schema (no cascade): procedure is excluded but policy stays
     const resultNoCascade = await createPlan(null, target, {
-      filter: { not: { schema: ["auth"] } },
+      filter: {
+        not: {
+          or: [{ "*/schema": ["auth"] }, { "schema/name": ["auth"] }],
+        },
+      },
     });
     expect(resultNoCascade).not.toBeNull();
     if (resultNoCascade) {
@@ -464,7 +468,12 @@ describe("catalog snapshot serde", () => {
 
     // Filter out auth schema with cascade: true: policy is also excluded (depends on auth.uid())
     const resultCascade = await createPlan(null, target, {
-      filter: { not: { schema: ["auth"] }, cascade: true },
+      filter: {
+        not: {
+          or: [{ "*/schema": ["auth"] }, { "schema/name": ["auth"] }],
+        },
+        cascade: true,
+      },
     });
     expect(resultCascade).not.toBeNull();
     if (resultCascade) {

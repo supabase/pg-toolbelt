@@ -14,7 +14,7 @@ description: Specific agent to work on pg-toolbelt issues
 
 Bun-based monorepo containing PostgreSQL tooling packages.
 
-> **Note:** `AGENTS.md`, `CLAUDE.md`, and `.github/agents/pg-toolbelt.md` are all symlinks pointing to the same file. Always edit only one of them — changes will automatically reflect in all three.
+> **Note:** `.github/agents/pg-toolbelt.md` is the canonical file. `AGENTS.md` and `CLAUDE.md` are symlinks pointing to it. Always edit the canonical file — changes will automatically reflect in all three.
 
 ## Packages
 
@@ -22,6 +22,8 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 - **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files.
 
 ## Quick Reference
+
+> **Important:** Always use `bun run test`, never bare `bun test`. The `test` script in `package.json` includes required flags.
 
 ```bash
 # Install all dependencies
@@ -44,12 +46,12 @@ bun run check-types
 bun run format-and-lint
 
 # Run a single package's tests directly
-cd packages/pg-delta && bun test src/     # Unit tests only
-cd packages/pg-delta && bun test tests/   # Integration tests (Docker required)
-cd packages/pg-topo && bun test           # All tests (Docker required)
+cd packages/pg-delta && bun run test src/     # Unit tests only
+cd packages/pg-delta && bun run test tests/   # Integration tests (Docker required)
+cd packages/pg-topo && bun run test           # All tests (Docker required)
 
 # Test against a specific PostgreSQL version
-PGDELTA_TEST_POSTGRES_VERSIONS=17 bun test tests/
+PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/
 ```
 
 ## Architecture
@@ -57,7 +59,7 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun test tests/
 - Both packages are runtime-agnostic: importable in Bun, Node.js, or Deno
 - Conditional exports: `bun` condition serves TypeScript source directly, `import` serves compiled JS
 - `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat)
-- `pg-topo` is pure static analysis -- no runtime database dependency in the library itself
+- `pg-topo` is pure static analysis — no runtime database dependency in the library itself
 - Integration tests use `testcontainers` to spin up PostgreSQL Docker containers
 - Biome handles formatting and linting (config at root `biome.json`)
 - Changesets manage versioning across both packages
@@ -125,8 +127,13 @@ Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
 
 - GitHub Actions with `dorny/paths-filter` detects which packages changed
 - Only affected packages are tested
-- pg-delta integration tests are sharded across 12 runners x 2 PG versions
+- pg-delta integration tests are sharded across 15 runners x 3 PG versions
 - Changesets automate releases on merge to main
+
+When changing shard count or PG versions, update all of these locations:
+- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix
+- `scripts/coverage.ts` — default `--shards` value (doc comment + code)
+- This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
 
 ## Agent Workflow
 
@@ -146,15 +153,15 @@ When implementing a **fix**, **feat**, or any change that affects package behavi
 
 ### Testing Discipline
 
-pg-delta has 45+ integration test files across 2 PG versions, sharded across 12 CI runners. Never run the full suite while iterating.
+pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 CI runners. Never run the full suite while iterating.
 
 **During development:**
 
-- pg-topo: `cd packages/pg-topo && bun test` is fine (small test suite)
-- pg-delta unit tests: `cd packages/pg-delta && bun test src/<path-to-specific-test>.test.ts`
-- pg-delta integration tests: `cd packages/pg-delta && bun test tests/integration/<specific-file>.test.ts` — one file at a time
-- Run a single test within a file: `bun test --test-name-pattern "<pattern>" <file>`
-- Limit PG versions to speed up iteration: `PGDELTA_TEST_POSTGRES_VERSIONS=17 bun test tests/integration/<file>`
+- pg-topo: `cd packages/pg-topo && bun run test` is fine (small test suite)
+- pg-delta unit tests: `cd packages/pg-delta && bun run test src/<path-to-specific-test>.test.ts`
+- pg-delta integration tests: `cd packages/pg-delta && bun run test tests/integration/<specific-file>.test.ts` — one file at a time
+- Run a single test within a file: `bun run test --test-name-pattern "<pattern>" <file>`
+- Limit PG versions to speed up iteration: `PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/integration/<file>`
 
 **Final validation only:**
 
@@ -167,6 +174,7 @@ All code changes must be covered by tests:
 - Unit tests go in `src/` next to the code (e.g., `src/core/objects/foo/foo.diff.test.ts`)
 - Integration tests go in `tests/integration/` using `withDb`/`withDbIsolated` patterns
 - **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
+- Prefer `roundtripFidelityTest` for pg-delta integration coverage instead of hand-rolled `createPlan` + apply assertions. Use custom plan assertions only when validating planner internals that roundtrip utilities cannot express.
 - Follow existing test patterns in the codebase
 
 ### Snapshot Assertions
@@ -179,4 +187,12 @@ expect(result.sql).toMatchInlineSnapshot(`
 `);
 ```
 
-Run tests once to auto-generate the snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.
+Start with empty assertions (e.g., `expect(statements).toMatchInlineSnapshot(\`\`)`) and run the test once to auto-generate snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.
+
+### Kaizen (Continuous Improvement)
+
+Whenever you are told you made a mistake — whether in commands, coding style, or guidelines — extract a generalizable lesson and propose a change to these agent guidelines so the same mistake does not happen again.
+
+### Common Issues
+
+- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.

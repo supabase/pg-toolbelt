@@ -9,37 +9,45 @@ on:
       - ready_for_review
     branches:
       - main
+  merge_group:
+    types:
+      - checks_requested
+    branches:
+      - main
   workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   detect-changes:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      pg-delta: ${{ steps.changes.outputs.pg-delta }}
-      pg-delta-package-json: ${{ steps.changes.outputs.pg-delta-package-json }}
-      pg-topo: ${{ steps.changes.outputs.pg-topo }}
-      pg-topo-package-json: ${{ steps.changes.outputs.pg-topo-package-json }}
-      root: ${{ steps.changes.outputs.root }}
+      pg-delta: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta }}
+      pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
+      pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
+      pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
+      root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Detect changes
+        if: github.event_name != 'merge_group'
         id: changes
         uses: ./.github/actions/detect-changes
 
   check-types:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      )
     needs: detect-changes
     name: Check types
     runs-on: ubuntu-latest
@@ -57,8 +65,10 @@ jobs:
 
   format-and-lint:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      )
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
@@ -71,8 +81,10 @@ jobs:
 
   knip:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.user.login != 'supabase-releaser[bot]'
+      )
     needs: detect-changes
     name: Knip
     runs-on: ubuntu-latest
@@ -90,8 +102,12 @@ jobs:
 
   pg-delta-unit:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
@@ -110,7 +126,7 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: coverage-pg-delta-unit
           path: packages/pg-delta/.nyc_output/
@@ -119,8 +135,12 @@ jobs:
 
   pg-delta-integration:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
@@ -129,16 +149,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres_version: [15, 17]
-        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-        shard_total: [12]
+        postgres_version: [15, 17, 18]
+        shard_index: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard_total: [15]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
       - name: Run integration tests (shard)
-        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3.0.2
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -162,7 +182,7 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: coverage-integration-pg${{ matrix.postgres_version }}-shard-${{ matrix.shard_index }}
           path: packages/pg-delta/.nyc_output/
@@ -170,7 +190,7 @@ jobs:
           include-hidden-files: true
 
   pg-delta-integration-pg15-compat:
-    if: always() && github.event.pull_request.draft == false
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 15)"
@@ -184,7 +204,7 @@ jobs:
           fi
 
   pg-delta-integration-pg17-compat:
-    if: always() && github.event.pull_request.draft == false
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 17)"
@@ -214,7 +234,7 @@ jobs:
       - name: Setup
         uses: ./.github/actions/setup
       - name: Download all coverage artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: coverage-*
           path: .nyc_output/
@@ -262,7 +282,7 @@ jobs:
       - name: Upload coverage reports
         if: hashFiles('.coverage-artifacts/**') != ''
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: coverage-report
           path: .coverage-artifacts/
@@ -271,8 +291,12 @@ jobs:
 
   pg-topo-tests:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
       (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-topo: Tests"
@@ -291,7 +315,7 @@ jobs:
       - name: Upload coverage
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: coverage-pg-topo
           path: packages/pg-topo/.nyc_output/
@@ -300,8 +324,12 @@ jobs:
 
   deno2-library-e2e:
     if: >-
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.user.login != 'supabase-releaser[bot]' &&
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
       (
         needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
         needs.detect-changes.outputs.pg-topo-package-json == 'true'

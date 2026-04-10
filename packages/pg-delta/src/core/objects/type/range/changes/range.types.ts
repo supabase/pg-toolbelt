@@ -4,6 +4,7 @@ import type { CreateRange } from "./range.create.ts";
 import type { DropRange } from "./range.drop.ts";
 import type { RangePrivilege } from "./range.privilege.ts";
 
+/** Union of all range-related change variants (`objectType: "range"`). @category Change Types */
 export type RangeChange =
   | AlterRange
   | CommentRange
