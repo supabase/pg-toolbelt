@@ -675,16 +675,6 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     ];
   }
 
-  get creates() {
-    return [
-      stableId.columnDefaultDropped(
-        this.table.schema,
-        this.table.name,
-        this.column.name,
-      ),
-    ];
-  }
-
   serialize(): string {
     return [
       "ALTER TABLE",

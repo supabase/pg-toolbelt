@@ -812,6 +812,27 @@ describe.concurrent("table.diff", () => {
         (c) => c instanceof AlterTableAlterColumnSetGenerated,
       ),
     ).toBe(true);
+
+    const byDefaultToAlwaysMain = new Table({
+      ...base,
+      name: "t_identity_mode_reverse",
+      columns: [identityByDefaultColumn],
+    });
+    const byDefaultToAlwaysBranch = new Table({
+      ...base,
+      name: "t_identity_mode_reverse",
+      columns: [identityAlwaysColumn],
+    });
+    const byDefaultToAlwaysChanges = diffTables(
+      testContext,
+      { [byDefaultToAlwaysMain.stableId]: byDefaultToAlwaysMain },
+      { [byDefaultToAlwaysBranch.stableId]: byDefaultToAlwaysBranch },
+    );
+    expect(
+      byDefaultToAlwaysChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetGenerated,
+      ),
+    ).toBe(true);
   });
 
   test("created table with privileges emits grant changes", () => {

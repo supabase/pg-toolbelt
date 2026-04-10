@@ -185,6 +185,8 @@ function generateIdentityTransitionConstraints(
     }
   }
 
+  // These rules only order same-column ALTERs inside the create/alter phase.
+  // Sequence drops are handled separately in the earlier drop phase.
   for (const [columnKey, dropDefaultIndexes] of dropDefaultByColumn) {
     const addIdentityIndexes = addIdentityByColumn.get(columnKey) ?? [];
     for (const sourceIndex of dropDefaultIndexes) {

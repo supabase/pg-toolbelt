@@ -716,7 +716,8 @@ export function diffTables(
         }
       }
 
-      // DROP IDENTITY must happen before setting a default (e.g. IDENTITY -> serial)
+      // PostgreSQL rejects SET DEFAULT while the column still has identity metadata,
+      // so identity removal must lead the IDENTITY -> serial/default transition.
       if (mainCol.is_identity && !branchCol.is_identity) {
         if (!parentHasSameColumnPropertyChange(name, "identity")) {
           changes.push(
@@ -776,7 +777,8 @@ export function diffTables(
         }
       }
 
-      // IDENTITY add/mode change after default handling (e.g. serial -> IDENTITY)
+      // Serial-like defaults have to be cleared before ADD GENERATED AS IDENTITY,
+      // while mode-only flips stay in-place on an existing identity column.
       if (
         (!mainCol.is_identity && branchCol.is_identity) ||
         (mainCol.is_identity &&

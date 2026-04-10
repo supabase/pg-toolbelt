@@ -1,4 +1,3 @@
-import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { DropSequenceChange } from "./sequence.base.ts";
 
@@ -26,23 +25,7 @@ export class DropSequence extends DropSequenceChange {
   }
 
   get requires() {
-    const dependencies = new Set<string>([this.sequence.stableId]);
-
-    if (
-      this.sequence.owned_by_schema &&
-      this.sequence.owned_by_table &&
-      this.sequence.owned_by_column
-    ) {
-      dependencies.add(
-        stableId.columnDefaultDropped(
-          this.sequence.owned_by_schema,
-          this.sequence.owned_by_table,
-          this.sequence.owned_by_column,
-        ),
-      );
-    }
-
-    return Array.from(dependencies);
+    return [this.sequence.stableId];
   }
 
   serialize(): string {
@@ -51,6 +34,8 @@ export class DropSequence extends DropSequenceChange {
       `${this.sequence.schema}.${this.sequence.name}`,
     ];
 
+    // Owned sequences still need CASCADE here because DROP runs in the earlier
+    // phase and later ALTER TABLE statements will re-establish the desired default.
     if (
       this.sequence.owned_by_schema &&
       this.sequence.owned_by_table &&

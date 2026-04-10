@@ -4,6 +4,7 @@ import {
   emitObjectPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -24,6 +25,10 @@ import {
 import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
+type SequenceOrColumnSetDefaultChange =
+  | AlterTableAlterColumnSetDefault
+  | SequenceChange;
+
 /**
  * Diff two sets of sequences from main and branch catalogs.
  *
@@ -41,10 +46,10 @@ export function diffSequences(
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
   branchTables: Record<string, Table> = {},
-): SequenceChange[] {
+): SequenceOrColumnSetDefaultChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: SequenceChange[] = [];
+  const changes: SequenceOrColumnSetDefaultChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
@@ -157,6 +162,12 @@ export function diffSequences(
         branchSequence.owned_by_table !== null &&
         branchSequence.owned_by_column !== null
       ) {
+        const ownedByTableId = `table:${branchSequence.owned_by_schema}.${branchSequence.owned_by_table}`;
+        const ownedByTable = branchTables[ownedByTableId];
+        const ownedByColumn = ownedByTable?.columns?.find(
+          (column) => column.name === branchSequence.owned_by_column,
+        );
+
         changes.push(
           new AlterSequenceSetOwnedBy({
             sequence: branchSequence,
@@ -167,6 +178,17 @@ export function diffSequences(
             } as { schema: string; table: string; column: string },
           }),
         );
+
+        // Replacing an owned sequence with DROP ... CASCADE removes the column's
+        // existing nextval(...) default, so restore it after ownership is reattached.
+        if (ownedByTable && ownedByColumn && ownedByColumn.default !== null) {
+          changes.push(
+            new AlterTableAlterColumnSetDefault({
+              table: ownedByTable,
+              column: ownedByColumn,
+            }),
+          );
+        }
       } else if (
         mainSequence.owned_by_schema !== null ||
         mainSequence.owned_by_table !== null ||
