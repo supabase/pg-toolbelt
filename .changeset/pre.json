@@ -3,18 +3,35 @@
   "tag": "alpha",
   "initialVersions": {
     "@supabase/pg-delta": "0.0.0",
-    "@supabase/pg-topo": "0.1.1"
+    "@supabase/pg-topo": "0.1.1",
+    "@supabase/bun-istanbul-coverage": "1.0.0-alpha.0"
   },
   "changesets": [
+    "add-catalog-export-subpath",
     "brave-sails-kneel",
+    "clean-bees-fetch",
+    "cold-students-vanish",
     "curvy-buckets-collect",
     "eight-moles-throw",
+    "fix-index-extension-ordering",
+    "fix-self-grant-admin-option",
+    "green-worms-lie",
+    "hungry-bushes-tan",
+    "khaki-weeks-share",
     "kind-balloons-invite",
+    "little-berries-wish",
     "major-cities-lose",
     "many-bobcats-divide",
+    "nasty-bears-explain",
+    "nine-candles-sleep",
     "rich-regions-sneeze",
     "ripe-ravens-doubt",
+    "short-poems-happen",
+    "skip-function-validation",
     "slick-moons-turn",
-    "tall-canyons-add"
+    "smart-points-burn",
+    "tall-canyons-add",
+    "three-turtles-visit",
+    "tough-boats-sink"
   ]
 }

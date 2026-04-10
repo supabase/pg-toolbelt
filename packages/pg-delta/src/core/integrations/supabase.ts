@@ -70,38 +70,53 @@ export const supabase: IntegrationDSL = {
   // TODO: emptyCatalog: undefined -- populate by running catalog-export on a clean Supabase container
   filter: {
     or: [
+      // Include user schema CREATE operations (only schemas not in system list)
       {
         and: [
           {
-            type: "schema",
+            objectType: "schema",
             operation: "create",
             scope: "object",
           },
           {
             not: {
-              schema: [...SUPABASE_SYSTEM_SCHEMAS],
+              // Schema objects have name, not schema — use schema/name
+              "schema/name": [...SUPABASE_SYSTEM_SCHEMAS],
             },
           },
         ],
       },
+      // Include extension CREATEs
       {
-        type: "extension",
+        objectType: "extension",
         operation: "create",
         scope: "object",
       },
+      // Exclude system objects
       {
         not: {
           or: [
+            // Objects in system schemas (*/schema matches table/schema, view/schema, etc.)
             {
-              schema: [...SUPABASE_SYSTEM_SCHEMAS],
+              "*/schema": [...SUPABASE_SYSTEM_SCHEMAS],
             },
+            // Schema objects whose own name is a system schema
             {
-              owner: [...SUPABASE_SYSTEM_ROLES],
+              "schema/name": [...SUPABASE_SYSTEM_SCHEMAS],
             },
+            // Objects owned by system roles (*/owner matches table/owner, schema/owner, etc.)
+            {
+              "*/owner": [...SUPABASE_SYSTEM_ROLES],
+            },
+            // Role objects whose own name is a system role
+            {
+              "role/name": [...SUPABASE_SYSTEM_ROLES],
+            },
+            // Membership changes for system roles
             {
               and: [
                 {
-                  type: "role",
+                  objectType: "role",
                   scope: "membership",
                 },
                 {
@@ -117,10 +132,10 @@ export const supabase: IntegrationDSL = {
   serialize: [
     {
       when: {
-        type: "schema",
+        objectType: "schema",
         operation: "create",
         scope: "object",
-        owner: [...SUPABASE_SYSTEM_ROLES],
+        "schema/owner": [...SUPABASE_SYSTEM_ROLES],
       },
       options: {
         skipAuthorization: true,
