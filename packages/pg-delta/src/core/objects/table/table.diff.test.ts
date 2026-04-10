@@ -109,6 +109,7 @@ describe.concurrent("table.diff", () => {
           validated: false,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -325,6 +326,7 @@ describe.concurrent("table.diff", () => {
       validated: false,
       is_local: true,
       no_inherit: false,
+      is_temporal: false,
       is_partition_clone: false,
       parent_constraint_schema: null,
       parent_constraint_name: null,
@@ -450,6 +452,7 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -528,6 +531,7 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -599,6 +603,104 @@ describe.concurrent("table.diff", () => {
       true,
     );
     expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
+      true,
+    );
+  });
+
+  test("altered temporal constraint metadata triggers drop+add", () => {
+    const tMain = new Table({
+      ...base,
+      name: "t_temporal",
+      columns: [
+        {
+          name: "room_id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+        {
+          name: "booking_period",
+          position: 2,
+          data_type: "tstzrange",
+          data_type_str: "tstzrange",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          name: "bookings_pkey",
+          constraint_type: "p",
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          is_temporal: false,
+          is_partition_clone: false,
+          parent_constraint_schema: null,
+          parent_constraint_name: null,
+          parent_table_schema: null,
+          parent_table_name: null,
+          key_columns: ["room_id", "booking_period"],
+          foreign_key_columns: null,
+          foreign_key_table: null,
+          foreign_key_schema: null,
+          foreign_key_table_is_partition: null,
+          foreign_key_parent_schema: null,
+          foreign_key_parent_table: null,
+          foreign_key_effective_schema: null,
+          foreign_key_effective_table: null,
+          on_update: null,
+          on_delete: null,
+          match_type: null,
+          check_expression: null,
+          owner: "o1",
+          definition: "PRIMARY KEY (room_id, booking_period)",
+        },
+      ],
+    });
+    const tBranch = new Table({
+      ...tMain,
+      constraints: [
+        {
+          ...tMain.constraints[0],
+          is_temporal: true,
+          definition: "PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)",
+        },
+      ],
+    });
+    const changes = diffTables(
+      testContext,
+      { [tMain.stableId]: tMain },
+      { [tBranch.stableId]: tBranch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
       true,
     );
   });
