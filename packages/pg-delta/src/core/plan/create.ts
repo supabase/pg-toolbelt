@@ -110,6 +110,10 @@ export async function createPlan(
   const pools: Array<{ pool: Pool; shouldClose: boolean }> = [];
 
   try {
+    const effectiveSourceCatalogOptions =
+      source !== null
+        ? options.sourceCatalog
+        : (options.sourceCatalog ?? options.targetCatalog);
     const toCatalog = await resolveCatalog(
       target,
       "target",
@@ -123,16 +127,14 @@ export async function createPlan(
         : await createEmptyCatalog(
             toCatalog.version,
             toCatalog.currentUser,
-            options.sourceCatalog ?? options.targetCatalog,
+            effectiveSourceCatalogOptions,
           );
 
     return buildPlanForCatalogs(
       fromCatalog,
       toCatalog,
       options,
-      source !== null
-        ? options.sourceCatalog
-        : (options.sourceCatalog ?? options.targetCatalog),
+      effectiveSourceCatalogOptions,
       options.targetCatalog,
     );
   } finally {
