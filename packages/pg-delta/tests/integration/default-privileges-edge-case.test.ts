@@ -44,6 +44,41 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "table creation with selective REVOKE on default SELECT grant converges in one pass",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE ROLE reader;
+
+          ALTER DEFAULT PRIVILEGES IN SCHEMA test_schema
+            GRANT SELECT ON TABLES TO reader;
+
+          CREATE TABLE test_schema.public_data (
+            id integer PRIMARY KEY,
+            info text
+          );
+        `,
+          testSql: `
+          CREATE TABLE test_schema.secret_data (
+            id integer PRIMARY KEY,
+            secret text
+          );
+
+          REVOKE SELECT ON test_schema.secret_data FROM reader;
+        `,
+          expectedSqlTerms: [
+            "CREATE TABLE test_schema.secret_data (id integer NOT NULL, secret text)",
+            "ALTER TABLE test_schema.secret_data ADD CONSTRAINT secret_data_pkey PRIMARY KEY (id)",
+            "REVOKE SELECT ON test_schema.secret_data FROM reader",
+          ],
+        });
+      }),
+    );
     // This test verifies that when a user creates a table and explicitly revokes
     // access from the anon role, the diff tool correctly accounts for default
     // privileges and doesn't generate conflicting grants.
