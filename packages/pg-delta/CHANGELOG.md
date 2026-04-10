@@ -1,5 +1,14 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.11
+
+### Patch Changes
+
+- 8048cd9: Fix view diffs to drop and recreate views when the projected column list changes (for example when `SELECT *` views need to pick up a new base-table column), instead of emitting `CREATE OR REPLACE VIEW`.
+- bb63513: fix(depend): order CREATE EXTENSION before CREATE INDEX when index uses extension-provided operator class
+- 066683e: fix(pg-delta): order domain CHECK function dependencies before domain creation
+- f2cd63e: Use normalized object snapshots when comparing extracted catalog objects for equality so semantically identical metadata does not produce false-positive diffs.
+
 ## 1.0.0-alpha.10
 
 ### Patch Changes
