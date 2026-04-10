@@ -5,18 +5,27 @@ outputs:
   pg-delta:
     description: Whether pg-delta changed
     value: ${{ steps.filter.outputs.pg-delta }}
+  pg-delta-source:
+    description: Whether pg-delta source changed
+    value: ${{ steps.filter.outputs.pg-delta-source }}
   pg-delta-package-json:
     description: Whether pg-delta package.json changed
     value: ${{ steps.filter.outputs.pg-delta-package-json }}
   pg-topo:
     description: Whether pg-topo changed
     value: ${{ steps.filter.outputs.pg-topo }}
+  pg-topo-source:
+    description: Whether pg-topo source changed
+    value: ${{ steps.filter.outputs.pg-topo-source }}
   pg-topo-package-json:
     description: Whether pg-topo package.json changed
     value: ${{ steps.filter.outputs.pg-topo-package-json }}
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
+  root-source:
+    description: Whether root source/config changed without changeset metadata
+    value: ${{ steps.filter.outputs.root-source }}
 
 runs:
   using: "composite"
@@ -27,10 +36,18 @@ runs:
         filters: |
           pg-delta:
             - 'packages/pg-delta/**'
+          pg-delta-source:
+            - 'packages/pg-delta/**'
+            - '!packages/pg-delta/package.json'
+            - '!packages/pg-delta/CHANGELOG.md'
           pg-delta-package-json:
             - 'packages/pg-delta/package.json'
           pg-topo:
             - 'packages/pg-topo/**'
+          pg-topo-source:
+            - 'packages/pg-topo/**'
+            - '!packages/pg-topo/package.json'
+            - '!packages/pg-topo/CHANGELOG.md'
           pg-topo-package-json:
             - 'packages/pg-topo/package.json'
           root:
@@ -38,3 +55,7 @@ runs:
             - 'bunfig.toml'
             - 'biome.json'
             - '.changeset/**'
+          root-source:
+            - 'package.json'
+            - 'bunfig.toml'
+            - 'biome.json'

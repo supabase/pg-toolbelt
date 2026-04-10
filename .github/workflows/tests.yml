@@ -32,11 +32,12 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      pg-delta: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta }}
+      source-changed: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && ((steps.changes.outputs.pg-delta-source == 'true' || steps.changes.outputs.pg-topo-source == 'true' || steps.changes.outputs.root-source == 'true') && 'true' || 'false')) || ((steps.changes.outputs.pg-delta == 'true' || steps.changes.outputs.pg-topo == 'true' || steps.changes.outputs.root == 'true') && 'true' || 'false') }}
+      pg-delta: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.pg-delta-source) || steps.changes.outputs.pg-delta }}
       pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
-      pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
+      pg-topo: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.pg-topo-source) || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
-      root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
+      root: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.root-source) || steps.changes.outputs.root }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,10 +48,13 @@ jobs:
 
   check-types:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        github.event.pull_request.user.login != 'supabase-releaser[bot]'
-      )
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
+      needs.detect-changes.outputs.source-changed == 'true'
     needs: detect-changes
     name: Check types
     runs-on: ubuntu-latest
@@ -68,10 +72,14 @@ jobs:
 
   format-and-lint:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        github.event.pull_request.user.login != 'supabase-releaser[bot]'
-      )
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
+      needs.detect-changes.outputs.source-changed == 'true'
+    needs: detect-changes
     name: Format and lint
     runs-on: ubuntu-latest
     steps:
@@ -84,10 +92,13 @@ jobs:
 
   knip:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        github.event.pull_request.user.login != 'supabase-releaser[bot]'
-      )
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
+      needs.detect-changes.outputs.source-changed == 'true'
     needs: detect-changes
     name: Knip
     runs-on: ubuntu-latest
@@ -111,6 +122,7 @@ jobs:
           github.event.pull_request.user.login != 'supabase-releaser[bot]'
         )
       ) &&
+      needs.detect-changes.outputs.source-changed == 'true' &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
@@ -144,6 +156,7 @@ jobs:
           github.event.pull_request.user.login != 'supabase-releaser[bot]'
         )
       ) &&
+      needs.detect-changes.outputs.source-changed == 'true' &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
@@ -300,6 +313,7 @@ jobs:
           github.event.pull_request.user.login != 'supabase-releaser[bot]'
         )
       ) &&
+      needs.detect-changes.outputs.source-changed == 'true' &&
       (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-topo: Tests"
@@ -334,8 +348,11 @@ jobs:
         )
       ) &&
       (
-        needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
-        needs.detect-changes.outputs.pg-topo-package-json == 'true'
+        needs.detect-changes.outputs.source-changed == 'true' &&
+        (
+          needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
+          needs.detect-changes.outputs.pg-topo-package-json == 'true'
+        )
       )
     needs:
       - detect-changes
@@ -356,6 +373,7 @@ jobs:
   release-preview:
     needs:
       - check-types
+      - detect-changes
       - format-and-lint
       - knip
       - pg-delta-unit
@@ -363,7 +381,7 @@ jobs:
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
       - deno2-library-e2e
-    if: always() && !cancelled()
+    if: always() && !cancelled() && needs.detect-changes.outputs.source-changed == 'true'
     name: Release preview
     runs-on: ubuntu-latest
     steps:
