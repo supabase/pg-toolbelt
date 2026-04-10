@@ -32,12 +32,12 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
-      source-changed: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && ((steps.changes.outputs.pg-delta-source == 'true' || steps.changes.outputs.pg-topo-source == 'true' || steps.changes.outputs.root-source == 'true') && 'true' || 'false')) || ((steps.changes.outputs.pg-delta == 'true' || steps.changes.outputs.pg-topo == 'true' || steps.changes.outputs.root == 'true') && 'true' || 'false') }}
-      pg-delta: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.pg-delta-source) || steps.changes.outputs.pg-delta }}
-      pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
-      pg-topo: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.pg-topo-source) || steps.changes.outputs.pg-topo }}
-      pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
-      root: ${{ github.event_name == 'merge_group' && 'true' || (github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') && steps.changes.outputs.root-source) || steps.changes.outputs.root }}
+      source-changed: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.source-changed }}
+      pg-delta: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.pg-delta }}
+      pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.pg-delta-package-json }}
+      pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.pg-topo }}
+      pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.pg-topo-package-json }}
+      root: ${{ github.event_name == 'merge_group' && 'true' || steps.normalized-changes.outputs.root }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -45,6 +45,44 @@ jobs:
         if: github.event_name != 'merge_group'
         id: changes
         uses: ./.github/actions/detect-changes
+      - name: Normalize release branch changes
+        if: github.event_name != 'merge_group'
+        id: normalized-changes
+        env:
+          IS_RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.ref_name, 'changeset-release/') }}
+          PG_DELTA: ${{ steps.changes.outputs.pg-delta }}
+          PG_DELTA_SOURCE: ${{ steps.changes.outputs.pg-delta-source }}
+          PG_DELTA_PACKAGE_JSON: ${{ steps.changes.outputs.pg-delta-package-json }}
+          PG_TOPO: ${{ steps.changes.outputs.pg-topo }}
+          PG_TOPO_SOURCE: ${{ steps.changes.outputs.pg-topo-source }}
+          PG_TOPO_PACKAGE_JSON: ${{ steps.changes.outputs.pg-topo-package-json }}
+          ROOT: ${{ steps.changes.outputs.root }}
+          ROOT_SOURCE: ${{ steps.changes.outputs.root-source }}
+        run: |
+          if [ "$IS_RELEASE_PUSH" = "true" ]; then
+            pg_delta="$PG_DELTA_SOURCE"
+            pg_topo="$PG_TOPO_SOURCE"
+            root="$ROOT_SOURCE"
+          else
+            pg_delta="$PG_DELTA"
+            pg_topo="$PG_TOPO"
+            root="$ROOT"
+          fi
+
+          if [ "$pg_delta" = "true" ] || [ "$pg_topo" = "true" ] || [ "$root" = "true" ]; then
+            source_changed="true"
+          else
+            source_changed="false"
+          fi
+
+          {
+            echo "source-changed=$source_changed"
+            echo "pg-delta=$pg_delta"
+            echo "pg-delta-package-json=$PG_DELTA_PACKAGE_JSON"
+            echo "pg-topo=$pg_topo"
+            echo "pg-topo-package-json=$PG_TOPO_PACKAGE_JSON"
+            echo "root=$root"
+          } >> "$GITHUB_OUTPUT"
 
   check-types:
     if: >-
