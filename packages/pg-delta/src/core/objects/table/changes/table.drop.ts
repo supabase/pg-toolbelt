@@ -27,6 +27,13 @@ export class DropTable extends DropTableChange {
       ...this.table.columns.map((column) =>
         stableId.column(this.table.schema, this.table.name, column.name),
       ),
+      ...this.table.constraints.map((constraint) =>
+        stableId.constraint(
+          this.table.schema,
+          this.table.name,
+          constraint.name,
+        ),
+      ),
     ];
   }
 
@@ -35,6 +42,13 @@ export class DropTable extends DropTableChange {
       this.table.stableId,
       ...this.table.columns.map((col) =>
         stableId.column(this.table.schema, this.table.name, col.name),
+      ),
+      ...this.table.constraints.map((constraint) =>
+        stableId.constraint(
+          this.table.schema,
+          this.table.name,
+          constraint.name,
+        ),
       ),
     ];
   }

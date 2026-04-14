@@ -1,4 +1,4 @@
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
@@ -203,6 +203,42 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER PUBLICATION pub_metadata OWNER TO pub_owner;
           COMMENT ON PUBLICATION pub_metadata IS 'audit publication';
         `,
+        });
+      }),
+    );
+
+    test(
+      "drop table from publication before dropping table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.challenge_levels (
+            id BIGINT PRIMARY KEY
+          );
+
+          CREATE PUBLICATION pub_drop_order FOR TABLE public.challenge_levels;
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_drop_order DROP TABLE public.challenge_levels;
+          DROP TABLE public.challenge_levels;
+        `,
+          assertSqlStatements: (statements) => {
+            const relevantStatements = statements.filter(
+              (statement) =>
+                statement ===
+                  "ALTER PUBLICATION pub_drop_order DROP TABLE public.challenge_levels" ||
+                statement === "DROP TABLE public.challenge_levels",
+            );
+
+            expect(relevantStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER PUBLICATION pub_drop_order DROP TABLE public.challenge_levels",
+                "DROP TABLE public.challenge_levels",
+              ]
+            `);
+          },
         });
       }),
     );

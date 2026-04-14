@@ -150,6 +150,10 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
+  get drops() {
+    return this.tables.map((table) => stableId.table(table.schema, table.name));
+  }
+
   serialize(): string {
     const targets = this.tables.map((table) => `${table.schema}.${table.name}`);
     return `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`;
