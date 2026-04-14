@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { AlterRangeChange } from "./range.base.ts";
 
@@ -34,7 +35,7 @@ export class AlterRangeChangeOwner extends AlterRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TYPE",
       `${this.range.schema}.${this.range.name}`,

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { DropCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -28,7 +29,7 @@ export class DropCompositeType extends DropCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,

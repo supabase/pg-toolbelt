@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -16,7 +17,7 @@ export class AlterSubscriptionSetConnection extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER SUBSCRIPTION ${this.subscription.name} CONNECTION ${quoteLiteral(this.subscription.conninfo)}`;
   }
 }
@@ -30,7 +31,7 @@ export class AlterSubscriptionSetPublication extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const base = `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
     if (!this.subscription.enabled) {
       return `${base} WITH (refresh = false)`;
@@ -48,7 +49,7 @@ export class AlterSubscriptionEnable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER SUBSCRIPTION ${this.subscription.name} ENABLE`;
   }
 }
@@ -62,7 +63,7 @@ export class AlterSubscriptionDisable extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER SUBSCRIPTION ${this.subscription.name} DISABLE`;
   }
 }
@@ -81,7 +82,7 @@ export class AlterSubscriptionSetOptions extends AlterSubscriptionChange {
     this.options = props.options;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const assignments = this.options.map((option) =>
       formatSubscriptionOption(this.subscription, option),
     );
@@ -104,7 +105,7 @@ export class AlterSubscriptionSetOwner extends AlterSubscriptionChange {
     return [stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER SUBSCRIPTION ${this.subscription.name} OWNER TO ${this.owner}`;
   }
 }

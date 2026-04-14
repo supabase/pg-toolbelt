@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Publication } from "../publication.model.ts";
 import {
@@ -48,7 +49,7 @@ export class CreatePublication extends CreatePublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE PUBLICATION", this.publication.name];
 
     if (this.publication.all_tables) {

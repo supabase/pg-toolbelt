@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -39,7 +40,7 @@ export class AlterExtensionUpdateVersion extends AlterExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER EXTENSION",
       this.extension.name,
@@ -67,7 +68,7 @@ export class AlterExtensionSetSchema extends AlterExtensionChange {
     return [this.extension.stableId, stableId.schema(this.schema)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER EXTENSION",
       this.extension.name,

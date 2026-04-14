@@ -1,4 +1,4 @@
-import type { SerializeOptions } from "../../../integrations/serialize/dsl.ts";
+import type { ExtensionSerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtensionChange } from "./extension.base.ts";
@@ -41,7 +41,7 @@ export class CreateExtension extends CreateExtensionChange {
     return Array.from(dependencies);
   }
 
-  serialize(options?: SerializeOptions): string {
+  serialize(options?: ExtensionSerializeOptions): string {
     const parts: string[] = ["CREATE EXTENSION"];
 
     // Add extension name

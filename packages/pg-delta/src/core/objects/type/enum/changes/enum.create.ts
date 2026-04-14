@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
@@ -38,7 +39,7 @@ export class CreateEnum extends CreateEnumChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name

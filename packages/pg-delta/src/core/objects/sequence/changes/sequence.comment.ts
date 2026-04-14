@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
@@ -22,7 +23,7 @@ export class CreateCommentOnSequence extends CreateSequenceChange {
     return [this.sequence.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
@@ -50,7 +51,7 @@ export class DropCommentOnSequence extends DropSequenceChange {
     return [stableId.comment(this.sequence.stableId), this.sequence.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,

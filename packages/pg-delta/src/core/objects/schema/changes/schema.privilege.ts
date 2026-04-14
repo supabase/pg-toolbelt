@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -52,7 +53,7 @@ export class GrantSchemaPrivileges extends AlterSchemaChange {
     return [this.schema.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -118,7 +119,7 @@ export class RevokeSchemaPrivileges extends AlterSchemaChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SCHEMA", list, this.version);
@@ -162,7 +163,7 @@ export class RevokeGrantOptionSchemaPrivileges extends AlterSchemaChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("SCHEMA");
     const privSql = formatObjectPrivilegeList(
       "SCHEMA",

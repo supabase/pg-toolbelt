@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -41,7 +42,7 @@ export class AlterForeignDataWrapperChangeOwner extends AlterForeignDataWrapperC
     return [this.foreignDataWrapper.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN DATA WRAPPER",
       this.foreignDataWrapper.name,
@@ -80,7 +81,7 @@ export class AlterForeignDataWrapperSetOptions extends AlterForeignDataWrapperCh
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {

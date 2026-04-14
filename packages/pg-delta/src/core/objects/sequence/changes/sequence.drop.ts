@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { DropSequenceChange } from "./sequence.base.ts";
 
@@ -28,7 +29,7 @@ export class DropSequence extends DropSequenceChange {
     return [this.sequence.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,

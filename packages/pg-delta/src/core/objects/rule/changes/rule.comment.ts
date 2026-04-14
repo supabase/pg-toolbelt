@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Rule } from "../rule.model.ts";
@@ -20,7 +21,7 @@ export class CreateCommentOnRule extends CreateRuleChange {
     return [this.rule.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON RULE",
       this.rule.name,
@@ -50,7 +51,7 @@ export class DropCommentOnRule extends DropRuleChange {
     return [stableId.comment(this.rule.stableId), this.rule.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON RULE",
       this.rule.name,

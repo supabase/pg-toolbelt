@@ -64,6 +64,24 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/
 - Biome handles formatting and linting (config at root `biome.json`)
 - Changesets manage versioning across both packages
 
+### Serialize Options
+
+When adding or changing a serialize option in `pg-delta`, keep the typing and ownership split consistent:
+
+- Define the shared serializer option fields in `packages/pg-delta/src/core/integrations/serialize/serialize.types.ts`. This file is the single source of truth for `SerializeOptions`.
+- If an option is only relevant to one change family, derive a local alias from the shared type in `serialize.types.ts` with `Pick<...>` (for example `SchemaSerializeOptions` or `ExtensionSerializeOptions`) instead of creating a new standalone options type.
+- Do not define a separate local `SerializeOptions` type in `packages/pg-delta/src/core/integrations/serialize/dsl.ts`. The DSL should import the shared type and pass it through.
+- `packages/pg-delta/src/core/objects/base.change.ts` should expose `serialize(options?: SerializeOptions)`.
+- Concrete change classes under `packages/pg-delta/src/core/objects/**/changes/*.ts` must accept either the shared `SerializeOptions` or a derived alias, even when the option is unused. Use `_options?: SerializeOptions` for unused parameters so the full `Change` union accepts `change.serialize(rule.options)`.
+- Keep product-specific serialization behavior in integrations such as `packages/pg-delta/src/core/integrations/supabase.ts` unless the behavior is truly generic for all users. Integration-specific rules belong in the serialize DSL before they belong in core change logic.
+- Do not redesign the global serializer options as a union of per-change option types unless the serialize DSL itself is also being redesigned to tie `when` clauses to specific change subtypes. With the current free-form `FilterPattern`, one shared global contract is the intended model.
+
+When adding a new serialize option, update tests at the same time:
+
+- Add or update focused coverage in `packages/pg-delta/src/core/integrations/serialize/dsl.test.ts`.
+- Add or update the relevant object serializer test next to the concrete change class (for example `extension.create.test.ts`).
+- If the behavior is user-facing, update one existing end-to-end regression or add one targeted integration test. Prefer reusing an existing regression over creating duplicate integration coverage.
+
 ## Test Patterns
 
 ### pg-delta unit tests
