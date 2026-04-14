@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DefaultPrivilegeState } from "../base.default-privileges.ts";
-import type { Table } from "../table/table.model.ts";
+import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
+import { Table } from "../table/table.model.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
@@ -105,6 +106,77 @@ describe.concurrent("sequence.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
+  });
+
+  test("replacing an owned sequence re-emits the owning column default", () => {
+    const main = new Sequence({
+      ...base,
+      data_type: "integer",
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    const branch = new Sequence({
+      ...base,
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    const branchTable = new Table({
+      schema: "public",
+      name: "users",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "bigint",
+          data_type_str: "bigint",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: "nextval('public.seq1'::regclass)",
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes).toHaveLength(4);
+    expect(changes[0]).toBeInstanceOf(DropSequence);
+    expect(changes[1]).toBeInstanceOf(CreateSequence);
+    expect(changes[2]).toBeInstanceOf(AlterSequenceSetOwnedBy);
+    expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
   });
 
   test("skip DROP SEQUENCE when owned by table being dropped", () => {
