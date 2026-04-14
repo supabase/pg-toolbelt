@@ -27,6 +27,8 @@ export class DropTable extends DropTableChange {
       ...this.table.columns.map((column) =>
         stableId.column(this.table.schema, this.table.name, column.name),
       ),
+      // Include constraint stableIds so FK relationships that only exist at the
+      // constraint level still affect whole-table drop ordering.
       ...this.table.constraints.map((constraint) =>
         stableId.constraint(
           this.table.schema,
@@ -43,6 +45,8 @@ export class DropTable extends DropTableChange {
       ...this.table.columns.map((col) =>
         stableId.column(this.table.schema, this.table.name, col.name),
       ),
+      // Mirror the dropped constraint ids in requires so drop-phase graph
+      // consumers can connect catalog FK edges back to this table drop.
       ...this.table.constraints.map((constraint) =>
         stableId.constraint(
           this.table.schema,

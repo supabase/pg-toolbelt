@@ -151,6 +151,8 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
   }
 
   get drops() {
+    // Treat ALTER PUBLICATION ... DROP TABLE as a destructive change so it runs
+    // in the drop phase before DROP TABLE removes the referenced relation.
     return this.tables.map((table) => stableId.table(table.schema, table.name));
   }
 
