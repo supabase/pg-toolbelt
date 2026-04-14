@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/dsl.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
 import { CreateExtensionChange } from "./extension.base.ts";
@@ -40,14 +41,16 @@ export class CreateExtension extends CreateExtensionChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(options?: SerializeOptions): string {
     const parts: string[] = ["CREATE EXTENSION"];
 
     // Add extension name
     parts.push(this.extension.name);
 
     // Add schema
-    parts.push("WITH SCHEMA", this.extension.schema);
+    if (!options?.skipSchema) {
+      parts.push("WITH SCHEMA", this.extension.schema);
+    }
 
     // Add version
     // TODO: Omit version for now as versions can differ between main and branch

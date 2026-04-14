@@ -11,8 +11,11 @@ import type { ChangeSerializer } from "./serialize.types.ts";
 /**
  * Serialization options that can be passed to change.serialize().
  */
-type SerializeOptions = {
+export type SerializeOptions = {
+  /** Skip authorization for schema creates owned by system roles */
   skipAuthorization?: boolean;
+  /** Skip schema creation for extensions that creates its own schema (eg: pgmq) */
+  skipSchema?: boolean;
   // Can be extended with more options in the future
   [key: string]: unknown;
 };
