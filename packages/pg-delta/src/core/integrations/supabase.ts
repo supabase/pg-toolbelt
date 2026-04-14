@@ -92,6 +92,12 @@ export const supabase: IntegrationDSL = {
         operation: "create",
         scope: "object",
       },
+      // Include extension DROPs used to disable some extensions (eg: pg-net)
+      {
+        objectType: "extension",
+        operation: "drop",
+        scope: "object",
+      },
       // Exclude system objects
       {
         not: {
