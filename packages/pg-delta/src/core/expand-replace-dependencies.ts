@@ -19,6 +19,7 @@ import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { CreateRange } from "./objects/type/range/changes/range.create.ts";
 import { DropRange } from "./objects/type/range/changes/range.drop.ts";
+import { stableId } from "./objects/utils.ts";
 import { CreateView } from "./objects/view/changes/view.create.ts";
 import { DropView } from "./objects/view/changes/view.drop.ts";
 
@@ -121,6 +122,17 @@ export function expandReplaceDependencies({
     if (!dependents) continue;
 
     for (const dependentRaw of dependents) {
+      if (
+        isOwnedSequenceColumnDependency(
+          refId,
+          dependentRaw,
+          mainCatalog,
+          branchCatalog,
+        )
+      ) {
+        continue;
+      }
+
       // Continue traversing the dependency graph from the raw dependent id.
       if (!visitedRefs.has(dependentRaw)) {
         visitedRefs.add(dependentRaw);
@@ -179,6 +191,44 @@ export function expandReplaceDependencies({
   }
 
   return [...changes, ...additions];
+}
+
+function isOwnedSequenceColumnDependency(
+  referencedId: string,
+  dependentId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+): boolean {
+  // When a sequence replace root is still OWNED BY the same column, the
+  // sequence->column pg_depend edge is bookkeeping for ownership, not a signal
+  // that the whole owning table needs to be replaced. Skipping that edge keeps
+  // expandReplaceDependencies focused on recreating the sequence itself.
+  if (
+    !referencedId.startsWith("sequence:") ||
+    !dependentId.startsWith("column:")
+  ) {
+    return false;
+  }
+
+  const sequence =
+    branchCatalog.sequences[referencedId] ??
+    mainCatalog.sequences[referencedId];
+  if (
+    !sequence?.owned_by_schema ||
+    !sequence.owned_by_table ||
+    !sequence.owned_by_column
+  ) {
+    return false;
+  }
+
+  return (
+    dependentId ===
+    stableId.column(
+      sequence.owned_by_schema,
+      sequence.owned_by_table,
+      sequence.owned_by_column,
+    )
+  );
 }
 
 function normalizeDependentId(dependentId: string): string | null {

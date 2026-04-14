@@ -30,9 +30,21 @@ export class DropSequence extends DropSequenceChange {
   }
 
   serialize(_options?: SerializeOptions): string {
-    return [
+    const parts = [
       "DROP SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
-    ].join(" ");
+    ];
+
+    // Owned sequences still need CASCADE here because DROP runs in the earlier
+    // phase and later ALTER TABLE statements will re-establish the desired default.
+    if (
+      this.sequence.owned_by_schema &&
+      this.sequence.owned_by_table &&
+      this.sequence.owned_by_column
+    ) {
+      parts.push("CASCADE");
+    }
+
+    return parts.join(" ");
   }
 }
