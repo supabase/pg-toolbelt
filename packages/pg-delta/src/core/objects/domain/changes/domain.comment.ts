@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain } from "../domain.model.ts";
@@ -25,7 +26,7 @@ export class CreateCommentOnDomain extends CreateDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON DOMAIN",
       `${this.domain.schema}.${this.domain.name}`,
@@ -49,7 +50,7 @@ export class DropCommentOnDomain extends DropDomainChange {
     return [stableId.comment(this.domain.stableId), this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON DOMAIN",
       `${this.domain.schema}.${this.domain.name}`,

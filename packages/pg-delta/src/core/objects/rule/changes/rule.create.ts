@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Rule } from "../rule.model.ts";
 import { CreateRuleChange } from "./rule.base.ts";
@@ -26,7 +27,7 @@ export class CreateRule extends CreateRuleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     let definition = this.rule.definition.trim();
 
     definition = definition.replace(

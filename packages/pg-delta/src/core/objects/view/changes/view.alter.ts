@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { View } from "../view.model.ts";
 import { AlterViewChange } from "./view.base.ts";
 
@@ -42,7 +43,7 @@ export class AlterViewChangeOwner extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER VIEW",
       `${this.view.schema}.${this.view.name}`,
@@ -72,7 +73,7 @@ export class AlterViewSetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const opts = this.options.join(", ");
     return [
       "ALTER VIEW",
@@ -101,7 +102,7 @@ export class AlterViewResetOptions extends AlterViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER VIEW",
       `${this.view.schema}.${this.view.name}`,

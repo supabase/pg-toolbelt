@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { AlterUserMappingChange } from "./user-mapping.base.ts";
@@ -46,7 +47,7 @@ export class AlterUserMappingSetOptions extends AlterUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {

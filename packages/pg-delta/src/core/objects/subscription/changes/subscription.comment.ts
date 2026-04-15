@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Subscription } from "../subscription.model.ts";
@@ -27,7 +28,7 @@ export class CreateCommentOnSubscription extends CreateSubscriptionChange {
     return [this.subscription.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON SUBSCRIPTION",
       this.subscription.name,
@@ -58,7 +59,7 @@ export class DropCommentOnSubscription extends DropSubscriptionChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `COMMENT ON SUBSCRIPTION ${this.subscription.name} IS NULL`;
   }
 }

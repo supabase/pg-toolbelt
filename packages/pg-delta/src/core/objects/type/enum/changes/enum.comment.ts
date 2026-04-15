@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Enum } from "../enum.model.ts";
@@ -26,7 +27,7 @@ export class CreateCommentOnEnum extends CreateEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.enum.schema}.${this.enum.name}`,
@@ -54,7 +55,7 @@ export class DropCommentOnEnum extends DropEnumChange {
     return [stableId.comment(this.enum.stableId), this.enum.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.enum.schema}.${this.enum.name}`,

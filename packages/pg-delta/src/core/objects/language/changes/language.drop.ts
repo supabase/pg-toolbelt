@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Language } from "../language.model.ts";
 import { DropLanguageChange } from "./language.base.ts";
 
@@ -28,7 +29,7 @@ export class DropLanguage extends DropLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["DROP"];
 
     // Do not print optional keywords (e.g., PROCEDURAL). Keep the statement minimal.

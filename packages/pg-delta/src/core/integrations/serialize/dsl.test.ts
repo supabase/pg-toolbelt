@@ -1,22 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "../../change.types.ts";
 import { compileSerializeDSL } from "./dsl.ts";
+import type { SerializeOptions } from "./serialize.types.ts";
 
 function makeChange(
   type: string,
   operation: string,
-  serializeFn: (opts?: Record<string, unknown>) => string,
+  serializeFn: (opts?: SerializeOptions) => string,
 ): Change {
   return {
     objectType: type,
     operation,
     scope: "object",
     schema: { name: "test" },
+    extension: { schema: "pgmq" },
     serialize: serializeFn,
   } as unknown as Change;
 }
 
 describe("compileSerializeDSL", () => {
+  test("matching extension rule can skip schema serialization", () => {
+    const serializer = compileSerializeDSL([
+      {
+        when: { objectType: "extension", operation: "create" },
+        options: { skipSchema: true },
+      },
+    ]);
+
+    const change = makeChange("extension", "create", (opts) =>
+      opts?.skipSchema
+        ? "CREATE EXTENSION pgmq"
+        : "CREATE EXTENSION pgmq WITH SCHEMA pgmq",
+    );
+
+    expect(serializer(change)).toBe("CREATE EXTENSION pgmq");
+  });
+
   test("matching rule applies its options", () => {
     const serializer = compileSerializeDSL([
       {

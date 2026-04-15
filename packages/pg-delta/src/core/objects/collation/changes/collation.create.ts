@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
@@ -48,7 +49,7 @@ export class CreateCollation extends CreateCollationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE COLLATION"];
 
     // Add schema and name (already quoted in model extraction)

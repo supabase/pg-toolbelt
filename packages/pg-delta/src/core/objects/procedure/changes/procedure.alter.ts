@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatConfigValue } from "../utils.ts";
 import { AlterProcedureChange } from "./procedure.base.ts";
@@ -60,7 +61,7 @@ export class AlterProcedureChangeOwner extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
     return [
@@ -91,7 +92,7 @@ export class AlterProcedureSetSecurity extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const security = this.securityDefiner
       ? "SECURITY DEFINER"
@@ -142,7 +143,7 @@ export class AlterProcedureSetConfig extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const head = [
       "ALTER",
       this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
@@ -176,7 +177,7 @@ export class AlterProcedureSetVolatility extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const volMap: Record<string, string> = {
       i: "IMMUTABLE",
@@ -210,7 +211,7 @@ export class AlterProcedureSetStrictness extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const strictness = this.isStrict ? "STRICT" : "CALLED ON NULL INPUT";
     return [
@@ -240,7 +241,7 @@ export class AlterProcedureSetLeakproof extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const leak = this.leakproof ? "LEAKPROOF" : "NOT LEAKPROOF";
     return ["ALTER", objectType, procedureSignature(this.procedure), leak].join(
@@ -267,7 +268,7 @@ export class AlterProcedureSetParallel extends AlterProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const parallelMap: Record<string, string> = {
       u: "PARALLEL UNSAFE",

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -57,7 +58,7 @@ export class GrantViewPrivileges extends AlterViewChange {
     return [this.view.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -132,7 +133,7 @@ export class RevokeViewPrivileges extends AlterViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("VIEW");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("VIEW", list, this.version);
@@ -183,7 +184,7 @@ export class RevokeGrantOptionViewPrivileges extends AlterViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("VIEW");
     const privSql = formatObjectPrivilegeList(
       "VIEW",

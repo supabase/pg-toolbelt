@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -52,7 +53,7 @@ export class GrantLanguagePrivileges extends AlterLanguageChange {
     return [this.language.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -117,7 +118,7 @@ export class RevokeLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("LANGUAGE", list, this.version);
@@ -160,7 +161,7 @@ export class RevokeGrantOptionLanguagePrivileges extends AlterLanguageChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("LANGUAGE");
     const privSql = formatObjectPrivilegeList(
       "LANGUAGE",

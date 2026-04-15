@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
@@ -37,7 +38,7 @@ export class CreateUserMapping extends CreateUserMappingChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE USER MAPPING FOR"];
 
     // Add user (can be CURRENT_USER, PUBLIC, etc.)

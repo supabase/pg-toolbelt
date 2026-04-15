@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -39,7 +40,7 @@ export class AlterServerChangeOwner extends AlterServerChange {
     return [this.server.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["ALTER SERVER", this.server.name, "OWNER TO", this.owner].join(" ");
   }
 }
@@ -62,7 +63,7 @@ export class AlterServerSetVersion extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     if (this.version === null) {
       // PostgreSQL doesn't support removing version, but we'll handle it
       return ["ALTER SERVER", this.server.name, "VERSION", "''"].join(" ");
@@ -105,7 +106,7 @@ export class AlterServerSetOptions extends AlterServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {

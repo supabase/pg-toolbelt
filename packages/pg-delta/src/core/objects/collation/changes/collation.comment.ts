@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Collation } from "../collation.model.ts";
@@ -30,7 +31,7 @@ export class CreateCommentOnCollation extends CreateCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLLATION",
       `${this.collation.schema}.${this.collation.name}`,
@@ -58,7 +59,7 @@ export class DropCommentOnCollation extends DropCollationChange {
     return [stableId.comment(this.collation.stableId)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLLATION",
       `${this.collation.schema}.${this.collation.name}`,

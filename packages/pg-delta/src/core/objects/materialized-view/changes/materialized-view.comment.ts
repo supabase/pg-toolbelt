@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -36,7 +37,7 @@ export class CreateCommentOnMaterializedView extends CreateMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,
@@ -67,7 +68,7 @@ export class DropCommentOnMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,
@@ -112,7 +113,7 @@ export class CreateCommentOnMaterializedViewColumn extends CreateMaterializedVie
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,
@@ -166,7 +167,7 @@ export class DropCommentOnMaterializedViewColumn extends DropMaterializedViewCha
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.materializedView.schema}.${this.materializedView.name}.${this.column.name}`,

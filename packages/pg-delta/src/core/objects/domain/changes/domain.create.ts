@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   isUserDefinedTypeSchema,
   parseTypeString,
@@ -87,7 +88,7 @@ export class CreateDomain extends CreateDomainChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [];
 
     // Schema-qualified name

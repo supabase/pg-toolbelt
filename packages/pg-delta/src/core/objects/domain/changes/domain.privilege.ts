@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -52,7 +53,7 @@ export class GrantDomainPrivileges extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -114,7 +115,7 @@ export class RevokeDomainPrivileges extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("DOMAIN");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("DOMAIN", list, this.version);
@@ -158,7 +159,7 @@ export class RevokeGrantOptionDomainPrivileges extends AlterDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("DOMAIN");
     const privSql = formatObjectPrivilegeList(
       "DOMAIN",
