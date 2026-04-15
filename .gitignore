@@ -167,6 +167,7 @@ dev-debug.log
 
 # Declarative schemas
 declarative-schemas/
+packages/pg-delta/test-results/
 
 
 # TypeDoc generated output
