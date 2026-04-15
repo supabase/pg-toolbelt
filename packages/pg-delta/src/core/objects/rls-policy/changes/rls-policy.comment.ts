@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
@@ -27,7 +28,7 @@ export class CreateCommentOnRlsPolicy extends CreateRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON POLICY",
       this.policy.name,
@@ -57,7 +58,7 @@ export class DropCommentOnRlsPolicy extends DropRlsPolicyChange {
     return [stableId.comment(this.policy.stableId), this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON POLICY",
       this.policy.name,

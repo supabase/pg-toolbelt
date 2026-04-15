@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { formatFunctionArguments } from "../utils.ts";
 import { DropProcedureChange } from "./procedure.base.ts";
@@ -30,7 +31,7 @@ export class DropProcedure extends DropProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectType = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
 
     // Build argument list

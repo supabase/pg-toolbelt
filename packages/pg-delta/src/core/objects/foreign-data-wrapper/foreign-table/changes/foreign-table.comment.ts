@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
@@ -31,7 +32,7 @@ export class CreateCommentOnForeignTable extends CreateForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -62,7 +63,7 @@ export class DropCommentOnForeignTable extends DropForeignTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,

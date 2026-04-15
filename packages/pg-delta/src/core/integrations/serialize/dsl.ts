@@ -6,16 +6,7 @@
 
 import type { Change } from "../../change.types.ts";
 import { evaluatePattern, type FilterPattern } from "../filter/dsl.ts";
-import type { ChangeSerializer } from "./serialize.types.ts";
-
-/**
- * Serialization options that can be passed to change.serialize().
- */
-type SerializeOptions = {
-  skipAuthorization?: boolean;
-  // Can be extended with more options in the future
-  [key: string]: unknown;
-};
+import type { ChangeSerializer, SerializeOptions } from "./serialize.types.ts";
 
 /**
  * A serialization rule that applies options when a pattern matches.

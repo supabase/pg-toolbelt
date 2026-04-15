@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Server } from "../server.model.ts";
 import { DropServerChange } from "./server.base.ts";
 
@@ -28,7 +29,7 @@ export class DropServer extends DropServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP SERVER", this.server.name].join(" ");
   }
 }

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -39,7 +40,7 @@ export class GrantAggregatePrivileges extends AlterAggregateChange {
     return [this.aggregate.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -92,7 +93,7 @@ export class RevokeAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("FUNCTION");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
@@ -131,7 +132,7 @@ export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("FUNCTION");
     const privSql = formatObjectPrivilegeList(
       "FUNCTION",

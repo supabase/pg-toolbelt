@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -52,7 +53,7 @@ export class GrantCompositeTypePrivileges extends AlterCompositeTypeChange {
     return [this.compositeType.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -118,7 +119,7 @@ export class RevokeCompositeTypePrivileges extends AlterCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("TYPE", list, this.version);
@@ -162,7 +163,7 @@ export class RevokeGrantOptionCompositeTypePrivileges extends AlterCompositeType
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("TYPE");
     const privSql = formatObjectPrivilegeList(
       "TYPE",

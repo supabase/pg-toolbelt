@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import type { Trigger } from "../trigger.model.ts";
@@ -40,7 +41,7 @@ export class ReplaceTrigger extends AlterTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     if (this.trigger.isConstraintTrigger) {
       const dropChange = new DropTrigger({ trigger: this.trigger });
       const createChange = new CreateTrigger({

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 // src/objects/subscription/changes/subscription.create.ts
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
@@ -22,7 +23,7 @@ export class CreateSubscription extends CreateSubscriptionChange {
     return [stableId.role(this.subscription.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       "CREATE SUBSCRIPTION",
       this.subscription.name,
