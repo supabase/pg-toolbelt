@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Extension } from "../extension.model.ts";
 import { DropExtensionChange } from "./extension.base.ts";
 
@@ -28,7 +29,7 @@ export class DropExtension extends DropExtensionChange {
     return [this.extension.stableId, ...this.extension.members];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP EXTENSION", this.extension.name].join(" ");
   }
 }

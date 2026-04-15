@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import { stableId } from "../../../utils.ts";
@@ -55,7 +56,7 @@ export class AlterForeignTableChangeOwner extends AlterForeignTableChange {
     return [this.foreignTable.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -83,7 +84,7 @@ export class AlterForeignTableAddColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts = [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -122,7 +123,7 @@ export class AlterForeignTableDropColumn extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -156,7 +157,7 @@ export class AlterForeignTableAlterColumnType extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -192,7 +193,7 @@ export class AlterForeignTableAlterColumnSetDefault extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -222,7 +223,7 @@ export class AlterForeignTableAlterColumnDropDefault extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -251,7 +252,7 @@ export class AlterForeignTableAlterColumnSetNotNull extends AlterForeignTableCha
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -280,7 +281,7 @@ export class AlterForeignTableAlterColumnDropNotNull extends AlterForeignTableCh
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,
@@ -320,7 +321,7 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const optionParts: string[] = [];
     for (const opt of this.options) {
       if (opt.action === "DROP") {

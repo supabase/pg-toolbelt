@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Domain, DomainConstraintProps } from "../domain.model.ts";
 import { AlterDomainChange, DropDomainChange } from "./domain.base.ts";
@@ -63,7 +64,7 @@ export class AlterDomainSetDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET DEFAULT ${this.defaultValue}`;
   }
 }
@@ -84,7 +85,7 @@ export class AlterDomainDropDefault extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP DEFAULT`;
   }
 }
@@ -105,7 +106,7 @@ export class AlterDomainSetNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} SET NOT NULL`;
   }
 }
@@ -126,7 +127,7 @@ export class AlterDomainDropNotNull extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} DROP NOT NULL`;
   }
 }
@@ -149,7 +150,7 @@ export class AlterDomainChangeOwner extends AlterDomainChange {
     return [this.domain.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER DOMAIN ${this.domain.schema}.${this.domain.name} OWNER TO ${this.owner}`;
   }
 }
@@ -182,7 +183,7 @@ export class AlterDomainAddConstraint extends AlterDomainChange {
     return [this.domain.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
     const parts: string[] = [
       "ALTER DOMAIN",
@@ -235,7 +236,7 @@ export class AlterDomainDropConstraint extends DropDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
     return [
       "ALTER DOMAIN",
@@ -274,7 +275,7 @@ export class AlterDomainValidateConstraint extends AlterDomainChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const domainName = `${this.domain.schema}.${this.domain.name}`;
     return [
       "ALTER DOMAIN",

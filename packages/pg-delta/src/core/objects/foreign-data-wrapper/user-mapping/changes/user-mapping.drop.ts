@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { DropUserMappingChange } from "./user-mapping.base.ts";
 
@@ -29,7 +30,7 @@ export class DropUserMapping extends DropUserMappingChange {
     return [this.userMapping.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP USER MAPPING FOR",
       this.userMapping.user,

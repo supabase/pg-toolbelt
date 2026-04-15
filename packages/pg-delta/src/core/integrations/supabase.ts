@@ -92,6 +92,12 @@ export const supabase: IntegrationDSL = {
         operation: "create",
         scope: "object",
       },
+      // Include extension DROPs used to disable some extensions (eg: pg-net)
+      {
+        objectType: "extension",
+        operation: "drop",
+        scope: "object",
+      },
       // Exclude system objects
       {
         not: {
@@ -139,6 +145,19 @@ export const supabase: IntegrationDSL = {
       },
       options: {
         skipAuthorization: true,
+      },
+    },
+    // pgmq extensions creates it's own schema on install doing a `CREATE EXTENSION pgmq WITH SCHEMA pgmq;`
+    // will cause an error because the schema will create extension and extension refer to unexisting schema
+    {
+      when: {
+        objectType: "extension",
+        operation: "create",
+        scope: "object",
+        "extension/schema": ["pgmq"],
+      },
+      options: {
+        skipSchema: true,
       },
     },
   ],

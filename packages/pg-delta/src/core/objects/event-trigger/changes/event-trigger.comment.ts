@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
@@ -27,7 +28,7 @@ export class CreateCommentOnEventTrigger extends CreateEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON EVENT TRIGGER",
       this.eventTrigger.name,
@@ -58,7 +59,7 @@ export class DropCommentOnEventTrigger extends DropEventTriggerChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON EVENT TRIGGER", this.eventTrigger.name, "IS NULL"].join(
       " ",
     );

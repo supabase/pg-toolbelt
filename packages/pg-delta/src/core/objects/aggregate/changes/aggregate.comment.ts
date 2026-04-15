@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Aggregate } from "../aggregate.model.ts";
@@ -27,7 +28,7 @@ export class CreateCommentOnAggregate extends CreateAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";
@@ -53,7 +54,7 @@ export class DropCommentOnAggregate extends DropAggregateChange {
     return [stableId.comment(this.aggregate.stableId), this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";

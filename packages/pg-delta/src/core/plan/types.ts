@@ -4,10 +4,7 @@
 
 import z from "zod";
 import type { Change } from "../change.types.ts";
-import type { FilterDSL } from "../integrations/filter/dsl.ts";
-import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
-import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
-import type { ChangeSerializer } from "../integrations/serialize/serialize.types.ts";
+import type { Integration } from "../integrations/integration.types.ts";
 
 // ============================================================================
 // Core Types
@@ -157,9 +154,9 @@ export type Plan = z.infer<typeof PlanSchema>;
  */
 export interface CreatePlanOptions {
   /** Filter - either FilterDSL (stored in plan) or ChangeFilter function (not stored) */
-  filter?: FilterDSL | ChangeFilter;
+  filter?: Integration["filter"];
   /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
-  serialize?: SerializeDSL | ChangeSerializer;
+  serialize?: Integration["serialize"];
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
   /**

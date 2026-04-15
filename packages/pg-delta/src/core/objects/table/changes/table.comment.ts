@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
@@ -49,7 +50,7 @@ export class CreateCommentOnTable extends CreateTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -80,7 +81,7 @@ export class DropCommentOnTable extends DropTableChange {
     return [stableId.comment(this.table.stableId), this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -118,7 +119,7 @@ export class CreateCommentOnColumn extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.table.schema}.${this.table.name}.${this.column.name}`,
@@ -161,7 +162,7 @@ export class DropCommentOnColumn extends DropTableChange {
     return [stableId.comment(columnStableId), columnStableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.table.schema}.${this.table.name}.${this.column.name}`,
@@ -206,7 +207,7 @@ export class CreateCommentOnConstraint extends CreateTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON CONSTRAINT",
       this.constraint.name,
@@ -254,7 +255,7 @@ export class DropCommentOnConstraint extends DropTableChange {
     return [stableId.comment(constraintStableId), constraintStableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON CONSTRAINT",
       this.constraint.name,

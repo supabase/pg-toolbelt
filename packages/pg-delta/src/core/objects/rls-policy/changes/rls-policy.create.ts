@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { CreateRlsPolicyChange } from "./rls-policy.base.ts";
@@ -47,7 +48,7 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE POLICY"];
 
     // Add policy name

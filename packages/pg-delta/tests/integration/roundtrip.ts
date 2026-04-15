@@ -21,7 +21,11 @@ import {
   buildPlanScopeFingerprint,
   hashStableIds,
 } from "../../src/core/fingerprint.ts";
-import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import {
+  type Integration,
+  type ResolvedIntegration,
+  resolveIntegration,
+} from "../../src/core/integrations/integration.types.ts";
 import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
@@ -152,7 +156,10 @@ export async function roundtripFidelityTest(
   }
 
   let { plan, sortedChanges } = planResult;
-  const integrationFilter = integration?.filter;
+  const resolvedIntegration = integration
+    ? resolveIntegration(integration)
+    : {};
+  const integrationFilter = resolvedIntegration?.filter;
 
   // Optional pre-sort for deterministic tie-breaking in tests
   if (sortChangesCallback) {
@@ -314,7 +321,10 @@ export async function testDeclarativeExport(
 
   const { sortedChanges, ctx } = planResult;
   const { branchCatalog } = ctx;
-  const integrationFilter = integration?.filter;
+  const resolvedIntegration = integration
+    ? resolveIntegration(integration)
+    : {};
+  const integrationFilter = resolvedIntegration?.filter;
 
   const output = exportDeclarativeSchema(planResult, {
     integration,
@@ -411,7 +421,7 @@ export async function testDeclarativeExport(
 async function verifyNoRemainingChanges(
   mainSession: Pool,
   branchCatalog: Catalog,
-  integrationFilter: Integration["filter"] | undefined,
+  integrationFilter: ResolvedIntegration["filter"] | undefined,
   migrationScript: string,
 ): Promise<void> {
   debugTest("mainCatalogAfter: ");

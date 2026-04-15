@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { TableLikeObject } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
@@ -51,7 +52,7 @@ export class CreateIndex extends CreateIndexChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     let definition = this.index.definition;
 
     // btree being the default, we can omit it

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { DropViewChange } from "./view.base.ts";
@@ -34,7 +35,7 @@ export class DropView extends DropViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP VIEW", `${this.view.schema}.${this.view.name}`].join(" ");
   }
 }

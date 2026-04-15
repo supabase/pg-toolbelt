@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange } from "./role.base.ts";
 
@@ -41,7 +42,7 @@ export class CreateRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE ROLE"];
 
     // Add role name
