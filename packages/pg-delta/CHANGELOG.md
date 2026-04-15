@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.13
+
+### Patch Changes
+
+- 5b8511b: fix(export): allow declarative schema export to accept raw integration DSL without requiring callers to precompile serialize rules
+
 ## 1.0.0-alpha.12
 
 ### Patch Changes
