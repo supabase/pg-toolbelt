@@ -10,15 +10,12 @@ import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { DiffContext } from "../context.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
+import type { FilterDSL } from "../integrations/filter/dsl.ts";
 import {
-  compileFilterDSL,
-  type FilterDSL,
-} from "../integrations/filter/dsl.ts";
-import type { Integration } from "../integrations/integration.types.ts";
-import {
-  compileSerializeDSL,
-  type SerializeDSL,
-} from "../integrations/serialize/dsl.ts";
+  type ResolvedIntegration,
+  resolveIntegration,
+} from "../integrations/integration.types.ts";
+import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
 import { createManagedPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { PgDependRow } from "../sort/types.ts";
@@ -155,23 +152,10 @@ function buildPlanForCatalogs(
     : undefined;
 
   // Build final integration: compile DSL if needed, use functions directly otherwise
-  let finalIntegration: Integration | undefined;
-  if (filterOption || serializeOption) {
-    finalIntegration = {
-      filter:
-        typeof filterOption === "function"
-          ? filterOption
-          : filterDSL
-            ? compileFilterDSL(filterDSL)
-            : undefined,
-      serialize:
-        typeof serializeOption === "function"
-          ? serializeOption
-          : serializeDSL
-            ? compileSerializeDSL(serializeDSL)
-            : undefined,
-    };
-  }
+  const finalIntegration = resolveIntegration({
+    filter: filterOption,
+    serialize: serializeOption,
+  });
 
   // Use filter from final integration
   const filterFn = finalIntegration?.filter;
@@ -317,7 +301,7 @@ function buildPlan(
   options?: CreatePlanOptions,
   filterDSL?: FilterDSL,
   serializeDSL?: SerializeDSL,
-  integration?: Integration,
+  integration?: ResolvedIntegration,
 ): Plan {
   const role = options?.role;
   const statements = generateStatements(changes, {
@@ -350,7 +334,7 @@ function buildPlan(
 function generateStatements(
   changes: Change[],
   options?: {
-    integration?: Integration;
+    integration?: ResolvedIntegration;
     role?: string;
   },
 ): string[] {
