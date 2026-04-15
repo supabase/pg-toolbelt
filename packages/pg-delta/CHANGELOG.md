@@ -1,5 +1,13 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.12
+
+### Patch Changes
+
+- b9c7ebe: fix(pg-delta): support serial and identity transition diffs for table columns
+- d15eb48: fix(sort): order FK-related table drops and publication table removals before dependent destructive operations
+- e065101: Fix Supabase declarative export for `pgmq` by allowing the integration serializer to omit `WITH SCHEMA` during extension creation, so exported schemas can be applied to a fresh database. Formalize serializer option typing with a shared `SerializeOptions` contract so integration DSL options and change serializers stay in sync.
+
 ## 1.0.0-alpha.11
 
 ### Patch Changes
