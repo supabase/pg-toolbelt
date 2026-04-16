@@ -4,7 +4,7 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
-import { deepEqual } from "../utils.ts";
+import { deepEqual, stableId } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -196,6 +196,33 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
 }
 
 /**
+ * Yield the foreign-key constraints on `table` whose referenced table is
+ * present in `droppedSet` (and is a different table — self-references are
+ * handled natively by the sort phase via self-loops and don't need special
+ * treatment here). Partition-clone constraints are skipped; they are dropped
+ * automatically with their parent constraint.
+ */
+function* iterCrossDropFkConstraints(
+  table: Table,
+  droppedSet: ReadonlySet<string>,
+) {
+  for (const constraint of table.constraints) {
+    if (constraint.constraint_type !== "f") continue;
+    if (constraint.is_partition_clone) continue;
+    if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
+      continue;
+    }
+    const referencedId = stableId.table(
+      constraint.foreign_key_schema,
+      constraint.foreign_key_table,
+    );
+    if (referencedId === table.stableId) continue;
+    if (!droppedSet.has(referencedId)) continue;
+    yield { constraint, referencedId };
+  }
+}
+
+/**
  * Diff two sets of tables from main and branch catalogs.
  *
  * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
@@ -335,16 +362,11 @@ export function diffTables(
   const droppedFkTargets = new Map<string, Set<string>>();
   for (const tableId of dropped) {
     const targets = new Set<string>();
-    for (const constraint of main[tableId].constraints ?? []) {
-      if (constraint.constraint_type !== "f") continue;
-      if (constraint.is_partition_clone) continue;
-      if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
-        continue;
-      }
-      const referencedId = `table:${constraint.foreign_key_schema}.${constraint.foreign_key_table}`;
-      if (referencedId !== tableId && droppedSet.has(referencedId)) {
-        targets.add(referencedId);
-      }
+    for (const { referencedId } of iterCrossDropFkConstraints(
+      main[tableId],
+      droppedSet,
+    )) {
+      targets.add(referencedId);
     }
     droppedFkTargets.set(tableId, targets);
   }
@@ -352,19 +374,15 @@ export function diffTables(
   for (const tableId of dropped) {
     const mainTable = main[tableId];
     const externallyDroppedConstraints = new Set<string>();
-    for (const constraint of mainTable.constraints ?? []) {
-      if (constraint.constraint_type !== "f") continue;
-      if (constraint.is_partition_clone) continue;
-      if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
-        continue;
-      }
-      const referencedId = `table:${constraint.foreign_key_schema}.${constraint.foreign_key_table}`;
+    for (const { constraint, referencedId } of iterCrossDropFkConstraints(
+      mainTable,
+      droppedSet,
+    )) {
       // Only break the cycle when the referenced table also references us —
       // i.e. A -> B and B -> A. One-way FKs between two dropped tables are
       // handled correctly by the sort phase and don't need an explicit
       // ALTER TABLE ... DROP CONSTRAINT.
       const isMutual =
-        referencedId !== tableId &&
         droppedFkTargets.get(referencedId)?.has(tableId) === true;
       if (isMutual) {
         changes.push(
