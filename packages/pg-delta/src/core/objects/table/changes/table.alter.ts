@@ -644,6 +644,9 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
 
   serialize(_options?: SerializeOptions): string {
     const set = this.column.is_generated ? "SET EXPRESSION AS" : "SET DEFAULT";
+    const value = this.column.is_generated
+      ? `(${this.column.default ?? "NULL"})`
+      : (this.column.default ?? "NULL");
 
     return [
       "ALTER TABLE",
@@ -651,7 +654,7 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
       "ALTER COLUMN",
       this.column.name,
       set,
-      this.column.default ?? "NULL",
+      value,
     ].join(" ");
   }
 }

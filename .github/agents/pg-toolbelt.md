@@ -129,7 +129,7 @@ This will prompt you to select affected packages and choose the version bump typ
 
 All PR titles and commit messages **must** follow the [Conventional Commits](https://www.conventionalcommits.org/) convention:
 
-```
+```text
 <type>(<scope>): <description>
 
 # Examples
@@ -149,6 +149,7 @@ Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
 - Changesets automate releases on merge to main
 
 When changing shard count or PG versions, update all of these locations:
+
 - `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix
 - `scripts/coverage.ts` — default `--shards` value (doc comment + code)
 - This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
@@ -185,6 +186,39 @@ pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 
 
 - Run `bun run test:pg-delta` (full suite) only after all changes are complete and targeted tests pass
 
+### Upgrading Supabase test images
+
+When changing `packages/pg-delta/tests/constants.ts`, especially
+`POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG`, treat the generated Supabase
+baseline fixtures as part of the upgrade.
+
+- Do **not** hand-edit `packages/pg-delta/tests/integration/fixtures/supabase-base-init/*.sql`.
+  Regenerate them with the maintainer script.
+- Regenerate all supported fixtures:
+  `cd packages/pg-delta && env -u PGDELTA_TEST_POSTGRES_VERSIONS bun run sync-base-images`
+- Regenerate a single version while iterating:
+  `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run sync-base-images`
+- The sync script is expected to:
+  - create a temporary `supabase start` project pinned to the exact image tag
+  - diff a bare `supabase/postgres` container against the fully bootstrapped
+    local stack
+  - write `tests/integration/fixtures/supabase-base-init/<major>_fullstack_container_init.sql`
+  - replay that SQL into a fresh test-style Supabase container and require a
+    final zero-diff validation
+- `withDbSupabaseIsolated(...)` automatically replays the generated base-init
+  fixture. Any test that starts `SupabasePostgreSqlContainer` manually must call
+  `applySupabaseBaseInit(...)` from `packages/pg-delta/tests/utils.ts` before
+  asserting on Supabase-managed objects or applying project migrations.
+- After upgrading the image tags, rerun the focused regression tests before
+  considering the upgrade done:
+  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15,17 bun run test tests/integration/supabase-base-init.test.ts tests/integration/catalog-model.test.ts tests/integration/supabase-dsl-e2e.test.ts`
+  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15 bun run test tests/integration/dbdev-roundtrip.test.ts`
+- If the sync script or focused tests reveal new schemas, roles, grants, or
+  comments, update pg-delta’s Supabase handling (for example
+  `packages/pg-delta/src/core/integrations/supabase.ts` or the relevant
+  extraction/diff/serialization logic) instead of papering over the problem by
+  editing the generated SQL fixture by hand.
+
 ### Test Coverage Expectations
 
 All code changes must be covered by tests:
@@ -205,7 +239,7 @@ expect(result.sql).toMatchInlineSnapshot(`
 `);
 ```
 
-Start with empty assertions (e.g., `expect(statements).toMatchInlineSnapshot(\`\`)`) and run the test once to auto-generate snapshot values — Bun will fill them in automatically on first run. Update snapshots intentionally with `bun run test -u -- <test-name>`.
+Start with an empty inline snapshot assertion, run the test once so Bun fills in the expected value automatically, and update snapshots intentionally with `bun run test -u -- "pattern"`.
 
 ### Kaizen (Continuous Improvement)
 

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Pool } from "pg";
 import { createPool } from "../src/core/postgres-config.ts";
 import {
@@ -20,12 +22,84 @@ function suppressShutdownError(err: Error & { code?: string }) {
 
 export type DbFixture = { main: Pool; branch: Pool };
 
+// The generated base-init fixtures are large and shared by many Supabase tests.
+// Cache the file-read promise per major version so concurrent tests do not keep
+// re-reading the same SQL blob from disk.
+const supabaseBaseInitSqlCache = new Map<
+  SupabasePostgresVersion,
+  Promise<string>
+>();
+
+// Keep fixture path resolution in one place so the sync script output location
+// and the runtime lookup stay tightly coupled.
+function getSupabaseBaseInitFixturePath(
+  postgresVersion: SupabasePostgresVersion,
+): string {
+  return join(
+    import.meta.dir,
+    "integration",
+    "fixtures",
+    "supabase-base-init",
+    `${postgresVersion}_fullstack_container_init.sql`,
+  );
+}
+
+// Load the committed replay SQL produced by `bun run sync-base-images`. Tests
+// fail fast here if the fixture is missing so the problem is obvious during
+// bootstrap instead of surfacing later as missing Supabase schemas/tables.
+async function getSupabaseBaseInitSql(
+  postgresVersion: SupabasePostgresVersion,
+): Promise<string> {
+  const cached = supabaseBaseInitSqlCache.get(postgresVersion);
+  if (cached) {
+    return cached;
+  }
+
+  const sqlPromise = readFile(
+    getSupabaseBaseInitFixturePath(postgresVersion),
+    "utf-8",
+  ).catch((error) => {
+    throw new Error(
+      `Missing Supabase base init fixture for pg${postgresVersion}. Run \`bun run sync-base-images\` in packages/pg-delta first.`,
+      { cause: error },
+    );
+  });
+
+  supabaseBaseInitSqlCache.set(postgresVersion, sqlPromise);
+  return sqlPromise;
+}
+
+// Replay the generated "full stack minus bare image" delta into one database.
+// After this runs, a plain `supabase/postgres` test container should look like
+// a DB that has already been bootstrapped by the rest of the local Supabase
+// stack for the same image version.
+export async function applySupabaseBaseInit(
+  pool: Pool,
+  postgresVersion: SupabasePostgresVersion,
+): Promise<void> {
+  const sql = await getSupabaseBaseInitSql(postgresVersion);
+  await pool.query(sql);
+}
+
+// Most diff-style tests need both sides of the fixture to start from the same
+// Supabase-managed baseline before the test-specific SQL makes `main` and
+// `branch` diverge.
+export async function applySupabaseBaseInitToFixture(
+  db: DbFixture,
+  postgresVersion: SupabasePostgresVersion,
+): Promise<void> {
+  await Promise.all([
+    applySupabaseBaseInit(db.main, postgresVersion),
+    applySupabaseBaseInit(db.branch, postgresVersion),
+  ]);
+}
+
 /**
  * Retry pool.connect() until the database is truly accepting connections.
  * Supabase containers may pass their Docker health check before init scripts
  * finish, and concurrent container startup adds resource pressure.
  */
-async function waitForPool(
+export async function waitForPool(
   pool: Pool,
   retries = 5,
   delayMs = 2000,
@@ -115,6 +189,11 @@ export function withDbSupabaseIsolated(
     await Promise.all([waitForPool(main), waitForPool(branch)]);
 
     try {
+      // The raw image is no longer the intended Supabase test baseline. Before
+      // running test code, replay the generated base-init SQL onto both
+      // databases so service-owned objects such as `auth`, `storage`, and
+      // `realtime` match what `supabase start` would have initialized.
+      await applySupabaseBaseInitToFixture({ main, branch }, postgresVersion);
       await fn({ main, branch });
     } finally {
       await Promise.all([main.end(), branch.end()]);

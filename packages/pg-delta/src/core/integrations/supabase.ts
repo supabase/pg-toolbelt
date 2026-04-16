@@ -16,6 +16,7 @@ const SUPABASE_SYSTEM_SCHEMAS = [
   "_supavisor",
   "auth",
   "cron",
+  "etl",
   "extensions",
   "graphql",
   "graphql_public",
