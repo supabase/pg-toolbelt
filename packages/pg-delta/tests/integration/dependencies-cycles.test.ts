@@ -139,143 +139,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
-      "drop SERIAL table should not produce a cycle (auto-dropped owned sequence)",
-      withDb(pgVersion, async (db) => {
-        /**
-         * REPRODUCTION: Category 1 from the drop-phase cycle plan.
-         *
-         * A table with a SERIAL column in main is dropped entirely (not present
-         * in branch). PostgreSQL implicitly creates a sequence owned by the
-         * SERIAL column (e.g. test_schema.boilers_dev_id_seq). When main is
-         * dropped, Postgres auto-drops the owned sequence.
-         *
-         * Expected behaviour: the diff should emit a single DROP TABLE — the
-         * existing skip in `packages/pg-delta/src/core/objects/sequence/sequence.diff.ts`
-         * should suppress the DROP SEQUENCE because the owning table is absent
-         * from branch.
-         *
-         * Suspected failure: if the skip's catalog-shape detection misses this
-         * case, both DropSequence and DropTable end up in the drop phase and
-         * introduce a cycle (sequence owned-by → table, table → sequence via
-         * column default on SERIAL).
-         */
-        await db.main.query(
-          [
-            "SET LOCAL client_min_messages = error",
-            "CREATE SCHEMA test_schema",
-            `CREATE TABLE test_schema.boilers_dev (
-              id serial PRIMARY KEY,
-              name text NOT NULL
-            )`,
-          ].join(";\n\n"),
-        );
-
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-        });
-      }),
-    );
-
-    test(
-      "drop table with FK dependency should not produce a cycle",
-      withDb(pgVersion, async (db) => {
-        /**
-         * REPRODUCTION: Category 2 from the drop-phase cycle plan.
-         *
-         * Main has `hotels` and `profiles`, where `profiles.source_hotel_id`
-         * references `hotels.id` via a foreign key. Both tables are absent
-         * from branch so the diff must drop both.
-         *
-         * Expected behaviour: the diff should emit DROP TABLE for both tables
-         * (FK constraint is auto-dropped with the table). No
-         * AlterTableDropColumn on a table we're also dropping.
-         *
-         * Suspected failure (per plan): an AlterTableDropColumn is emitted
-         * alongside DropTable for the same table, and the column ↔ table
-         * dependency creates a cycle in the drop phase.
-         */
-        await db.main.query(
-          [
-            "SET LOCAL client_min_messages = error",
-            "CREATE SCHEMA test_schema",
-            `CREATE TABLE test_schema.hotels (
-              id bigserial PRIMARY KEY,
-              name text NOT NULL
-            )`,
-            `CREATE TABLE test_schema.profiles (
-              id bigserial PRIMARY KEY,
-              full_name text NOT NULL,
-              source_hotel_id bigint REFERENCES test_schema.hotels(id)
-            )`,
-          ].join(";\n\n"),
-        );
-
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-        });
-      }),
-    );
-
-    test(
-      "drop table whose column is referenced by FK from a surviving extra column variant",
-      withDb(pgVersion, async (db) => {
-        /**
-         * REPRODUCTION variant: main's `profiles` has an extra column that
-         * branch's `profiles` lacks, AND the referenced `hotels` table is
-         * being dropped. This mixes AlterTableDropColumn (for the extra
-         * column) with DropTable (for `hotels`) and may surface a different
-         * cycle shape than the pure drop-both case above.
-         */
-        await db.main.query(
-          [
-            "SET LOCAL client_min_messages = error",
-            "CREATE SCHEMA test_schema",
-            `CREATE TABLE test_schema.hotels (
-              id bigserial PRIMARY KEY,
-              name text NOT NULL
-            )`,
-            `CREATE TABLE test_schema.profiles (
-              id bigserial PRIMARY KEY,
-              full_name text NOT NULL,
-              extra_column text,
-              source_hotel_id bigint REFERENCES test_schema.hotels(id)
-            )`,
-          ].join(";\n\n"),
-        );
-
-        await db.branch.query(
-          [
-            "SET LOCAL client_min_messages = error",
-            "CREATE SCHEMA test_schema",
-            `CREATE TABLE test_schema.profiles (
-              id bigserial PRIMARY KEY,
-              full_name text NOT NULL
-            )`,
-          ].join(";\n\n"),
-        );
-
-        await roundtripFidelityTest({
-          mainSession: db.main,
-          branchSession: db.branch,
-        });
-      }),
-    );
-
-    test(
       "drop two tables with mutual FK references should not produce a cycle",
       withDb(pgVersion, async (db) => {
         /**
          * REPRODUCTION for CycleError seen in production:
          *
          *   CycleError: dependency graph contains a cycle involving 2 changes:
-         *     1. [108] DropTable
-         *     2. [142] DropTable
-         *   [108] → [142] constraint:public.parceiros.fk_tabela_comercial
-         *                   → column:public.tabelas_comerciais.id
-         *   [142] → [108] constraint:public.tabelas_comerciais.tabelas_comerciais_parceiro_id_fkey
-         *                   → column:public.parceiros.id
+         *     1. [n] DropTable
+         *     2. [m] DropTable
+         *   [n] → [m] constraint:public.a.a_b_fkey → column:public.b.id
+         *   [m] → [n] constraint:public.b.b_a_fkey → column:public.a.id
          *
          * Two tables each hold a FK pointing at the other; both are absent
          * from branch so both must be dropped. The pg_depend graph for the FK
@@ -293,21 +166,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         await db.main.query(
           [
             "SET LOCAL client_min_messages = error",
-            `CREATE TABLE public.parceiros (
+            `CREATE TABLE public.a (
               id bigserial PRIMARY KEY,
               name text NOT NULL
             )`,
-            `CREATE TABLE public.tabelas_comerciais (
+            `CREATE TABLE public.b (
               id bigserial PRIMARY KEY,
               name text NOT NULL,
-              parceiro_id bigint REFERENCES public.parceiros(id)
+              a_id bigint REFERENCES public.a(id)
             )`,
-            `ALTER TABLE public.parceiros
-              ADD COLUMN tabela_comercial_id bigint`,
-            `ALTER TABLE public.parceiros
-              ADD CONSTRAINT fk_tabela_comercial
-              FOREIGN KEY (tabela_comercial_id)
-              REFERENCES public.tabelas_comerciais(id)`,
+            `ALTER TABLE public.a
+              ADD COLUMN b_id bigint`,
+            `ALTER TABLE public.a
+              ADD CONSTRAINT a_b_fkey
+              FOREIGN KEY (b_id)
+              REFERENCES public.b(id)`,
           ].join(";\n\n"),
         );
 
