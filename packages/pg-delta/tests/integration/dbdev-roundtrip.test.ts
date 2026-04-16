@@ -40,6 +40,7 @@ import {
   type PostgresVersion,
 } from "../constants.ts";
 import { SupabasePostgreSqlContainer } from "../supabase-postgres.js";
+import { applySupabaseBaseInit, waitForPool } from "../utils.ts";
 
 const MIGRATIONS_DIR = path.join(
   import.meta.dir,
@@ -111,13 +112,40 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
       //  - Tables are owned by postgres (not a SUPABASE_SYSTEM_ROLE, so not filtered out)
       //  - ALTER DEFAULT PRIVILEGES is set for postgres
       //  - catalog.currentUser = postgres (triggering Bug 1 in the unfixed CLI path)
+      //
+      // Use plain `supabase_admin` pools only for the shared base-init replay:
+      // `applySupabaseBaseInit(...)` models the normal test/runtime bootstrap
+      // path before we intentionally switch into the bug-repro connection shape.
+      const setupMainPool = createPool(containerMain.getConnectionUri(), {
+        onError: suppressShutdownError,
+      });
+      const setupBranchPool = createPool(containerBranch.getConnectionUri(), {
+        onError: suppressShutdownError,
+      });
+      // These are the pools the actual roundtrip uses. Every connection issues
+      // `SET ROLE postgres` so `createPlan(...)` sees the same effective user as
+      // the real CLI path that originally triggered the regressions above.
       const mainPool = createPostgresRolePool(containerMain.getConnectionUri());
       const branchPool = createPostgresRolePool(
         containerBranch.getConnectionUri(),
       );
 
       try {
-        // Apply all dbdev migrations to branch in chronological (filename-sorted) order
+        // First bring both databases up to the shared generated Supabase
+        // baseline. Only after that do we apply dbdev-specific migrations to the
+        // branch side and ask pg-delta to export the difference.
+        await Promise.all([
+          waitForPool(setupMainPool),
+          waitForPool(setupBranchPool),
+        ]);
+        await Promise.all([
+          applySupabaseBaseInit(setupMainPool, pgVersion),
+          applySupabaseBaseInit(setupBranchPool, pgVersion),
+        ]);
+
+        // Now layer dbdev on top of that shared baseline: `main` stays at
+        // "Supabase base-init only", while `branch` becomes the desired state we
+        // expect declarative export/apply to reproduce.
         const migrations = await loadMigrations();
         for (const { filename, sql } of migrations) {
           await branchPool.query(sql).catch((err) => {
@@ -154,6 +182,9 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
           );
         }
 
+        // Export from "Supabase base-init only" -> "Supabase base-init + dbdev".
+        // This mirrors real usage where project schemas sit on top of
+        // service-managed Supabase objects that already exist.
         const output = exportDeclarativeSchema(planResult, {
           integration: { serialize: compiledSerialize },
         });
@@ -182,7 +213,8 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
           );
         }
 
-        // Diff main (post-apply) vs branch -- the supabase filter should see 0 changes
+        // Final assertion: after applying the exported declarative schema to the
+        // clean baseline, the Supabase-filtered diff should be empty.
         const mainCatalog = await extractCatalog(mainPool);
         const branchCatalog = await extractCatalog(branchPool);
         const allChanges = diffCatalogs(mainCatalog, branchCatalog);
@@ -201,7 +233,12 @@ describe(`dbdev declarative roundtrip (pg${pgVersion})`, () => {
 
         expect(remainingChanges).toHaveLength(0);
       } finally {
-        await Promise.all([endPool(mainPool), endPool(branchPool)]);
+        await Promise.all([
+          endPool(setupMainPool),
+          endPool(setupBranchPool),
+          endPool(mainPool),
+          endPool(branchPool),
+        ]);
         await Promise.all([containerMain.stop(), containerBranch.stop()]);
       }
     },

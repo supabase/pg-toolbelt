@@ -745,10 +745,18 @@ export function diffTables(
             // Set new default value
             const isGeneratedColumn = branchCol.is_generated;
             const isPostgresLowerThan17 = ctx.version < 170000;
+            const generatedStatusChanged =
+              mainCol.is_generated !== branchCol.is_generated;
 
-            if (isGeneratedColumn && isPostgresLowerThan17) {
+            if (
+              isGeneratedColumn &&
+              (isPostgresLowerThan17 || generatedStatusChanged)
+            ) {
               // For generated columns in < PostgreSQL 17, we need to drop and recreate
-              // instead of using SET EXPRESSION AS for computed columns
+              // instead of using SET EXPRESSION AS for computed columns. We also
+              // need to recreate the column when switching between regular and
+              // generated states because SET EXPRESSION only applies to existing
+              // generated columns.
               // cf: https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=5d06e99a3
               // cf: https://www.postgresql.org/docs/release/17.0/
               // > Allow ALTER TABLE to change a column's generation expression

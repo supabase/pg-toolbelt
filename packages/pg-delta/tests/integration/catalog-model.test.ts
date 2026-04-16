@@ -351,18 +351,18 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
         const catalog = await extractCatalog(db.main);
 
         // Test composite types
-        expect(Object.keys(catalog.compositeTypes)).toHaveLength(1);
-        const compositeType = Object.values(catalog.compositeTypes)[0];
-        expect(compositeType.name).toBe("address");
-        expect(compositeType.schema).toBe("test_schema");
-        expect(compositeType.owner).toBe("supabase_admin");
+        const compositeType = Object.values(catalog.compositeTypes).find(
+          (type) => type.schema === "test_schema" && type.name === "address",
+        );
+        expect(compositeType).toBeDefined();
+        expect(compositeType?.owner).toBe("supabase_admin");
 
         // Test enum types
-        expect(Object.keys(catalog.enums)).toHaveLength(1);
-        const enumType = Object.values(catalog.enums)[0];
-        expect(enumType.name).toBe("status");
-        expect(enumType.schema).toBe("test_schema");
-        expect(enumType.labels.map((l) => l.label)).toEqual([
+        const enumType = Object.values(catalog.enums).find(
+          (type) => type.schema === "test_schema" && type.name === "status",
+        );
+        expect(enumType).toBeDefined();
+        expect(enumType?.labels.map((l) => l.label)).toEqual([
           "active",
           "inactive",
           "pending",
