@@ -169,6 +169,18 @@ export function diffProcedures(
       changes.push(
         new CreateProcedure({ procedure: branchProcedure, orReplace: true }),
       );
+
+      if (mainProcedure.comment !== branchProcedure.comment) {
+        if (branchProcedure.comment === null) {
+          changes.push(
+            new DropCommentOnProcedure({ procedure: mainProcedure }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnProcedure({ procedure: branchProcedure }),
+          );
+        }
+      }
     } else {
       // Only alterable properties changed - check each one
 
