@@ -7,10 +7,17 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
-import { AlterTableAlterColumnSetDefault } from "./objects/table/changes/table.alter.ts";
+import {
+  AlterTableAlterColumnSetDefault,
+  AlterTableDropColumn,
+} from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
+import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
+import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
+import { Enum } from "./objects/type/enum/enum.model.ts";
 
 function mockChange(overrides: {
   creates?: string[];
@@ -191,5 +198,168 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.some((change) => change instanceof CreateTable)).toBe(
       false,
     );
+  });
+
+  test("replacing a table supersedes pre-existing object-scope AlterTable changes on the same table", async () => {
+    // Reproduction guard for the DropTable + AlterTableDropColumn drop-phase cycle:
+    // when an enum loses a label and a column on T still uses that enum, the
+    // expander enqueues DropTable(T)+CreateTable(T) to cascade the enum drop.
+    // Any pre-existing AlterTableDropColumn(T.otherCol) from diffTables must be
+    // removed — it is redundant (the recreate rebuilds T from the branch shape)
+    // and, left in the plan, forms an unbreakable drop-phase cycle with the
+    // catalog constraint→column→table edges.
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainEnum = new Enum({
+      schema: "public",
+      name: "item_status",
+      owner: "postgres",
+      labels: [
+        { sort_order: 1, label: "draft" },
+        { sort_order: 2, label: "published" },
+        { sort_order: 3, label: "archived" },
+      ],
+      comment: null,
+      privileges: [],
+    });
+    const branchEnum = new Enum({
+      ...mainEnum,
+      labels: [
+        { sort_order: 1, label: "draft" },
+        { sort_order: 2, label: "published" },
+      ],
+    });
+    const columnTemplate = {
+      data_type: "integer" as const,
+      data_type_str: "integer",
+      is_custom_type: false as const,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const mainChildren = new Table({
+      schema: "public",
+      name: "children",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "postgres",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        { ...columnTemplate, name: "id", position: 1, not_null: true },
+        { ...columnTemplate, name: "parent_ref", position: 2 },
+        {
+          ...columnTemplate,
+          name: "status",
+          position: 3,
+          data_type: "item_status",
+          data_type_str: "public.item_status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "public",
+          custom_type_name: "item_status",
+        },
+      ],
+      privileges: [],
+    });
+    const branchChildren = new Table({
+      ...mainChildren,
+      columns: [
+        { ...columnTemplate, name: "id", position: 1, not_null: true },
+        {
+          ...columnTemplate,
+          name: "status",
+          position: 2,
+          data_type: "item_status",
+          data_type_str: "public.item_status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "public",
+          custom_type_name: "item_status",
+        },
+      ],
+    });
+
+    // Pre-existing planner output: the enum replacement from diffEnums plus a
+    // targeted column drop from diffTables. The object-scope ALTER is the one
+    // the expander must elide. The privilege ALTER must survive.
+    const droppedColumn = mainChildren.columns.find(
+      (c) => c.name === "parent_ref",
+    );
+    if (!droppedColumn) throw new Error("test setup: parent_ref missing");
+    const preExistingAlter = new AlterTableDropColumn({
+      table: mainChildren,
+      column: droppedColumn,
+    });
+    const preExistingGrant = new GrantTablePrivileges({
+      table: branchChildren,
+      grantee: "reader",
+      privileges: [{ privilege: "SELECT", grantable: false }],
+    });
+    const changes: Change[] = [
+      new DropEnum({ enum: mainEnum }),
+      new CreateEnum({ enum: branchEnum }),
+      preExistingAlter,
+      preExistingGrant,
+    ];
+
+    const mainCatalog = new Catalog({
+      ...baseline,
+      enums: { [mainEnum.stableId]: mainEnum },
+      tables: { [mainChildren.stableId]: mainChildren },
+      // pg_depend: column children.status depends on type item_status.
+      depends: [
+        {
+          dependent_stable_id: "column:public.children.status",
+          referenced_stable_id: mainEnum.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      ...baseline,
+      enums: { [branchEnum.stableId]: branchEnum },
+      tables: { [branchChildren.stableId]: branchChildren },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    // The replace-table pair was added.
+    expect(expanded.some((c) => c instanceof DropTable)).toBe(true);
+    expect(expanded.some((c) => c instanceof CreateTable)).toBe(true);
+    // The superseded object-scope ALTER was removed.
+    expect(expanded).not.toContain(preExistingAlter);
+    expect(expanded.some((c) => c instanceof AlterTableDropColumn)).toBe(false);
+    // The enum replace roots are still present.
+    expect(expanded.some((c) => c instanceof DropEnum)).toBe(true);
+    expect(expanded.some((c) => c instanceof CreateEnum)).toBe(true);
+    // Privilege-scope ALTER on the recreated table survives.
+    expect(expanded).toContain(preExistingGrant);
   });
 });

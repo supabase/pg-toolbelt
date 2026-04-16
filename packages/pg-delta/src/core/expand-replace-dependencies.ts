@@ -115,6 +115,12 @@ export function expandReplaceDependencies({
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
   const queue: string[] = [...replaceRoots];
+  // Tables being replaced by an expansion-added DropTable+CreateTable pair.
+  // Any pre-existing targeted AlterTable*(T) object-scope change is superseded
+  // by the replacement and must be removed to avoid contradictions (e.g. an
+  // AlterTableDropColumn on a table that is about to be dropped) and the
+  // associated drop-phase cycle with the catalog constraint→column edge.
+  const tablesReplacedByExpansion = new Set<string>();
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -178,6 +184,13 @@ export function expandReplaceDependencies({
 
       additions.push(...replacementChanges);
 
+      // If we added a DropTable(T) for an existing table, mark T so any
+      // pre-existing object-scope AlterTable*(T) changes get dropped below —
+      // the DropTable+CreateTable pair supersedes all structural alterations.
+      if (resolved.kind === "table" && addDrop) {
+        tablesReplacedByExpansion.add(targetId);
+      }
+
       // Track new creates/drops so we don't duplicate work for downstream dependents.
       for (const change of replacementChanges) {
         for (const id of change.creates ?? []) createdIds.add(id);
@@ -186,11 +199,48 @@ export function expandReplaceDependencies({
     }
   }
 
-  if (additions.length === 0) {
+  if (additions.length === 0 && tablesReplacedByExpansion.size === 0) {
     return changes;
   }
 
-  return [...changes, ...additions];
+  const carriedChanges =
+    tablesReplacedByExpansion.size === 0
+      ? changes
+      : changes.filter(
+          (change) =>
+            !isSupersededByTableReplacement(change, tablesReplacedByExpansion),
+        );
+
+  return [...carriedChanges, ...additions];
+}
+
+/**
+ * Identify pre-existing changes that are made redundant by an expansion-added
+ * DropTable+CreateTable replacement pair on the same table.
+ *
+ * We only match object-scope ALTER TABLE changes (column/constraint structural
+ * alterations, owner changes, RLS toggles, storage params, etc.) because the
+ * replacement rebuilds the table from the branch shape, making those ALTERs
+ * redundant and — worse — contradictory (an `AlterTableDropColumn(T.col)` on a
+ * table that is about to be dropped forms an unbreakable drop-phase cycle).
+ *
+ * Privilege-scope ALTERs (GRANT/REVOKE) are preserved: they operate against
+ * the recreated table and are still required. Comment/Create/Drop operations
+ * have different `operation` values and are implicitly excluded.
+ */
+function isSupersededByTableReplacement(
+  change: Change,
+  replacedTableIds: Set<string>,
+): boolean {
+  if (change.objectType !== "table" || change.operation !== "alter") {
+    return false;
+  }
+  if (change.scope !== "object") {
+    return false;
+  }
+  const target = (change as unknown as { table?: { stableId: string } }).table;
+  if (!target) return false;
+  return replacedTableIds.has(target.stableId);
 }
 
 function isOwnedSequenceColumnDependency(

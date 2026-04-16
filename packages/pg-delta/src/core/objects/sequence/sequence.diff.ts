@@ -116,18 +116,28 @@ export function diffSequences(
 
   for (const sequenceId of dropped) {
     const sequence = main[sequenceId];
-    // Skip generating DROP SEQUENCE if the sequence is owned by a table that's being dropped.
-    // PostgreSQL automatically drops sequences owned by tables when the table is dropped,
-    // so generating DROP SEQUENCE would cause an error (sequence doesn't exist).
+    // Skip generating DROP SEQUENCE if the sequence is owned by a table/column that's being dropped.
+    // PostgreSQL automatically cascades owned sequences when the owning table OR the owning
+    // column is dropped (via OWNED BY). Emitting DROP SEQUENCE in those cases would either
+    // fail at apply time (sequence already gone) or — in the column-drop case — create an
+    // unbreakable DropSequence ↔ AlterTableDropColumn cycle in the drop-phase sort graph.
     if (
       sequence.owned_by_schema &&
       sequence.owned_by_table &&
       sequence.owned_by_column
     ) {
       const ownedByTableId = `table:${sequence.owned_by_schema}.${sequence.owned_by_table}`;
-      // If the owning table doesn't exist in branch catalog, it's being dropped
-      // and will auto-drop this sequence, so skip generating DROP SEQUENCE
-      if (!(ownedByTableId in branchTables)) {
+      const ownedByTable = branchTables[ownedByTableId];
+      // Owning table is dropped → PG auto-drops the owned sequence.
+      if (!ownedByTable) {
+        continue;
+      }
+      // Owning column is dropped (table survives) → PG still auto-drops the owned
+      // sequence as part of the column drop, so we must not emit DROP SEQUENCE.
+      const ownedByColumnExists = ownedByTable.columns?.some(
+        (col) => col.name === sequence.owned_by_column,
+      );
+      if (!ownedByColumnExists) {
         continue;
       }
     }
