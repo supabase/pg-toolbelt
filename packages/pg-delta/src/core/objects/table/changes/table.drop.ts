@@ -16,10 +16,31 @@ import { DropTableChange } from "./table.base.ts";
 export class DropTable extends DropTableChange {
   public readonly table: Table;
   public readonly scope = "object" as const;
+  /**
+   * Names of constraints on this table that are dropped explicitly by a
+   * separate `AlterTableDropConstraint` change. Those constraints must not be
+   * claimed by `DropTable.drops` / `.requires`, otherwise catalog edges tied
+   * to the constraint stableId will attach to this DropTable node instead of
+   * the dedicated AlterTableDropConstraint node. When two tables with mutual
+   * FK references are dropped in the same phase, that misattribution
+   * produces an unbreakable cycle between the two DropTable changes.
+   */
+  public readonly externallyDroppedConstraints: ReadonlySet<string>;
 
-  constructor(props: { table: Table }) {
+  constructor(props: {
+    table: Table;
+    externallyDroppedConstraints?: ReadonlySet<string>;
+  }) {
     super();
     this.table = props.table;
+    this.externallyDroppedConstraints =
+      props.externallyDroppedConstraints ?? new Set();
+  }
+
+  private get claimedConstraints() {
+    return this.table.constraints.filter(
+      (constraint) => !this.externallyDroppedConstraints.has(constraint.name),
+    );
   }
 
   get drops() {
@@ -29,8 +50,10 @@ export class DropTable extends DropTableChange {
         stableId.column(this.table.schema, this.table.name, column.name),
       ),
       // Include constraint stableIds so FK relationships that only exist at the
-      // constraint level still affect whole-table drop ordering.
-      ...this.table.constraints.map((constraint) =>
+      // constraint level still affect whole-table drop ordering. Skip any
+      // constraint that the diff layer is dropping via a dedicated
+      // AlterTableDropConstraint change — that node owns the stableId.
+      ...this.claimedConstraints.map((constraint) =>
         stableId.constraint(
           this.table.schema,
           this.table.name,
@@ -48,7 +71,7 @@ export class DropTable extends DropTableChange {
       ),
       // Mirror the dropped constraint ids in requires so drop-phase graph
       // consumers can connect catalog FK edges back to this table drop.
-      ...this.table.constraints.map((constraint) =>
+      ...this.claimedConstraints.map((constraint) =>
         stableId.constraint(
           this.table.schema,
           this.table.name,
