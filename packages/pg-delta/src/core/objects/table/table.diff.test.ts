@@ -835,6 +835,61 @@ describe.concurrent("table.diff", () => {
     ).toBe(true);
   });
 
+  test("postgres 17+ recreates a column when switching from regular to generated", () => {
+    const pg17Context = {
+      ...testContext,
+      version: 170000,
+    };
+
+    const regularColumn = {
+      name: "confirmed_at",
+      position: 1,
+      data_type: "timestamp with time zone",
+      data_type_str: "timestamp with time zone",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+
+    const generatedColumn = {
+      ...regularColumn,
+      is_generated: true,
+      default: "LEAST(email_confirmed_at, phone_confirmed_at)",
+    };
+
+    const mainTable = new Table({
+      ...base,
+      name: "auth_users_like",
+      columns: [regularColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "auth_users_like",
+      columns: [generatedColumn],
+    });
+
+    const changes = diffTables(
+      pg17Context,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.some((c) => c instanceof AlterTableDropColumn)).toBe(true);
+    expect(changes.some((c) => c instanceof AlterTableAddColumn)).toBe(true);
+    expect(
+      changes.some((c) => c instanceof AlterTableAlterColumnSetDefault),
+    ).toBe(false);
+  });
+
   test("created table with privileges emits grant changes", () => {
     const t = new Table({
       ...base,

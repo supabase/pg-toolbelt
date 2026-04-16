@@ -9,6 +9,7 @@ import {
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
 } from "./changes/procedure.alter.ts";
+import { CreateCommentOnProcedure } from "./changes/procedure.comment.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
 import { diffProcedures } from "./procedure.diff.ts";
@@ -157,5 +158,29 @@ describe.concurrent("procedure.diff", () => {
     );
     expect(changes).toHaveLength(1);
     expect(changes[0]).toBeInstanceOf(CreateProcedure);
+  });
+
+  test("create or replace also emits a procedure comment when the comment changes", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({
+      ...base,
+      definition:
+        "CREATE FUNCTION public.fn1() RETURNS int4 LANGUAGE sql AS $$SELECT 42::int4$$",
+      source_code: "SELECT 42::int4",
+      comment: "updated comment",
+    });
+
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.some((change) => change instanceof CreateProcedure)).toBe(
+      true,
+    );
+    expect(
+      changes.some((change) => change instanceof CreateCommentOnProcedure),
+    ).toBe(true);
   });
 });
