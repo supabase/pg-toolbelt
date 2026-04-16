@@ -492,6 +492,20 @@ describe.concurrent("table", () => {
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT 0",
       );
 
+      const changeSetGeneratedExpression = new AlterTableAlterColumnSetDefault({
+        table: withCols,
+        column: {
+          ...colText,
+          name: "computed_name",
+          is_generated: true,
+          default: "lower((b))",
+        },
+      });
+      await assertValidSql(changeSetGeneratedExpression.serialize());
+      expect(changeSetGeneratedExpression.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN computed_name SET EXPRESSION AS (lower((b)))",
+      );
+
       const changeDropDefault = new AlterTableAlterColumnDropDefault({
         table: withCols,
         column: { ...colInt, default: null },
