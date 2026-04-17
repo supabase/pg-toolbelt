@@ -14,11 +14,16 @@ cycle filter.
   column, so emitting `DROP SEQUENCE` both failed at apply time and formed
   an unbreakable cycle with `AlterTableDropColumn`. This mirrors the
   existing short-circuit for whole-table drops.
-- `expandReplaceDependencies` now removes pre-existing object-scope
-  `AlterTable*(T)` changes when it enqueues a `DropTable(T) + CreateTable(T)`
-  replacement pair for the same table. The replacement rebuilds `T` from
-  the branch shape, making prior structural alterations redundant.
-  Previously, coexisting `DropTable(T)` and `AlterTableDropColumn(T.col)`
-  produced a `column → table` explicit edge that closed an unbreakable
-  cycle against catalog FK edges. Privilege-scope ALTERs (GRANT/REVOKE)
-  are preserved so the recreated table still gets its grants.
+- `expandReplaceDependencies` now removes pre-existing
+  `AlterTableDropColumn(T.col)` and `AlterTableDropConstraint(T.c)` changes
+  when it enqueues a `DropTable(T) + CreateTable(T)` replacement pair for
+  the same table. Those are the only `AlterTable*` subclasses whose
+  `requires` includes `table.stableId`, producing a `column:T.col → table:T`
+  (or `constraint:T.c → table:T`) explicit edge that closed an unbreakable
+  drop-phase cycle against catalog `constraint → column → table` edges.
+  Supersession is scoped to those two classes only; other `AlterTable*(T)`
+  changes (owner, RLS toggles, replica identity, storage params,
+  SET LOGGED/UNLOGGED) and privilege-scope ALTERs (GRANT/REVOKE) are
+  preserved so the recreated table ends up in the correct state — the sort
+  phase orders them after `CreateTable(T)` via their `table.stableId`
+  requirement.

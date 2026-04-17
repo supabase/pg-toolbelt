@@ -8,6 +8,8 @@ import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import {
   AlterTableAddConstraint,
+  AlterTableDropColumn,
+  AlterTableDropConstraint,
   AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
@@ -215,32 +217,35 @@ export function expandReplaceDependencies({
 }
 
 /**
- * Identify pre-existing changes that are made redundant by an expansion-added
+ * Identify pre-existing changes that are made redundant by — AND that would
+ * form an unbreakable drop-phase cycle against — an expansion-added
  * DropTable+CreateTable replacement pair on the same table.
  *
- * We only match object-scope ALTER TABLE changes (column/constraint structural
- * alterations, owner changes, RLS toggles, storage params, etc.) because the
- * replacement rebuilds the table from the branch shape, making those ALTERs
- * redundant and — worse — contradictory (an `AlterTableDropColumn(T.col)` on a
- * table that is about to be dropped forms an unbreakable drop-phase cycle).
+ * Only `AlterTableDropColumn` and `AlterTableDropConstraint` qualify: both
+ * expose `requires = [table.stableId, column-or-constraint.stableId]`, and it
+ * is that `table.stableId` entry that produces the explicit
+ * `column:T.col → table:T` (or `constraint:T.c → table:T`) drop-phase edge
+ * which closes a cycle against the catalog `constraint → column → table`
+ * edges.
  *
- * Privilege-scope ALTERs (GRANT/REVOKE) are preserved: they operate against
- * the recreated table and are still required. Comment/Create/Drop operations
- * have different `operation` values and are implicitly excluded.
+ * Other object-scope `AlterTable*(T)` changes — owner, RLS toggles, replica
+ * identity, storage parameters, SET LOGGED/UNLOGGED — do NOT participate in
+ * this cycle and MUST be preserved: `CreateTable.serialize()` does not emit
+ * those inline, so removing them would silently regress the recreated
+ * table's state. The sort phase correctly orders them after `CreateTable(T)`
+ * via their `table.stableId` requirement.
  */
 function isSupersededByTableReplacement(
   change: Change,
   replacedTableIds: Set<string>,
 ): boolean {
-  if (change.objectType !== "table" || change.operation !== "alter") {
+  if (
+    !(change instanceof AlterTableDropColumn) &&
+    !(change instanceof AlterTableDropConstraint)
+  ) {
     return false;
   }
-  if (change.scope !== "object") {
-    return false;
-  }
-  const target = (change as unknown as { table?: { stableId: string } }).table;
-  if (!target) return false;
-  return replacedTableIds.has(target.stableId);
+  return replacedTableIds.has(change.table.stableId);
 }
 
 function isOwnedSequenceColumnDependency(

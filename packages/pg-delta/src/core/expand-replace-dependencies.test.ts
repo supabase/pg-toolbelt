@@ -9,7 +9,11 @@ import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAlterColumnSetDefault,
+  AlterTableChangeOwner,
   AlterTableDropColumn,
+  AlterTableDropConstraint,
+  AlterTableEnableRowLevelSecurity,
+  AlterTableSetReplicaIdentity,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -200,14 +204,20 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
-  test("replacing a table supersedes pre-existing object-scope AlterTable changes on the same table", async () => {
-    // Reproduction guard for the DropTable + AlterTableDropColumn drop-phase cycle:
-    // when an enum loses a label and a column on T still uses that enum, the
-    // expander enqueues DropTable(T)+CreateTable(T) to cascade the enum drop.
-    // Any pre-existing AlterTableDropColumn(T.otherCol) from diffTables must be
-    // removed — it is redundant (the recreate rebuilds T from the branch shape)
-    // and, left in the plan, forms an unbreakable drop-phase cycle with the
-    // catalog constraint→column→table edges.
+  test("replacing a table supersedes drop-column/drop-constraint ALTERs only on the replaced table", async () => {
+    // Reproduction guard for the DropTable + AlterTableDropColumn/
+    // AlterTableDropConstraint drop-phase cycle: when an enum loses a label
+    // and a column on T still uses that enum, the expander enqueues
+    // DropTable(T)+CreateTable(T) to cascade the enum drop. Any pre-existing
+    // AlterTableDropColumn(T.col) / AlterTableDropConstraint(T.fk) from
+    // diffTables must be removed — they are redundant (the recreate rebuilds
+    // T from the branch shape) and, left in the plan, close an unbreakable
+    // drop-phase cycle with the catalog `constraint → column → table` edges.
+    //
+    // Owner / RLS / replica-identity ALTER TABLE changes do NOT form that
+    // cycle (their `requires` contains only `table.stableId`) and `CreateTable`
+    // does not re-emit them inline — they must survive so the sort phase can
+    // order them after `CreateTable(T)`.
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainEnum = new Enum({
       schema: "public",
@@ -301,16 +311,61 @@ describe("expandReplaceDependencies", () => {
       ],
     });
 
-    // Pre-existing planner output: the enum replacement from diffEnums plus a
-    // targeted column drop from diffTables. The object-scope ALTER is the one
-    // the expander must elide. The privilege ALTER must survive.
+    // Pre-existing planner output: the enum replacement from diffEnums plus
+    // targeted ALTER TABLE statements from diffTables. The two cycle-forming
+    // ALTERs (drop-column, drop-constraint) must be elided. The privilege
+    // ALTER and the owner / RLS / replica-identity ALTERs must all survive.
     const droppedColumn = mainChildren.columns.find(
       (c) => c.name === "parent_ref",
     );
     if (!droppedColumn) throw new Error("test setup: parent_ref missing");
-    const preExistingAlter = new AlterTableDropColumn({
+    const preExistingDropColumn = new AlterTableDropColumn({
       table: mainChildren,
       column: droppedColumn,
+    });
+    const preExistingDropConstraint = new AlterTableDropConstraint({
+      table: mainChildren,
+      constraint: {
+        name: "children_parent_ref_fkey",
+        constraint_type: "f",
+        deferrable: false,
+        initially_deferred: false,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        is_partition_clone: false,
+        parent_constraint_schema: null,
+        parent_constraint_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        key_columns: ["parent_ref"],
+        foreign_key_columns: ["id"],
+        foreign_key_table: "parents",
+        foreign_key_schema: "public",
+        foreign_key_table_is_partition: false,
+        foreign_key_parent_schema: null,
+        foreign_key_parent_table: null,
+        foreign_key_effective_schema: "public",
+        foreign_key_effective_table: "parents",
+        on_update: "a",
+        on_delete: "a",
+        match_type: "s",
+        check_expression: null,
+        owner: "postgres",
+        definition: "FOREIGN KEY (parent_ref) REFERENCES public.parents(id)",
+        comment: null,
+      },
+    });
+    const preExistingChangeOwner = new AlterTableChangeOwner({
+      table: branchChildren,
+      owner: "new_owner",
+    });
+    const preExistingEnableRls = new AlterTableEnableRowLevelSecurity({
+      table: branchChildren,
+    });
+    const preExistingReplicaIdentity = new AlterTableSetReplicaIdentity({
+      table: branchChildren,
+      mode: "f",
     });
     const preExistingGrant = new GrantTablePrivileges({
       table: branchChildren,
@@ -320,7 +375,11 @@ describe("expandReplaceDependencies", () => {
     const changes: Change[] = [
       new DropEnum({ enum: mainEnum }),
       new CreateEnum({ enum: branchEnum }),
-      preExistingAlter,
+      preExistingDropColumn,
+      preExistingDropConstraint,
+      preExistingChangeOwner,
+      preExistingEnableRls,
+      preExistingReplicaIdentity,
       preExistingGrant,
     ];
 
@@ -353,12 +412,22 @@ describe("expandReplaceDependencies", () => {
     // The replace-table pair was added.
     expect(expanded.some((c) => c instanceof DropTable)).toBe(true);
     expect(expanded.some((c) => c instanceof CreateTable)).toBe(true);
-    // The superseded object-scope ALTER was removed.
-    expect(expanded).not.toContain(preExistingAlter);
+    // The two cycle-forming ALTERs were removed.
+    expect(expanded).not.toContain(preExistingDropColumn);
+    expect(expanded).not.toContain(preExistingDropConstraint);
     expect(expanded.some((c) => c instanceof AlterTableDropColumn)).toBe(false);
+    expect(expanded.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      false,
+    );
     // The enum replace roots are still present.
     expect(expanded.some((c) => c instanceof DropEnum)).toBe(true);
     expect(expanded.some((c) => c instanceof CreateEnum)).toBe(true);
+    // Non-cycle object-scope ALTERs survive so CreateTable's incomplete
+    // serialization (no owner / RLS / replica-identity) is compensated by the
+    // sort phase re-ordering these after CreateTable(T).
+    expect(expanded).toContain(preExistingChangeOwner);
+    expect(expanded).toContain(preExistingEnableRls);
+    expect(expanded).toContain(preExistingReplicaIdentity);
     // Privilege-scope ALTER on the recreated table survives.
     expect(expanded).toContain(preExistingGrant);
   });
