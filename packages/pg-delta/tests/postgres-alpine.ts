@@ -64,16 +64,16 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withTmpFs({
       "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
     });
-    // Enable logical replication to be able to create subscriptions, and
-    // preload `dummy_seclabel` so the "dummy" SECURITY LABEL provider is
-    // registered in every session (see dummy-seclabel.Dockerfile).
-    this.withCommand([
-      "postgres",
-      "-c",
-      "wal_level=logical",
-      "-c",
-      "shared_preload_libraries=dummy_seclabel",
-    ]);
+
+    // Always enable logical replication so subscription tests work. Preload
+    // `dummy_seclabel` only on our custom `pg-delta-test:*` image (which has
+    // the module installed — see dummy-seclabel.Dockerfile); stock postgres
+    // images would fail to start with `shared_preload_libraries=dummy_seclabel`.
+    const command = ["postgres", "-c", "wal_level=logical"];
+    if (image.startsWith(`${DUMMY_SECLABEL_IMAGE_PREFIX}:`)) {
+      command.push("-c", "shared_preload_libraries=dummy_seclabel");
+    }
+    this.withCommand(command);
   }
 
   public override async start(): Promise<StartedPostgresAlpineContainer> {
