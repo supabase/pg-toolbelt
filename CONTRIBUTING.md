@@ -57,4 +57,3 @@ Always use `bun run test`, not bare `bun test`, so the repository's test wrapper
 ### `pg-topo`
 
 - Keep tests focused on the smallest SQL sample that proves the behavior.
-

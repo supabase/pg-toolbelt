@@ -62,4 +62,3 @@ Please include:
 - the order you expected
 - the order or diagnostic you actually got
 - whether the issue depends on comments, annotations, or filesystem discovery
-
