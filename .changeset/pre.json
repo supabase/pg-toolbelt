@@ -17,6 +17,7 @@
     "fix-drop-ordering",
     "fix-drop-phase-cycles-owned-sequence-and-replace-table",
     "fix-index-extension-ordering",
+    "fix-ipv6-bracket-strip",
     "fix-ipv6-connection-url",
     "fix-mutual-fk-drop-cycle",
     "fix-self-grant-admin-option",
