@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../../diff-context.ts";
+import { diffSecurityLabels } from "../../security-label.types.ts";
 import {
   AlterEnumAddValue,
   AlterEnumChangeOwner,
@@ -20,6 +21,10 @@ import {
   RevokeEnumPrivileges,
   RevokeGrantOptionEnumPrivileges,
 } from "./changes/enum.privilege.ts";
+import {
+  CreateSecurityLabelOnEnum,
+  DropSecurityLabelOnEnum,
+} from "./changes/enum.security-label.ts";
 import type { EnumChange } from "./changes/enum.types.ts";
 import type { Enum } from "./enum.model.ts";
 
@@ -60,6 +65,14 @@ export function diffEnums(
 
     if (createdEnum.comment !== null) {
       changes.push(new CreateCommentOnEnum({ enum: createdEnum }));
+    }
+    for (const label of createdEnum.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnEnum({
+          enum: createdEnum,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -195,6 +208,26 @@ export function diffEnums(
         changes.push(new CreateCommentOnEnum({ enum: branchEnum }));
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnEnum | DropSecurityLabelOnEnum
+      >(
+        mainEnum.security_labels,
+        branchEnum.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnEnum({
+            enum: branchEnum,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnEnum({
+            enum: mainEnum,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PRIVILEGES
     // Filter out PUBLIC's built-in default USAGE privilege from main catalog

@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../../diff-context.ts";
+import { diffSecurityLabels } from "../../security-label.types.ts";
 import { hasNonAlterableChanges } from "../../utils.ts";
 import { AlterRangeChangeOwner } from "./changes/range.alter.ts";
 import {
@@ -18,6 +19,10 @@ import {
   RevokeGrantOptionRangePrivileges,
   RevokeRangePrivileges,
 } from "./changes/range.privilege.ts";
+import {
+  CreateSecurityLabelOnRange,
+  DropSecurityLabelOnRange,
+} from "./changes/range.security-label.ts";
 import type { RangeChange } from "./changes/range.types.ts";
 import type { Range } from "./range.model.ts";
 
@@ -58,6 +63,14 @@ export function diffRanges(
 
     if (createdRange.comment !== null) {
       changes.push(new CreateCommentOnRange({ range: createdRange }));
+    }
+    for (const label of createdRange.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnRange({
+          range: createdRange,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -155,6 +168,26 @@ export function diffRanges(
           changes.push(new CreateCommentOnRange({ range: branchRange }));
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnRange | DropSecurityLabelOnRange
+        >(
+          mainRange.security_labels,
+          branchRange.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnRange({
+              range: branchRange,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnRange({
+              range: mainRange,
+              securityLabel,
+            }),
+        ),
+      );
 
       // PRIVILEGES
       // Filter out PUBLIC's built-in default USAGE privilege from main catalog
