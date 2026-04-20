@@ -23,6 +23,64 @@ Known extension gaps from the current codebase:
 - Supabase integration still lacks a canonical `emptyCatalog`
 - Supabase integration currently filters out several service-managed schemas (`auth`, `storage`, `cron`, `graphql`, `net`, `pgmq`, `pgsodium`, `vault`, ...)
 
+## Usage-weighted prioritization
+
+The extension counts matter, but they should influence priority together with **migration relevance**:
+
+- some of the most-installed extensions are effectively **baseline/install-state only** (`plpgsql`, `uuid-ossp`, `pgcrypto`, `pg_stat_statements`, `pgjwt`)
+- some are highly installed **and** likely to need dedicated pg-delta behavior (`pg_graphql`, `pg_cron`, `pg_net`, `vector`, `pgmq`, `pg_trgm`, `postgis`)
+- some are less common overall, but still strategically important because they represent the shape of “extension-managed state” (`pg_partman`, `wrappers`, `postgres_fdw`, `supabase_vault`)
+
+So the right weighting is not “top count always first”, but:
+
+1. **top usage + user-facing managed state** first
+2. **top usage + likely regressions in existing generic diffing** second
+3. **lower-usage but architecture-defining extensions** third
+4. **long-tail install-state extensions** last
+
+### Usage-informed focus tiers
+
+#### Tier 1: highest-value near-term targets
+
+These either sit in the top usage cohort or are close enough to it, and they exercise the extension-specific behavior pg-delta is currently weakest at:
+
+- `pg_graphql`
+- `pg_cron`
+- `pg_net`
+- `vector`
+- `pgmq`
+- `pg_trgm`
+- `postgis`
+- `supabase_vault`
+
+#### Tier 2: important coverage / architecture-follow-up
+
+- `wrappers`
+- `postgres_fdw`
+- `pgsodium`
+- `btree_gist`
+- `btree_gin`
+- `pgroonga`
+- `rum`
+- `bloom`
+- `file_fdw`
+- `pg_partman`
+
+#### Tier 3: baseline / install-state only
+
+These are common, but mostly strengthen the case for baseline correctness rather than bespoke diffing:
+
+- `plpgsql`
+- `uuid-ossp`
+- `pgcrypto`
+- `pg_stat_statements`
+- `pgjwt`
+- `http`
+- `unaccent`
+- `citext`
+- `hstore`
+- `ltree`
+
 ## Decision buckets
 
 - **No immediate work**: generic extension support is probably enough
@@ -122,39 +180,169 @@ Known extension gaps from the current codebase:
 
 ## Prioritized plan
 
-### Phase 1: baseline and safety rails
+### Phase 1: usage-weighted safety rails
 
 1. Add a canonical Supabase `emptyCatalog`.
-2. Freeze this triage into repository docs/tests so extension decisions are explicit.
-3. Add coverage for the extension classes most likely to regress:
-   - index/operator-class extensions (`pg_trgm`, `vector`, `btree_gin`, `btree_gist`, `rum`, `bloom`, `pgroonga`)
+2. Reframe the roadmap around the most-used extensions that expose extension-managed state.
+3. Add coverage for the highest-usage extensions where generic support should already work but regressions would be costly:
+   - type/operator/index extensions (`vector`, `pg_trgm`, `btree_gin`, `btree_gist`, `rum`, `bloom`, `pgroonga`)
    - FDW-backed extensions (`postgres_fdw`, `file_fdw`, `wrappers`)
    - quoted or package-manager style names from database.dev
 
-### Phase 2: Supabase-specific extension handling
+### Phase 2: first-class handling for top-usage managed extensions
 
 1. Keep `pg_net` and `pgmq` as first-class Supabase integration cases.
-2. Decide which filtered schemas should remain baseline-only (`graphql`, `vault`, `pgsodium`) versus which should expose user-facing resources.
-3. Document which extensions pg-delta intentionally treats as “install state only”.
+2. Decide which filtered schemas should remain baseline-only versus which should surface user-facing managed resources:
+   - `graphql` / `graphql_public`
+   - `vault`
+   - `cron`
+   - `net`
+3. Document which high-usage extensions pg-delta intentionally treats as “install state only”.
 
-### Phase 3: service/resource modeling
+### Phase 3: plugin-oriented service/resource modeling
 
-Treat extension-backed service state as first-class pg-delta objects where that gives users real migration value:
+Treat extension-backed service state as first-class pg-delta objects where that gives the most value, weighted by real usage:
 
 1. `pg_cron` jobs
 2. `pgmq` queues
-3. `pg_partman` partition-management config
+3. `pg_graphql` managed schemas/resources
 4. Supabase Vault metadata that is safe to represent without diffing secret payloads
+5. `pg_partman` partition-management config
 
-### Phase 4: deep research candidates
-
-Only after the earlier phases are stable:
+### Phase 4: deeper extension families
 
 1. PostGIS family beyond core `postgis`
 2. `timescaledb`
 3. `pg_tle` and database.dev package semantics
 4. Supabase/product-specific third-party extensions
 5. Storage-level engines such as `orioledb`
+
+## High-level plugin implementation options
+
+The current pg-delta pipeline is roughly:
+
+1. extract catalogs
+2. diff catalogs object-by-object
+3. filter changes through integrations
+4. sort and serialize changes
+
+That pipeline is already extensible at the **filter/serialize** layer, but extension-managed state needs hooks **before and during** global diffing, not just after it.
+
+### Option A: post-process-only extension plugins
+
+Each extension plugin would look at the final change list and add/remove extra statements.
+
+**Pros**
+
+- smallest conceptual change
+- easy to add incrementally
+
+**Cons**
+
+- too weak for cases like `pg_partman`
+- cannot reliably prevent noisy base diff output when the core diff has already emitted objects the extension “owns”
+- likely becomes brittle because plugins are patching after the fact
+
+**Assessment**: probably insufficient as the long-term model.
+
+### Option B: pre-diff masking + plugin-managed diff hooks
+
+Each plugin can:
+
+1. detect whether it is active from the installed extension set
+2. introspect extension-specific managed state from source and target
+3. declare which catalog objects are “plugin-managed” and should be hidden from the base diff
+4. emit its own specialized changes
+5. merge those changes back into the global change list for sorting/serialization
+
+**Pros**
+
+- fits the `pg_partman` use case well
+- lets plugins influence the global diff before noisy changes are emitted
+- keeps extension-specific logic isolated
+
+**Cons**
+
+- needs a new lifecycle and registry
+- requires careful boundaries between “core-owned” and “plugin-owned” objects
+
+**Assessment**: the best default direction.
+
+### Option C: virtual catalog objects produced by plugins
+
+Plugins would extract their managed state and expose it as synthetic catalog objects, so the main diff engine can compare them similarly to built-in objects.
+
+Examples:
+
+- `pg_cron` plugin exposes “cron job” objects
+- `pgmq` plugin exposes “queue” objects
+- `pg_partman` plugin exposes “partition config” objects
+
+**Pros**
+
+- most aligned with pg-delta’s existing catalog/diff architecture
+- makes plugin-managed state visible to sorting, filtering, and plan reporting
+- easier to reason about long-term than opaque post-processing
+
+**Cons**
+
+- requires new core abstractions for plugin-defined models and change types
+- bigger upfront design than Option B
+
+**Assessment**: likely the best long-term architecture, but heavier for a first iteration.
+
+### Recommended direction: hybrid of B and C
+
+The most realistic path is:
+
+1. start with a **plugin registry**
+2. let plugins participate in **pre-diff masking**
+3. let plugins emit **specialized change objects**
+4. evolve those change objects toward **first-class virtual catalog objects** once the lifecycle is proven
+
+That gives enough power for `pg_partman`, `pg_cron`, and `pgmq` without forcing a full core redesign on day one.
+
+## Proposed plugin lifecycle
+
+At a high level, a plugin system could look like this:
+
+1. **Discovery**
+   - resolve installed extensions from both catalogs
+   - activate only plugins whose extension is present in source and/or target
+2. **Introspection**
+   - plugin reads extension-managed metadata from source and target databases
+   - example: cron jobs, queue metadata, partition-management config
+3. **Ownership declaration**
+   - plugin tells pg-delta which base catalog objects it manages or wants excluded from the raw diff
+   - this is the key step for `pg_partman`-style suppression
+4. **Core diff**
+   - pg-delta diffs the remaining catalog as usual
+5. **Plugin diff**
+   - plugin produces specialized changes for its managed state
+6. **Global merge**
+   - merge base changes and plugin changes into a single dependency-aware change list
+7. **Sort / serialize**
+   - reuse existing sort/serialize machinery as much as possible
+
+## What plugin hooks likely need to exist
+
+- **activation hook**: “is this plugin relevant for these catalogs?”
+- **extract hook**: “what managed state does this extension expose?”
+- **ownership hook**: “which raw catalog objects should the core diff ignore?”
+- **diff hook**: “what specialized changes should be produced?”
+- **dependency hook**: “what does each specialized change depend on?”
+- **serialize hook**: “how is each specialized change rendered?”
+
+## Which extensions are the best design drivers
+
+If the goal is to validate the plugin architecture rather than support every extension at once, the best first design drivers are:
+
+1. `pg_cron` — clean example of extension-specific managed rows
+2. `pgmq` — clear queue-oriented managed state
+3. `pg_partman` — proves the “plugin informs global diff” requirement
+4. `pg_graphql` — tests filtered-schema / Supabase-managed integration concerns
+
+If those work, the architecture is probably good enough to generalize.
 
 ## Explicit non-goals for the first pass
 
@@ -168,7 +356,8 @@ Only after the earlier phases are stable:
 After this plan is accepted, the first implementation slice should focus on:
 
 1. Supabase baseline (`emptyCatalog`)
-2. coverage for the “Coverage only” bucket
-3. a small first service-modeling target (`pg_cron` or `pgmq`)
+2. coverage for the high-usage “Coverage only” bucket
+3. a first plugin-oriented service-modeling target (`pg_cron` or `pgmq`)
+4. a narrow plugin lifecycle spike that proves pre-diff masking plus plugin-emitted changes
 
 That gives pg-delta a better Supabase extension story without overcommitting to the hardest extensions first.
