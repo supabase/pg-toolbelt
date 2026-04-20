@@ -39,12 +39,12 @@ bun run format-and-lint # Format and lint all code
 ```bash
 # pg-delta
 cd packages/pg-delta
-bun test src/           # Unit tests only
-bun test tests/         # Integration tests only (requires Docker)
+bun run test src/       # Unit tests only
+bun run test tests/     # Integration tests only (requires Docker)
 
 # pg-topo
 cd packages/pg-topo
-bun test                # All tests (requires Docker)
+bun run test            # All tests (requires Docker)
 ```
 
 ### Releasing
@@ -56,6 +56,16 @@ bunx changeset          # Create a changeset
 bun run version         # Apply changesets to update versions
 bunx changeset publish  # Publish to npm
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
+
+- Open an issue first.
+- Wait for maintainer approval via the `todo` label.
+- Then open a pull request.
+
+Use [ISSUES.md](./ISSUES.md) for issue-writing guidance, especially for `pg-delta` reproductions.
 
 ## License
 

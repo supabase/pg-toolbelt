@@ -181,7 +181,13 @@ See [Integrations Documentation](./docs/integrations.md) for complete details.
 
 ## Contributing
 
-Contributions welcome! Feel free to submit issues and pull requests.
+Please follow the repository-level guide in [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+In particular:
+
+- open an issue first
+- wait for the `todo` label before opening a pull request
+- use [../../ISSUES.md](../../ISSUES.md) when reporting `pg-delta` bugs so maintainers have what they need to reproduce them
 
 ## License
 
