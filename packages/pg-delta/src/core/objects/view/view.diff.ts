@@ -4,6 +4,7 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterViewChangeOwner,
@@ -21,6 +22,10 @@ import {
   RevokeGrantOptionViewPrivileges,
   RevokeViewPrivileges,
 } from "./changes/view.privilege.ts";
+import {
+  CreateSecurityLabelOnView,
+  DropSecurityLabelOnView,
+} from "./changes/view.security-label.ts";
 import type { ViewChange } from "./changes/view.types.ts";
 import type { View } from "./view.model.ts";
 
@@ -56,6 +61,12 @@ export function diffViews(
 
     if (v.comment !== null) {
       changes.push(new CreateCommentOnView({ view: v }));
+    }
+
+    for (const label of v.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnView({ view: v, securityLabel: label }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -179,6 +190,26 @@ export function diffViews(
           changes.push(new CreateCommentOnView({ view: branchView }));
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnView | DropSecurityLabelOnView
+        >(
+          mainView.security_labels,
+          branchView.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnView({
+              view: branchView,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnView({
+              view: mainView,
+              securityLabel,
+            }),
+        ),
+      );
 
       // Note: View renaming would also use ALTER VIEW ... RENAME TO ...
       // But since our View model uses 'name' as the identity field,

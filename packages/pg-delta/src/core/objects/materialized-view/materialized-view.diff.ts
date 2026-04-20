@@ -4,6 +4,7 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterMaterializedViewChangeOwner,
@@ -22,6 +23,10 @@ import {
   RevokeGrantOptionMaterializedViewPrivileges,
   RevokeMaterializedViewPrivileges,
 } from "./changes/materialized-view.privilege.ts";
+import {
+  CreateSecurityLabelOnMaterializedView,
+  DropSecurityLabelOnMaterializedView,
+} from "./changes/materialized-view.security-label.ts";
 import type { MaterializedViewChange } from "./changes/materialized-view.types.ts";
 import type { MaterializedView } from "./materialized-view.model.ts";
 
@@ -86,6 +91,17 @@ export function diffMaterializedViews(
           }),
         );
       }
+    }
+
+    // Security labels on the matview itself (columns of matviews are not
+    // supported targets of SECURITY LABEL, so we only label the relation).
+    for (const label of mv.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnMaterializedView({
+          materializedView: mv,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -241,6 +257,27 @@ export function diffMaterializedViews(
           );
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          | CreateSecurityLabelOnMaterializedView
+          | DropSecurityLabelOnMaterializedView
+        >(
+          mainMaterializedView.security_labels,
+          branchMaterializedView.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnMaterializedView({
+              materializedView: branchMaterializedView,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnMaterializedView({
+              materializedView: mainMaterializedView,
+              securityLabel,
+            }),
+        ),
+      );
       // COMMENT changes on columns
       const mainCols = new Map(
         mainMaterializedView.columns.map((c) => [c.name, c]),

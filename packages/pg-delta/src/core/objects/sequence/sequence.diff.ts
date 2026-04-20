@@ -4,6 +4,7 @@ import {
   emitObjectPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -21,6 +22,10 @@ import {
   RevokeGrantOptionSequencePrivileges,
   RevokeSequencePrivileges,
 } from "./changes/sequence.privilege.ts";
+import {
+  CreateSecurityLabelOnSequence,
+  DropSecurityLabelOnSequence,
+} from "./changes/sequence.security-label.ts";
 import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
@@ -51,6 +56,14 @@ export function diffSequences(
     changes.push(new CreateSequence({ sequence: createdSeq }));
     if (createdSeq.comment !== null) {
       changes.push(new CreateCommentOnSequence({ sequence: createdSeq }));
+    }
+    for (const label of createdSeq.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnSequence({
+          sequence: createdSeq,
+          securityLabel: label,
+        }),
+      );
     }
     // If the created sequence is OWNED BY a column, emit an ALTER to set it
     if (
@@ -259,6 +272,26 @@ export function diffSequences(
           );
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnSequence | DropSecurityLabelOnSequence
+        >(
+          mainSequence.security_labels,
+          branchSequence.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnSequence({
+              sequence: branchSequence,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnSequence({
+              sequence: mainSequence,
+              securityLabel,
+            }),
+        ),
+      );
 
       // PRIVILEGES
       // Filter out owner privileges - owner always has ALL privileges implicitly
