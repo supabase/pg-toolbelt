@@ -185,9 +185,9 @@ Please follow the repository-level guide in [../../CONTRIBUTING.md](../../CONTRI
 
 In particular:
 
-- open an issue first
-- wait for the `todo` label before opening a pull request
-- use [../../ISSUES.md](../../ISSUES.md) when reporting `pg-delta` bugs so maintainers have what they need to reproduce them
+- Open an issue first.
+- Wait for the `todo` label before opening a pull request.
+- Use [../../ISSUES.md](../../ISSUES.md) when reporting `pg-delta` bugs so maintainers have what they need to reproduce them.
 
 ## License
 
