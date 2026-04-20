@@ -8,8 +8,6 @@ import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import {
   AlterTableAddConstraint,
-  AlterTableDropColumn,
-  AlterTableDropConstraint,
   AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
@@ -72,8 +70,14 @@ type ResolvedObject =
  * replaced so that destructive drops succeed. Uses dependency edges from pg_depend
  * (already captured in Catalog.depends) plus change metadata (creates/drops/requires).
  *
- * New changes are appended; ordering is handled later by the sorter.
+ * New changes are appended; ordering and any multi-statement cycle normalization
+ * are handled later by post-diff helpers and the sorter.
  */
+export interface ExpandReplaceDependenciesResult {
+  changes: Change[];
+  replacedTableIds: ReadonlySet<string>;
+}
+
 export function expandReplaceDependencies({
   changes,
   mainCatalog,
@@ -82,7 +86,7 @@ export function expandReplaceDependencies({
   changes: Change[];
   mainCatalog: Catalog;
   branchCatalog: Catalog;
-}): Change[] {
+}): ExpandReplaceDependenciesResult {
   const createdIds = new Set<string>();
   const droppedIds = new Set<string>();
 
@@ -99,7 +103,10 @@ export function expandReplaceDependencies({
   }
 
   if (replaceRoots.size === 0) {
-    return changes;
+    return {
+      changes,
+      replacedTableIds: new Set<string>(),
+    };
   }
 
   // Build referenced -> dependents adjacency from main catalog dependencies.
@@ -201,51 +208,17 @@ export function expandReplaceDependencies({
     }
   }
 
-  if (additions.length === 0 && tablesReplacedByExpansion.size === 0) {
-    return changes;
+  if (additions.length === 0) {
+    return {
+      changes,
+      replacedTableIds: tablesReplacedByExpansion,
+    };
   }
 
-  const carriedChanges =
-    tablesReplacedByExpansion.size === 0
-      ? changes
-      : changes.filter(
-          (change) =>
-            !isSupersededByTableReplacement(change, tablesReplacedByExpansion),
-        );
-
-  return [...carriedChanges, ...additions];
-}
-
-/**
- * Identify pre-existing changes that are made redundant by — AND that would
- * form an unbreakable drop-phase cycle against — an expansion-added
- * DropTable+CreateTable replacement pair on the same table.
- *
- * Only `AlterTableDropColumn` and `AlterTableDropConstraint` qualify: both
- * expose `requires = [table.stableId, column-or-constraint.stableId]`, and it
- * is that `table.stableId` entry that produces the explicit
- * `column:T.col → table:T` (or `constraint:T.c → table:T`) drop-phase edge
- * which closes a cycle against the catalog `constraint → column → table`
- * edges.
- *
- * Other object-scope `AlterTable*(T)` changes — owner, RLS toggles, replica
- * identity, storage parameters, SET LOGGED/UNLOGGED — do NOT participate in
- * this cycle and MUST be preserved: `CreateTable.serialize()` does not emit
- * those inline, so removing them would silently regress the recreated
- * table's state. The sort phase correctly orders them after `CreateTable(T)`
- * via their `table.stableId` requirement.
- */
-function isSupersededByTableReplacement(
-  change: Change,
-  replacedTableIds: Set<string>,
-): boolean {
-  if (
-    !(change instanceof AlterTableDropColumn) &&
-    !(change instanceof AlterTableDropConstraint)
-  ) {
-    return false;
-  }
-  return replacedTableIds.has(change.table.stableId);
+  return {
+    changes: [...changes, ...additions],
+    replacedTableIds: tablesReplacedByExpansion,
+  };
 }
 
 function isOwnedSequenceColumnDependency(

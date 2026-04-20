@@ -4,7 +4,7 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
-import { deepEqual, stableId } from "../utils.ts";
+import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -196,33 +196,6 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
 }
 
 /**
- * Yield the foreign-key constraints on `table` whose referenced table is
- * present in `droppedSet` (and is a different table — self-references are
- * handled natively by the sort phase via self-loops and don't need special
- * treatment here). Partition-clone constraints are skipped; they are dropped
- * automatically with their parent constraint.
- */
-function* iterCrossDropFkConstraints(
-  table: Table,
-  droppedSet: ReadonlySet<string>,
-) {
-  for (const constraint of table.constraints) {
-    if (constraint.constraint_type !== "f") continue;
-    if (constraint.is_partition_clone) continue;
-    if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
-      continue;
-    }
-    const referencedId = stableId.table(
-      constraint.foreign_key_schema,
-      constraint.foreign_key_table,
-    );
-    if (referencedId === table.stableId) continue;
-    if (!droppedSet.has(referencedId)) continue;
-    yield { constraint, referencedId };
-  }
-}
-
-/**
  * Diff two sets of tables from main and branch catalogs.
  *
  * @param ctx - Context containing version, currentUser, and defaultPrivilegeState
@@ -347,53 +320,8 @@ export function diffTables(
     );
   }
 
-  // Detect mutual (cyclic) foreign-key references between tables that are all
-  // being dropped in the same phase. In the normal case where table A
-  // references table B (one-way) and both are dropped, the sort phase can
-  // linearize them (DropTable(A) before DropTable(B)). But when A references
-  // B *and* B references A, DropTable(A) and DropTable(B) each claim the
-  // other's FK-constraint stableId, producing bidirectional catalog edges
-  // and an unbreakable 2-cycle. Breaking the cycle at the diff layer here —
-  // by emitting an explicit AlterTableDropConstraint for the offending FK
-  // before DropTable — is also correct at apply time: PostgreSQL refuses to
-  // DROP TABLE A while B's FK to A still exists.
-  const droppedSet = new Set(dropped);
-  // For each dropped table, collect the dropped tables it references via FK.
-  const droppedFkTargets = new Map<string, Set<string>>();
   for (const tableId of dropped) {
-    const targets = new Set<string>();
-    for (const { referencedId } of iterCrossDropFkConstraints(
-      main[tableId],
-      droppedSet,
-    )) {
-      targets.add(referencedId);
-    }
-    droppedFkTargets.set(tableId, targets);
-  }
-
-  for (const tableId of dropped) {
-    const mainTable = main[tableId];
-    const externallyDroppedConstraints = new Set<string>();
-    for (const { constraint, referencedId } of iterCrossDropFkConstraints(
-      mainTable,
-      droppedSet,
-    )) {
-      // Only break the cycle when the referenced table also references us —
-      // i.e. A -> B and B -> A. One-way FKs between two dropped tables are
-      // handled correctly by the sort phase and don't need an explicit
-      // ALTER TABLE ... DROP CONSTRAINT.
-      const isMutual =
-        droppedFkTargets.get(referencedId)?.has(tableId) === true;
-      if (isMutual) {
-        changes.push(
-          new AlterTableDropConstraint({ table: mainTable, constraint }),
-        );
-        externallyDroppedConstraints.add(constraint.name);
-      }
-    }
-    changes.push(
-      new DropTable({ table: mainTable, externallyDroppedConstraints }),
-    );
+    changes.push(new DropTable({ table: main[tableId] }));
   }
 
   for (const tableId of altered) {

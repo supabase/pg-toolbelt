@@ -54,8 +54,9 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toHaveLength(1);
-    expect(result).toBe(changes);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes).toBe(changes);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("returns changes unchanged when replace roots have no dependents in catalog", async () => {
@@ -71,8 +72,9 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toHaveLength(1);
-    expect(result[0]).toBe(changes[0]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toBe(changes[0]);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("returns same array reference when replaceRoots.size is 0", async () => {
@@ -85,7 +87,8 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toBe(changes);
+    expect(result.changes).toBe(changes);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("does not replace the owning table for an owned sequence recreation", async () => {
@@ -198,26 +201,20 @@ describe("expandReplaceDependencies", () => {
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
     expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
-    expect(expanded.some((change) => change instanceof DropTable)).toBe(false);
-    expect(expanded.some((change) => change instanceof CreateTable)).toBe(
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
       false,
     );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.size).toBe(0);
   });
 
-  test("replacing a table supersedes drop-column/drop-constraint ALTERs only on the replaced table", async () => {
-    // Reproduction guard for the DropTable + AlterTableDropColumn/
-    // AlterTableDropConstraint drop-phase cycle: when an enum loses a label
-    // and a column on T still uses that enum, the expander enqueues
-    // DropTable(T)+CreateTable(T) to cascade the enum drop. Any pre-existing
-    // AlterTableDropColumn(T.col) / AlterTableDropConstraint(T.fk) from
-    // diffTables must be removed — they are redundant (the recreate rebuilds
-    // T from the branch shape) and, left in the plan, close an unbreakable
-    // drop-phase cycle with the catalog `constraint → column → table` edges.
-    //
-    // Owner / RLS / replica-identity ALTER TABLE changes do NOT form that
-    // cycle (their `requires` contains only `table.stableId`) and `CreateTable`
-    // does not re-emit them inline — they must survive so the sort phase can
-    // order them after `CreateTable(T)`.
+  test("reports replaced tables for downstream post-diff normalization", async () => {
+    // Reproduction guard for the enum-replacement expansion case: the expander
+    // must report which dependent tables it promoted to DropTable+CreateTable,
+    // but the pruning of same-table AlterTableDropColumn/DropConstraint belongs
+    // to the later post-diff normalization pass, not this expansion step.
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainEnum = new Enum({
       schema: "public",
@@ -410,25 +407,30 @@ describe("expandReplaceDependencies", () => {
     });
 
     // The replace-table pair was added.
-    expect(expanded.some((c) => c instanceof DropTable)).toBe(true);
-    expect(expanded.some((c) => c instanceof CreateTable)).toBe(true);
-    // The two cycle-forming ALTERs were removed.
-    expect(expanded).not.toContain(preExistingDropColumn);
-    expect(expanded).not.toContain(preExistingDropConstraint);
-    expect(expanded.some((c) => c instanceof AlterTableDropColumn)).toBe(false);
-    expect(expanded.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+    expect(expanded.changes.some((c) => c instanceof DropTable)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateTable)).toBe(true);
+    expect(expanded.replacedTableIds.has(mainChildren.stableId)).toBe(true);
+    // Expansion itself keeps the pre-existing ALTERs; the post-diff cycle pass
+    // decides which of them are superseded by the replacement.
+    expect(expanded.changes).toContain(preExistingDropColumn);
+    expect(expanded.changes).toContain(preExistingDropConstraint);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropColumn),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropConstraint),
+    ).toBe(true);
+    // The enum replace roots are still present.
+    expect(expanded.changes.some((c) => c instanceof DropEnum)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateEnum)).toBe(true);
+    // Non-cycle object-scope ALTERs are carried through untouched.
+    expect(expanded.changes).toContain(preExistingChangeOwner);
+    expect(expanded.changes).toContain(preExistingEnableRls);
+    expect(expanded.changes).toContain(preExistingReplicaIdentity);
+    // Privilege-scope ALTER on the recreated table survives.
+    expect(expanded.changes).toContain(preExistingGrant);
+    expect(expanded.replacedTableIds.has("table:public.parents")).toBe(
       false,
     );
-    // The enum replace roots are still present.
-    expect(expanded.some((c) => c instanceof DropEnum)).toBe(true);
-    expect(expanded.some((c) => c instanceof CreateEnum)).toBe(true);
-    // Non-cycle object-scope ALTERs survive so CreateTable's incomplete
-    // serialization (no owner / RLS / replica-identity) is compensated by the
-    // sort phase re-ordering these after CreateTable(T).
-    expect(expanded).toContain(preExistingChangeOwner);
-    expect(expanded).toContain(preExistingEnableRls);
-    expect(expanded).toContain(preExistingReplicaIdentity);
-    // Privilege-scope ALTER on the recreated table survives.
-    expect(expanded).toContain(preExistingGrant);
   });
 });

@@ -159,9 +159,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
          * DropTable(A) → cycle that the current cycle-breaking filter
          * (CreateSequence-only) does not handle.
          *
-         * Expected: either (a) FK constraints are dropped first, or
-         * (b) the sort layer breaks the FK edge when both referenced objects
-         * are in DropTable changes in the same phase.
+         * Expected (post-fix): this is handled as a post-diff normalization
+         * step. Once all statements are known, the planner injects explicit
+         * ALTER TABLE ... DROP CONSTRAINT statements for the mutual FKs and
+         * rewrites each DropTable so it no longer claims those FK stable IDs.
          */
         await db.main.query(
           [
@@ -218,11 +219,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
          * the current cycle-breaking filter only handles `CreateSequence`,
          * so the cycle is unbreakable.
          *
-         * Expected (post-fix): `ALTER TABLE foo DROP COLUMN bar` runs
-         * without a cycle error, either by eliding `DropSequence` (PG
-         * cascades to owned sequences when the column is dropped) or by
-         * extending the drop-phase cycle filter to break the ownership edge
-         * for `DropSequence` the same way it does for `CreateSequence`.
+         * Expected (post-fix): this stays object-local in `diffSequences`.
+         * The redundant `DropSequence` is elided up front because PostgreSQL
+         * cascades owned sequences when the column is dropped, so there is no
+         * multi-statement cycle left for the post-diff or sort stages to fix.
          */
         await db.main.query(
           [
@@ -288,13 +288,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
          * an FK column being dropped. `expandReplaceDependencies` then
          * expands the enum replacement to the table, producing the cycle.
          *
-         * Expected (post-fix): `expandReplaceDependencies` should not
-         * enqueue a `DropTable(T) + CreateTable(T)` pair when `T` already
-         * has targeted `AlterTable*` changes that will handle it — or the
-         * sort phase should break the explicit `column → table` edge when
-         * both the column drop and the table drop concern the same table
-         * (the column's parent is guaranteed gone by the time the column
-         * needs to be).
+         * Expected (post-fix): `expandReplaceDependencies` still reports the
+         * dependent table replacement, but a later post-diff normalization pass
+         * prunes same-table `AlterTableDropColumn/DropConstraint` changes that
+         * are superseded by the replacement pair before sorting runs.
          */
         await db.main.query(
           [
