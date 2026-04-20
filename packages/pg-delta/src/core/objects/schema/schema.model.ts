@@ -43,7 +43,7 @@ export class Schema extends BasePgModel {
     this.owner = props.owner;
     this.comment = props.comment;
     this.privileges = props.privileges;
-    this.security_labels = props.security_labels;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `schema:${string}` {
