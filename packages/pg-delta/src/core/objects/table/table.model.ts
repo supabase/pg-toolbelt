@@ -12,6 +12,7 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 const RelationPersistenceSchema = z.enum([
   "p", // permanent
@@ -104,10 +105,15 @@ const tablePropsSchema = z.object({
   columns: z.array(columnPropsSchema),
   constraints: z.array(tableConstraintPropsSchema).optional(),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
 type TablePrivilegeProps = PrivilegeProps;
-export type TableProps = z.infer<typeof tablePropsSchema>;
+/**
+ * Table input props. `security_labels` is optional on direct construction
+ * (defaults to `[]`); extraction always produces it via the Zod default.
+ */
+export type TableProps = z.input<typeof tablePropsSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
@@ -132,6 +138,9 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly columns: TableProps["columns"];
   public readonly constraints: TableConstraintProps[];
   public readonly privileges: TablePrivilegeProps[];
+  public readonly security_labels: z.infer<
+    typeof tablePropsSchema
+  >["security_labels"];
 
   constructor(props: TableProps) {
     super();
@@ -161,6 +170,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.columns = props.columns;
     this.constraints = props.constraints ?? [];
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `table:${string}` {
@@ -191,6 +201,7 @@ export class Table extends BasePgModel implements TableLikeObject {
       columns: this.columns,
       constraints: this.constraints,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -401,7 +412,20 @@ select
             and a.attcollation <> t2.typcollation
         ),
         'default', pg_get_expr(ad.adbin, ad.adrelid),
-        'comment', col_description(a.attrelid, a.attnum)
+        'comment', col_description(a.attrelid, a.attnum),
+        'security_labels', coalesce(
+          (
+            select json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              order by sl.provider
+            )
+            from pg_catalog.pg_seclabel sl
+            where sl.objoid = t.oid
+              and sl.classoid = 'pg_class'::regclass
+              and sl.objsubid = a.attnum
+          ),
+          '[]'::json
+        )
       )
     end
     order by a.attnum
@@ -441,7 +465,20 @@ select
       join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
       group by x.grantee, x.privilege_type
     ) as grp
-  ), '[]') as privileges
+  ), '[]') as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = t.oid
+        and sl.classoid = 'pg_class'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   tables t
   left join pg_attribute a on a.attrelid = t.oid and a.attnum > 0 and not a.attisdropped
