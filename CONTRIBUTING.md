@@ -5,8 +5,14 @@ Thanks for helping improve `pg-toolbelt`.
 ## Before you open a pull request
 
 1. **Open an issue first.**
-2. **Wait for maintainer approval.** An issue is ready for implementation only after a maintainer adds the `todo` label.
+2. **Wait for maintainer triage.** An issue is ready for implementation only after a maintainer adds one of these labels:
+   - `✨ Feature`
+   - `🐛 Bug`
+   - `📘 Docs`
+   - `🛠️ Chore`
 3. **Open a pull request only after that approval.**
+
+Until one of those labels is set, the issue is considered untracked and still in triage, so work should not start and a pull request should not be opened.
 
 Pull requests that do not follow this workflow are automatically closed by a bot.
 
