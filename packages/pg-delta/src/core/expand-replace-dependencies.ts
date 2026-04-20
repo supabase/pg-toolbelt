@@ -73,7 +73,7 @@ type ResolvedObject =
  * New changes are appended; ordering and any multi-statement cycle normalization
  * are handled later by post-diff helpers and the sorter.
  */
-export interface ExpandReplaceDependenciesResult {
+interface ExpandReplaceDependenciesResult {
   changes: Change[];
   replacedTableIds: ReadonlySet<string>;
 }

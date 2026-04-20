@@ -104,8 +104,7 @@ export function normalizePostDiffCycles({
     replacedTableIds.size === 0
       ? changes
       : changes.filter(
-          (change) =>
-            !isSupersededByTableReplacement(change, replacedTableIds),
+          (change) => !isSupersededByTableReplacement(change, replacedTableIds),
         );
 
   const dropTableChanges = structurallyNormalizedChanges.filter(
@@ -123,10 +122,14 @@ export function normalizePostDiffCycles({
 
   for (const dropTableChange of dropTableChanges) {
     const mainTable =
-      mainCatalog.tables[dropTableChange.table.stableId] ?? dropTableChange.table;
+      mainCatalog.tables[dropTableChange.table.stableId] ??
+      dropTableChange.table;
     const targets = new Set<string>();
 
-    for (const { referencedId } of iterCrossDropFkConstraints(mainTable, droppedSet)) {
+    for (const { referencedId } of iterCrossDropFkConstraints(
+      mainTable,
+      droppedSet,
+    )) {
       targets.add(referencedId);
     }
 
@@ -140,12 +143,16 @@ export function normalizePostDiffCycles({
     string,
     AlterTableDropConstraint[]
   >();
-  const externallyDroppedConstraintsByTableId = new Map<string, ReadonlySet<string>>();
+  const externallyDroppedConstraintsByTableId = new Map<
+    string,
+    ReadonlySet<string>
+  >();
   let didMutate = structurallyNormalizedChanges !== changes;
 
   for (const dropTableChange of dropTableChanges) {
     const mainTable =
-      mainCatalog.tables[dropTableChange.table.stableId] ?? dropTableChange.table;
+      mainCatalog.tables[dropTableChange.table.stableId] ??
+      dropTableChange.table;
     const externallyDroppedConstraints = new Set(
       dropTableChange.externallyDroppedConstraints,
     );

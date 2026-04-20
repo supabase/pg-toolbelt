@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
 import {
   AlterTableChangeOwner,
   AlterTableDropColumn,
@@ -14,6 +13,7 @@ import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
 import { stableId } from "./objects/utils.ts";
+import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
 
 const baseTableProps = {
   schema: "public",
@@ -165,11 +165,13 @@ describe("normalizePostDiffCycles", () => {
 
     const normalizedDropTableA = normalized.find(
       (change) =>
-        change instanceof DropTable && change.table.stableId === tableA.stableId,
+        change instanceof DropTable &&
+        change.table.stableId === tableA.stableId,
     );
     const normalizedDropTableB = normalized.find(
       (change) =>
-        change instanceof DropTable && change.table.stableId === tableB.stableId,
+        change instanceof DropTable &&
+        change.table.stableId === tableB.stableId,
     );
     if (!(normalizedDropTableA instanceof DropTable)) {
       throw new Error("expected normalized DropTable(public.a)");
@@ -178,12 +180,12 @@ describe("normalizePostDiffCycles", () => {
       throw new Error("expected normalized DropTable(public.b)");
     }
 
-    expect(normalizedDropTableA.externallyDroppedConstraints.has("a_b_fkey")).toBe(
-      true,
-    );
-    expect(normalizedDropTableB.externallyDroppedConstraints.has("b_a_fkey")).toBe(
-      true,
-    );
+    expect(
+      normalizedDropTableA.externallyDroppedConstraints.has("a_b_fkey"),
+    ).toBe(true);
+    expect(
+      normalizedDropTableB.externallyDroppedConstraints.has("b_a_fkey"),
+    ).toBe(true);
     expect(
       normalizedDropTableA.requires.includes(
         stableId.constraint("public", "a", "a_b_fkey"),
@@ -296,7 +298,9 @@ describe("normalizePostDiffCycles", () => {
     });
 
     expect(normalized.some((change) => change instanceof DropTable)).toBe(true);
-    expect(normalized.some((change) => change instanceof CreateTable)).toBe(true);
+    expect(normalized.some((change) => change instanceof CreateTable)).toBe(
+      true,
+    );
     expect(normalized).not.toContain(preExistingDropColumn);
     expect(normalized).not.toContain(preExistingDropConstraint);
     expect(

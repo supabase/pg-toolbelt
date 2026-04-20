@@ -429,8 +429,6 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.changes).toContain(preExistingReplicaIdentity);
     // Privilege-scope ALTER on the recreated table survives.
     expect(expanded.changes).toContain(preExistingGrant);
-    expect(expanded.replacedTableIds.has("table:public.parents")).toBe(
-      false,
-    );
+    expect(expanded.replacedTableIds.has("table:public.parents")).toBe(false);
   });
 });
