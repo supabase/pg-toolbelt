@@ -148,6 +148,56 @@ describe.concurrent("table.diff", () => {
     );
   });
 
+  test("created column-less NO INHERIT CHECK uses empty key_columns", () => {
+    const main = new Table(base);
+    const branch = new Table({
+      ...base,
+      name: "t_no_direct_insert",
+      constraints: [
+        {
+          name: "no_direct_insert",
+          constraint_type: "c" as const,
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: true,
+          is_partition_clone: false,
+          parent_constraint_schema: null,
+          parent_constraint_name: null,
+          parent_table_schema: null,
+          parent_table_name: null,
+          key_columns: [],
+          foreign_key_columns: null,
+          foreign_key_table: null,
+          foreign_key_schema: null,
+          foreign_key_table_is_partition: null,
+          foreign_key_parent_schema: null,
+          foreign_key_parent_table: null,
+          foreign_key_effective_schema: null,
+          foreign_key_effective_table: null,
+          on_update: null,
+          on_delete: null,
+          match_type: null,
+          check_expression: "false",
+          owner: "o1",
+          definition: "CHECK (false) NO INHERIT",
+        },
+      ],
+    });
+
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(AlterTableAddConstraint);
+    expect(changes[0].serialize()).toBe(
+      "ALTER TABLE public.t_no_direct_insert ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+    );
+  });
+
   test("alter owner", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, owner: "o2" });

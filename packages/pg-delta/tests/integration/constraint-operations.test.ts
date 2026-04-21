@@ -281,6 +281,57 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "preserves column-less CHECK FALSE NO INHERIT constraint on parent table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+        `,
+          expectedSqlTerms: [
+            "CREATE TABLE test_schema.parent_base (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT parent_base_pkey PRIMARY KEY (id),\n  CONSTRAINT no_direct_insert CHECK (false) NO INHERIT\n)",
+          ],
+        });
+      }),
+    );
+
+    test(
+      "preserves column-less CHECK FALSE NO INHERIT constraint with inherited child table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+
+          CREATE TABLE test_schema.child (
+            CONSTRAINT child_pkey PRIMARY KEY (id)
+          ) INHERITS (test_schema.parent_base);
+        `,
+          expectedSqlTerms: [
+            "CREATE TABLE test_schema.parent_base (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT parent_base_pkey PRIMARY KEY (id),\n  CONSTRAINT no_direct_insert CHECK (false) NO INHERIT\n)",
+            "CREATE TABLE test_schema.child (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT child_pkey PRIMARY KEY (id)\n)\nINHERITS(test_schema.parent_base)",
+          ],
+        });
+      }),
+    );
+
+    test(
       "add exclude constraint",
       withDbIsolated(pgVersion, async (db) => {
         await roundtripFidelityTest({
