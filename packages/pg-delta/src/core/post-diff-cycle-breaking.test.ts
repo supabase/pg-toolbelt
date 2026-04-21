@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import {
+  AlterTableAddConstraint,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
   AlterTableEnableRowLevelSecurity,
   AlterTableSetReplicaIdentity,
+  AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
+import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
@@ -200,8 +203,40 @@ describe("normalizePostDiffCycles", () => {
     ).toBe(false);
   });
 
-  test("prunes same-table drop-column and drop-constraint ALTERs for replaced tables only", async () => {
+  test("prunes same-table structural ALTERs superseded by table replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
+    const branchFkConstraint = {
+      name: "children_parent_ref_fkey_v2",
+      constraint_type: "f" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: true,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["parent_ref"],
+      foreign_key_columns: ["id"],
+      foreign_key_table: "parents",
+      foreign_key_schema: "public",
+      foreign_key_table_is_partition: false,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: "public",
+      foreign_key_effective_table: "parents",
+      on_update: "a" as const,
+      on_delete: "a" as const,
+      match_type: "s" as const,
+      check_expression: null,
+      owner: "postgres",
+      definition:
+        "FOREIGN KEY (parent_ref, PERIOD valid_period) REFERENCES public.parents(id, PERIOD valid_period)",
+      comment: "fk with comment",
+    };
     const mainChildren = new Table({
       ...baseTableProps,
       name: "children",
@@ -218,6 +253,7 @@ describe("normalizePostDiffCycles", () => {
         { ...integerColumn("id", 1), not_null: true },
         integerColumn("status", 2),
       ],
+      constraints: [branchFkConstraint],
     });
 
     const droppedColumn = mainChildren.columns.find(
@@ -263,6 +299,18 @@ describe("normalizePostDiffCycles", () => {
         comment: null,
       },
     });
+    const preExistingAddConstraint = new AlterTableAddConstraint({
+      table: branchChildren,
+      constraint: branchFkConstraint,
+    });
+    const preExistingValidateConstraint = new AlterTableValidateConstraint({
+      table: branchChildren,
+      constraint: branchFkConstraint,
+    });
+    const preExistingCreateCommentOnConstraint = new CreateCommentOnConstraint({
+      table: branchChildren,
+      constraint: branchFkConstraint,
+    });
     const preExistingChangeOwner = new AlterTableChangeOwner({
       table: branchChildren,
       owner: "new_owner",
@@ -284,6 +332,9 @@ describe("normalizePostDiffCycles", () => {
       new CreateTable({ table: branchChildren }),
       preExistingDropColumn,
       preExistingDropConstraint,
+      preExistingAddConstraint,
+      preExistingValidateConstraint,
+      preExistingCreateCommentOnConstraint,
       preExistingChangeOwner,
       preExistingEnableRls,
       preExistingReplicaIdentity,
@@ -306,11 +357,25 @@ describe("normalizePostDiffCycles", () => {
     );
     expect(normalized).not.toContain(preExistingDropColumn);
     expect(normalized).not.toContain(preExistingDropConstraint);
+    expect(normalized).not.toContain(preExistingAddConstraint);
+    expect(normalized).not.toContain(preExistingValidateConstraint);
+    expect(normalized).not.toContain(preExistingCreateCommentOnConstraint);
     expect(
       normalized.some((change) => change instanceof AlterTableDropColumn),
     ).toBe(false);
     expect(
       normalized.some((change) => change instanceof AlterTableDropConstraint),
+    ).toBe(false);
+    expect(
+      normalized.some((change) => change instanceof AlterTableAddConstraint),
+    ).toBe(false);
+    expect(
+      normalized.some(
+        (change) => change instanceof AlterTableValidateConstraint,
+      ),
+    ).toBe(false);
+    expect(
+      normalized.some((change) => change instanceof CreateCommentOnConstraint),
     ).toBe(false);
     expect(normalized).toContain(preExistingChangeOwner);
     expect(normalized).toContain(preExistingEnableRls);

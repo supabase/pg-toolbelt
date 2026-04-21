@@ -1,9 +1,12 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import {
+  AlterTableAddConstraint,
   AlterTableDropColumn,
   AlterTableDropConstraint,
+  AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
+import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { stableId } from "./objects/utils.ts";
 
@@ -45,7 +48,10 @@ function isSupersededByTableReplacement(
 ): boolean {
   if (
     !(change instanceof AlterTableDropColumn) &&
-    !(change instanceof AlterTableDropConstraint)
+    !(change instanceof AlterTableDropConstraint) &&
+    !(change instanceof AlterTableAddConstraint) &&
+    !(change instanceof AlterTableValidateConstraint) &&
+    !(change instanceof CreateCommentOnConstraint)
   ) {
     return false;
   }
@@ -82,8 +88,13 @@ function hasSameEntries(
  *
  * This pass intentionally handles whole-plan interactions only:
  * - If replace expansion added `DropTable(T)+CreateTable(T)`, targeted
- *   `AlterTableDropColumn(T.*)` / `AlterTableDropConstraint(T.*)` changes are
- *   redundant and create an unbreakable drop-phase cycle, so we elide them.
+ *   same-table `AlterTable*` changes are redundant: the drop-side
+ *   (`AlterTableDropColumn(T.*)` / `AlterTableDropConstraint(T.*)`) would
+ *   create an unbreakable drop-phase cycle, and the add-side
+ *   (`AlterTableAddConstraint(T.*)` / `AlterTableValidateConstraint(T.*)` /
+ *   `CreateCommentOnConstraint(T.*)`) duplicates the constraint changes that
+ *   `expandReplaceDependencies()` already emits alongside `CreateTable(T)`,
+ *   so we elide them.
  * - If two dropped tables reference each other via FK, we insert dedicated
  *   `AlterTableDropConstraint` changes and teach the paired `DropTable`
  *   changes not to claim those FK stable IDs.
