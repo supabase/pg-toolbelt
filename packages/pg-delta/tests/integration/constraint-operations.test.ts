@@ -364,6 +364,49 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         }),
         120_000,
       );
+
+      // Silent-downgrade scenario from #182: two related tables whose
+      // non-temporal PK + FK are dropped and re-added together to introduce
+      // WITHOUT OVERLAPS on the PK and PERIOD on the FK columns.
+      test(
+        "convert related PK and FK to temporal together",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.contacts (
+              contact_id integer NOT NULL,
+              valid_period tstzrange NOT NULL,
+              CONSTRAINT contacts_pkey PRIMARY KEY (contact_id, valid_period)
+            );
+            CREATE TABLE test_schema.conversations (
+              conversation_id integer NOT NULL,
+              contact_id integer NOT NULL,
+              valid_period tstzrange NOT NULL,
+              CONSTRAINT conversations_pkey PRIMARY KEY (conversation_id),
+              CONSTRAINT conversations_contact_fkey
+                FOREIGN KEY (contact_id, valid_period)
+                REFERENCES test_schema.contacts (contact_id, valid_period)
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.conversations DROP CONSTRAINT conversations_contact_fkey;
+            ALTER TABLE test_schema.contacts DROP CONSTRAINT contacts_pkey;
+            ALTER TABLE test_schema.contacts
+              ADD CONSTRAINT contacts_pkey
+              PRIMARY KEY (contact_id, valid_period WITHOUT OVERLAPS);
+            ALTER TABLE test_schema.conversations
+              ADD CONSTRAINT conversations_contact_fkey
+              FOREIGN KEY (contact_id, PERIOD valid_period)
+              REFERENCES test_schema.contacts (contact_id, PERIOD valid_period);
+          `,
+          });
+        }),
+        120_000,
+      );
     }
   });
 }
