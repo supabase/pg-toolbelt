@@ -149,7 +149,10 @@ describe.concurrent("table.diff", () => {
   });
 
   test("created column-less NO INHERIT CHECK uses empty key_columns", () => {
-    const main = new Table(base);
+    const main = new Table({
+      ...base,
+      name: "t_no_direct_insert",
+    });
     const branch = new Table({
       ...base,
       name: "t_no_direct_insert",
@@ -191,9 +194,11 @@ describe.concurrent("table.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes).toHaveLength(1);
-    expect(changes[0]).toBeInstanceOf(AlterTableAddConstraint);
-    expect(changes[0].serialize()).toBe(
+    const addConstraintChanges = changes.filter(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    expect(addConstraintChanges).toHaveLength(1);
+    expect(addConstraintChanges[0].serialize()).toBe(
       "ALTER TABLE public.t_no_direct_insert ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
     );
   });

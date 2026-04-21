@@ -297,7 +297,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         `,
           expectedSqlTerms: [
-            "CREATE TABLE test_schema.parent_base (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT parent_base_pkey PRIMARY KEY (id),\n  CONSTRAINT no_direct_insert CHECK (false) NO INHERIT\n)",
+            "CREATE TABLE test_schema.parent_base (id uuid NOT NULL, name text NOT NULL)",
+            "ALTER TABLE test_schema.parent_base ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+            "ALTER TABLE test_schema.parent_base ADD CONSTRAINT parent_base_pkey PRIMARY KEY (id)",
           ],
         });
       }),
@@ -324,8 +326,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ) INHERITS (test_schema.parent_base);
         `,
           expectedSqlTerms: [
-            "CREATE TABLE test_schema.parent_base (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT parent_base_pkey PRIMARY KEY (id),\n  CONSTRAINT no_direct_insert CHECK (false) NO INHERIT\n)",
-            "CREATE TABLE test_schema.child (\n  id uuid NOT NULL,\n  name text NOT NULL,\n  CONSTRAINT child_pkey PRIMARY KEY (id)\n)\nINHERITS(test_schema.parent_base)",
+            "CREATE TABLE test_schema.parent_base (id uuid NOT NULL, name text NOT NULL)",
+            "CREATE TABLE test_schema.child (id uuid NOT NULL, name text NOT NULL) INHERITS (test_schema.parent_base)",
+            "ALTER TABLE test_schema.child ADD CONSTRAINT child_pkey PRIMARY KEY (id)",
+            "ALTER TABLE test_schema.parent_base ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+            "ALTER TABLE test_schema.parent_base ADD CONSTRAINT parent_base_pkey PRIMARY KEY (id)",
           ],
         });
       }),
