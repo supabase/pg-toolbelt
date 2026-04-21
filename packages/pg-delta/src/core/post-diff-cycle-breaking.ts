@@ -97,28 +97,28 @@ function dropReplacedTableDuplicateConstraintChanges(
     return `${tag}:${constraintStableId(change.table, change.constraint.name)}`;
   };
 
-  const lastIndexByKey = new Map<string, number>();
-  for (let i = 0; i < changes.length; i++) {
-    const key = keyFor(changes[i] as Change);
-    if (key === null) continue;
-    lastIndexByKey.set(key, i);
-  }
-
-  if (lastIndexByKey.size === 0) return changes;
-
+  const seen = new Set<string>();
+  const reversedKept: Change[] = [];
   let mutated = false;
-  const deduped: Change[] = [];
-  for (let i = 0; i < changes.length; i++) {
+
+  // Walk backwards: the first encounter of each key corresponds to its LAST
+  // occurrence in the original order. `expandReplaceDependencies()` appends
+  // additions after the original changes, so "last wins" keeps the
+  // expansion's emission and drops the earlier diffTables duplicate.
+  for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i] as Change;
     const key = keyFor(change);
-    if (key !== null && lastIndexByKey.get(key) !== i) {
-      mutated = true;
-      continue;
+    if (key !== null) {
+      if (seen.has(key)) {
+        mutated = true;
+        continue;
+      }
+      seen.add(key);
     }
-    deduped.push(change);
+    reversedKept.push(change);
   }
 
-  return mutated ? deduped : changes;
+  return mutated ? reversedKept.reverse() : changes;
 }
 
 function collectExplicitConstraintDropIds(changes: Change[]) {
