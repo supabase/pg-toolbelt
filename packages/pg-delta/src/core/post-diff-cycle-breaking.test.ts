@@ -203,40 +203,8 @@ describe("normalizePostDiffCycles", () => {
     ).toBe(false);
   });
 
-  test("prunes same-table structural ALTERs superseded by table replacement", async () => {
+  test("prunes same-table drop-column and drop-constraint ALTERs for replaced tables only", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
-    const branchFkConstraint = {
-      name: "children_parent_ref_fkey_v2",
-      constraint_type: "f" as const,
-      deferrable: false,
-      initially_deferred: false,
-      validated: true,
-      is_local: true,
-      no_inherit: false,
-      is_temporal: true,
-      is_partition_clone: false,
-      parent_constraint_schema: null,
-      parent_constraint_name: null,
-      parent_table_schema: null,
-      parent_table_name: null,
-      key_columns: ["parent_ref"],
-      foreign_key_columns: ["id"],
-      foreign_key_table: "parents",
-      foreign_key_schema: "public",
-      foreign_key_table_is_partition: false,
-      foreign_key_parent_schema: null,
-      foreign_key_parent_table: null,
-      foreign_key_effective_schema: "public",
-      foreign_key_effective_table: "parents",
-      on_update: "a" as const,
-      on_delete: "a" as const,
-      match_type: "s" as const,
-      check_expression: null,
-      owner: "postgres",
-      definition:
-        "FOREIGN KEY (parent_ref, PERIOD valid_period) REFERENCES public.parents(id, PERIOD valid_period)",
-      comment: "fk with comment",
-    };
     const mainChildren = new Table({
       ...baseTableProps,
       name: "children",
@@ -253,7 +221,6 @@ describe("normalizePostDiffCycles", () => {
         { ...integerColumn("id", 1), not_null: true },
         integerColumn("status", 2),
       ],
-      constraints: [branchFkConstraint],
     });
 
     const droppedColumn = mainChildren.columns.find(
@@ -299,18 +266,6 @@ describe("normalizePostDiffCycles", () => {
         comment: null,
       },
     });
-    const preExistingAddConstraint = new AlterTableAddConstraint({
-      table: branchChildren,
-      constraint: branchFkConstraint,
-    });
-    const preExistingValidateConstraint = new AlterTableValidateConstraint({
-      table: branchChildren,
-      constraint: branchFkConstraint,
-    });
-    const preExistingCreateCommentOnConstraint = new CreateCommentOnConstraint({
-      table: branchChildren,
-      constraint: branchFkConstraint,
-    });
     const preExistingChangeOwner = new AlterTableChangeOwner({
       table: branchChildren,
       owner: "new_owner",
@@ -332,9 +287,6 @@ describe("normalizePostDiffCycles", () => {
       new CreateTable({ table: branchChildren }),
       preExistingDropColumn,
       preExistingDropConstraint,
-      preExistingAddConstraint,
-      preExistingValidateConstraint,
-      preExistingCreateCommentOnConstraint,
       preExistingChangeOwner,
       preExistingEnableRls,
       preExistingReplicaIdentity,
@@ -357,29 +309,151 @@ describe("normalizePostDiffCycles", () => {
     );
     expect(normalized).not.toContain(preExistingDropColumn);
     expect(normalized).not.toContain(preExistingDropConstraint);
-    expect(normalized).not.toContain(preExistingAddConstraint);
-    expect(normalized).not.toContain(preExistingValidateConstraint);
-    expect(normalized).not.toContain(preExistingCreateCommentOnConstraint);
     expect(
       normalized.some((change) => change instanceof AlterTableDropColumn),
     ).toBe(false);
     expect(
       normalized.some((change) => change instanceof AlterTableDropConstraint),
     ).toBe(false);
-    expect(
-      normalized.some((change) => change instanceof AlterTableAddConstraint),
-    ).toBe(false);
-    expect(
-      normalized.some(
-        (change) => change instanceof AlterTableValidateConstraint,
-      ),
-    ).toBe(false);
-    expect(
-      normalized.some((change) => change instanceof CreateCommentOnConstraint),
-    ).toBe(false);
     expect(normalized).toContain(preExistingChangeOwner);
     expect(normalized).toContain(preExistingEnableRls);
     expect(normalized).toContain(preExistingReplicaIdentity);
     expect(normalized).toContain(preExistingGrant);
+  });
+
+  test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const branchChildren = new Table({
+      ...baseTableProps,
+      name: "children",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("parent_ref", 2),
+      ],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other",
+      columns: [{ ...integerColumn("id", 1), not_null: true }],
+    });
+
+    const fkConstraint = {
+      name: "children_parent_ref_fkey",
+      constraint_type: "f" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: false,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: true,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["parent_ref"],
+      foreign_key_columns: ["id"],
+      foreign_key_table: "parents",
+      foreign_key_schema: "public",
+      foreign_key_table_is_partition: false,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: "public",
+      foreign_key_effective_table: "parents",
+      on_update: "a" as const,
+      on_delete: "a" as const,
+      match_type: "s" as const,
+      check_expression: null,
+      owner: "postgres",
+      definition:
+        "FOREIGN KEY (parent_ref, PERIOD valid_period) REFERENCES public.parents(id, PERIOD valid_period)",
+      comment: "fk comment",
+    };
+    const otherConstraint = {
+      ...fkConstraint,
+      name: "other_unique",
+      constraint_type: "u" as const,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      foreign_key_columns: [],
+      key_columns: ["id"],
+      definition: "UNIQUE (id)",
+    };
+
+    const diffTablesAdd = new AlterTableAddConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const diffTablesValidate = new AlterTableValidateConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const diffTablesComment = new CreateCommentOnConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const expansionAdd = new AlterTableAddConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const expansionValidate = new AlterTableValidateConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const expansionComment = new CreateCommentOnConstraint({
+      table: branchChildren,
+      constraint: fkConstraint,
+    });
+    const soloOtherTableAdd = new AlterTableAddConstraint({
+      table: otherTable,
+      constraint: otherConstraint,
+    });
+
+    const changes: Change[] = [
+      new DropTable({ table: branchChildren }),
+      new CreateTable({ table: branchChildren }),
+      diffTablesAdd,
+      diffTablesValidate,
+      diffTablesComment,
+      soloOtherTableAdd,
+      expansionAdd,
+      expansionValidate,
+      expansionComment,
+    ];
+
+    const mainCatalog = new Catalog({
+      ...baseline,
+      tables: { [branchChildren.stableId]: branchChildren },
+    });
+
+    const normalized = normalizePostDiffCycles({
+      changes,
+      mainCatalog,
+      replacedTableIds: new Set([branchChildren.stableId]),
+    });
+
+    expect(normalized).not.toContain(diffTablesAdd);
+    expect(normalized).not.toContain(diffTablesValidate);
+    expect(normalized).not.toContain(diffTablesComment);
+    expect(normalized).toContain(expansionAdd);
+    expect(normalized).toContain(expansionValidate);
+    expect(normalized).toContain(expansionComment);
+    expect(normalized).toContain(soloOtherTableAdd);
+
+    expect(
+      normalized.filter((change) => change instanceof AlterTableAddConstraint),
+    ).toHaveLength(2);
+    expect(
+      normalized.filter(
+        (change) => change instanceof AlterTableValidateConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      normalized.filter(
+        (change) => change instanceof CreateCommentOnConstraint,
+      ),
+    ).toHaveLength(1);
   });
 });
