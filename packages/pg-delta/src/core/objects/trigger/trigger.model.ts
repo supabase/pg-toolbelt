@@ -134,7 +134,10 @@ export class Trigger extends BasePgModel {
       deferrable: this.deferrable,
       initially_deferred: this.initially_deferred,
       argument_count: this.argument_count,
-      column_numbers: this.column_numbers,
+      // column_numbers excluded: contains pg_trigger.tgattr attnums that differ
+      // between databases when physical column layouts diverge but logical
+      // (named) columns match. The definition field (pg_get_triggerdef) captures
+      // the UPDATE OF column list by name, so we compare by definition instead.
       arguments: this.arguments,
       when_condition: this.when_condition,
       old_table: this.old_table,
@@ -145,6 +148,7 @@ export class Trigger extends BasePgModel {
       parent_table_name: this.parent_table_name,
       is_on_partitioned_table: this.is_on_partitioned_table,
       owner: this.owner,
+      definition: this.definition,
       comment: this.comment,
     };
   }

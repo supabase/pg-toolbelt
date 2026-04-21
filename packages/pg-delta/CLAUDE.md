@@ -122,6 +122,15 @@ To add a new PostgreSQL object type:
 3. Register in `catalog.model.ts` (Catalog type + extractor).
 4. Register in `catalog.diff.ts` (diff function in `diffCatalogs`).
 
+### Physical attnums vs logical names
+
+Never place raw PostgreSQL attnums (`pg_trigger.tgattr`, `pg_index.indkey`, `pg_constraint.conkey`/`confkey`, `pg_publication_rel.prattrs`, etc.) inside a model's `dataFields()` or `NON_ALTERABLE_FIELDS`. Attnums are **physical** and diverge between logically-identical tables whose column layouts were built differently (`CREATE TABLE` vs `ALTER TABLE DROP/ADD COLUMN`) — dropped columns leave "dead" attnums that are never renumbered, so every subsequent diff would emit a spurious replace and never converge. Compare either:
+
+- the authoritative `pg_get_<obj>def()` output (see `Index` and `Trigger`), or
+- column **names** resolved via `pg_attribute` at extraction time (see `Table.conkey`/`confkey`, `Publication.prattrs`).
+
+Storing the raw attnum array purely for debugging/introspection is fine — just keep it out of equality.
+
 ## Conventions
 
 - TypeScript strict; Biome for format/lint; kebab-case files with `.model.ts`, `.diff.ts`, `.test.ts`.
