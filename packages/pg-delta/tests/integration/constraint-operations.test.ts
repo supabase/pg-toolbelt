@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL constraint operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -66,6 +66,73 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0);
         `,
+        });
+      }),
+    );
+
+    test(
+      "add CHECK (FALSE) NO INHERIT constraint on inheritance parent",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes(
+                  "ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+                ),
+              ),
+            ).toBe(true);
+          },
+        });
+      }),
+    );
+
+    test(
+      "add CHECK (FALSE) NO INHERIT on parent with INHERITS child",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+
+          CREATE TABLE test_schema.child (
+            CONSTRAINT child_pkey PRIMARY KEY (id)
+          ) INHERITS (test_schema.parent_base);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes(
+                  "ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+                ),
+              ),
+            ).toBe(true);
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes("INHERITS (test_schema.parent_base)"),
+              ),
+            ).toBe(true);
+          },
         });
       }),
     );
