@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   connectWithRetry,
   isRetryableConnectError,
+  poolConfigFromUrl,
 } from "./postgres-config.ts";
 
 function makeError(message: string, code?: string): Error {
@@ -237,5 +238,99 @@ describe("connectWithRetry", () => {
       }),
     ).rejects.toBe(err);
     expect(attempts).toBe(1);
+  });
+});
+
+describe("poolConfigFromUrl", () => {
+  describe("non-IPv6 URLs pass through as connectionString", () => {
+    test("DNS hostname", () => {
+      const url = "postgresql://user:pass@db.example.com:5432/mydb";
+      expect(poolConfigFromUrl(url)).toEqual({ connectionString: url });
+    });
+
+    test("IPv4 host", () => {
+      const url = "postgresql://user:pass@127.0.0.1:5432/mydb";
+      expect(poolConfigFromUrl(url)).toEqual({ connectionString: url });
+    });
+
+    test("DNS hostname with query params", () => {
+      const url =
+        "postgresql://user:pass@db.example.com:5432/mydb?application_name=test";
+      expect(poolConfigFromUrl(url)).toEqual({ connectionString: url });
+    });
+  });
+
+  describe("bracketed IPv6 URLs expand to explicit fields with no brackets", () => {
+    test("full 8-group IPv6 — host has no brackets and no connectionString", () => {
+      const url =
+        "postgresql://user:pass@[2600:1f16:1cd0:3340:f92e:f4cb:7a52:10a1]:5432/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.connectionString).toBeUndefined();
+      expect(config.host).toBe("2600:1f16:1cd0:3340:f92e:f4cb:7a52:10a1");
+      expect(config.port).toBe(5432);
+      expect(config.user).toBe("user");
+      expect(config.password).toBe("pass");
+      expect(config.database).toBe("mydb");
+    });
+
+    test("compressed ::1 form", () => {
+      const url = "postgresql://user:pass@[::1]:5432/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.port).toBe(5432);
+    });
+
+    test("host bracket strip survives percent-decoded username/password", () => {
+      const url = "postgresql://user:p%40ss%2Fword@[::1]:5432/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.user).toBe("user");
+      expect(config.password).toBe("p@ss/word");
+    });
+
+    test("works without port", () => {
+      const url = "postgresql://user:pass@[::1]/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.port).toBeUndefined();
+    });
+
+    test("works without database (pathname='/')", () => {
+      const url = "postgresql://user:pass@[::1]:5432/";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.database).toBeUndefined();
+    });
+
+    test("works without userinfo", () => {
+      const url = "postgresql://[::1]:5432/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.user).toBeUndefined();
+      expect(config.password).toBeUndefined();
+    });
+
+    test("query params are forwarded as top-level config keys", () => {
+      const url =
+        "postgresql://user:pass@[::1]:5432/mydb?application_name=pgdelta&connect_timeout=5";
+      const config = poolConfigFromUrl(url) as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(config.application_name).toBe("pgdelta");
+      expect(config.connect_timeout).toBe("5");
+      expect(config.host).toBe("::1");
+    });
+
+    test("IPv4-mapped IPv6 is stripped of brackets (WHATWG canonicalisation is fine)", () => {
+      // WHATWG URL canonicalises `::ffff:192.0.2.1` to `::ffff:c000:201`;
+      // either form resolves to the same IPv6 address, and the point of this
+      // test is purely that no brackets escape to pg.
+      const url = "postgresql://user:pass@[::ffff:192.0.2.1]:5432/mydb";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).not.toContain("[");
+      expect(config.host).not.toContain("]");
+      expect(config.host).toBe("::ffff:c000:201");
+    });
   });
 });

@@ -225,14 +225,20 @@ interface CreatePoolOptions extends Partial<PoolConfig> {
 
 /**
  * Create a Pool with custom type handlers and optional event listeners.
+ *
+ * `connectionString` may be `undefined` when the caller needs pg to rely on
+ * explicit `host`/`port`/`user`/... fields from `options` instead — notably
+ * the bracketed-IPv6 workaround in {@link poolConfigFromUrl}, where passing
+ * the connection string would cause `pg-connection-string` to re-inject the
+ * bracketed host that breaks `getaddrinfo`.
  */
 export function createPool(
-  connectionString: string,
+  connectionString: string | undefined,
   options?: CreatePoolOptions,
 ): Pool {
   const { onConnect, onError, onAcquire, onRemove, ...config } = options ?? {};
   const pool = new Pool({
-    connectionString,
+    ...(connectionString ? { connectionString } : {}),
     max: DEFAULT_POOL_MAX,
     connectionTimeoutMillis: DEFAULT_CONNECTION_TIMEOUT_MS,
     ...config,
@@ -302,6 +308,50 @@ export function createPool(
 }
 
 /**
+ * Build a pg {@link PoolConfig} from a cleaned connection URL.
+ *
+ * For most URLs this just returns `{ connectionString }` and pg does its
+ * normal parsing. But for URLs whose hostname is a bracketed IPv6 literal
+ * (e.g. `postgresql://user@[::1]:5432/db`, as produced by
+ * {@link normalizeConnectionUrl}), we expand the URL into explicit
+ * `host`/`port`/`user`/`password`/`database` fields with a **bare** IPv6
+ * host — no brackets.
+ *
+ * This works around a `pg-connection-string` quirk: its parser sets
+ * `config.host` to the WHATWG `URL.hostname`, which keeps the surrounding
+ * `[...]` for IPv6 literals. That bracketed value is then passed verbatim to
+ * `getaddrinfo`, which rejects it with `ENOTFOUND`. Since
+ * `pg`'s connection-parameters module does
+ * `Object.assign({}, config, parse(connectionString))`, any `host` we pass
+ * alongside `connectionString` gets clobbered — so we drop `connectionString`
+ * entirely on this path and hand pg the parsed fields directly.
+ *
+ * Remaining query parameters (e.g. `application_name`, `options`,
+ * `connect_timeout`) are forwarded as top-level config keys, mirroring how
+ * `pg-connection-string` would normally surface them.
+ */
+export function poolConfigFromUrl(cleanedUrl: string): PoolConfig {
+  const urlObj = new URL(cleanedUrl);
+  if (!urlObj.hostname.startsWith("[")) {
+    return { connectionString: cleanedUrl };
+  }
+
+  const config: Record<string, unknown> = {
+    host: urlObj.hostname.slice(1, -1),
+  };
+  if (urlObj.port) config.port = Number(urlObj.port);
+  if (urlObj.username) config.user = decodeURIComponent(urlObj.username);
+  if (urlObj.password) config.password = decodeURIComponent(urlObj.password);
+  if (urlObj.pathname.length > 1) {
+    config.database = decodeURIComponent(urlObj.pathname.slice(1));
+  }
+  for (const [key, value] of urlObj.searchParams) {
+    config[key] = value;
+  }
+  return config as PoolConfig;
+}
+
+/**
  * End a pool and wait for all client sockets to fully close.
  *
  * pg-pool's `pool.end()` resolves once clients are removed from its
@@ -334,7 +384,11 @@ export async function createManagedPool(
     normalizedUrl,
     options?.label ?? "target",
   );
-  const pool = createPool(sslConfig.cleanedUrl, {
+  // Expand bracketed-IPv6 URLs into explicit pg fields so the brackets never
+  // reach `getaddrinfo` — see `poolConfigFromUrl` for the full rationale.
+  const connectionConfig = poolConfigFromUrl(sslConfig.cleanedUrl);
+  const pool = createPool(connectionConfig.connectionString, {
+    ...connectionConfig,
     ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
     onError: (err: Error & { code?: string }) => {
       if (err.code !== "57P01") {
