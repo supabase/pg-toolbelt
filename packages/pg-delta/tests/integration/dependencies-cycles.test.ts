@@ -139,6 +139,207 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop two tables with mutual FK references should not produce a cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * REPRODUCTION for CycleError seen in production:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [n] DropTable
+         *     2. [m] DropTable
+         *   [n] → [m] constraint:public.a.a_b_fkey → column:public.b.id
+         *   [m] → [n] constraint:public.b.b_a_fkey → column:public.a.id
+         *
+         * Two tables each hold a FK pointing at the other; both are absent
+         * from branch so both must be dropped. The pg_depend graph for the FK
+         * constraints creates:
+         *   constraint(A) → column(B.id) → table(B)
+         *   constraint(B) → column(A.id) → table(A)
+         * So DropTable(A) requires DropTable(B) AND DropTable(B) requires
+         * DropTable(A) → cycle that the current cycle-breaking filter
+         * (CreateSequence-only) does not handle.
+         *
+         * Expected (post-fix): this is handled as a post-diff normalization
+         * step. Once all statements are known, the planner injects explicit
+         * ALTER TABLE ... DROP CONSTRAINT statements for the mutual FKs and
+         * rewrites each DropTable so it no longer claims those FK stable IDs.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.a (
+              id bigserial PRIMARY KEY,
+              name text NOT NULL
+            )`,
+            `CREATE TABLE public.b (
+              id bigserial PRIMARY KEY,
+              name text NOT NULL,
+              a_id bigint REFERENCES public.a(id)
+            )`,
+            `ALTER TABLE public.a
+              ADD COLUMN b_id bigint`,
+            `ALTER TABLE public.a
+              ADD CONSTRAINT a_b_fkey
+              FOREIGN KEY (b_id)
+              REFERENCES public.b(id)`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
+      "drop SERIAL column on surviving table should not produce DropSequence ↔ AlterTableDropColumn cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for the DropSequence cycle family:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [N] DropSequence
+         *     2. [M] <DropTable|AlterTableDropColumn>
+         *
+         *   [N] → [M] (source: catalog)
+         *     sequence:<schema>.<seq> → column:<schema>.<table>.<col>
+         *   [M] → [N] (source: catalog)
+         *     column:<schema>.<table>.<col> → sequence:<schema>.<seq>
+         *
+         * The whole-table-drop variant is already short-circuited by
+         * `diffSequences` (the owning-table skip). The other variant — a
+         * SERIAL / BIGSERIAL column being dropped while its parent table
+         * survives — is NOT short-circuited, so `DropSequence` is emitted
+         * alongside `AlterTableDropColumn`. The pg_depend graph has
+         * bidirectional edges:
+         *   - sequence → column (deptype='a', OWNED BY relationship)
+         *   - column   → sequence (deptype='n', column DEFAULT nextval(...))
+         * Both sides produce/consume the stable IDs in the drop phase, and
+         * the current cycle-breaking filter only handles `CreateSequence`,
+         * so the cycle is unbreakable.
+         *
+         * Expected (post-fix): this stays object-local in `diffSequences`.
+         * The redundant `DropSequence` is elided up front because PostgreSQL
+         * cascades owned sequences when the column is dropped, so there is no
+         * multi-statement cycle left for the post-diff or sort stages to fix.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.widgets (
+              id SERIAL PRIMARY KEY,
+              label TEXT
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await db.branch.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            // Branch keeps the table but drops the SERIAL column; PG cascades
+            // the owned sequence so branch catalog has neither `id` nor the
+            // owned sequence. Main still has both — diff must DROP the
+            // column and the (now orphaned) sequence in the same phase.
+            `CREATE TABLE public.widgets (
+              label TEXT
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
+      "replace-dependency DropTable + AlterTableDropColumn on same table should not cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for CycleError:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [N] DropTable
+         *     2. [M] AlterTableDropColumn
+         *
+         *   [N] → [M] (source: catalog)
+         *     constraint:<schema>.<table>.<fk_name> → column:<schema>.<table>.<col>
+         *   [M] → [N] (source: explicit)
+         *     column:<schema>.<table>.<col> → table:<schema>.<table>
+         *
+         * Key insight: both edges reference the SAME <schema>.<table>. That
+         * can only happen if a single table has both `DropTable(T)` and
+         * `AlterTableDropColumn(T.col)` emitted for it in the same phase,
+         * which `diffTables` alone never produces (tables are partitioned
+         * into dropped/altered). The extra `DropTable` must therefore come
+         * from `expandReplaceDependencies`: when an object being replaced
+         * (e.g. an enum that lost a label) has a dependent column on table
+         * T, the expander walks `pg_depend` and enqueues a
+         * `DropTable(T) + CreateTable(T)` pair. If `diffTables` had also
+         * emitted `AlterTableDropColumn(T.col)` for a separate column drop
+         * on T, both changes now exist on the same T in the drop phase,
+         * and the explicit `column → table` edge closes the cycle against
+         * the catalog FK edge.
+         *
+         * The MRE here: a referenced enum must be REPLACED (label removed
+         * → `DropEnum + CreateEnum`); the table using that enum also has
+         * an FK column being dropped. `expandReplaceDependencies` then
+         * expands the enum replacement to the table, producing the cycle.
+         *
+         * Expected (post-fix): `expandReplaceDependencies` still reports the
+         * dependent table replacement, but a later post-diff normalization pass
+         * prunes same-table `AlterTableDropColumn/DropConstraint` changes that
+         * are superseded by the replacement pair before sorting runs.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TYPE public.item_status AS ENUM ('draft', 'published', 'archived')`,
+            `CREATE TABLE public.parents (
+              id INTEGER PRIMARY KEY,
+              label TEXT
+            )`,
+            `CREATE TABLE public.children (
+              id INTEGER PRIMARY KEY,
+              parent_ref INTEGER REFERENCES public.parents(id),
+              status public.item_status,
+              notes TEXT
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await db.branch.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            // Enum lost a label → diffEnums emits DropEnum+CreateEnum,
+            // which expandReplaceDependencies propagates to the dependent
+            // table `children`, adding DropTable(children)+CreateTable.
+            `CREATE TYPE public.item_status AS ENUM ('draft', 'published')`,
+            `CREATE TABLE public.parents (
+              id INTEGER PRIMARY KEY,
+              label TEXT
+            )`,
+            // children: parent_ref column is gone, forcing diffTables
+            // to emit AlterTableDropColumn(children.parent_ref) in
+            // parallel with the replace-dependency DropTable.
+            `CREATE TABLE public.children (
+              id INTEGER PRIMARY KEY,
+              status public.item_status,
+              notes TEXT
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
       "sequence owned by column cycle - multiple sequences",
       withDb(pgVersion, async (db) => {
         /**

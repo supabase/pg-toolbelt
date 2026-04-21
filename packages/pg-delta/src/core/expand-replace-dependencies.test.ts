@@ -7,10 +7,21 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
-import { AlterTableAlterColumnSetDefault } from "./objects/table/changes/table.alter.ts";
+import {
+  AlterTableAlterColumnSetDefault,
+  AlterTableChangeOwner,
+  AlterTableDropColumn,
+  AlterTableDropConstraint,
+  AlterTableEnableRowLevelSecurity,
+  AlterTableSetReplicaIdentity,
+} from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
+import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
+import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
+import { Enum } from "./objects/type/enum/enum.model.ts";
 
 function mockChange(overrides: {
   creates?: string[];
@@ -43,8 +54,9 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toHaveLength(1);
-    expect(result).toBe(changes);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes).toBe(changes);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("returns changes unchanged when replace roots have no dependents in catalog", async () => {
@@ -60,8 +72,9 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toHaveLength(1);
-    expect(result[0]).toBe(changes[0]);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toBe(changes[0]);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("returns same array reference when replaceRoots.size is 0", async () => {
@@ -74,7 +87,8 @@ describe("expandReplaceDependencies", () => {
       mainCatalog: catalog,
       branchCatalog: catalog,
     });
-    expect(result).toBe(changes);
+    expect(result.changes).toBe(changes);
+    expect(result.replacedTableIds.size).toBe(0);
   });
 
   test("does not replace the owning table for an owned sequence recreation", async () => {
@@ -187,9 +201,234 @@ describe("expandReplaceDependencies", () => {
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
     expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
-    expect(expanded.some((change) => change instanceof DropTable)).toBe(false);
-    expect(expanded.some((change) => change instanceof CreateTable)).toBe(
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
       false,
     );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.size).toBe(0);
+  });
+
+  test("reports replaced tables for downstream post-diff normalization", async () => {
+    // Reproduction guard for the enum-replacement expansion case: the expander
+    // must report which dependent tables it promoted to DropTable+CreateTable,
+    // but the pruning of same-table AlterTableDropColumn/DropConstraint belongs
+    // to the later post-diff normalization pass, not this expansion step.
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainEnum = new Enum({
+      schema: "public",
+      name: "item_status",
+      owner: "postgres",
+      labels: [
+        { sort_order: 1, label: "draft" },
+        { sort_order: 2, label: "published" },
+        { sort_order: 3, label: "archived" },
+      ],
+      comment: null,
+      privileges: [],
+    });
+    const branchEnum = new Enum({
+      ...mainEnum,
+      labels: [
+        { sort_order: 1, label: "draft" },
+        { sort_order: 2, label: "published" },
+      ],
+    });
+    const columnTemplate = {
+      data_type: "integer" as const,
+      data_type_str: "integer",
+      is_custom_type: false as const,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const mainChildren = new Table({
+      schema: "public",
+      name: "children",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "postgres",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        { ...columnTemplate, name: "id", position: 1, not_null: true },
+        { ...columnTemplate, name: "parent_ref", position: 2 },
+        {
+          ...columnTemplate,
+          name: "status",
+          position: 3,
+          data_type: "item_status",
+          data_type_str: "public.item_status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "public",
+          custom_type_name: "item_status",
+        },
+      ],
+      privileges: [],
+    });
+    const branchChildren = new Table({
+      ...mainChildren,
+      columns: [
+        { ...columnTemplate, name: "id", position: 1, not_null: true },
+        {
+          ...columnTemplate,
+          name: "status",
+          position: 2,
+          data_type: "item_status",
+          data_type_str: "public.item_status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "public",
+          custom_type_name: "item_status",
+        },
+      ],
+    });
+
+    // Pre-existing planner output: the enum replacement from diffEnums plus
+    // targeted ALTER TABLE statements from diffTables. The two cycle-forming
+    // ALTERs (drop-column, drop-constraint) must be elided. The privilege
+    // ALTER and the owner / RLS / replica-identity ALTERs must all survive.
+    const droppedColumn = mainChildren.columns.find(
+      (c) => c.name === "parent_ref",
+    );
+    if (!droppedColumn) throw new Error("test setup: parent_ref missing");
+    const preExistingDropColumn = new AlterTableDropColumn({
+      table: mainChildren,
+      column: droppedColumn,
+    });
+    const preExistingDropConstraint = new AlterTableDropConstraint({
+      table: mainChildren,
+      constraint: {
+        name: "children_parent_ref_fkey",
+        constraint_type: "f",
+        deferrable: false,
+        initially_deferred: false,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        is_partition_clone: false,
+        parent_constraint_schema: null,
+        parent_constraint_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        key_columns: ["parent_ref"],
+        foreign_key_columns: ["id"],
+        foreign_key_table: "parents",
+        foreign_key_schema: "public",
+        foreign_key_table_is_partition: false,
+        foreign_key_parent_schema: null,
+        foreign_key_parent_table: null,
+        foreign_key_effective_schema: "public",
+        foreign_key_effective_table: "parents",
+        on_update: "a",
+        on_delete: "a",
+        match_type: "s",
+        check_expression: null,
+        owner: "postgres",
+        definition: "FOREIGN KEY (parent_ref) REFERENCES public.parents(id)",
+        comment: null,
+      },
+    });
+    const preExistingChangeOwner = new AlterTableChangeOwner({
+      table: branchChildren,
+      owner: "new_owner",
+    });
+    const preExistingEnableRls = new AlterTableEnableRowLevelSecurity({
+      table: branchChildren,
+    });
+    const preExistingReplicaIdentity = new AlterTableSetReplicaIdentity({
+      table: branchChildren,
+      mode: "f",
+    });
+    const preExistingGrant = new GrantTablePrivileges({
+      table: branchChildren,
+      grantee: "reader",
+      privileges: [{ privilege: "SELECT", grantable: false }],
+    });
+    const changes: Change[] = [
+      new DropEnum({ enum: mainEnum }),
+      new CreateEnum({ enum: branchEnum }),
+      preExistingDropColumn,
+      preExistingDropConstraint,
+      preExistingChangeOwner,
+      preExistingEnableRls,
+      preExistingReplicaIdentity,
+      preExistingGrant,
+    ];
+
+    const mainCatalog = new Catalog({
+      ...baseline,
+      enums: { [mainEnum.stableId]: mainEnum },
+      tables: { [mainChildren.stableId]: mainChildren },
+      // pg_depend: column children.status depends on type item_status.
+      depends: [
+        {
+          dependent_stable_id: "column:public.children.status",
+          referenced_stable_id: mainEnum.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      ...baseline,
+      enums: { [branchEnum.stableId]: branchEnum },
+      tables: { [branchChildren.stableId]: branchChildren },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    // The replace-table pair was added.
+    expect(expanded.changes.some((c) => c instanceof DropTable)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateTable)).toBe(true);
+    expect(expanded.replacedTableIds.has(mainChildren.stableId)).toBe(true);
+    // Expansion itself keeps the pre-existing ALTERs; the post-diff cycle pass
+    // decides which of them are superseded by the replacement.
+    expect(expanded.changes).toContain(preExistingDropColumn);
+    expect(expanded.changes).toContain(preExistingDropConstraint);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropColumn),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropConstraint),
+    ).toBe(true);
+    // The enum replace roots are still present.
+    expect(expanded.changes.some((c) => c instanceof DropEnum)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateEnum)).toBe(true);
+    // Non-cycle object-scope ALTERs are carried through untouched.
+    expect(expanded.changes).toContain(preExistingChangeOwner);
+    expect(expanded.changes).toContain(preExistingEnableRls);
+    expect(expanded.changes).toContain(preExistingReplicaIdentity);
+    // Privilege-scope ALTER on the recreated table survives.
+    expect(expanded.changes).toContain(preExistingGrant);
+    expect(expanded.replacedTableIds.has("table:public.parents")).toBe(false);
   });
 });

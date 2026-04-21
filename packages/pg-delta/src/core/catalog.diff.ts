@@ -1,6 +1,7 @@
 import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
+import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
 
 const debugCatalog = debug("pg-delta:catalog");
 
@@ -232,10 +233,15 @@ export function diffCatalogs(
     return true;
   });
 
-  filteredChanges = expandReplaceDependencies({
+  const expandedDependencies = expandReplaceDependencies({
     changes: filteredChanges,
     mainCatalog: main,
     branchCatalog: branch,
+  });
+  filteredChanges = normalizePostDiffCycles({
+    changes: expandedDependencies.changes,
+    mainCatalog: main,
+    replacedTableIds: expandedDependencies.replacedTableIds,
   });
 
   debugCatalog(
