@@ -3,6 +3,9 @@ import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
+import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
+import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import { Procedure } from "./objects/procedure/procedure.model.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
@@ -22,6 +25,9 @@ import { Table } from "./objects/table/table.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { Enum } from "./objects/type/enum/enum.model.ts";
+import { CreateView } from "./objects/view/changes/view.create.ts";
+import { DropView } from "./objects/view/changes/view.drop.ts";
+import { View } from "./objects/view/view.model.ts";
 
 function mockChange(overrides: {
   creates?: string[];
@@ -431,5 +437,116 @@ describe("expandReplaceDependencies", () => {
     // Privilege-scope ALTER on the recreated table survives.
     expect(expanded.changes).toContain(preExistingGrant);
     expect(expanded.replacedTableIds.has("table:public.parents")).toBe(false);
+  });
+
+  test("promotes dependent view when a procedure's parameter types change", async () => {
+    // Procedure stableIds are signature-qualified, so a parameter-type change
+    // produces different stableIds in `createdIds` and `droppedIds`. The
+    // expander must still treat the (schema, name)-matched pair as a replace
+    // root so a dependent view is promoted from `CREATE OR REPLACE VIEW` to
+    // `DROP VIEW` + `CREATE VIEW` (otherwise `DROP FUNCTION` fails with
+    // "cannot drop function because other objects depend on it").
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedureBase = {
+      schema: "public",
+      name: "format_id",
+      kind: "f" as const,
+      return_type: "text",
+      return_type_schema: "pg_catalog",
+      language: "sql",
+      security_definer: false,
+      volatility: "i" as const,
+      parallel_safety: "u" as const,
+      execution_cost: 100,
+      result_rows: 0,
+      is_strict: false,
+      leakproof: false,
+      returns_set: false,
+      argument_count: 1,
+      argument_default_count: 0,
+      argument_names: ["id"],
+      all_argument_types: null,
+      argument_modes: null,
+      argument_defaults: null,
+      source_code: "SELECT 'id:' || id::text",
+      binary_path: null,
+      sql_body: null,
+      config: null,
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    };
+    const mainProcedure = new Procedure({
+      ...procedureBase,
+      argument_types: ["int4"],
+      definition: "CREATE FUNCTION public.format_id(id integer) ...",
+    });
+    const branchProcedure = new Procedure({
+      ...procedureBase,
+      argument_types: ["int8"],
+      definition: "CREATE FUNCTION public.format_id(id bigint) ...",
+    });
+    const viewBase = {
+      schema: "public",
+      name: "items_formatted",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d" as const,
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      owner: "postgres",
+      comment: null,
+      columns: [],
+      privileges: [],
+    };
+    const mainView = new View({
+      ...viewBase,
+      definition: "SELECT public.format_id(id) FROM public.items",
+    });
+    const branchView = new View({
+      ...viewBase,
+      definition: "SELECT public.format_id(id::bigint) FROM public.items",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      // view.diff emits this because pg_get_viewdef text differs after the
+      // underlying function signature changes.
+      new CreateView({ view: branchView, orReplace: true }),
+    ];
+
+    const mainCatalog = new Catalog({
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      views: { [mainView.stableId]: mainView },
+      depends: [
+        {
+          dependent_stable_id: mainView.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      views: { [branchView.stableId]: branchView },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropView)).toBe(true);
   });
 });

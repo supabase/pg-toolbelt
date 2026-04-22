@@ -119,6 +119,198 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "function signature: parameter type change",
+      withDb(pgVersion, async (db) => {
+        // Changes the IN parameter type (text -> uuid). stableId changes
+        // because argument_types is part of the procedure stableId, so this
+        // exercises the drop+create path. PostgreSQL rejects
+        // `CREATE OR REPLACE` for this kind of change.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.process_item(param1 text)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              RAISE NOTICE 'Processing: %', param1;
+            END;
+            $function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.process_item(text);
+            CREATE FUNCTION test_schema.process_item(param1 uuid)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              RAISE NOTICE 'Processing: %', param1::text;
+            END;
+            $function$;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "function signature: parameter arity change",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.process_item(param1 text)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              RAISE NOTICE 'Processing: %', param1;
+            END;
+            $function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.process_item(text);
+            CREATE FUNCTION test_schema.process_item(param1 text, param2 integer)
+            RETURNS void
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              RAISE NOTICE 'Processing: % (%)', param1, param2;
+            END;
+            $function$;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "function signature: parameter name change only",
+      withDb(pgVersion, async (db) => {
+        // Same argument_types means same stableId -> altered path. PostgreSQL
+        // rejects `CREATE OR REPLACE FUNCTION` that renames an IN parameter
+        // ("cannot change name of input parameter"), so the diff must emit
+        // DROP + CREATE.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.process_item(original_name text)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT original_name$function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.process_item(text);
+            CREATE FUNCTION test_schema.process_item(renamed text)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT renamed$function$;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "function signature: parameter default removed",
+      withDb(pgVersion, async (db) => {
+        // PostgreSQL: "cannot remove parameter defaults from existing function".
+        // Requires DROP + CREATE.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.get_greeting(name text DEFAULT 'world')
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT 'hello ' || name$function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.get_greeting(text);
+            CREATE FUNCTION test_schema.get_greeting(name text)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT 'hello ' || name$function$;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "function signature: return type change",
+      withDb(pgVersion, async (db) => {
+        // PostgreSQL: "cannot change return type of existing function".
+        // Requires DROP + CREATE.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.lookup(id integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT id$function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.lookup(integer);
+            CREATE FUNCTION test_schema.lookup(id integer)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT id::text$function$;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "function signature change cascades through a dependent view",
+      withDb(pgVersion, async (db) => {
+        // A signature change on a function referenced by a view must also
+        // replace the view; the topological sort + replacement expansion is
+        // responsible for this. The roundtrip asserts apply succeeds end-to-end.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.format_id(id integer)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT 'id:' || id::text$function$;
+
+            CREATE TABLE test_schema.items (id integer);
+            CREATE VIEW test_schema.items_formatted AS
+              SELECT test_schema.format_id(id) AS formatted_id FROM test_schema.items;
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.items_formatted;
+            DROP FUNCTION test_schema.format_id(integer);
+
+            CREATE FUNCTION test_schema.format_id(id bigint)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$SELECT 'id:' || id::text$function$;
+
+            CREATE VIEW test_schema.items_formatted AS
+              SELECT test_schema.format_id(id::bigint) AS formatted_id FROM test_schema.items;
+          `,
+        });
+      }),
+    );
+
+    test(
       "function overloading",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

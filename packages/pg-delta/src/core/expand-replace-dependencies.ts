@@ -102,6 +102,25 @@ export function expandReplaceDependencies({
     }
   }
 
+  // Procedure stableIds are signature-qualified
+  // (`procedure:schema.name(argtypes)`), so a function whose parameter types
+  // change has different ids in `createdIds` and `droppedIds` and would not
+  // appear in the intersection above. Treat any dropped procedure whose
+  // `(schema, name)` matches a created procedure as a replace root so
+  // dependents referencing the old signature via pg_depend get promoted to
+  // DROP+CREATE.
+  const createdProcedureNames = new Set<string>();
+  for (const id of createdIds) {
+    const key = parseProcedureSchemaName(id);
+    if (key) createdProcedureNames.add(key);
+  }
+  for (const id of droppedIds) {
+    const key = parseProcedureSchemaName(id);
+    if (key && createdProcedureNames.has(key)) {
+      replaceRoots.add(id);
+    }
+  }
+
   if (replaceRoots.size === 0) {
     return {
       changes,
@@ -257,6 +276,13 @@ function isOwnedSequenceColumnDependency(
       sequence.owned_by_column,
     )
   );
+}
+
+function parseProcedureSchemaName(stableId: string): string | null {
+  if (!stableId.startsWith("procedure:")) return null;
+  const paren = stableId.indexOf("(");
+  if (paren === -1) return null;
+  return stableId.slice("procedure:".length, paren);
 }
 
 function normalizeDependentId(dependentId: string): string | null {
