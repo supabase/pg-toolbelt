@@ -159,7 +159,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
             "CREATE UNIQUE INDEX order_summary_customer_idx ON test_schema.order_summary (customer)",
             dedent`
-              CREATE OR REPLACE VIEW test_schema.top_customers AS SELECT customer,
+              CREATE VIEW test_schema.top_customers AS SELECT customer,
                   total_spent,
                   order_count,
                   last_order

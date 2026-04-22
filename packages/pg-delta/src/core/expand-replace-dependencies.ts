@@ -470,6 +470,24 @@ function buildReplaceChanges(
           : []),
       ];
     case "index":
+      // Constraint-owned, primary, and partition-attached indexes are managed
+      // by the owning constraint or parent-index DDL, not standalone
+      // CREATE INDEX / DROP INDEX. The `case "table":` branch above already
+      // recreates constraints via AlterTableAddConstraint; emitting a
+      // standalone drop/create here would fail in PostgreSQL
+      // ("cannot drop index ... because constraint ... requires it") or
+      // duplicate the index the constraint recreates. Skip matches
+      // diffIndexes (packages/pg-delta/src/core/objects/index/index.diff.ts).
+      if (
+        resolved.main.is_owned_by_constraint ||
+        resolved.main.is_primary ||
+        resolved.main.is_index_partition ||
+        resolved.branch.is_owned_by_constraint ||
+        resolved.branch.is_primary ||
+        resolved.branch.is_index_partition
+      ) {
+        return null;
+      }
       return [
         ...(addDrop ? [new DropIndex({ index: resolved.main })] : []),
         ...(addCreate
