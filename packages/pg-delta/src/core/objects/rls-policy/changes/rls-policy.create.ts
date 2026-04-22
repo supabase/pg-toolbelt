@@ -45,6 +45,33 @@ export class CreateRlsPolicy extends CreateRlsPolicyChange {
     // Owner dependency
     dependencies.add(stableId.role(this.policy.owner));
 
+    // Relations and functions referenced inside USING / WITH CHECK
+    // expressions must exist before the policy is created. These come from
+    // pg_depend (populated by PostgreSQL's recordDependencyOnExpr at policy
+    // creation), not from re-parsing the expression text.
+    for (const ref of this.policy.referenced_relations) {
+      switch (ref.kind) {
+        case "table":
+          dependencies.add(stableId.table(ref.schema, ref.name));
+          break;
+        case "view":
+          dependencies.add(stableId.view(ref.schema, ref.name));
+          break;
+        case "materialized_view":
+          dependencies.add(stableId.materializedView(ref.schema, ref.name));
+          break;
+        case "foreign_table":
+          dependencies.add(stableId.foreignTable(ref.schema, ref.name));
+          break;
+      }
+    }
+
+    for (const ref of this.policy.referenced_procedures) {
+      dependencies.add(
+        stableId.procedure(ref.schema, ref.name, ref.argument_types.join(",")),
+      );
+    }
+
     return Array.from(dependencies);
   }
 

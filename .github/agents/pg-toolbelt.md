@@ -64,6 +64,19 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/
 - Biome handles formatting and linting (config at root `biome.json`)
 - Changesets manage versioning across both packages
 
+### pg-delta core is self-contained
+
+`pg-delta`'s core diffing / planning path (`src/core/objects/**`, `src/core/catalog*`, `src/core/plan/**`, `src/core/sort/**`) must stay runnable from **pg_catalog + its own utilities only**. Do not reach into `@supabase/pg-topo` — or any other SQL-parser / AST library — from this path, even as a "best-effort" helper.
+
+When a change class needs dependency edges for `requires` or `creates`:
+
+1. **First, check `pg_depend`.** Postgres records expression-level dependencies automatically (policy `USING` / `WITH CHECK` via `recordDependencyOnExpr`, `CHECK` constraints, generated columns, column defaults, view rewrite rules, trigger functions, SQL-language function bodies, sequence ownership, etc.). That catalog is authoritative and already used extensively in `src/core/depend.ts`; extend it instead of inventing a second source of truth.
+2. **Source the list at extract time.** Join `pg_depend` in the object's extractor (`<object>.model.ts`) so the resolved schema+name (or stable-id) list is carried on the model. The change class then iterates that list in `requires` — no parsing happens while diffing.
+3. **Keep derived metadata out of `dataFields`.** Fields populated from `pg_depend` change lockstep with their source expression (`using_expression`, `with_check_expression`, etc.), so including them in equality adds no signal and creates noisy diffs.
+4. **Don't re-parse what Postgres already parsed.** Re-parsing `pg_get_expr()` output with an external AST library to recover references is a sign you missed a `pg_depend` row. Find it.
+
+`pg-topo` is fine as a **dev-time** utility inside pg-delta — for example, `src/core/test-utils/assert-valid-sql.ts` uses `validateSqlSyntax` to sanity-check serialized DDL in unit tests. That usage is scoped to tests and does not leak into the diffing path.
+
 ### Serialize Options
 
 When adding or changing a serialize option in `pg-delta`, keep the typing and ownership split consistent:
@@ -170,6 +183,32 @@ Wait for user approval before implementing.
 
 When implementing a **fix**, **feat**, or any change that affects package behavior (patch/minor/major), add a changeset before considering the work complete. Run `bunx changeset`, select the affected package(s), pick the appropriate bump type, and commit the generated `.changeset/*.md` file with your changes.
 
+See also **Test-Driven Fixes** below — the regression test must exist (and fail) before the fix that the changeset describes.
+
+### Test-Driven Fixes
+
+Every bug fix and every feature with a well-defined acceptance criterion follows a strict RED → GREEN cycle:
+
+1. **RED first.** Author the regression test(s) against the current (broken) code. Run the focused test and confirm it **fails for the right reason** — an assertion mismatch, a missing symbol, or a runtime error that matches the bug. A test that fails because of a typo or wrong import does not count.
+2. **Capture the failure.** Save the assertion excerpt or test-runner summary (just the relevant lines). This goes into the follow-up commit message and/or PR description so reviewers can see the regression was real.
+3. **GREEN.** Apply the production change. Re-run the same focused test and confirm it passes.
+4. **No regressions.** Run the broader focused suites for the package(s) you touched (unit tests, and integration tests for the affected area when iterating locally) plus `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`.
+
+**Commit shape.** Prefer splitting the work into two commits on the working branch:
+
+- `test(<scope>): add failing regression for <behavior>` — tests only; reviewers can check out this commit and watch it fail.
+- `fix(<scope>): <what changed>` — production change (and the changeset, agent-guideline updates, etc.). The commit message should include the captured RED output from step 2.
+
+If a repository policy or reviewer asks for a single squashed commit, keep the RED/GREEN split in the PR description instead — do not silently collapse the evidence.
+
+**Applies to:**
+
+- All `fix:` commits, with no exceptions.
+- `feat:` commits where the behavior has a concrete, testable acceptance criterion. Start from a failing test by default; skip only when the feature is purely additive plumbing with no observable-yet behavior.
+- Refactors that claim to preserve behavior: if there is doubt, pin the current behavior with a passing test first, then refactor.
+
+**Don't:** write the production code first and then "backfill" a test that already passes. That test cannot prove the fix was necessary.
+
 ### Testing Discipline
 
 pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 CI runners. Never run the full suite while iterating.
@@ -228,6 +267,7 @@ All code changes must be covered by tests:
 - **pg-delta:** Every fix or feat must be covered by at least one integration test that proves it works end-to-end (e.g. roundtrip or diff applied against a real DB).
 - Prefer `roundtripFidelityTest` for pg-delta integration coverage instead of hand-rolled `createPlan` + apply assertions. Use custom plan assertions only when validating planner internals that roundtrip utilities cannot express.
 - Follow existing test patterns in the codebase
+- Author tests **before** the production change per **Test-Driven Fixes** above — a new test that has never failed does not prove the regression was real.
 
 ### Snapshot Assertions
 
