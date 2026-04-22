@@ -1,9 +1,12 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import {
+  AlterTableAddConstraint,
   AlterTableDropColumn,
   AlterTableDropConstraint,
+  AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
+import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { stableId } from "./objects/utils.ts";
 
@@ -52,6 +55,72 @@ function isSupersededByTableReplacement(
   return replacedTableIds.has(change.table.stableId);
 }
 
+/**
+ * Drop earlier duplicates of `AlterTableAddConstraint` /
+ * `AlterTableValidateConstraint` / `CreateCommentOnConstraint` targeting
+ * replaced tables, keeping only the last occurrence of each
+ * `(changeType, table.stableId, constraint.name)`.
+ *
+ * When `expandReplaceDependencies()` promotes a table to a full
+ * `DropTable + CreateTable` pair, it also emits one
+ * `AlterTableAddConstraint` (plus optional `VALIDATE CONSTRAINT` /
+ * `COMMENT ON CONSTRAINT`) per branch constraint. If `diffTables()` already
+ * emitted the same change for a shape flip or a new constraint on that
+ * table, the plan ends up with two identical `ALTER TABLE ... ADD
+ * CONSTRAINT ...` statements and PostgreSQL fails at apply time with
+ * `constraint "..." for relation "..." already exists`. Because
+ * `expandReplaceDependencies()` appends its additions after the original
+ * `diffTables()` output, the last occurrence is the expansion's emission —
+ * keeping it preserves correctness while removing the duplicate.
+ */
+function dropReplacedTableDuplicateConstraintChanges(
+  changes: Change[],
+  replacedTableIds: ReadonlySet<string>,
+): Change[] {
+  if (replacedTableIds.size === 0) return changes;
+
+  const keyFor = (change: Change): string | null => {
+    if (
+      !(change instanceof AlterTableAddConstraint) &&
+      !(change instanceof AlterTableValidateConstraint) &&
+      !(change instanceof CreateCommentOnConstraint)
+    ) {
+      return null;
+    }
+    if (!replacedTableIds.has(change.table.stableId)) return null;
+    const tag =
+      change instanceof AlterTableAddConstraint
+        ? "add"
+        : change instanceof AlterTableValidateConstraint
+          ? "validate"
+          : "comment";
+    return `${tag}:${constraintStableId(change.table, change.constraint.name)}`;
+  };
+
+  const seen = new Set<string>();
+  const reversedKept: Change[] = [];
+  let mutated = false;
+
+  // Walk backwards: the first encounter of each key corresponds to its LAST
+  // occurrence in the original order. `expandReplaceDependencies()` appends
+  // additions after the original changes, so "last wins" keeps the
+  // expansion's emission and drops the earlier diffTables duplicate.
+  for (let i = changes.length - 1; i >= 0; i--) {
+    const change = changes[i] as Change;
+    const key = keyFor(change);
+    if (key !== null) {
+      if (seen.has(key)) {
+        mutated = true;
+        continue;
+      }
+      seen.add(key);
+    }
+    reversedKept.push(change);
+  }
+
+  return mutated ? reversedKept.reverse() : changes;
+}
+
 function collectExplicitConstraintDropIds(changes: Change[]) {
   const explicitConstraintDropIds = new Set<string>();
 
@@ -84,6 +153,13 @@ function hasSameEntries(
  * - If replace expansion added `DropTable(T)+CreateTable(T)`, targeted
  *   `AlterTableDropColumn(T.*)` / `AlterTableDropConstraint(T.*)` changes are
  *   redundant and create an unbreakable drop-phase cycle, so we elide them.
+ * - When the same `DropTable+CreateTable` pair is present, the expansion
+ *   also emits one `AlterTableAddConstraint` / `AlterTableValidateConstraint`
+ *   / `CreateCommentOnConstraint` per branch constraint, which may collide
+ *   with the same change already emitted by `diffTables()` (for example on a
+ *   shape flip or a new constraint). We dedupe these keeping only the last
+ *   occurrence so the expansion's emission survives and the diffTables
+ *   duplicate is removed.
  * - If two dropped tables reference each other via FK, we insert dedicated
  *   `AlterTableDropConstraint` changes and teach the paired `DropTable`
  *   changes not to claim those FK stable IDs.
@@ -100,10 +176,15 @@ export function normalizePostDiffCycles({
   mainCatalog: Catalog;
   replacedTableIds?: ReadonlySet<string>;
 }): Change[] {
+  const dedupedChanges = dropReplacedTableDuplicateConstraintChanges(
+    changes,
+    replacedTableIds,
+  );
+
   const structurallyNormalizedChanges =
     replacedTableIds.size === 0
-      ? changes
-      : changes.filter(
+      ? dedupedChanges
+      : dedupedChanges.filter(
           (change) => !isSupersededByTableReplacement(change, replacedTableIds),
         );
 

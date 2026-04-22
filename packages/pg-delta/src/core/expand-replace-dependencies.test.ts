@@ -336,6 +336,7 @@ describe("expandReplaceDependencies", () => {
         validated: true,
         is_local: true,
         no_inherit: false,
+        is_temporal: false,
         is_partition_clone: false,
         parent_constraint_schema: null,
         parent_constraint_name: null,
