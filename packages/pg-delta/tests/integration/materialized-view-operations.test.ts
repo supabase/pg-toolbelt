@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL materialized view operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -254,6 +254,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           COMMENT ON MATERIALIZED VIEW test_schema.user_names IS 'user names matview';
         `,
+        });
+      }),
+    );
+
+    test(
+      "refresh materialized view does not trigger a diff",
+      withDb(pgVersion, async (db) => {
+        // Issue #133 acceptance: REFRESH MATERIALIZED VIEW changes data but not
+        // the catalog, so pg-delta must generate an empty plan. If createPlan
+        // returns null (identical catalogs), roundtripFidelityTest returns
+        // early; otherwise the assertion below pins the generated statement
+        // list to zero entries.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA refresh_schema;
+            CREATE TABLE refresh_schema.orders (
+              id integer PRIMARY KEY,
+              total numeric NOT NULL
+            );
+            INSERT INTO refresh_schema.orders (id, total)
+              VALUES (1, 100), (2, 200);
+            CREATE MATERIALIZED VIEW refresh_schema.totals AS
+              SELECT sum(total) AS all_total FROM refresh_schema.orders;
+          `,
+          testSql: dedent`
+            INSERT INTO refresh_schema.orders (id, total) VALUES (3, 300);
+            REFRESH MATERIALIZED VIEW refresh_schema.totals;
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toStrictEqual([]);
+          },
         });
       }),
     );
