@@ -8,6 +8,7 @@
   },
   "changesets": [
     "add-catalog-export-subpath",
+    "all-planes-ask",
     "brave-sails-kneel",
     "clean-bees-fetch",
     "cold-students-vanish",
@@ -18,6 +19,7 @@
     "fix-drop-ordering",
     "fix-drop-phase-cycles-owned-sequence-and-replace-table",
     "fix-index-extension-ordering",
+    "fix-index-null-definition",
     "fix-ipv6-bracket-strip",
     "fix-ipv6-connection-url",
     "fix-mutual-fk-drop-cycle",
@@ -36,6 +38,7 @@
     "many-bobcats-divide",
     "nasty-bears-explain",
     "nine-candles-sleep",
+    "order-rls-policies-after-referenced-tables",
     "rich-regions-sneeze",
     "ripe-ravens-doubt",
     "short-poems-happen",
