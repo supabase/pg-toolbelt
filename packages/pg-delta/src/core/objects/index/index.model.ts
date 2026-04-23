@@ -374,6 +374,6 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
   `);
   const validatedRows = indexRows
     .map((row: unknown) => indexRowSchema.parse(row))
-    .filter((row): row is IndexProps => row.defintion !== null);
+    .filter((row): row is IndexProps => row.definition !== null);
   return validatedRows.map((row: IndexProps) => new Index(row));
 }
