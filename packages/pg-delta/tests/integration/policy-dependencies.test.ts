@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL policy dependencies.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -102,6 +102,181 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             USING (true)
             WITH CHECK (true);
         `,
+        });
+      }),
+    );
+
+    test(
+      "policy USING expression references another new table (EXISTS)",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA app;
+        `,
+          testSql: `
+          CREATE TABLE app.accounts (
+            id INTEGER PRIMARY KEY
+          );
+
+          CREATE TABLE app.users (
+            id INTEGER PRIMARY KEY
+          );
+
+          ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY account_access ON app.accounts
+            FOR SELECT
+            TO public
+            USING (EXISTS (SELECT 1 FROM app.users));
+        `,
+          assertSqlStatements: (statements) => {
+            const createUsersIdx = statements.findIndex((s) =>
+              s.includes("CREATE TABLE app.users"),
+            );
+            const createPolicyIdx = statements.findIndex((s) =>
+              s.includes("CREATE POLICY account_access"),
+            );
+            expect(createUsersIdx).toBeGreaterThanOrEqual(0);
+            expect(createPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(createUsersIdx).toBeLessThan(createPolicyIdx);
+          },
+        });
+      }),
+    );
+
+    test(
+      "policy expression references multiple new tables via IN (SELECT …)",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA app;
+        `,
+          testSql: `
+          CREATE TABLE app.accounts (
+            id INTEGER PRIMARY KEY,
+            status TEXT NOT NULL
+          );
+
+          CREATE TABLE app.memberships (
+            account_id INTEGER PRIMARY KEY,
+            active BOOLEAN NOT NULL
+          );
+
+          CREATE TABLE app.statuses (
+            status TEXT PRIMARY KEY
+          );
+
+          ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY account_access ON app.accounts
+            FOR SELECT
+            TO public
+            USING (
+              id IN (SELECT account_id FROM app.memberships WHERE active)
+              AND status IN (SELECT status FROM app.statuses)
+            );
+        `,
+          assertSqlStatements: (statements) => {
+            const createMembershipsIdx = statements.findIndex((s) =>
+              s.includes("CREATE TABLE app.memberships"),
+            );
+            const createStatusesIdx = statements.findIndex((s) =>
+              s.includes("CREATE TABLE app.statuses"),
+            );
+            const createPolicyIdx = statements.findIndex((s) =>
+              s.includes("CREATE POLICY account_access"),
+            );
+            expect(createMembershipsIdx).toBeGreaterThanOrEqual(0);
+            expect(createStatusesIdx).toBeGreaterThanOrEqual(0);
+            expect(createPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(createMembershipsIdx).toBeLessThan(createPolicyIdx);
+            expect(createStatusesIdx).toBeLessThan(createPolicyIdx);
+          },
+        });
+      }),
+    );
+
+    test(
+      "policy USING expression calls a new function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA app;
+        `,
+          testSql: `
+          CREATE TABLE app.accounts (
+            id INTEGER PRIMARY KEY
+          );
+
+          CREATE FUNCTION app.is_admin() RETURNS BOOLEAN
+            LANGUAGE sql
+            STABLE
+            AS $$ SELECT true $$;
+
+          ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY account_access ON app.accounts
+            FOR SELECT
+            TO public
+            USING (app.is_admin());
+        `,
+          assertSqlStatements: (statements) => {
+            const createFunctionIdx = statements.findIndex((s) =>
+              s.includes("FUNCTION app.is_admin"),
+            );
+            const createPolicyIdx = statements.findIndex((s) =>
+              s.includes("CREATE POLICY account_access"),
+            );
+            expect(createFunctionIdx).toBeGreaterThanOrEqual(0);
+            expect(createPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(createFunctionIdx).toBeLessThan(createPolicyIdx);
+          },
+        });
+      }),
+    );
+
+    test(
+      "policy expression references a new view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA app;
+        `,
+          testSql: `
+          CREATE TABLE app.accounts (
+            id INTEGER PRIMARY KEY,
+            active BOOLEAN NOT NULL
+          );
+
+          CREATE VIEW app.active_accounts AS
+            SELECT id FROM app.accounts WHERE active;
+
+          ALTER TABLE app.accounts ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY account_access ON app.accounts
+            FOR SELECT
+            TO public
+            USING (id IN (SELECT id FROM app.active_accounts));
+        `,
+          assertSqlStatements: (statements) => {
+            const createViewIdx = statements.findIndex((s) =>
+              s.includes("CREATE VIEW app.active_accounts"),
+            );
+            const createPolicyIdx = statements.findIndex((s) =>
+              s.includes("CREATE POLICY account_access"),
+            );
+            expect(createViewIdx).toBeGreaterThanOrEqual(0);
+            expect(createPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(createViewIdx).toBeLessThan(createPolicyIdx);
+          },
         });
       }),
     );

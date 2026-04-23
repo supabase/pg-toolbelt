@@ -1000,6 +1000,8 @@ const rlsPolicy = new RlsPolicy({
   with_check_expression: null,
   owner: "owner1",
   comment: "rls policy comment",
+  referenced_relations: [],
+  referenced_procedures: [],
 });
 
 const rlsPolicyRestrictive = new RlsPolicy({
@@ -1013,6 +1015,8 @@ const rlsPolicyRestrictive = new RlsPolicy({
   with_check_expression: "status <> 'locked'",
   owner: "owner1",
   comment: null,
+  referenced_relations: [],
+  referenced_procedures: [],
 });
 
 const index = new Index({
