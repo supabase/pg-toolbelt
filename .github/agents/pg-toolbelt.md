@@ -188,6 +188,18 @@ Wait for user approval before implementing.
 
 When implementing a **fix**, **feat**, or any change that affects package behavior (patch/minor/major), add a changeset before considering the work complete. Run `bunx changeset`, select the affected package(s), pick the appropriate bump type, and commit the generated `.changeset/*.md` file with your changes.
 
+<<<<<<< copilot/handle-cascade-dependencies-mv
+### Test-Driven Fixes
+
+Every bug fix must land as two commits (or one clearly described TDD history in the commit body):
+
+1. **Red.** Add a test that reproduces the bug and fails against the current code. Run the focused command and paste the failure output into the commit body so reviewers can see the regression shape.
+2. **Green.** Apply the minimum code change that makes the red test pass. Do not touch unrelated code in the same commit.
+
+A fix without a failing test first is not complete. If the bug genuinely cannot be reproduced in a test (e.g. a race, a user-environment-only issue), say so explicitly in the PR and explain what manual verification was performed instead.
+
+This rule applies to every `fix(...)` and to any `feat(...)` that changes existing behavior. New `feat(...)` work follows the usual coverage expectations in the _Test Coverage Expectations_ section.
+=======
 See also **Test-Driven Fixes** below — the regression test must exist (and fail) before the fix that the changeset describes.
 
 ### Test-Driven Fixes
@@ -213,6 +225,7 @@ If a repository policy or reviewer asks for a single squashed commit, keep the R
 - Refactors that claim to preserve behavior: if there is doubt, pin the current behavior with a passing test first, then refactor.
 
 **Don't:** write the production code first and then "backfill" a test that already passes. That test cannot prove the fix was necessary.
+>>>>>>> main
 
 ### Testing Discipline
 
