@@ -333,4 +333,40 @@ describe("poolConfigFromUrl", () => {
       expect(config.host).toBe("::ffff:c000:201");
     });
   });
+
+  describe("malformed percent-encoding in userinfo/database", () => {
+    // Regression for SUPABASE-API-7TV (alpha.16): `decodeURIComponent` on a
+    // password/username/database containing a bare `%` or truncated escape
+    // threw `URIError: URI malformed` from `poolConfigFromUrl`, crashing
+    // `createManagedPool` before any connection attempt.
+    test("bare % in password does not throw (Sentry MRE)", () => {
+      const url = "postgresql://postgres:pass%word@[::1]:5432/db";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.user).toBe("postgres");
+      expect(config.password).toBe("pass%word");
+      expect(config.database).toBe("db");
+    });
+
+    test("truncated percent escape in password does not throw", () => {
+      const url = "postgresql://postgres:pa%xx@[::1]:5432/db";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.password).toBe("pa%xx");
+    });
+
+    test("bare % in username does not throw", () => {
+      const url = "postgresql://us%er:pass@[::1]:5432/db";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.user).toBe("us%er");
+    });
+
+    test("bare % in database name does not throw", () => {
+      const url = "postgresql://user:pass@[::1]:5432/my%db";
+      const config = poolConfigFromUrl(url);
+      expect(config.host).toBe("::1");
+      expect(config.database).toBe("my%db");
+    });
+  });
 });
