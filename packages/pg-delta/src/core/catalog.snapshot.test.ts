@@ -428,6 +428,8 @@ describe("catalog snapshot serde", () => {
       with_check_expression: null,
       owner: "postgres",
       comment: null,
+      referenced_relations: [],
+      referenced_procedures: [],
     });
 
     const target = new Catalog({
