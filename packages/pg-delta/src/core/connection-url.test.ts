@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isIPv6, normalizeConnectionUrl } from "./connection-url.ts";
+import {
+  isIPv6,
+  normalizeConnectionUrl,
+  safeDecodeURIComponent,
+} from "./connection-url.ts";
 
 describe("isIPv6", () => {
   describe("accepted", () => {
@@ -138,5 +142,36 @@ describe("normalizeConnectionUrl", () => {
       const input = "postgresql://user:pass@%3A%3Azzz:5432/db";
       expect(normalizeConnectionUrl(input)).toBe(input);
     });
+
+    test("hostname with %3A and a bare % does not throw URIError", () => {
+      // Regression: `decodeURIComponent` would crash on a malformed percent
+      // sequence even when the hostname pre-filter matched `%3A`. Expected
+      // behaviour: swallow the decode failure and leave the URL unchanged,
+      // letting downstream get its usual ENOTFOUND/connect error.
+      const input = "postgresql://user:pass@2406%3Ada18%:5432/db";
+      expect(normalizeConnectionUrl(input)).toBe(input);
+    });
+  });
+});
+
+describe("safeDecodeURIComponent", () => {
+  test("decodes a valid percent-encoded string", () => {
+    expect(safeDecodeURIComponent("p%40ss%2Fword")).toBe("p@ss/word");
+  });
+
+  test("returns a string with a bare % unchanged", () => {
+    expect(safeDecodeURIComponent("pass%word")).toBe("pass%word");
+  });
+
+  test("returns a truncated percent escape unchanged", () => {
+    expect(safeDecodeURIComponent("pa%xx")).toBe("pa%xx");
+  });
+
+  test("returns a trailing bare % unchanged", () => {
+    expect(safeDecodeURIComponent("secret%")).toBe("secret%");
+  });
+
+  test("returns empty string as-is", () => {
+    expect(safeDecodeURIComponent("")).toBe("");
   });
 });

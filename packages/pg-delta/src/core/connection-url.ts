@@ -44,6 +44,25 @@ export function isIPv6(value: string): boolean {
 }
 
 /**
+ * `decodeURIComponent` that returns the input unchanged when the value
+ * contains a malformed percent sequence (bare `%` or truncated escape like
+ * `%x`). Any other error is rethrown.
+ *
+ * Connection URLs emitted by managed Postgres providers occasionally carry a
+ * literal `%` in the password without properly escaping it as `%25`, and the
+ * built-in `decodeURIComponent` throws `URIError` in that case, which used to
+ * crash `poolConfigFromUrl` before any connection attempt was made.
+ */
+export function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch (err) {
+    if (err instanceof URIError) return value;
+    throw err;
+  }
+}
+
+/**
  * Normalize a PostgreSQL connection URL so IPv6 hosts reach pg in the
  * canonical bracketed form.
  *
@@ -62,7 +81,7 @@ export function normalizeConnectionUrl(url: string): string {
   // percent-encoded colon. Anything else is left entirely untouched.
   if (!/%3[aA]/.test(urlObj.hostname)) return url;
 
-  const decodedHost = decodeURIComponent(urlObj.hostname);
+  const decodedHost = safeDecodeURIComponent(urlObj.hostname);
   // Authoritative validation: only normalize when the decoded string is a
   // real IPv6 literal. Rejects partial fragments, random hostnames that
   // happen to contain `%3A`, and any malformed input.

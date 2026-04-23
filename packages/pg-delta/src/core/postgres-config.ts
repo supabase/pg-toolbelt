@@ -4,7 +4,10 @@
 
 import type { ClientBase, PoolClient, PoolConfig } from "pg";
 import { escapeIdentifier, Pool, types } from "pg";
-import { normalizeConnectionUrl } from "./connection-url.ts";
+import {
+  normalizeConnectionUrl,
+  safeDecodeURIComponent,
+} from "./connection-url.ts";
 import { parseSslConfig } from "./plan/ssl-config.ts";
 
 // ============================================================================
@@ -340,10 +343,11 @@ export function poolConfigFromUrl(cleanedUrl: string): PoolConfig {
     host: urlObj.hostname.slice(1, -1),
   };
   if (urlObj.port) config.port = Number(urlObj.port);
-  if (urlObj.username) config.user = decodeURIComponent(urlObj.username);
-  if (urlObj.password) config.password = decodeURIComponent(urlObj.password);
+  if (urlObj.username) config.user = safeDecodeURIComponent(urlObj.username);
+  if (urlObj.password)
+    config.password = safeDecodeURIComponent(urlObj.password);
   if (urlObj.pathname.length > 1) {
-    config.database = decodeURIComponent(urlObj.pathname.slice(1));
+    config.database = safeDecodeURIComponent(urlObj.pathname.slice(1));
   }
   for (const [key, value] of urlObj.searchParams) {
     config[key] = value;
