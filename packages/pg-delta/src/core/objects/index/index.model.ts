@@ -1,10 +1,7 @@
 import { sql } from "@ts-safeql/sql-tag";
-import createDebug from "debug";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
-
-const debug = createDebug("pg-delta:extract:index");
 
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
@@ -377,17 +374,6 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
   `);
   const validatedRows = indexRows
     .map((row: unknown) => indexRowSchema.parse(row))
-    .filter((row): row is IndexProps => {
-      if (row.definition === null) {
-        debug(
-          "skipping index %s.%s.%s: pg_get_indexdef() returned NULL",
-          row.schema,
-          row.table_name,
-          row.name,
-        );
-        return false;
-      }
-      return true;
-    });
+    .filter((row): row is IndexProps => row.defintion !== null);
   return validatedRows.map((row: IndexProps) => new Index(row));
 }
