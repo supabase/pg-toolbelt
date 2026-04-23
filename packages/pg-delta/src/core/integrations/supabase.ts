@@ -148,14 +148,21 @@ export const supabase: IntegrationDSL = {
         skipAuthorization: true,
       },
     },
-    // pgmq extensions creates it's own schema on install doing a `CREATE EXTENSION pgmq WITH SCHEMA pgmq;`
-    // will cause an error because the schema will create extension and extension refer to unexisting schema
+    // Extensions whose install script creates its own target schema cannot
+    // tolerate `CREATE EXTENSION … WITH SCHEMA <self>` against a fresh
+    // database: Postgres resolves WITH SCHEMA before running the extension's
+    // script, so the schema referenced by the clause does not exist yet.
+    // These extensions also install into schemas listed in
+    // SUPABASE_SYSTEM_SCHEMAS, so pg-delta filters their CREATE SCHEMA out
+    // of the declarative plan — nothing else will pre-create the schema.
+    // Emitting a bare `CREATE EXTENSION <name>` lets the extension's own
+    // install script create the schema it expects.
     {
       when: {
         objectType: "extension",
         operation: "create",
         scope: "object",
-        "extension/schema": ["pgmq"],
+        "extension/schema": ["pgmq", "pgsodium", "pgtle"],
       },
       options: {
         skipSchema: true,

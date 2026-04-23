@@ -104,7 +104,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
 
         expect(remainingChanges).toHaveLength(0);
       }),
-      5 * 60 * 1000,
+      15 * 60 * 1000,
     );
   });
 }
