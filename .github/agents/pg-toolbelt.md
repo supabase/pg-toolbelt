@@ -141,6 +141,11 @@ docs(pg-delta): improve README examples
 
 Common types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`.
 
+The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`) runs `amannn/action-semantic-pull-request` and will fail any PR whose title doesn't match this convention. Two common pitfalls to avoid:
+
+- **Auto-generated PR titles from external tools** (Claude Code web session launcher, GitHub's "compare" UI, the `gh` CLI default, etc.) routinely produce plain English like `Add integration tests for X` or `Update Y`. These will fail lint. Always verify the PR title before considering the PR opened — if it's not `<type>(<scope>): ...`, rename it (e.g. via `mcp__github__update_pull_request` with a new `title`). The first commit's subject is usually a good source since we write those in Conventional Commits already.
+- **`<scope>` should be the package name** (`pg-delta`, `pg-topo`) or a cross-cutting area (`ci`, `docs`, `release`) — not a feature name.
+
 ## CI
 
 - GitHub Actions with `dorny/paths-filter` detects which packages changed
