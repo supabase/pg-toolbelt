@@ -157,6 +157,14 @@ export const supabase: IntegrationDSL = {
     // of the declarative plan — nothing else will pre-create the schema.
     // Emitting a bare `CREATE EXTENSION <name>` lets the extension's own
     // install script create the schema it expects.
+    //
+    // Note: other extensions install into SUPABASE_SYSTEM_SCHEMAS too
+    // (`pg_graphql` → `graphql`, `supabase_vault` → `vault`,
+    // `uuid-ossp`/`pgcrypto`/`pg_net`/`pg_stat_statements` → `extensions`),
+    // but those schemas are created by the supabase/postgres image baseline
+    // and survive `DROP EXTENSION … CASCADE`, so `CREATE EXTENSION … WITH
+    // SCHEMA <schema>` finds the schema and succeeds. Only the three below
+    // have self-created schemas that are absent from the baseline.
     {
       when: {
         objectType: "extension",

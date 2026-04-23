@@ -38,6 +38,22 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
           );
         }
 
+        // Drop every extension pre-installed on main (by the supabase/postgres
+        // image itself or by the base-init fixture) so the diff has to emit a
+        // CREATE EXTENSION for it. Without this, extensions the image ships
+        // with — pg_graphql (schema: graphql), supabase_vault (schema: vault),
+        // uuid-ossp, pgcrypto, pg_stat_statements, pg_net — are identical on
+        // both sides and never exercise the WITH SCHEMA code path the issue
+        // #222 bug lives on.
+        const preInstalled = await db.main.query<{ name: string }>(
+          `SELECT extname AS name
+           FROM pg_extension
+           WHERE extname <> 'plpgsql'`,
+        );
+        for (const row of preInstalled.rows) {
+          await db.main.query(`DROP EXTENSION IF EXISTS "${row.name}" CASCADE`);
+        }
+
         if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
           throw new Error("supabase integration missing filter or serialize");
         }
