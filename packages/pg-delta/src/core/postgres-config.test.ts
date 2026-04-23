@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeConnectionUrl } from "./connection-url.ts";
 import {
   connectWithRetry,
   isRetryableConnectError,
@@ -367,6 +368,26 @@ describe("poolConfigFromUrl", () => {
       const config = poolConfigFromUrl(url);
       expect(config.host).toBe("::1");
       expect(config.database).toBe("my%db");
+    });
+
+    test("end-to-end pipeline with Supabase-shaped URL (percent-encoded IPv6 host + bare % password)", () => {
+      // Exact URL shape observed in production: hostname percent-encoded, but
+      // the password carries a literal `%` unencoded. `psql` rejects this as
+      // `invalid percent-encoded token`; pg-delta forgives it and passes the
+      // raw bytes to pg so the connection can succeed against a server whose
+      // real password contains that `%`.
+      const input =
+        "postgres://postgres:Passw0%rd1234****@2a05%3Ad014%3A119b%3Aec52%3A76dc%3A0000%3A7742%3A3c67:5432/postgres";
+      const normalized = normalizeConnectionUrl(input);
+      expect(normalized).toBe(
+        "postgres://postgres:Passw0%rd1234****@[2a05:d014:119b:ec52:76dc:0000:7742:3c67]:5432/postgres",
+      );
+      const config = poolConfigFromUrl(normalized);
+      expect(config.host).toBe("2a05:d014:119b:ec52:76dc:0:7742:3c67");
+      expect(config.port).toBe(5432);
+      expect(config.user).toBe("postgres");
+      expect(config.password).toBe("Passw0%rd1234****");
+      expect(config.database).toBe("postgres");
     });
   });
 });
