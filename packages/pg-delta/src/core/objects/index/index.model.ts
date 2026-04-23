@@ -1,7 +1,10 @@
 import { sql } from "@ts-safeql/sql-tag";
+import createDebug from "debug";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+
+const debug = createDebug("pg-delta:extract:index");
 
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
@@ -38,6 +41,16 @@ const indexPropsSchema = z.object({
   definition: z.string(),
   comment: z.string().nullable(),
   owner: z.string(),
+});
+
+// pg_get_indexdef(oid, colno, pretty) invokes pg_get_indexdef_worker with
+// missing_ok = true, so it can return NULL when any internal system-cache lookup
+// fails (race with concurrent DROP, role visibility edge cases, orphaned index
+// metadata, recovery transients). An unreadable index cannot be diffed, so we
+// accept NULL here and filter the row out with a debug log instead of crashing
+// the whole catalog extraction.
+const indexRowSchema = indexPropsSchema.extend({
+  definition: z.string().nullable(),
 });
 
 /**
@@ -362,9 +375,19 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = indexRows.map((row: unknown) =>
-    indexPropsSchema.parse(row),
-  );
+  const validatedRows = indexRows
+    .map((row: unknown) => indexRowSchema.parse(row))
+    .filter((row): row is IndexProps => {
+      if (row.definition === null) {
+        debug(
+          "skipping index %s.%s.%s: pg_get_indexdef() returned NULL",
+          row.schema,
+          row.table_name,
+          row.name,
+        );
+        return false;
+      }
+      return true;
+    });
   return validatedRows.map((row: IndexProps) => new Index(row));
 }
