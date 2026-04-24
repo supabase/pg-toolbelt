@@ -26,6 +26,7 @@
     "fix-procedure-signature-replace",
     "fix-replaced-table-duplicate-constraint-add",
     "fix-self-grant-admin-option",
+    "fix-supabase-self-schemaed-extensions",
     "fix-trigger-column-numbers-diff-loop",
     "fresh-geese-check",
     "green-pears-jog",
