@@ -30,7 +30,11 @@ const PINNED_SCHEMA_EXTENSION_QUERY = `
 
 for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
   describe(`supabase extension declarative roundtrip (pg${pgVersion})`, () => {
-    test(
+    // Canary test: skipped in CI because spinning up every pinned-schema
+    // extension across all supabase images is too slow for the default
+    // pipeline. Run it locally whenever we bump the supabase/postgres image
+    // versions to catch regressions in the WITH SCHEMA roundtrip path.
+    test.skipIf(Boolean(process.env.CI))(
       "every pinned-schema extension reapplies cleanly via the supabase integration",
       withDbSupabaseIsolated(pgVersion, async (db) => {
         const available = await db.branch.query<{ name: string }>(
