@@ -11,47 +11,54 @@ import { sortChanges } from "../../src/core/sort/sort-changes.ts";
 import { SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbSupabaseIsolated } from "../utils.ts";
 
-// Extensions that are either pre-installed (plpgsql) or not a real
-// CREATE EXTENSION candidate in a running database (wal2json is a logical
-// decoding output plugin that only ships the .so — pg_available_extensions
-// exposes it but CREATE EXTENSION fails on it).
-const SKIP_INSTALL = new Set(["plpgsql", "wal2json"]);
+// Only extensions whose control file pins a non-default target schema can
+// trip the issue #222 bug: `CREATE EXTENSION foo WITH SCHEMA <s>` fails when
+// <s> does not exist on main. Relocatable / `public`-default extensions
+// always resolve against public, which always exists, and extensions pinned
+// to `pg_catalog` (plpgsql) use a built-in schema that also always exists.
+// Installing only the pinned-schema subset keeps the test CI-friendly while
+// still exercising every code path the fix touches.
+const PINNED_SCHEMA_EXTENSION_QUERY = `
+  SELECT v.name
+  FROM pg_available_extension_versions v
+  JOIN pg_available_extensions a ON a.name = v.name
+  WHERE v.version = a.default_version
+    AND v.schema IS NOT NULL
+    AND v.schema NOT IN ('public', 'pg_catalog')
+  ORDER BY v.name
+`;
 
 for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
-  describe(`supabase all-extensions declarative roundtrip (pg${pgVersion})`, () => {
+  describe(`supabase extension declarative roundtrip (pg${pgVersion})`, () => {
     test(
-      "every available extension reapplies cleanly via the supabase integration",
+      "every pinned-schema extension reapplies cleanly via the supabase integration",
       withDbSupabaseIsolated(pgVersion, async (db) => {
         const available = await db.branch.query<{ name: string }>(
-          `SELECT name
-           FROM pg_available_extensions
-           ORDER BY name`,
+          PINNED_SCHEMA_EXTENSION_QUERY,
         );
 
-        const extensionsToInstall = available.rows
-          .map((row) => row.name)
-          .filter((name) => !SKIP_INSTALL.has(name));
-
-        for (const name of extensionsToInstall) {
+        for (const row of available.rows) {
           await db.branch.query(
-            `CREATE EXTENSION IF NOT EXISTS "${name}" CASCADE`,
+            `CREATE EXTENSION IF NOT EXISTS "${row.name}" CASCADE`,
           );
         }
 
         // Drop every extension pre-installed on main (by the supabase/postgres
-        // image itself or by the base-init fixture) so the diff has to emit a
-        // CREATE EXTENSION for it. Without this, extensions the image ships
-        // with — pg_graphql (schema: graphql), supabase_vault (schema: vault),
-        // uuid-ossp, pgcrypto, pg_stat_statements, pg_net — are identical on
-        // both sides and never exercise the WITH SCHEMA code path the issue
-        // #222 bug lives on.
+        // image itself or by the base-init fixture) whose target schema is
+        // non-public and pinned, so the roundtrip has to emit CREATE EXTENSION
+        // against an empty target. Without this, image-installed extensions
+        // like pg_graphql (graphql) / supabase_vault (vault) never exercise
+        // the WITH SCHEMA code path where the issue #222 bug lives.
+        const pinned = new Set(available.rows.map((row) => row.name));
         const preInstalled = await db.main.query<{ name: string }>(
-          `SELECT extname AS name
-           FROM pg_extension
-           WHERE extname <> 'plpgsql'`,
+          `SELECT extname AS name FROM pg_extension`,
         );
         for (const row of preInstalled.rows) {
-          await db.main.query(`DROP EXTENSION IF EXISTS "${row.name}" CASCADE`);
+          if (pinned.has(row.name)) {
+            await db.main.query(
+              `DROP EXTENSION IF EXISTS "${row.name}" CASCADE`,
+            );
+          }
         }
 
         if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
@@ -91,7 +98,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
 
         if (applyResult.apply.status !== "success") {
           console.error(
-            `[supabase-all-extensions-roundtrip pg${pgVersion}] declarative apply ${applyResult.apply.status}:\n` +
+            `[supabase-extension-roundtrip pg${pgVersion}] declarative apply ${applyResult.apply.status}:\n` +
               JSON.stringify(applyResult.apply, null, 2),
           );
           throw new Error(
@@ -114,13 +121,13 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
             .map((change) => change.serialize())
             .join(";\n");
           console.error(
-            `[supabase-all-extensions-roundtrip pg${pgVersion}] ${remainingChanges.length} remaining change(s) after roundtrip:\n${remainingSql}`,
+            `[supabase-extension-roundtrip pg${pgVersion}] ${remainingChanges.length} remaining change(s) after roundtrip:\n${remainingSql}`,
           );
         }
 
         expect(remainingChanges).toHaveLength(0);
       }),
-      15 * 60 * 1000,
+      5 * 60 * 1000,
     );
   });
 }
