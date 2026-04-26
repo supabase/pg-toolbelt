@@ -340,6 +340,184 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop three tables with N=3 FK cycle should not produce a cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for CycleError (N=3 variant) seen in production
+         * (alpha.16):
+         *
+         *   CycleError: dependency graph contains a cycle involving 3 changes:
+         *     1. [n] DropTable
+         *     2. [m] DropTable
+         *     3. [k] DropTable
+         *   [n] → [m] (catalog)  constraint:public.a.a_b_fkey   → column:public.b.id
+         *   [m] → [k] (catalog)  constraint:public.b.b_c_fkey   → column:public.c.id
+         *   [k] → [n] (catalog)  constraint:public.c.c_a_fkey   → column:public.a.id
+         *
+         * Three tables hold FKs forming a 3-cycle (a→b→c→a); branch has none of
+         * them so all three must drop. The pg_depend graph for the FK
+         * constraints creates:
+         *   constraint(A) → column(B.id) → table(B)
+         *   constraint(B) → column(C.id) → table(C)
+         *   constraint(C) → column(A.id) → table(A)
+         * so DropTable(A) requires DropTable(B), DropTable(B) requires
+         * DropTable(C), DropTable(C) requires DropTable(A) → unbreakable cycle.
+         *
+         * The existing post-diff cycle-breaker
+         * (`normalizePostDiffCycles` in `post-diff-cycle-breaking.ts`) only
+         * injects pre-drop `ALTER TABLE ... DROP CONSTRAINT` for *mutual*
+         * 2-cycles — `droppedFkTargets.get(referencedId)?.has(table.stableId)`.
+         * No edge in a 3-cycle is mutual, so the breaker does nothing and the
+         * sort phase throws.
+         *
+         * Expected (post-fix): the breaker should detect any strongly-connected
+         * component of `DropTable` changes connected by FK edges (any N≥2),
+         * inject `ALTER TABLE ... DROP CONSTRAINT` for every FK inside the
+         * SCC, and remove those constraint stable IDs from the paired
+         * `DropTable.requires`. This generalizes the existing 2-cycle handling.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.a (
+              id bigserial PRIMARY KEY,
+              b_id bigint
+            )`,
+            `CREATE TABLE public.b (
+              id bigserial PRIMARY KEY,
+              c_id bigint
+            )`,
+            `CREATE TABLE public.c (
+              id bigserial PRIMARY KEY,
+              a_id bigint
+            )`,
+            `ALTER TABLE public.a
+              ADD CONSTRAINT a_b_fkey
+              FOREIGN KEY (b_id)
+              REFERENCES public.b(id)`,
+            `ALTER TABLE public.b
+              ADD CONSTRAINT b_c_fkey
+              FOREIGN KEY (c_id)
+              REFERENCES public.c(id)`,
+            `ALTER TABLE public.c
+              ADD CONSTRAINT c_a_fkey
+              FOREIGN KEY (a_id)
+              REFERENCES public.a(id)`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
+      "drop publication-listed column should not produce AlterPublicationDropTables ↔ AlterTableDropColumn cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for CycleError seen in production (alpha.16):
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [0] AlterPublicationDropTables
+         *     2. [N] AlterTableDropColumn
+         *   [0] → [N] (catalog)
+         *     publication:public.<pub> → column:public.<table>.<col>
+         *   [N] → [0] (explicit)
+         *     column:public.<table>.<col> → table:public.<table>
+         *
+         * When a publication is created with an explicit column list and the
+         * column is later dropped on branch, `diffPublications` emits
+         * `AlterPublicationDropTables` (the membership column-set diverges →
+         * `deepEqual({ columns, row_filter })` is false at
+         * `publication.diff.ts:216`) and `diffTables` emits
+         * `AlterTableDropColumn` for the same column. The publication's
+         * pg_depend includes a 'normal' dependency on the listed column,
+         * giving the catalog edge `publication → column`. The synthesized
+         * explicit edge `column → table` (from the column-drop's `requires`
+         * including the parent table) closes the cycle.
+         *
+         * Expected (post-fix): root-cause investigation per the issue draft
+         * — audit whether the explicit `column → table` edge belongs on
+         * `AlterTableDropColumn`. If the edge is justified, the post-diff
+         * normalizer should recognize that `AlterPublicationDropTables` can
+         * always run before any column or table drop and drop that
+         * publication→column edge in the drop-phase graph.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.lab_results (
+              id bigint PRIMARY KEY,
+              flash_summary text
+            )`,
+            `CREATE PUBLICATION cycle_repro_realtime
+              FOR TABLE public.lab_results (id, flash_summary)`,
+          ].join(";\n\n"),
+        );
+
+        await db.branch.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            // Branch keeps the table and the publication, but the column is
+            // gone — so the publication's column list shrinks to (id) only.
+            `CREATE TABLE public.lab_results (
+              id bigint PRIMARY KEY
+            )`,
+            `CREATE PUBLICATION cycle_repro_realtime
+              FOR TABLE public.lab_results (id)`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
+      "drop table that owns a SERIAL sequence should not produce DropSequence ↔ DropTable cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Regression coverage for the production (alpha.16) cycle:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [N] DropSequence(public.addons_addon_id_seq)
+         *     2. [M] DropTable(public.addons)
+         *   [N] → [M] (catalog)  sequence → column
+         *   [M] → [N] (catalog)  column → sequence
+         *
+         * The whole-table-drop short-circuit at `sequence.diff.ts:124-143`
+         * (landed in alpha.15, #203) skips emitting `DropSequence` when the
+         * owning table is absent from `branchTables`. The production Sentry
+         * events span 11d, reaching back into pre-fix deployments, so the
+         * shape that fired in alpha.16 is already handled here. This test
+         * pins that short-circuit so the fix can't silently regress and a
+         * future cycle-handling change can't reintroduce the same
+         * `DropSequence ↔ DropTable` pair.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.addons (
+              addon_id SERIAL PRIMARY KEY,
+              label TEXT
+            )`,
+          ].join(";\n\n"),
+        );
+
+        // Branch is empty → table (and its owned sequence) must drop.
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
       "sequence owned by column cycle - multiple sequences",
       withDb(pgVersion, async (db) => {
         /**
