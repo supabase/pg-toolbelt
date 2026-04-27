@@ -514,6 +514,87 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "alter sequence data_type while owning column survives should not produce DropSequence cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for the production CycleError observed in
+         * @supabase/pg-delta@1.0.0-alpha.16 (Sentry SUPABASE-API-7RS).
+         *
+         * Real-world diff (anonymised pg_dump):
+         *   origin: CREATE SEQUENCE seq AS integer
+         *           CREATE TABLE bar (id integer DEFAULT nextval('seq'::regclass) NOT NULL)
+         *           ALTER SEQUENCE seq OWNED BY bar.id
+         *   branch: CREATE SEQUENCE seq           -- default bigint, no AS
+         *           CREATE TABLE bar (id integer DEFAULT nextval('seq'::regclass) NOT NULL)
+         *           -- NO OWNED BY
+         *
+         * Sequence.data_type is in dataFields(), so the sequence shows up
+         * in the `altered` set of diffSequences. NON_ALTERABLE_FIELDS at
+         * sequence.diff.ts:153-156 includes "data_type", which makes
+         * hasNonAlterableChanges() return true, and the replace branch at
+         * sequence.diff.ts:163-214 emits `DropSequence + CreateSequence`
+         * unconditionally. expandReplaceDependencies then promotes the
+         * surviving table (which has DEFAULT nextval(seq) referencing
+         * the sequence's stableId) to a `DropTable + CreateTable` pair,
+         * and the bidirectional pg_depend edges between the sequence and
+         * the column close a 2-cycle in the drop phase that no breaker
+         * can resolve:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [N] DropSequence(public.addons_addon_id_seq)
+         *     2. [M] DropTable(public.addons)
+         *
+         * NB: the existing alpha.15 short-circuit at sequence.diff.ts:117-145
+         * only guards the `dropped` loop (the owning table or column being
+         * dropped). It does not run on this `altered` path.
+         *
+         * Expected (post-fix): data_type is alterable in PG10+ via
+         * `ALTER SEQUENCE foo AS bigint`, so the diff should emit a
+         * single `AlterSequenceSetOptions` carrying the AS clause plus an
+         * `AlterSequenceSetOwnedBy(null)`. No DropSequence is emitted, no
+         * cycle is produced, and the sequence's last_value is preserved
+         * (the current Drop+Create silently resets it to the START WITH
+         * value, which is a separate data-loss bug).
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.addons (
+              addon_id integer NOT NULL,
+              label text NOT NULL
+            )`,
+            `CREATE SEQUENCE public.addons_addon_id_seq AS integer`,
+            `ALTER TABLE public.addons
+               ALTER COLUMN addon_id
+               SET DEFAULT nextval('public.addons_addon_id_seq'::regclass)`,
+            `ALTER SEQUENCE public.addons_addon_id_seq
+               OWNED BY public.addons.addon_id`,
+          ].join(";\n\n"),
+        );
+
+        await db.branch.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TABLE public.addons (
+              addon_id integer NOT NULL,
+              label text NOT NULL
+            )`,
+            // Default sequence type is bigint; no OWNED BY clause.
+            `CREATE SEQUENCE public.addons_addon_id_seq`,
+            `ALTER TABLE public.addons
+               ALTER COLUMN addon_id
+               SET DEFAULT nextval('public.addons_addon_id_seq'::regclass)`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
       "drop table that owns a SERIAL sequence should not produce DropSequence ↔ DropTable cycle",
       withDb(pgVersion, async (db) => {
         /**
