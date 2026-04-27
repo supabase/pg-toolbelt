@@ -240,7 +240,6 @@ export function diffCatalogs(
   });
   filteredChanges = normalizePostDiffCycles({
     changes: expandedDependencies.changes,
-    mainCatalog: main,
     replacedTableIds: expandedDependencies.replacedTableIds,
   });
 

@@ -15,6 +15,7 @@ import debug from "debug";
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
+import { tryBreakCycleByChangeInjection } from "./cycle-breakers.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
 
 const debugGraph = debug("pg-delta:graph");
@@ -39,6 +40,15 @@ import {
 } from "./topological-sort.ts";
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
 import { getExecutionPhase, type Phase } from "./utils.ts";
+
+// Bound on how many times the change-injection cycle breaker may rewrite a
+// single phase's change list before we give up. Each successful injection
+// strictly reduces the number of unbreakable cycles (it either replaces an
+// `AlterTableDropColumn` with a non-cycling variant, or it adds dedicated
+// constraint drops that own previously contested stable-ids), so a healthy
+// schema converges in 1–2 rounds. The cap exists only to surface buggy
+// breakers as `CycleError` instead of an infinite loop.
+const MAX_CYCLE_BREAKER_ROUNDS = 5;
 
 /**
  * Sort changes using dependency information from catalogs and custom constraints.
@@ -110,24 +120,50 @@ function sortChangesByPhasedGraph(
 }
 
 /**
- * Sort changes within a phase using Constraints derived from all dependency sources.
+ * Normalize a cycle by rotating it to start with the smallest node index, so
+ * cycles that loop through the same nodes in the same direction compare equal
+ * regardless of where DFS happened to enter them.
+ */
+function normalizeCycle(cycleNodeIndexes: number[]): string {
+  if (cycleNodeIndexes.length === 0) return "";
+  const minIndex = Math.min(...cycleNodeIndexes);
+  const minIndexPos = cycleNodeIndexes.indexOf(minIndex);
+  const rotated = [
+    ...cycleNodeIndexes.slice(minIndexPos),
+    ...cycleNodeIndexes.slice(0, minIndexPos),
+  ];
+  return rotated.join(",");
+}
+
+type SortRoundResult =
+  | { kind: "sorted"; sorted: Change[] }
+  | {
+      kind: "unbreakable";
+      cycleNodeIndexes: number[];
+      cycleEdges: ReturnType<typeof getEdgesInCycle>;
+    };
+
+/**
+ * One attempt at sorting `phaseChanges`. Builds the graph from scratch,
+ * runs the iterative edge-removal cycle handler, and either returns a
+ * topologically sorted list or reports an unbreakable cycle so the caller
+ * can decide whether to dispatch a change-injection breaker.
  *
  * Algorithm:
- * 1. Build graph data (change sets and reverse indexes)
- * 2. Convert all sources to Constraints (catalog, explicit, custom constraints)
- * 3. Convert Constraints to edges
- * 4. Iteratively detect and break cycles (deduplicate edges, detect cycles, filter problematic edges)
- * 5. Perform stable topological sort on the acyclic graph
+ * 1. Build graph data (change sets and reverse indexes).
+ * 2. Convert all sources to Constraints (catalog, explicit, custom).
+ * 3. Convert Constraints to edges.
+ * 4. Iteratively detect and break cycles by removing weak edges.
+ * 5. Perform stable topological sort on the acyclic graph.
  *
- * In DROP phase, edges are inverted so drops run in reverse dependency order.
+ * In DROP phase, edges are inverted so drops run in reverse dependency
+ * order.
  */
-function sortPhaseChanges(
+function attemptSortRound(
   phaseChanges: Change[],
   dependencyRows: PgDependRow[],
-  options: PhaseSortOptions = {},
-): Change[] {
-  if (phaseChanges.length <= 1) return phaseChanges;
-
+  options: PhaseSortOptions,
+): SortRoundResult {
   // Step 1: Build graph data structures
   const graphData = buildGraphData(phaseChanges, options);
 
@@ -150,54 +186,31 @@ function sortPhaseChanges(
   // Step 3: Convert constraints to edges and deduplicate immediately
   let edges = dedupeEdges(convertConstraintsToEdges(allConstraints, options));
 
-  // Step 4: Iteratively detect and break cycles
-  // Track cycles we've seen to detect when filtering fails to break a cycle.
-  // The only way we loop indefinitely is if we encounter a cycle we've already seen,
-  // which means filtering didn't break it. Otherwise, we continue until all cycles are broken.
+  // Step 4: Iteratively detect and break cycles by edge filtering.
+  // We loop until no cycles remain OR we see the same cycle twice — the
+  // latter signals that edge filtering exhausted itself. At that point
+  // the caller may dispatch a change-injection breaker; if no breaker
+  // matches, the original throw path runs.
   const seenCycles = new Set<string>();
 
-  /**
-   * Normalize a cycle by rotating it to start with the smallest node index.
-   * This allows us to compare cycles regardless of where they start.
-   */
-  function normalizeCycle(cycleNodeIndexes: number[]): string {
-    if (cycleNodeIndexes.length === 0) return "";
-    const minIndex = Math.min(...cycleNodeIndexes);
-    const minIndexPos = cycleNodeIndexes.indexOf(minIndex);
-    const rotated = [
-      ...cycleNodeIndexes.slice(minIndexPos),
-      ...cycleNodeIndexes.slice(0, minIndexPos),
-    ];
-    return rotated.join(",");
-  }
-
   while (true) {
-    // Edge deduplication moved outside loop
     const edgePairs = edgesToPairs(edges);
-
-    // Detect cycles
     const cycleNodeIndexes = findCycle(phaseChanges.length, edgePairs);
 
-    if (!cycleNodeIndexes) {
-      // No cycles found, we're done
-      break;
-    }
+    if (!cycleNodeIndexes) break;
 
-    // Normalize cycle to check if we've seen it before
     const cycleSignature = normalizeCycle(cycleNodeIndexes);
     if (seenCycles.has(cycleSignature)) {
-      // We've seen this cycle before - filtering didn't break it
-      // Get edges involved in the cycle for detailed error message
-      const cycleEdges = getEdgesInCycle(cycleNodeIndexes, edges);
-      throw new Error(
-        formatCycleError(cycleNodeIndexes, phaseChanges, cycleEdges),
-      );
+      // Edge filtering can't break this cycle. Report it back to the
+      // caller so it can try change-injection before throwing.
+      return {
+        kind: "unbreakable",
+        cycleNodeIndexes,
+        cycleEdges: getEdgesInCycle(cycleNodeIndexes, edges),
+      };
     }
-
-    // Track this cycle
     seenCycles.add(cycleSignature);
 
-    // Filter only edges involved in the cycle to break it
     edges = filterEdgesForCycleBreaking(
       edges,
       cycleNodeIndexes,
@@ -208,7 +221,6 @@ function sortPhaseChanges(
 
   const finalEdgePairs = edgesToPairs(edges);
 
-  // Debug visualization
   if (debugGraph.enabled) {
     printDebugGraph(
       phaseChanges,
@@ -230,5 +242,70 @@ function sortPhaseChanges(
     throw new Error("CycleError: dependency graph contains a cycle");
   }
 
-  return topologicalOrder.map((changeIndex) => phaseChanges[changeIndex]);
+  return {
+    kind: "sorted",
+    sorted: topologicalOrder.map((changeIndex) => phaseChanges[changeIndex]),
+  };
+}
+
+/**
+ * Sort changes within a phase. Tries `attemptSortRound`; on an unbreakable
+ * cycle, dispatches to `tryBreakCycleByChangeInjection`, retries with the
+ * rewritten changes, and bails after `MAX_CYCLE_BREAKER_ROUNDS` to surface
+ * a buggy breaker as `CycleError` instead of an infinite loop.
+ *
+ * Best case (no cycles, the vast majority of plans): one round, no
+ * change-injection breaker code runs at all.
+ */
+function sortPhaseChanges(
+  initialPhaseChanges: Change[],
+  dependencyRows: PgDependRow[],
+  options: PhaseSortOptions = {},
+): Change[] {
+  if (initialPhaseChanges.length <= 1) return initialPhaseChanges;
+
+  let phaseChanges = initialPhaseChanges;
+  const breakerRoundSignatures = new Set<string>();
+
+  for (let round = 0; round <= MAX_CYCLE_BREAKER_ROUNDS; round++) {
+    const result = attemptSortRound(phaseChanges, dependencyRows, options);
+    if (result.kind === "sorted") return result.sorted;
+
+    // Edge filtering hit an unbreakable cycle. Try the change-injection
+    // breakers (FK pattern, publication↔column pattern). If none matches,
+    // throw with the same diagnostic the original code emitted.
+    const broken = tryBreakCycleByChangeInjection(
+      result.cycleNodeIndexes,
+      phaseChanges,
+    );
+    if (broken === null) {
+      throw new Error(
+        formatCycleError(
+          result.cycleNodeIndexes,
+          phaseChanges,
+          result.cycleEdges,
+        ),
+      );
+    }
+
+    // Loop guard: if the same cycle node-set re-appears after a break,
+    // the breaker isn't making progress. Throw with full context.
+    const signature = normalizeCycle(result.cycleNodeIndexes);
+    if (breakerRoundSignatures.has(signature)) {
+      throw new Error(
+        formatCycleError(
+          result.cycleNodeIndexes,
+          phaseChanges,
+          result.cycleEdges,
+        ),
+      );
+    }
+    breakerRoundSignatures.add(signature);
+
+    phaseChanges = broken;
+  }
+
+  throw new Error(
+    `CycleError: change-injection breaker exceeded ${MAX_CYCLE_BREAKER_ROUNDS} rounds — likely a buggy breaker rule`,
+  );
 }

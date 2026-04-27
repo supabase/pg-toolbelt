@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import {
   AlterTableAddConstraint,
@@ -15,7 +14,6 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
-import { stableId } from "./objects/utils.ts";
 import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
 
 const baseTableProps = {
@@ -62,149 +60,7 @@ function integerColumn(name: string, position: number) {
 }
 
 describe("normalizePostDiffCycles", () => {
-  test("injects explicit FK drops for mutually dependent dropped tables", async () => {
-    const baseline = await createEmptyCatalog(170000, "postgres");
-    const tableA = new Table({
-      ...baseTableProps,
-      name: "a",
-      columns: [
-        { ...integerColumn("id", 1), not_null: true },
-        integerColumn("b_id", 2),
-      ],
-      constraints: [
-        {
-          name: "a_b_fkey",
-          constraint_type: "f",
-          deferrable: false,
-          initially_deferred: false,
-          validated: true,
-          is_local: true,
-          no_inherit: false,
-          is_temporal: false,
-          is_partition_clone: false,
-          parent_constraint_schema: null,
-          parent_constraint_name: null,
-          parent_table_schema: null,
-          parent_table_name: null,
-          key_columns: ["b_id"],
-          foreign_key_columns: ["id"],
-          foreign_key_table: "b",
-          foreign_key_schema: "public",
-          foreign_key_table_is_partition: false,
-          foreign_key_parent_schema: null,
-          foreign_key_parent_table: null,
-          foreign_key_effective_schema: "public",
-          foreign_key_effective_table: "b",
-          on_update: "a",
-          on_delete: "a",
-          match_type: "s",
-          check_expression: null,
-          owner: "postgres",
-          definition: "FOREIGN KEY (b_id) REFERENCES public.b(id)",
-          comment: null,
-        },
-      ],
-    });
-    const tableB = new Table({
-      ...baseTableProps,
-      name: "b",
-      columns: [
-        { ...integerColumn("id", 1), not_null: true },
-        integerColumn("a_id", 2),
-      ],
-      constraints: [
-        {
-          name: "b_a_fkey",
-          constraint_type: "f",
-          deferrable: false,
-          initially_deferred: false,
-          validated: true,
-          is_local: true,
-          no_inherit: false,
-          is_temporal: false,
-          is_partition_clone: false,
-          parent_constraint_schema: null,
-          parent_constraint_name: null,
-          parent_table_schema: null,
-          parent_table_name: null,
-          key_columns: ["a_id"],
-          foreign_key_columns: ["id"],
-          foreign_key_table: "a",
-          foreign_key_schema: "public",
-          foreign_key_table_is_partition: false,
-          foreign_key_parent_schema: null,
-          foreign_key_parent_table: null,
-          foreign_key_effective_schema: "public",
-          foreign_key_effective_table: "a",
-          on_update: "a",
-          on_delete: "a",
-          match_type: "s",
-          check_expression: null,
-          owner: "postgres",
-          definition: "FOREIGN KEY (a_id) REFERENCES public.a(id)",
-          comment: null,
-        },
-      ],
-    });
-    const mainCatalog = new Catalog({
-      ...baseline,
-      tables: {
-        [tableA.stableId]: tableA,
-        [tableB.stableId]: tableB,
-      },
-    });
-    const changes: Change[] = [
-      new DropTable({ table: tableA }),
-      new DropTable({ table: tableB }),
-    ];
-
-    const normalized = normalizePostDiffCycles({
-      changes,
-      mainCatalog,
-    });
-
-    const explicitConstraintDrops = normalized.filter(
-      (change) => change instanceof AlterTableDropConstraint,
-    );
-    expect(explicitConstraintDrops).toHaveLength(2);
-
-    const normalizedDropTableA = normalized.find(
-      (change) =>
-        change instanceof DropTable &&
-        change.table.stableId === tableA.stableId,
-    );
-    const normalizedDropTableB = normalized.find(
-      (change) =>
-        change instanceof DropTable &&
-        change.table.stableId === tableB.stableId,
-    );
-    if (!(normalizedDropTableA instanceof DropTable)) {
-      throw new Error("expected normalized DropTable(public.a)");
-    }
-    if (!(normalizedDropTableB instanceof DropTable)) {
-      throw new Error("expected normalized DropTable(public.b)");
-    }
-
-    expect(
-      normalizedDropTableA.externallyDroppedConstraints.has("a_b_fkey"),
-    ).toBe(true);
-    expect(
-      normalizedDropTableB.externallyDroppedConstraints.has("b_a_fkey"),
-    ).toBe(true);
-    expect(
-      normalizedDropTableA.requires.includes(
-        stableId.constraint("public", "a", "a_b_fkey"),
-      ),
-    ).toBe(false);
-    expect(
-      normalizedDropTableB.requires.includes(
-        stableId.constraint("public", "b", "b_a_fkey"),
-      ),
-    ).toBe(false);
-  });
-
   test("prunes same-table drop-column and drop-constraint ALTERs for replaced tables only", async () => {
-    const baseline = await createEmptyCatalog(170000, "postgres");
     const mainChildren = new Table({
       ...baseTableProps,
       name: "children",
@@ -292,14 +148,9 @@ describe("normalizePostDiffCycles", () => {
       preExistingReplicaIdentity,
       preExistingGrant,
     ];
-    const mainCatalog = new Catalog({
-      ...baseline,
-      tables: { [mainChildren.stableId]: mainChildren },
-    });
 
     const normalized = normalizePostDiffCycles({
       changes,
-      mainCatalog,
       replacedTableIds: new Set([mainChildren.stableId]),
     });
 
@@ -322,7 +173,6 @@ describe("normalizePostDiffCycles", () => {
   });
 
   test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {
-    const baseline = await createEmptyCatalog(170000, "postgres");
     const branchChildren = new Table({
       ...baseTableProps,
       name: "children",
@@ -423,14 +273,8 @@ describe("normalizePostDiffCycles", () => {
       expansionComment,
     ];
 
-    const mainCatalog = new Catalog({
-      ...baseline,
-      tables: { [branchChildren.stableId]: branchChildren },
-    });
-
     const normalized = normalizePostDiffCycles({
       changes,
-      mainCatalog,
       replacedTableIds: new Set([branchChildren.stableId]),
     });
 

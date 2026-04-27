@@ -128,7 +128,7 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
 export class AlterPublicationDropTables extends AlterPublicationChange {
   public readonly publication: Publication;
   public readonly scope = "object" as const;
-  private readonly tables: PublicationTableProps[];
+  public readonly tables: PublicationTableProps[];
 
   constructor(props: {
     publication: Publication;
