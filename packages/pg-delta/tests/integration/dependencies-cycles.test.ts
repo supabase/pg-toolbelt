@@ -598,22 +598,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       "drop table that owns a SERIAL sequence should not produce DropSequence ↔ DropTable cycle",
       withDb(pgVersion, async (db) => {
         /**
-         * Regression coverage for the production (alpha.16) cycle:
+         * Regression coverage for the alpha.15 short-circuit at
+         * `sequence.diff.ts:117-145` (the `dropped` loop): when the owning
+         * table is absent from `branchTables`, `diffSequences` skips
+         * emitting `DropSequence` because PostgreSQL cascades owned
+         * sequences when the table drops.
          *
-         *   CycleError: dependency graph contains a cycle involving 2 changes:
-         *     1. [N] DropSequence(public.addons_addon_id_seq)
-         *     2. [M] DropTable(public.addons)
-         *   [N] → [M] (catalog)  sequence → column
-         *   [M] → [N] (catalog)  column → sequence
-         *
-         * The whole-table-drop short-circuit at `sequence.diff.ts:124-143`
-         * (landed in alpha.15, #203) skips emitting `DropSequence` when the
-         * owning table is absent from `branchTables`. The production Sentry
-         * events span 11d, reaching back into pre-fix deployments, so the
-         * shape that fired in alpha.16 is already handled here. This test
-         * pins that short-circuit so the fix can't silently regress and a
-         * future cycle-handling change can't reintroduce the same
-         * `DropSequence ↔ DropTable` pair.
+         * SCOPE — this test only exercises the `dropped`-loop path. It does
+         * NOT cover the `altered`-loop replace branch, which is where the
+         * production CycleError under @supabase/pg-delta@1.0.0-alpha.16
+         * (Sentry SUPABASE-API-7RS) actually originated: a sequence whose
+         * `data_type` changes (integer → bigint) while the owning table
+         * and column survive. That scenario is exercised by the sibling
+         * test "alter sequence data_type while owning column survives
+         * should not produce DropSequence cycle" above and fixed by
+         * making `data_type` alterable via `ALTER SEQUENCE ... AS <type>`.
          */
         await db.main.query(
           [

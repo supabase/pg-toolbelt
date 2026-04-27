@@ -109,15 +109,20 @@ describe.concurrent("sequence.diff", () => {
   });
 
   test("replacing an owned sequence re-emits the owning column default", () => {
+    // Use `persistence` (UNLOGGED → LOGGED) to trigger the
+    // non-alterable replace path: it's the only field still in
+    // NON_ALTERABLE_FIELDS. `data_type` was previously in that list
+    // but is now alterable in place via ALTER SEQUENCE ... AS <type>.
     const main = new Sequence({
       ...base,
-      data_type: "integer",
+      persistence: "u",
       owned_by_schema: "public",
       owned_by_table: "users",
       owned_by_column: "id",
     });
     const branch = new Sequence({
       ...base,
+      persistence: "p",
       owned_by_schema: "public",
       owned_by_table: "users",
       owned_by_column: "id",
