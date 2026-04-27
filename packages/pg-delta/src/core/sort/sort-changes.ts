@@ -41,14 +41,13 @@ import {
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
 import { getExecutionPhase, type Phase } from "./utils.ts";
 
-// Bound on how many times the change-injection cycle breaker may rewrite a
-// single phase's change list before we give up. Each successful injection
-// strictly reduces the number of unbreakable cycles (it either replaces an
-// `AlterTableDropColumn` with a non-cycling variant, or it adds dedicated
-// constraint drops that own previously contested stable-ids), so a healthy
-// schema converges in 1–2 rounds. The cap exists only to surface buggy
-// breakers as `CycleError` instead of an infinite loop.
-const MAX_CYCLE_BREAKER_ROUNDS = 5;
+// Lower bound on how many breaker rounds we always allow, regardless of
+// changeset size. Tiny phases with a few unbreakable cycles still get a
+// generous floor; the real cap scales with `phaseChanges.length` (see
+// `sortPhaseChanges`). The actual loop-protection guarantee comes from
+// `breakerRoundSignatures`, which throws the moment the same cycle
+// reappears after a break — i.e. the breaker isn't making progress.
+const MIN_CYCLE_BREAKER_ROUNDS = 16;
 
 /**
  * Sort changes using dependency information from catalogs and custom constraints.
@@ -267,7 +266,20 @@ function sortPhaseChanges(
   let phaseChanges = initialPhaseChanges;
   const breakerRoundSignatures = new Set<string>();
 
-  for (let round = 0; round <= MAX_CYCLE_BREAKER_ROUNDS; round++) {
+  // Each `attemptSortRound` returns at most one unbreakable cycle, so a
+  // big diff with N independent unbreakable cycles needs N+1 rounds.
+  // There can never be more disjoint cycles than there are nodes, so
+  // bounding by `phaseChanges.length` is a real upper bound — large
+  // diffs naturally get more headroom. The floor handles tiny phases.
+  // The actual loop guarantee is `breakerRoundSignatures`: if the same
+  // cycle reappears after a break, we throw immediately on the next
+  // iteration regardless of round count.
+  const maxRounds = Math.max(
+    MIN_CYCLE_BREAKER_ROUNDS,
+    initialPhaseChanges.length,
+  );
+
+  for (let round = 0; round <= maxRounds; round++) {
     const result = attemptSortRound(phaseChanges, dependencyRows, options);
     if (result.kind === "sorted") return result.sorted;
 
@@ -306,6 +318,6 @@ function sortPhaseChanges(
   }
 
   throw new Error(
-    `CycleError: change-injection breaker exceeded ${MAX_CYCLE_BREAKER_ROUNDS} rounds — likely a buggy breaker rule`,
+    `CycleError: change-injection breaker exceeded ${maxRounds} rounds — likely a buggy breaker rule`,
   );
 }

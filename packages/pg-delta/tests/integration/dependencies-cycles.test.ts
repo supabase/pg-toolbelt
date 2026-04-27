@@ -414,6 +414,42 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "many independent FK 2-cycles in one drop phase should all resolve",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Regression coverage for the lazy-cycle-breaker bound. The
+         * sort-phase change-injection breaker is invoked once per
+         * unbreakable cycle; each round resolves exactly one cycle and
+         * restarts. With N independent unbreakable cycles in one phase
+         * (e.g. N pairs of mutually-FKed tables all dropped at once),
+         * the breaker must survive at least N+1 rounds. A fixed cap that
+         * is smaller than realistic big-diff plans causes spurious
+         * `CycleError` failures on otherwise correct migrations.
+         *
+         * Schema: 8 disjoint pairs (a0,b0) … (a7,b7) where a_i and b_i
+         * each FK-reference the other. All 16 tables drop, producing
+         * 8 independent FK 2-cycles in the drop phase.
+         */
+        const pairCount = 8;
+        const setupStatements = ["SET LOCAL client_min_messages = error"];
+        for (let i = 0; i < pairCount; i++) {
+          setupStatements.push(
+            `CREATE TABLE public.a_${i} (id bigserial PRIMARY KEY, b_id bigint)`,
+            `CREATE TABLE public.b_${i} (id bigserial PRIMARY KEY, a_id bigint)`,
+            `ALTER TABLE public.a_${i} ADD CONSTRAINT a_${i}_b_fkey FOREIGN KEY (b_id) REFERENCES public.b_${i}(id)`,
+            `ALTER TABLE public.b_${i} ADD CONSTRAINT b_${i}_a_fkey FOREIGN KEY (a_id) REFERENCES public.a_${i}(id)`,
+          );
+        }
+        await db.main.query(setupStatements.join(";\n\n"));
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
       "drop publication-listed column should not produce AlterPublicationDropTables ↔ AlterTableDropColumn cycle",
       withDb(pgVersion, async (db) => {
         /**

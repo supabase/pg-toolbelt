@@ -10,4 +10,7 @@ dispatcher generalizes the existing 2-cycle FK breaker to any
 N≥2 strongly-connected component of dropped tables (for example
 `a→b→c→a`) and breaks the
 `AlterPublicationDropTables ↔ AlterTableDropColumn` cycle that occurred
-when a publication-listed column was dropped on a surviving table.
+when a publication-listed column was dropped on a surviving table. The
+breaker round-cap scales with `phaseChanges.length` so big diffs with
+many independent unbreakable cycles in a single phase resolve cleanly
+instead of throwing a spurious `CycleError`.
