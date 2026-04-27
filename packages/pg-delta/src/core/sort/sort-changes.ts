@@ -41,13 +41,13 @@ import {
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
 import { getExecutionPhase, type Phase } from "./utils.ts";
 
-// Lower bound on how many breaker rounds we always allow, regardless of
-// changeset size. Tiny phases with a few unbreakable cycles still get a
-// generous floor; the real cap scales with `phaseChanges.length` (see
-// `sortPhaseChanges`). The actual loop-protection guarantee comes from
+// `sortPhaseChanges` caps the change-injection breaker at one round per
+// node in the initial phase: there can never be more disjoint unbreakable
+// cycles than there are change nodes (each cycle has ≥ 2 distinct nodes).
+// The cap exists only to surface a buggy breaker as `CycleError` instead
+// of an infinite loop — the actual loop-protection guarantee comes from
 // `breakerRoundSignatures`, which throws the moment the same cycle
-// reappears after a break — i.e. the breaker isn't making progress.
-const MIN_CYCLE_BREAKER_ROUNDS = 16;
+// reappears after a break.
 
 /**
  * Sort changes using dependency information from catalogs and custom constraints.
@@ -266,18 +266,14 @@ function sortPhaseChanges(
   let phaseChanges = initialPhaseChanges;
   const breakerRoundSignatures = new Set<string>();
 
-  // Each `attemptSortRound` returns at most one unbreakable cycle, so a
-  // big diff with N independent unbreakable cycles needs N+1 rounds.
-  // There can never be more disjoint cycles than there are nodes, so
-  // bounding by `phaseChanges.length` is a real upper bound — large
-  // diffs naturally get more headroom. The floor handles tiny phases.
-  // The actual loop guarantee is `breakerRoundSignatures`: if the same
-  // cycle reappears after a break, we throw immediately on the next
-  // iteration regardless of round count.
-  const maxRounds = Math.max(
-    MIN_CYCLE_BREAKER_ROUNDS,
-    initialPhaseChanges.length,
-  );
+  // `attemptSortRound` returns at most one unbreakable cycle per call,
+  // so a phase with K independent unbreakable cycles needs K+1 rounds.
+  // Every cycle contains ≥ 2 distinct change nodes, so the maximum
+  // possible value of K is `floor(initialPhaseChanges.length / 2)` —
+  // using `initialPhaseChanges.length` itself is therefore a real upper
+  // bound with one round of slack (and matches the early-return guard
+  // above, which already excluded length-0 and length-1 phases).
+  const maxRounds = initialPhaseChanges.length;
 
   for (let round = 0; round <= maxRounds; round++) {
     const result = attemptSortRound(phaseChanges, dependencyRows, options);
@@ -318,6 +314,6 @@ function sortPhaseChanges(
   }
 
   throw new Error(
-    `CycleError: change-injection breaker exceeded ${maxRounds} rounds — likely a buggy breaker rule`,
+    `CycleError: change-injection breaker exceeded ${maxRounds} rounds (one per node in the phase) — likely a buggy breaker rule`,
   );
 }
