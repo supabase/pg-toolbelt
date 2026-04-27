@@ -27,6 +27,10 @@ export default defineSupabaseProjectFixture({
     },
     adjacent: {
       onApplyError: "skip",
+      // Migration uses DEFAULT + UPDATE + DROP DEFAULT; the final column has no
+      // default, so plan/apply from catalog diff cannot replay on non-empty tables.
+      skipAdjacentPlanApply: (filename) =>
+        filename === "20231205051816_add_default_version.sql",
     },
   },
 });

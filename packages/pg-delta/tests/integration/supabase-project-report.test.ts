@@ -17,6 +17,8 @@ test("writes markdown and companion artifacts for smoke failures", async () => {
     image: "supabase/postgres:15.14.1.018",
     step: 1,
     migrationName: "20220117141357_extensions.sql",
+    migrationFilePath:
+      "tests/integration/fixtures/supabase-projects/dbdev/migrations/20220117141357_extensions.sql",
     errorMessage: "simulated failure",
     reproCommand:
       "PGDELTA_TEST_POSTGRES_VERSIONS=15 bun run test tests/integration/supabase-project-progressive.test.ts",
@@ -41,6 +43,9 @@ test("writes markdown and companion artifacts for smoke failures", async () => {
 
   const report = await readFile(result.reportPath, "utf-8");
   expect(report).toContain("## Summary");
+  expect(report).toContain(
+    "tests/integration/fixtures/supabase-projects/dbdev/migrations/20220117141357_extensions.sql",
+  );
   expect(report).toContain("simulated failure");
   expect(report).toContain("Shrink the fixture to the smallest prefix first.");
 
@@ -49,4 +54,5 @@ test("writes markdown and companion artifacts for smoke failures", async () => {
   );
   expect(metadata.fixtureId).toBe("dbdev");
   expect(metadata.scenarioName).toBe("progressive");
+  expect(metadata.migrationFilePath).toContain("dbdev/migrations");
 });

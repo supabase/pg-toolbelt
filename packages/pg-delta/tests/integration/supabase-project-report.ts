@@ -19,6 +19,11 @@ export type WriteSupabaseSmokeFailureArtifactsInput = {
   image: string;
   step?: number;
   migrationName?: string;
+  /**
+   * Path to the migration under `packages/pg-delta/`, e.g.
+   * `tests/integration/fixtures/supabase-projects/dbdev/migrations/foo.sql`.
+   */
+  migrationFilePath?: string;
   errorMessage: string;
   reproCommand: string;
   skippedMigrations?: string[];
@@ -76,6 +81,9 @@ function buildMarkdown(
     `- Image: \`${input.image}\``,
     input.step !== undefined ? `- Step: \`${input.step}\`` : "",
     input.migrationName ? `- Migration: \`${input.migrationName}\`` : "",
+    input.migrationFilePath
+      ? `- Migration file (from packages/pg-delta/): \`${input.migrationFilePath}\``
+      : "",
     "",
     "## Error",
     "```text",
@@ -144,6 +152,7 @@ export async function writeSupabaseSmokeFailureArtifacts(
     image: input.image,
     step: input.step,
     migrationName: input.migrationName,
+    migrationFilePath: input.migrationFilePath,
     errorMessage: input.errorMessage,
     reproCommand: input.reproCommand,
     skippedMigrations: input.skippedMigrations ?? [],

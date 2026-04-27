@@ -13,6 +13,7 @@ import {
   suppressShutdownError,
 } from "../utils.ts";
 import {
+  getSupabaseProjectMigrationRelativePath,
   loadSupabaseProjectMigrations,
   type SupabaseProjectFixture,
   type SupabaseProjectMigration,
@@ -33,10 +34,10 @@ type AppliedMigrationResult = {
   skippedMigrations: string[];
 };
 
-type SmokeStepResult = {
+export type SupabaseSmokeStepResult = {
   step: number;
   migrationApplied: string;
-  planStatus: "no_changes" | "success" | "error";
+  planStatus: "no_changes" | "success" | "error" | "skipped";
   planError?: string;
   changeCount?: number;
   statementCount?: number;
@@ -49,6 +50,8 @@ type SmokeStepResult = {
   sourceCatalog?: unknown;
   targetCatalog?: unknown;
 };
+
+type SmokeStepResult = SupabaseSmokeStepResult;
 
 function createProjectPool(
   fixture: SupabaseProjectFixture,
@@ -215,16 +218,65 @@ export function resolveSupabaseSmokeStepConfig(
   };
 }
 
-function formatSmokeResultsSummary(
+function smokeStepStatusIcon(
+  r: SupabaseSmokeStepResult,
+): "✅" | "❌" | "⏭️" {
+  if (r.planStatus === "error" || r.applyStatus === "error") {
+    return "❌";
+  }
+  if (r.planStatus === "skipped") {
+    return "⏭️";
+  }
+  return "✅";
+}
+
+function isSmokeStepFailed(r: SupabaseSmokeStepResult): boolean {
+  return r.planStatus === "error" || r.applyStatus === "error";
+}
+
+function smokeStepApplyLabel(r: SupabaseSmokeStepResult): string {
+  if (r.planStatus === "error") {
+    return "apply=— (not run, plan error)";
+  }
+  if (r.applyStatus === "error" && r.applyError) {
+    return `apply=error (${r.applyError.slice(0, 200)}${
+      r.applyError.length > 200 ? "…" : ""
+    })`;
+  }
+  if (r.applyStatus === "success") {
+    return "apply=success";
+  }
+  if (r.applyStatus === "skipped") {
+    return "apply=skipped";
+  }
+  return `apply=${r.applyStatus ?? "—"}`;
+}
+
+/**
+ * User-facing full listing for progressive/adjacent smoke; also embedded in
+ * `report.md` as `## Error` text.
+ */
+export function formatSmokeResultsSummary(
   fixture: SupabaseProjectFixture,
   scenarioName: "progressive" | "adjacent",
   image: string,
-  results: SmokeStepResult[],
+  results: SupabaseSmokeStepResult[],
   skippedMigrations: string[],
 ): string {
-  const failures = results.filter(
-    (result) => result.planStatus === "error" || result.applyStatus === "error",
-  );
+  const failures = results.filter(isSmokeStepFailed);
+
+  let passCount = 0;
+  let failCount = 0;
+  let notVerifiedCount = 0;
+  for (const r of results) {
+    if (r.planStatus === "skipped") {
+      notVerifiedCount += 1;
+    } else if (isSmokeStepFailed(r)) {
+      failCount += 1;
+    } else {
+      passCount += 1;
+    }
+  }
 
   const lines = [
     `${fixture.id} ${scenarioName} smoke failed on ${failures.length} step(s)`,
@@ -236,9 +288,14 @@ function formatSmokeResultsSummary(
   }
 
   for (const failure of failures) {
+    const rel = getSupabaseProjectMigrationRelativePath(
+      fixture.id,
+      failure.migrationApplied,
+    );
+    const pathNote = rel ? `\nMigration file: ${rel}` : "";
     lines.push(
       [
-        `Step ${failure.step}: after "${failure.migrationApplied}"`,
+        `Step ${failure.step}: after "${failure.migrationApplied}"${pathNote}`,
         failure.planStatus === "error"
           ? `Plan generation failed: ${failure.planError}`
           : "",
@@ -257,19 +314,16 @@ function formatSmokeResultsSummary(
     );
   }
 
+  const detailLines = results.map((result) => {
+    const icon = smokeStepStatusIcon(result);
+    return `${icon} **${smokeStepApplyLabel(result)}** · step=${result.step} · migration=\`${result.migrationApplied}\` · plan=${result.planStatus} · changes=${result.changeCount ?? "—"} · statements=${result.statementCount ?? "—"}`;
+  });
+
   lines.push(
     [
-      "Full results:",
-      ...results.map((result) =>
-        [
-          `- step=${result.step}`,
-          `migration=${result.migrationApplied}`,
-          `plan=${result.planStatus}`,
-          `changes=${result.changeCount ?? "-"}`,
-          `statements=${result.statementCount ?? "-"}`,
-          `apply=${result.applyStatus ?? "-"}`,
-        ].join(" "),
-      ),
+      "Full results (per step: icon = pass / fail / plan+apply check skipped, **apply=** is first):",
+      `Totals — passed: ${passCount} · failed: ${failCount} · verification skipped (e.g. adjacent hook): ${notVerifiedCount} · steps listed: ${results.length}`,
+      ...detailLines,
     ].join("\n"),
   );
 
@@ -327,6 +381,10 @@ async function writeScenarioFailureArtifacts(input: {
     image: input.image,
     step: input.step,
     migrationName: input.migrationName,
+    migrationFilePath: getSupabaseProjectMigrationRelativePath(
+      input.fixture.id,
+      input.migrationName,
+    ),
     errorMessage: input.errorMessage,
     skippedMigrations: input.skippedMigrations,
     reproCommand: buildSupabaseSmokeReproCommand(
@@ -703,6 +761,22 @@ export async function runSupabaseProjectAdjacentSmoke(
 
         if (step < stepFrom) {
           await mainPool.query(migration.sql);
+          continue;
+        }
+
+        if (scenario.skipAdjacentPlanApply?.(migration.filename)) {
+          results.push({
+            step,
+            migrationApplied: migration.filename,
+            planStatus: "skipped",
+            applyStatus: "skipped",
+          });
+          await mainPool.query(migration.sql).catch((err) => {
+            throw new Error(
+              `Migration ${migration.filename} failed while advancing main during adjacent smoke: ${err.message}`,
+              { cause: err },
+            );
+          });
           continue;
         }
 

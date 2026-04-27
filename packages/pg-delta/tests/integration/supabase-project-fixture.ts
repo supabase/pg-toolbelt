@@ -20,6 +20,16 @@ export type SupabaseProjectMigration = {
 export type SupabaseProjectScenario = {
   include?: (filename: string) => boolean;
   onApplyError?: "fail" | "skip";
+  /**
+   * **Adjacent smoke only.** If this returns `true` for a migration file, the
+   * runner still applies the migration to branch and then to main, but **skips**
+   * `createPlan` / apply / zero-diff verification for that step.
+   *
+   * Use when a migration’s real path is DML or DEFAULT → backfill → drop
+   * default, so the final catalog matches a pure `ADD NOT NULL` that would
+   * still fail to apply on non-empty tables (pg-delta only sees the end state).
+   */
+  skipAdjacentPlanApply?: (filename: string) => boolean;
 };
 
 export type SupabaseProjectFixture = {
@@ -39,6 +49,24 @@ export const SUPABASE_PROJECTS_DIR = path.join(
   import.meta.dir,
   "fixtures/supabase-projects",
 );
+
+/**
+ * Stable path to a SQL migration from the `packages/pg-delta/` root (for docs and
+ * failure reports). Returns `undefined` for synthetic labels like `(empty)`.
+ */
+export function getSupabaseProjectMigrationRelativePath(
+  fixtureId: string,
+  migrationFilename: string | undefined,
+): string | undefined {
+  if (
+    !migrationFilename ||
+    migrationFilename === "(empty)" ||
+    !migrationFilename.endsWith(".sql")
+  ) {
+    return undefined;
+  }
+  return `tests/integration/fixtures/supabase-projects/${fixtureId}/migrations/${migrationFilename}`;
+}
 
 export function defineSupabaseProjectFixture(
   fixture: SupabaseProjectFixture,

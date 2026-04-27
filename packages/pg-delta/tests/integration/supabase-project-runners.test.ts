@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import dbdev from "./fixtures/supabase-projects/dbdev/project.ts";
 import {
   buildSupabaseSmokeReproCommand,
+  formatSmokeResultsSummary,
   resolveSupabaseSmokeStepConfig,
+  type SupabaseSmokeStepResult,
 } from "./supabase-project-runners.ts";
 
 test("repro command targets the pg-delta package test script", () => {
@@ -40,4 +42,47 @@ test("step config rejects invalid or empty smoke ranges", () => {
       skipApplyEnv: undefined,
     }),
   ).toThrow(/Invalid smoke step/i);
+});
+
+test("formatSmokeResultsSummary lists totals, icon per step, and apply= first", () => {
+  const results: SupabaseSmokeStepResult[] = [
+    {
+      step: 0,
+      migrationApplied: "(empty)",
+      planStatus: "success",
+      changeCount: 1,
+      statementCount: 1,
+      applyStatus: "success",
+    },
+    {
+      step: 1,
+      migrationApplied: "20220117141359_app_schema.sql",
+      planStatus: "no_changes",
+      changeCount: 0,
+      statementCount: 0,
+      applyStatus: "skipped",
+    },
+    {
+      step: 2,
+      migrationApplied: "20220117141507_semver.sql",
+      planStatus: "error",
+      planError: "boom",
+    },
+  ];
+
+  const text = formatSmokeResultsSummary(
+    dbdev,
+    "progressive",
+    "supabase/postgres:15",
+    results,
+    [],
+  );
+
+  expect(text).toContain("Totals — passed:");
+  expect(text).toContain("failed: 1");
+  expect(text).toMatch(/verification skipped.*0/);
+  expect(text).toMatch(/✅ \*\*apply=success\*\*/);
+  expect(text).toMatch(/✅ \*\*apply=skipped\*\*/);
+  expect(text).toMatch(/❌ \*\*apply=— \(not run, plan error\)\*\*/);
+  expect(text).toContain("Full results (per step:");
 });
