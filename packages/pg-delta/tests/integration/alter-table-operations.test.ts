@@ -416,12 +416,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    // CLI-754: ENUM → text with default. Currently fails because the plan
-    // emits `DROP TYPE test_schema.status` *before* the `ALTER COLUMN TYPE`,
-    // so the drop fails on the remaining column dependency. Leave skipped
-    // until the dependency ordering between AlterColumnType and the dropped
-    // source type is fixed.
-    test.skip(
+    test(
       "change column type from enum to text preserves default",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

@@ -183,6 +183,33 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop sequence referenced by column default",
+      withDb(pgVersion, async (db) => {
+        // Regression for https://github.com/supabase/pg-toolbelt/issues/230
+        // The column default `nextval('test_schema.my_seq'::regclass)` keeps a
+        // pg_depend edge from the column to the sequence. Dropping the
+        // sequence requires the default to be removed first; otherwise
+        // PostgreSQL aborts the migration with error 2BP01.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE SEQUENCE test_schema.my_seq START 1000;
+          CREATE TABLE test_schema.items (
+            id integer PRIMARY KEY DEFAULT nextval('test_schema.my_seq'::regclass),
+            name text
+          );
+        `,
+          testSql: `
+          ALTER TABLE test_schema.items ALTER COLUMN id DROP DEFAULT;
+          DROP SEQUENCE test_schema.my_seq;
+        `,
+        });
+      }),
+    );
+
+    test(
       "create table with GENERATED ALWAYS AS IDENTITY column",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
