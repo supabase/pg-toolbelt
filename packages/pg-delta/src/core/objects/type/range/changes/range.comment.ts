@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Range } from "../range.model.ts";
@@ -26,7 +27,7 @@ export class CreateCommentOnRange extends CreateRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.range.schema}.${this.range.name}`,
@@ -54,7 +55,7 @@ export class DropCommentOnRange extends DropRangeChange {
     return [stableId.comment(this.range.stableId), this.range.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.range.schema}.${this.range.name}`,

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { AlterSequenceChange } from "./sequence.base.ts";
@@ -58,7 +59,7 @@ export class AlterSequenceSetOwnedBy extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const head = [
       "ALTER SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,
@@ -99,7 +100,7 @@ export class AlterSequenceSetOptions extends AlterSequenceChange {
 
   // Note: default max computation moved to diff when building options
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       "ALTER SEQUENCE",
       `${this.sequence.schema}.${this.sequence.name}`,

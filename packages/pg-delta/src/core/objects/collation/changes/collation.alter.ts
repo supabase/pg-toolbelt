@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Collation } from "../collation.model.ts";
 import { AlterCollationChange } from "./collation.base.ts";
 
@@ -36,7 +37,7 @@ export class AlterCollationChangeOwner extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER COLLATION",
       `${this.collation.schema}.${this.collation.name}`,
@@ -62,7 +63,7 @@ export class AlterCollationRefreshVersion extends AlterCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER COLLATION",
       `${this.collation.schema}.${this.collation.name}`,

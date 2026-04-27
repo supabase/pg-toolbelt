@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
@@ -30,7 +31,7 @@ export class CreateCommentOnProcedure extends CreateProcedureChange {
     return [this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON",
       this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",
@@ -59,7 +60,7 @@ export class DropCommentOnProcedure extends DropProcedureChange {
     return [stableId.comment(this.procedure.stableId), this.procedure.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON",
       this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION",

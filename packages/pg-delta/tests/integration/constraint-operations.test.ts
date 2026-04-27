@@ -2,9 +2,9 @@
  * Integration tests for PostgreSQL constraint operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -66,6 +66,73 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER TABLE test_schema.products ADD CONSTRAINT products_price_check CHECK (price > 0);
         `,
+        });
+      }),
+    );
+
+    test(
+      "add CHECK (FALSE) NO INHERIT constraint on inheritance parent",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes(
+                  "ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+                ),
+              ),
+            ).toBe(true);
+          },
+        });
+      }),
+    );
+
+    test(
+      "add CHECK (FALSE) NO INHERIT on parent with INHERITS child",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.parent_base (
+            id uuid PRIMARY KEY,
+            name text NOT NULL,
+            CONSTRAINT no_direct_insert CHECK (FALSE) NO INHERIT
+          );
+
+          CREATE TABLE test_schema.child (
+            CONSTRAINT child_pkey PRIMARY KEY (id)
+          ) INHERITS (test_schema.parent_base);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes(
+                  "ADD CONSTRAINT no_direct_insert CHECK (false) NO INHERIT",
+                ),
+              ),
+            ).toBe(true);
+            expect(
+              sqlStatements.some((stmt) =>
+                stmt.includes("INHERITS (test_schema.parent_base)"),
+              ),
+            ).toBe(true);
+          },
         });
       }),
     );
@@ -279,5 +346,134 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "add exclude constraint",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.reservations (
+            id integer PRIMARY KEY,
+            room_id integer NOT NULL,
+            during tstzrange NOT NULL
+          );
+        `,
+          testSql: `
+          ALTER TABLE test_schema.reservations
+            ADD CONSTRAINT no_overlap
+            EXCLUDE USING gist (room_id WITH =, during WITH &&);
+        `,
+          expectedSqlTerms: [
+            "ALTER TABLE test_schema.reservations ADD CONSTRAINT no_overlap EXCLUDE USING gist (room_id WITH =, during WITH &&)",
+          ],
+        });
+      }),
+      120_000,
+    );
+
+    if (pgVersion === 18) {
+      test(
+        "convert primary key to temporal primary key",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.bookings (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL,
+              CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period)
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.bookings DROP CONSTRAINT bookings_pkey;
+            ALTER TABLE test_schema.bookings
+              ADD CONSTRAINT bookings_pkey
+              PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS);
+          `,
+          });
+        }),
+        120_000,
+      );
+
+      test(
+        "add temporal foreign key constraint",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.bookings (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL,
+              CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)
+            );
+            CREATE TABLE test_schema.booking_audit (
+              room_id integer NOT NULL,
+              booking_period tstzrange NOT NULL
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.booking_audit
+              ADD CONSTRAINT booking_audit_room_id_booking_period_fkey
+              FOREIGN KEY (room_id, PERIOD booking_period)
+              REFERENCES test_schema.bookings (room_id, PERIOD booking_period);
+          `,
+          });
+        }),
+        120_000,
+      );
+
+      // Silent-downgrade scenario from #182: two related tables whose
+      // non-temporal PK + FK are dropped and re-added together to introduce
+      // WITHOUT OVERLAPS on the PK and PERIOD on the FK columns.
+      test(
+        "convert related PK and FK to temporal together",
+        withDbIsolated(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.contacts (
+              contact_id integer NOT NULL,
+              valid_period tstzrange NOT NULL,
+              CONSTRAINT contacts_pkey PRIMARY KEY (contact_id, valid_period)
+            );
+            CREATE TABLE test_schema.conversations (
+              conversation_id integer NOT NULL,
+              contact_id integer NOT NULL,
+              valid_period tstzrange NOT NULL,
+              CONSTRAINT conversations_pkey PRIMARY KEY (conversation_id),
+              CONSTRAINT conversations_contact_fkey
+                FOREIGN KEY (contact_id, valid_period)
+                REFERENCES test_schema.contacts (contact_id, valid_period)
+            );
+          `,
+            testSql: `
+            ALTER TABLE test_schema.conversations DROP CONSTRAINT conversations_contact_fkey;
+            ALTER TABLE test_schema.contacts DROP CONSTRAINT contacts_pkey;
+            ALTER TABLE test_schema.contacts
+              ADD CONSTRAINT contacts_pkey
+              PRIMARY KEY (contact_id, valid_period WITHOUT OVERLAPS);
+            ALTER TABLE test_schema.conversations
+              ADD CONSTRAINT conversations_contact_fkey
+              FOREIGN KEY (contact_id, PERIOD valid_period)
+              REFERENCES test_schema.contacts (contact_id, PERIOD valid_period);
+          `,
+          });
+        }),
+        120_000,
+      );
+    }
   });
 }

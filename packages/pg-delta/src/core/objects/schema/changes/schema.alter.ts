@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Schema } from "../schema.model.ts";
 import { AlterSchemaChange } from "./schema.base.ts";
 
@@ -33,7 +34,7 @@ export class AlterSchemaChangeOwner extends AlterSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["ALTER SCHEMA", this.schema.name, "OWNER TO", this.owner].join(" ");
   }
 }

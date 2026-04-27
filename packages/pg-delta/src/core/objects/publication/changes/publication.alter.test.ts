@@ -156,6 +156,10 @@ describe("publication.alter", () => {
       stableId.table("public", "logs"),
       stableId.table("audit", "events"),
     ]);
+    expect(change.drops).toEqual([
+      stableId.table("public", "logs"),
+      stableId.table("audit", "events"),
+    ]);
     await assertValidSql(change.serialize());
     expect(change.serialize()).toBe(
       "ALTER PUBLICATION pub_drop_tables DROP TABLE public.logs, audit.events",

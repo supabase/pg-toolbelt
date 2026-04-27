@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import { stableId } from "../../../utils.ts";
@@ -36,7 +37,7 @@ export class CreateCommentOnCompositeType extends CreateCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -67,7 +68,7 @@ export class DropCommentOnCompositeType extends DropCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -99,7 +100,7 @@ export class CreateCommentOnCompositeTypeAttribute extends CreateCompositeTypeCh
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,
@@ -135,7 +136,7 @@ export class DropCommentOnCompositeTypeAttribute extends DropCompositeTypeChange
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON COLUMN",
       `${this.compositeType.schema}.${this.compositeType.name}.${this.attribute.name}`,

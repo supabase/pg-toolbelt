@@ -29,7 +29,7 @@
     },
     "packages/pg-delta": {
       "name": "@supabase/pg-delta",
-      "version": "1.0.0-alpha.10",
+      "version": "1.0.0-alpha.18",
       "bin": {
         "pgdelta": "./dist/cli/bin/cli.js",
       },

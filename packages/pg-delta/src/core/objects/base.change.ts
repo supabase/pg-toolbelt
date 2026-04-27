@@ -1,3 +1,5 @@
+import type { SerializeOptions } from "../integrations/serialize/serialize.types.ts";
+
 type ChangeOperation = "create" | "alter" | "drop";
 
 /**
@@ -61,7 +63,7 @@ export abstract class BaseChange {
   /**
    * Serialize the change into a single SQL statement.
    */
-  abstract serialize(options?: Record<string, unknown>): string;
+  abstract serialize(options?: SerializeOptions): string;
 }
 
 /**

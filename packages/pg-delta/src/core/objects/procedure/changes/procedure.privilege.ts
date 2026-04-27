@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -53,7 +54,7 @@ export class GrantProcedurePrivileges extends AlterProcedureChange {
     return [this.procedure.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -123,7 +124,7 @@ export class RevokeProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const kindPrefix = getObjectKindPrefix(objectKind);
     const list = this.privileges.map((p) => p.privilege);
@@ -171,7 +172,7 @@ export class RevokeGrantOptionProcedurePrivileges extends AlterProcedureChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const objectKind = this.procedure.kind === "p" ? "PROCEDURE" : "FUNCTION";
     const kindPrefix = getObjectKindPrefix(objectKind);
     const privSql = formatObjectPrivilegeList(

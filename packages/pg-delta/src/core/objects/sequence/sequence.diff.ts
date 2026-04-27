@@ -4,6 +4,7 @@ import {
   emitObjectPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -24,6 +25,10 @@ import {
 import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
+type SequenceOrColumnSetDefaultChange =
+  | AlterTableAlterColumnSetDefault
+  | SequenceChange;
+
 /**
  * Diff two sets of sequences from main and branch catalogs.
  *
@@ -41,10 +46,10 @@ export function diffSequences(
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
   branchTables: Record<string, Table> = {},
-): SequenceChange[] {
+): SequenceOrColumnSetDefaultChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: SequenceChange[] = [];
+  const changes: SequenceOrColumnSetDefaultChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
@@ -111,18 +116,28 @@ export function diffSequences(
 
   for (const sequenceId of dropped) {
     const sequence = main[sequenceId];
-    // Skip generating DROP SEQUENCE if the sequence is owned by a table that's being dropped.
-    // PostgreSQL automatically drops sequences owned by tables when the table is dropped,
-    // so generating DROP SEQUENCE would cause an error (sequence doesn't exist).
+    // Skip generating DROP SEQUENCE if the sequence is owned by a table/column that's being dropped.
+    // PostgreSQL automatically cascades owned sequences when the owning table OR the owning
+    // column is dropped (via OWNED BY). Emitting DROP SEQUENCE in those cases would either
+    // fail at apply time (sequence already gone) or — in the column-drop case — create an
+    // unbreakable DropSequence ↔ AlterTableDropColumn cycle in the drop-phase sort graph.
     if (
       sequence.owned_by_schema &&
       sequence.owned_by_table &&
       sequence.owned_by_column
     ) {
       const ownedByTableId = `table:${sequence.owned_by_schema}.${sequence.owned_by_table}`;
-      // If the owning table doesn't exist in branch catalog, it's being dropped
-      // and will auto-drop this sequence, so skip generating DROP SEQUENCE
-      if (!(ownedByTableId in branchTables)) {
+      const ownedByTable = branchTables[ownedByTableId];
+      // Owning table is dropped → PG auto-drops the owned sequence.
+      if (!ownedByTable) {
+        continue;
+      }
+      // Owning column is dropped (table survives) → PG still auto-drops the owned
+      // sequence as part of the column drop, so we must not emit DROP SEQUENCE.
+      const ownedByColumnExists = ownedByTable.columns?.some(
+        (col) => col.name === sequence.owned_by_column,
+      );
+      if (!ownedByColumnExists) {
         continue;
       }
     }
@@ -157,6 +172,12 @@ export function diffSequences(
         branchSequence.owned_by_table !== null &&
         branchSequence.owned_by_column !== null
       ) {
+        const ownedByTableId = `table:${branchSequence.owned_by_schema}.${branchSequence.owned_by_table}`;
+        const ownedByTable = branchTables[ownedByTableId];
+        const ownedByColumn = ownedByTable?.columns?.find(
+          (column) => column.name === branchSequence.owned_by_column,
+        );
+
         changes.push(
           new AlterSequenceSetOwnedBy({
             sequence: branchSequence,
@@ -167,6 +188,17 @@ export function diffSequences(
             } as { schema: string; table: string; column: string },
           }),
         );
+
+        // Replacing an owned sequence with DROP ... CASCADE removes the column's
+        // existing nextval(...) default, so restore it after ownership is reattached.
+        if (ownedByTable && ownedByColumn && ownedByColumn.default !== null) {
+          changes.push(
+            new AlterTableAlterColumnSetDefault({
+              table: ownedByTable,
+              column: ownedByColumn,
+            }),
+          );
+        }
       } else if (
         mainSequence.owned_by_schema !== null ||
         mainSequence.owned_by_table !== null ||

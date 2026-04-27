@@ -2,7 +2,8 @@
  * Integration tests for PostgreSQL table operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -244,6 +245,60 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           COMMENT ON CONSTRAINT events_pkey ON test_schema.events IS 'This is a test constraint';
           COMMENT ON COLUMN test_schema.events.description IS 'This is a description column';
         `,
+        });
+      }),
+    );
+
+    test(
+      "replace table via enum dependency does not emit standalone drop/create for PK-owned index",
+      withDb(pgVersion, async (db) => {
+        // Regression guard for the index arm in expandReplaceDependencies.
+        // When an enum change forces DropCompositeType+CreateCompositeType-style
+        // replacement, the expander promotes every table with a column of that
+        // enum to a drop+create pair. The dependent PK index must be left to
+        // AlterTableAddConstraint inside the CreateTable branch; emitting a
+        // standalone DROP INDEX for a constraint-owned index fails with
+        // "cannot drop index ... because constraint ... requires it".
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA pk_regression;
+            CREATE TYPE pk_regression.status AS ENUM ('draft', 'published', 'archived');
+            CREATE TABLE pk_regression.posts (
+              id integer PRIMARY KEY,
+              title text NOT NULL,
+              status pk_regression.status NOT NULL DEFAULT 'draft'
+            );
+            CREATE VIEW pk_regression.published_posts AS
+              SELECT id, title FROM pk_regression.posts
+              WHERE status = 'published';
+          `,
+          testSql: dedent`
+            DROP VIEW pk_regression.published_posts;
+            ALTER TABLE pk_regression.posts ALTER COLUMN status DROP DEFAULT;
+            DROP TABLE pk_regression.posts;
+            DROP TYPE pk_regression.status;
+            CREATE TYPE pk_regression.status AS ENUM ('draft', 'published');
+            CREATE TABLE pk_regression.posts (
+              id integer PRIMARY KEY,
+              title text NOT NULL,
+              status pk_regression.status NOT NULL DEFAULT 'draft'
+            );
+            CREATE VIEW pk_regression.published_posts AS
+              SELECT id, title FROM pk_regression.posts
+              WHERE status = 'published';
+          `,
+          assertSqlStatements: (statements) => {
+            for (const stmt of statements) {
+              expect(stmt).not.toMatch(
+                /^DROP INDEX\s+pk_regression\.posts_pkey\b/i,
+              );
+              expect(stmt).not.toMatch(
+                /^CREATE UNIQUE INDEX\s+posts_pkey\s+ON\s+pk_regression\.posts\b/i,
+              );
+            }
+          },
         });
       }),
     );

@@ -171,6 +171,51 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "multi-event trigger preserves UPDATE OF column list",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.user_account (
+              id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+              email text NOT NULL,
+              verified boolean NOT NULL DEFAULT false
+            );
+
+            CREATE OR REPLACE FUNCTION test_schema.user_account_encrypt_secret_email()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              NEW.email := 'enc:' || NEW.email;
+              RETURN NEW;
+            END;
+            $$;
+          `,
+          testSql: dedent`
+            CREATE OR REPLACE TRIGGER user_account_encrypt_secret_trigger_email
+              BEFORE INSERT OR UPDATE OF email ON test_schema.user_account
+              FOR EACH ROW
+              EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email();
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "CREATE TRIGGER user_account_encrypt_secret_trigger_email BEFORE INSERT OR UPDATE OF email ON test_schema.user_account FOR EACH ROW EXECUTE FUNCTION test_schema.user_account_encrypt_secret_email()",
+              ]
+            `);
+            expect(statements[0]).not.toContain(
+              "BEFORE INSERT OR UPDATE ON test_schema.user_account",
+            );
+          },
+        });
+      }),
+    );
+
+    test(
       "constraint trigger creation",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -470,6 +515,72 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOR EACH ROW
           EXECUTE FUNCTION test_schema.notify_event();
         `,
+        });
+      }),
+    );
+
+    test(
+      "drop trigger before dropping trigger function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.bar()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NULL;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.bar();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP FUNCTION test_schema.bar();
+          `,
+        });
+      }),
+    );
+
+    test(
+      "drop all triggers before dropping shared trigger function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.foo (id integer PRIMARY KEY);
+            CREATE TABLE test_schema.bar (id integer PRIMARY KEY);
+            CREATE FUNCTION test_schema.shared_trigger_fn()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+            CREATE TRIGGER foo_insert
+            BEFORE INSERT ON test_schema.foo
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+            CREATE TRIGGER bar_insert
+            BEFORE INSERT ON test_schema.bar
+            FOR EACH ROW
+            EXECUTE FUNCTION test_schema.shared_trigger_fn();
+          `,
+          testSql: dedent`
+            DROP TRIGGER foo_insert ON test_schema.foo;
+            DROP TRIGGER bar_insert ON test_schema.bar;
+            DROP FUNCTION test_schema.shared_trigger_fn();
+          `,
         });
       }),
     );

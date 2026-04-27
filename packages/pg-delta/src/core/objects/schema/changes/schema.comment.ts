@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
@@ -22,7 +23,7 @@ export class CreateCommentOnSchema extends CreateSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON SCHEMA",
       this.schema.name,
@@ -50,7 +51,7 @@ export class DropCommentOnSchema extends DropSchemaChange {
     return [stableId.comment(this.schema.stableId), this.schema.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON SCHEMA", this.schema.name, "IS NULL"].join(" ");
   }
 }

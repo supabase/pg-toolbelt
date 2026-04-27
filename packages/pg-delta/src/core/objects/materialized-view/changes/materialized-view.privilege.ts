@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -58,7 +59,7 @@ export class GrantMaterializedViewPrivileges extends AlterMaterializedViewChange
     return [this.materializedView.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -138,7 +139,7 @@ export class RevokeMaterializedViewPrivileges extends AlterMaterializedViewChang
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
@@ -195,7 +196,7 @@ export class RevokeGrantOptionMaterializedViewPrivileges extends AlterMaterializ
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("MATERIALIZED VIEW");
     const privSql = formatObjectPrivilegeList(
       "MATERIALIZED VIEW",

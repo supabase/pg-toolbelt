@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { DropMaterializedViewChange } from "./materialized-view.base.ts";
@@ -51,7 +52,7 @@ export class DropMaterializedView extends DropMaterializedViewChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,

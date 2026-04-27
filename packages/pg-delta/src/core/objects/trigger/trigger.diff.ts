@@ -67,6 +67,11 @@ export function diffTriggers(
       continue;
     }
 
+    // Note: column_numbers is excluded because it contains pg_trigger.tgattr
+    // attnums that differ between databases when physical column layouts
+    // diverge but logical (named) columns match. The definition field
+    // (pg_get_triggerdef) already captures the UPDATE OF column list by name,
+    // so we compare by definition instead.
     const NON_ALTERABLE_FIELDS: Array<keyof Trigger> = [
       "function_schema",
       "function_name",
@@ -76,18 +81,18 @@ export function diffTriggers(
       "deferrable",
       "initially_deferred",
       "argument_count",
-      "column_numbers",
       "arguments",
       "when_condition",
       "old_table",
       "new_table",
       "owner",
+      "definition", // Compare by definition instead of column_numbers (tgattr)
     ];
     const shouldReplace = hasNonAlterableChanges(
       mainTrigger,
       branchTrigger,
       NON_ALTERABLE_FIELDS,
-      { column_numbers: deepEqual, arguments: deepEqual },
+      { arguments: deepEqual },
     );
     if (shouldReplace) {
       const tableStableId = stableId.table(

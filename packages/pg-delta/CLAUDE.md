@@ -83,6 +83,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 - `formatters/` — Tree view, SQL scripts.
 - `utils.ts` — Shared CLI helpers.
 
+### Cycle Breaking / Normalization
+
+Keep cycle handling split by the scope of information it needs:
+
+- **Object-local PostgreSQL semantics stay in `diff*`**. If a single object diff can prove a statement is redundant or invalid on its own, fix it there. Example: `src/core/objects/sequence/sequence.diff.ts` skips `DROP SEQUENCE` when `OWNED BY` means PostgreSQL will already cascade-drop it with the owning table/column.
+- **Whole-plan interactions belong in post-diff normalization**. If the fix only becomes obvious after multiple emitted changes are combined, implement it in `src/core/post-diff-cycle-breaking.ts`, wired from `src/core/catalog.diff.ts` after raw diffs and `expandReplaceDependencies()`. Current examples: mutual dropped-table FK cycles and pruning same-table `AlterTableDropColumn` / `AlterTableDropConstraint` changes that are superseded by an expansion-added `DropTable+CreateTable` pair.
+- **`expandReplaceDependencies()` only computes replacement closure**. It may report metadata such as which tables were promoted to replacement pairs, but it should not own unrelated cycle-pruning policy.
+- **`src/core/sort/dependency-filter.ts` is a narrow last resort**. Use it only for safe edge filtering where the emitted statements are already valid and only the graph edge is artificial. Do not extend sort-phase filtering to paper over plans that would still fail at apply time.
+
+Rule of thumb: if the fix needs the full final `Change[]`, it is post-diff; if it needs only one object's semantics, it belongs in that object's `diff*`; if it only removes a graph edge without changing emitted SQL, it belongs in the sort filter.
+
 ## Key Concepts
 
 ### Change object structure
@@ -110,6 +121,15 @@ To add a new PostgreSQL object type:
 2. Add change classes in `changes/` (create, alter, drop, comment, privilege as needed).
 3. Register in `catalog.model.ts` (Catalog type + extractor).
 4. Register in `catalog.diff.ts` (diff function in `diffCatalogs`).
+
+### Physical attnums vs logical names
+
+Never place raw PostgreSQL attnums (`pg_trigger.tgattr`, `pg_index.indkey`, `pg_constraint.conkey`/`confkey`, `pg_publication_rel.prattrs`, etc.) inside a model's `dataFields()` or `NON_ALTERABLE_FIELDS`. Attnums are **physical** and diverge between logically-identical tables whose column layouts were built differently (`CREATE TABLE` vs `ALTER TABLE DROP/ADD COLUMN`) — dropped columns leave "dead" attnums that are never renumbered, so every subsequent diff would emit a spurious replace and never converge. Compare either:
+
+- the authoritative `pg_get_<obj>def()` output (see `Index` and `Trigger`), or
+- column **names** resolved via `pg_attribute` at extraction time (see `Table.conkey`/`confkey`, `Publication.prattrs`).
+
+Storing the raw attnum array purely for debugging/introspection is fine — just keep it out of equality.
 
 ## Conventions
 

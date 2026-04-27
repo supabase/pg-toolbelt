@@ -16,6 +16,7 @@ const SUPABASE_SYSTEM_SCHEMAS = [
   "_supavisor",
   "auth",
   "cron",
+  "etl",
   "extensions",
   "graphql",
   "graphql_public",
@@ -92,6 +93,12 @@ export const supabase: IntegrationDSL = {
         operation: "create",
         scope: "object",
       },
+      // Include extension DROPs used to disable some extensions (eg: pg-net)
+      {
+        objectType: "extension",
+        operation: "drop",
+        scope: "object",
+      },
       // Exclude system objects
       {
         not: {
@@ -139,6 +146,34 @@ export const supabase: IntegrationDSL = {
       },
       options: {
         skipAuthorization: true,
+      },
+    },
+    // Extensions whose install script creates its own target schema cannot
+    // tolerate `CREATE EXTENSION … WITH SCHEMA <self>` against a fresh
+    // database: Postgres resolves WITH SCHEMA before running the extension's
+    // script, so the schema referenced by the clause does not exist yet.
+    // These extensions also install into schemas listed in
+    // SUPABASE_SYSTEM_SCHEMAS, so pg-delta filters their CREATE SCHEMA out
+    // of the declarative plan — nothing else will pre-create the schema.
+    // Emitting a bare `CREATE EXTENSION <name>` lets the extension's own
+    // install script create the schema it expects.
+    //
+    // Note: other extensions install into SUPABASE_SYSTEM_SCHEMAS too
+    // (`pg_graphql` → `graphql`, `supabase_vault` → `vault`,
+    // `uuid-ossp`/`pgcrypto`/`pg_net`/`pg_stat_statements` → `extensions`),
+    // but those schemas are created by the supabase/postgres image baseline
+    // and survive `DROP EXTENSION … CASCADE`, so `CREATE EXTENSION … WITH
+    // SCHEMA <schema>` finds the schema and succeeds. Only the three below
+    // have self-created schemas that are absent from the baseline.
+    {
+      when: {
+        objectType: "extension",
+        operation: "create",
+        scope: "object",
+        "extension/schema": ["pgmq", "pgsodium", "pgtle"],
+      },
+      options: {
+        skipSchema: true,
       },
     },
   ],

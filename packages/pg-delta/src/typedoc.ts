@@ -25,6 +25,11 @@ export type { FlatValue } from "./core/integrations/filter/flatten.ts";
 
 export type { IntegrationDSL } from "./core/integrations/integration-dsl.ts";
 export type { SerializeDSL } from "./core/integrations/serialize/dsl.ts";
+export type {
+  ExtensionSerializeOptions,
+  SchemaSerializeOptions,
+  SerializeOptions,
+} from "./core/integrations/serialize/serialize.types.ts";
 
 // ---------------------------------------------------------------------------
 // Change Types — Base & Top-Level Unions

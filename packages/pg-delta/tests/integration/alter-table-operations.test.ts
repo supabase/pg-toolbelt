@@ -343,5 +343,59 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    // Regression coverage for CLI-754: widening the type of a column that
+    // already has a default on main must preserve the default.
+    test(
+      "widen column type preserves pre-existing default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.priced (
+            id integer NOT NULL,
+            price numeric(8,2) DEFAULT 0.00
+          );
+          INSERT INTO test_schema.priced (id) VALUES (1);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.priced ALTER COLUMN price TYPE numeric(12,4);
+        `,
+        });
+      }),
+    );
+
+    // CLI-754: ENUM → text with default. Currently fails because the plan
+    // emits `DROP TYPE test_schema.status` *before* the `ALTER COLUMN TYPE`,
+    // so the drop fails on the remaining column dependency. Leave skipped
+    // until the dependency ordering between AlterColumnType and the dropped
+    // source type is fixed.
+    test.skip(
+      "change column type from enum to text preserves default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TYPE test_schema.status AS ENUM ('active', 'inactive');
+          CREATE TABLE test_schema.items (
+            id integer NOT NULL,
+            state test_schema.status DEFAULT 'active'
+          );
+          INSERT INTO test_schema.items (id) VALUES (1);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state DROP DEFAULT,
+            ALTER COLUMN state TYPE text USING state::text,
+            ALTER COLUMN state SET DEFAULT 'active';
+          DROP TYPE test_schema.status;
+        `,
+        });
+      }),
+    );
   });
 }

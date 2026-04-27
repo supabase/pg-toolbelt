@@ -4,6 +4,7 @@
 
 import type { ClientBase, PoolClient, PoolConfig } from "pg";
 import { escapeIdentifier, Pool, types } from "pg";
+import { normalizeConnectionUrl } from "./connection-url.ts";
 import { parseSslConfig } from "./plan/ssl-config.ts";
 
 // ============================================================================
@@ -109,6 +110,104 @@ const DEFAULT_CONNECTION_TIMEOUT_MS =
   Number(process.env.PGDELTA_CONNECTION_TIMEOUT_MS) || 3_000;
 const DEFAULT_CONNECT_TIMEOUT_MS =
   Number(process.env.PGDELTA_CONNECT_TIMEOUT_MS) || 2_500;
+const DEFAULT_CONNECT_MAX_ATTEMPTS =
+  Number(process.env.PGDELTA_CONNECT_MAX_ATTEMPTS) || 3;
+const DEFAULT_CONNECT_BASE_BACKOFF_MS =
+  Number(process.env.PGDELTA_CONNECT_BASE_BACKOFF_MS) || 250;
+const DEFAULT_CONNECT_MAX_BACKOFF_MS =
+  Number(process.env.PGDELTA_CONNECT_MAX_BACKOFF_MS) || 1_000;
+
+// PostgreSQL auth-class SQLSTATE codes: not retryable.
+const NON_RETRYABLE_PG_CODES = new Set([
+  "28000", // invalid_authorization_specification
+  "28P01", // invalid_password
+  "28P02", // pgdelta: alias reserved here to future-proof against new auth codes
+]);
+
+// Non-retryable TLS/SSL markers. The `pg` driver surfaces TLS failures as
+// either plain Node `Error` instances with a code on `ERR_TLS_*` or error
+// messages that include well-known cert/TLS terminology; we match both
+// because node-pg normalises some of these.
+const TLS_MESSAGE_MARKERS = [
+  "self-signed certificate",
+  "self signed certificate",
+  "unable to verify the first certificate",
+  "certificate has expired",
+  "tls",
+  "ssl",
+];
+
+/**
+ * Return true when `err` represents a transient connect failure that makes
+ * sense to retry with backoff (e.g. refused connections, DNS blips, our own
+ * eager-connect timeout wrapper). Returns false for permanent failures such
+ * as authentication errors, TLS negotiation errors, and `ENOTFOUND`.
+ *
+ * Unknown errors are treated as retryable on purpose: transient-by-default
+ * is safer here because a duplicated retry is strictly cheaper than a spurious
+ * hard failure during catalog extraction.
+ */
+export function isRetryableConnectError(err: unknown): boolean {
+  if (!(err instanceof Error)) return true;
+  const code = (err as NodeJS.ErrnoException & { code?: string }).code;
+
+  if (code && NON_RETRYABLE_PG_CODES.has(code)) return false;
+  if (code === "ENOTFOUND") return false;
+  if (code && typeof code === "string" && code.startsWith("ERR_TLS")) {
+    return false;
+  }
+
+  const message = err.message?.toLowerCase() ?? "";
+  // Our own eager-connect timeout wrapper is retryable (flaky network).
+  if (message.includes("timed out after")) return true;
+  for (const marker of TLS_MESSAGE_MARKERS) {
+    if (message.includes(marker)) return false;
+  }
+  return true;
+}
+
+/**
+ * Retry an async `connect` operation with bounded exponential backoff.
+ * Stops immediately on a non-retryable error. On exhausted attempts, throws
+ * the last observed error.
+ *
+ * Exposed for testing — production call sites always go through
+ * {@link createManagedPool}.
+ */
+export async function connectWithRetry<T>(opts: {
+  connect: (attempt: number) => Promise<T>;
+  isRetryable?: (err: unknown) => boolean;
+  maxAttempts?: number;
+  baseBackoffMs?: number;
+  maxBackoffMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? DEFAULT_CONNECT_MAX_ATTEMPTS;
+  const baseBackoffMs = opts.baseBackoffMs ?? DEFAULT_CONNECT_BASE_BACKOFF_MS;
+  const maxBackoffMs = opts.maxBackoffMs ?? DEFAULT_CONNECT_MAX_BACKOFF_MS;
+  const isRetryable = opts.isRetryable ?? isRetryableConnectError;
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await opts.connect(attempt);
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxAttempts || !isRetryable(err)) {
+        throw err;
+      }
+      const backoff = Math.min(
+        baseBackoffMs * 2 ** (attempt - 1),
+        maxBackoffMs,
+      );
+      await sleep(backoff);
+    }
+  }
+  // Unreachable: loop either returns or throws.
+  throw lastError;
+}
 
 /**
  * Options for creating a Pool with event listeners.
@@ -126,14 +225,20 @@ interface CreatePoolOptions extends Partial<PoolConfig> {
 
 /**
  * Create a Pool with custom type handlers and optional event listeners.
+ *
+ * `connectionString` may be `undefined` when the caller needs pg to rely on
+ * explicit `host`/`port`/`user`/... fields from `options` instead — notably
+ * the bracketed-IPv6 workaround in {@link poolConfigFromUrl}, where passing
+ * the connection string would cause `pg-connection-string` to re-inject the
+ * bracketed host that breaks `getaddrinfo`.
  */
 export function createPool(
-  connectionString: string,
+  connectionString: string | undefined,
   options?: CreatePoolOptions,
 ): Pool {
   const { onConnect, onError, onAcquire, onRemove, ...config } = options ?? {};
   const pool = new Pool({
-    connectionString,
+    ...(connectionString ? { connectionString } : {}),
     max: DEFAULT_POOL_MAX,
     connectionTimeoutMillis: DEFAULT_CONNECTION_TIMEOUT_MS,
     ...config,
@@ -203,6 +308,50 @@ export function createPool(
 }
 
 /**
+ * Build a pg {@link PoolConfig} from a cleaned connection URL.
+ *
+ * For most URLs this just returns `{ connectionString }` and pg does its
+ * normal parsing. But for URLs whose hostname is a bracketed IPv6 literal
+ * (e.g. `postgresql://user@[::1]:5432/db`, as produced by
+ * {@link normalizeConnectionUrl}), we expand the URL into explicit
+ * `host`/`port`/`user`/`password`/`database` fields with a **bare** IPv6
+ * host — no brackets.
+ *
+ * This works around a `pg-connection-string` quirk: its parser sets
+ * `config.host` to the WHATWG `URL.hostname`, which keeps the surrounding
+ * `[...]` for IPv6 literals. That bracketed value is then passed verbatim to
+ * `getaddrinfo`, which rejects it with `ENOTFOUND`. Since
+ * `pg`'s connection-parameters module does
+ * `Object.assign({}, config, parse(connectionString))`, any `host` we pass
+ * alongside `connectionString` gets clobbered — so we drop `connectionString`
+ * entirely on this path and hand pg the parsed fields directly.
+ *
+ * Remaining query parameters (e.g. `application_name`, `options`,
+ * `connect_timeout`) are forwarded as top-level config keys, mirroring how
+ * `pg-connection-string` would normally surface them.
+ */
+export function poolConfigFromUrl(cleanedUrl: string): PoolConfig {
+  const urlObj = new URL(cleanedUrl);
+  if (!urlObj.hostname.startsWith("[")) {
+    return { connectionString: cleanedUrl };
+  }
+
+  const config: Record<string, unknown> = {
+    host: urlObj.hostname.slice(1, -1),
+  };
+  if (urlObj.port) config.port = Number(urlObj.port);
+  if (urlObj.username) config.user = decodeURIComponent(urlObj.username);
+  if (urlObj.password) config.password = decodeURIComponent(urlObj.password);
+  if (urlObj.pathname.length > 1) {
+    config.database = decodeURIComponent(urlObj.pathname.slice(1));
+  }
+  for (const [key, value] of urlObj.searchParams) {
+    config[key] = value;
+  }
+  return config as PoolConfig;
+}
+
+/**
  * End a pool and wait for all client sockets to fully close.
  *
  * pg-pool's `pool.end()` resolves once clients are removed from its
@@ -227,8 +376,19 @@ export async function createManagedPool(
   url: string,
   options?: { role?: string; label?: "source" | "target" },
 ): Promise<{ pool: Pool; close: () => Promise<void> }> {
-  const sslConfig = await parseSslConfig(url, options?.label ?? "target");
-  const pool = createPool(sslConfig.cleanedUrl, {
+  // Normalize percent-encoded IPv6 hosts (e.g. `2406%3A...%3Ab3c9`) into the
+  // canonical bracketed form before the URL reaches `parseSslConfig` or pg.
+  // Non-IPv6 hosts are returned unchanged.
+  const normalizedUrl = normalizeConnectionUrl(url);
+  const sslConfig = await parseSslConfig(
+    normalizedUrl,
+    options?.label ?? "target",
+  );
+  // Expand bracketed-IPv6 URLs into explicit pg fields so the brackets never
+  // reach `getaddrinfo` — see `poolConfigFromUrl` for the full rationale.
+  const connectionConfig = poolConfigFromUrl(sslConfig.cleanedUrl);
+  const pool = createPool(connectionConfig.connectionString, {
+    ...connectionConfig,
     ...(sslConfig.ssl !== undefined ? { ssl: sslConfig.ssl } : {}),
     onError: (err: Error & { code?: string }) => {
       if (err.code !== "57P01") {
@@ -245,25 +405,30 @@ export async function createManagedPool(
 
   // Eagerly validate connectivity so SSL/auth failures surface immediately
   // instead of hanging on the first real query. node-pg's connectionTimeoutMillis
-  // is not reliably enforced under Bun when SSL negotiation hangs.
+  // is not reliably enforced under Bun when SSL negotiation hangs. Transient
+  // failures (refused connections, flaky DNS, our own timeout wrapper) are
+  // retried with bounded exponential backoff; auth/TLS/ENOTFOUND fail fast.
   const label = options?.label ?? "target";
   const timeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
   try {
-    const client = await Promise.race([
-      pool.connect(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
-                  `The server may require SSL, use an invalid certificate, or be unreachable.`,
-              ),
+    const client = await connectWithRetry({
+      connect: () =>
+        Promise.race([
+          pool.connect(),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
+                      `The server may require SSL, use an invalid certificate, or be unreachable.`,
+                  ),
+                ),
+              timeoutMs,
             ),
-          timeoutMs,
-        ),
-      ),
-    ]);
+          ),
+        ]),
+    });
     client.release();
   } catch (err) {
     await pool.end().catch(() => {});

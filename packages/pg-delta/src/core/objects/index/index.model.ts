@@ -40,6 +40,16 @@ const indexPropsSchema = z.object({
   owner: z.string(),
 });
 
+// pg_get_indexdef(oid, colno, pretty) invokes pg_get_indexdef_worker with
+// missing_ok = true, so it can return NULL when any internal system-cache lookup
+// fails (race with concurrent DROP, role visibility edge cases, orphaned index
+// metadata, recovery transients). An unreadable index cannot be diffed, so we
+// accept NULL here and filter the row out with a debug log instead of crashing
+// the whole catalog extraction.
+const indexRowSchema = indexPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 /**
  * All properties exposed by CREATE INDEX statement are included in diff output.
  * https://www.postgresql.org/docs/current/sql-createindex.html
@@ -362,9 +372,8 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = indexRows.map((row: unknown) =>
-    indexPropsSchema.parse(row),
-  );
+  const validatedRows = indexRows
+    .map((row: unknown) => indexRowSchema.parse(row))
+    .filter((row): row is IndexProps => row.definition !== null);
   return validatedRows.map((row: IndexProps) => new Index(row));
 }
