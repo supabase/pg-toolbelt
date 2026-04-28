@@ -104,7 +104,6 @@ export function diffIndexes(
       "nulls_not_distinct",
       "immediate",
       "is_clustered",
-      "is_replica_identity",
       "column_collations",
       "operator_classes",
       "column_options",

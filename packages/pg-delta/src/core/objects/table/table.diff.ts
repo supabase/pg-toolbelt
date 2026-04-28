@@ -245,15 +245,13 @@ export function diffTables(
 
     // REPLICA IDENTITY: If non-default, emit ALTER TABLE ... REPLICA IDENTITY
     if (branchTable.replica_identity !== "d") {
-      // Skip 'i' (USING INDEX) — handled by index changes
-      if (branchTable.replica_identity !== "i") {
-        changes.push(
-          new AlterTableSetReplicaIdentity({
-            table: branchTable,
-            mode: branchTable.replica_identity,
-          }),
-        );
-      }
+      changes.push(
+        new AlterTableSetReplicaIdentity({
+          table: branchTable,
+          mode: branchTable.replica_identity,
+          indexName: branchTable.replica_identity_index,
+        }),
+      );
     }
 
     changes.push(
@@ -404,16 +402,23 @@ export function diffTables(
     }
 
     // REPLICA IDENTITY
-    if (mainTable.replica_identity !== branchTable.replica_identity) {
-      // Skip when target is 'i' (USING INDEX) — handled by index changes
-      if (branchTable.replica_identity !== "i") {
-        changes.push(
-          new AlterTableSetReplicaIdentity({
-            table: mainTable,
-            mode: branchTable.replica_identity,
-          }),
-        );
-      }
+    // Re-emit when the mode changes, or when staying in 'i' mode but pointing
+    // at a different index. The index named on the branch must already exist
+    // before this ALTER runs; AlterTableSetReplicaIdentity declares that
+    // dependency in its `requires`.
+    const replicaIdentityChanged =
+      mainTable.replica_identity !== branchTable.replica_identity ||
+      (branchTable.replica_identity === "i" &&
+        mainTable.replica_identity_index !==
+          branchTable.replica_identity_index);
+    if (replicaIdentityChanged) {
+      changes.push(
+        new AlterTableSetReplicaIdentity({
+          table: mainTable,
+          mode: branchTable.replica_identity,
+          indexName: branchTable.replica_identity_index,
+        }),
+      );
     }
 
     // OWNER

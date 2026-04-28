@@ -466,16 +466,33 @@ export class AlterTableValidateConstraint extends AlterTableChange {
 export class AlterTableSetReplicaIdentity extends AlterTableChange {
   public readonly table: Table;
   public readonly mode: "d" | "n" | "f" | "i";
+  public readonly indexName: string | null;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; mode: "d" | "n" | "f" | "i" }) {
+  constructor(props: {
+    table: Table;
+    mode: "d" | "n" | "f" | "i";
+    indexName?: string | null;
+  }) {
     super();
     this.table = props.table;
     this.mode = props.mode;
+    this.indexName = props.indexName ?? null;
+    if (this.mode === "i" && !this.indexName) {
+      throw new Error(
+        `AlterTableSetReplicaIdentity for ${this.table.schema}.${this.table.name}: mode 'i' requires indexName`,
+      );
+    }
   }
 
   get requires() {
-    return [this.table.stableId];
+    const reqs: string[] = [this.table.stableId];
+    if (this.mode === "i" && this.indexName) {
+      reqs.push(
+        `index:${this.table.schema}.${this.table.name}.${this.indexName}`,
+      );
+    }
+    return reqs;
   }
 
   serialize(_options?: SerializeOptions): string {
@@ -486,7 +503,7 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
           ? "NOTHING"
           : this.mode === "f"
             ? "FULL"
-            : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
+            : `USING INDEX ${this.indexName}`;
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
