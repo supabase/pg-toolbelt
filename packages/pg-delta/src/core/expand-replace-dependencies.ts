@@ -129,6 +129,30 @@ export function expandReplaceDependencies({
     }
   }
 
+  // Drop-only objects (no matching create — typically a renamed-away table or
+  // type) are also expansion roots: anything in main that depends on them via
+  // pg_depend must drop before the parent does. Without this seed, a renamed
+  // table whose dependent view stays in the branch catalog (with an updated
+  // definition that no longer references the old name) would still try to
+  // run DROP TABLE old_name while old_name is referenced by the view, which
+  // PostgreSQL refuses without CASCADE. The walk below promotes the surviving
+  // dependent to DROP+CREATE so its drop is sequenced before the parent drop.
+  for (const id of droppedIds) {
+    if (createdIds.has(id)) continue;
+    if (replaceRoots.has(id)) continue;
+    // Only seed for object kinds that can have catalog dependents we know
+    // how to recreate via buildReplaceChanges.
+    if (
+      id.startsWith("table:") ||
+      id.startsWith("view:") ||
+      id.startsWith("materializedView:") ||
+      id.startsWith("type:") ||
+      id.startsWith("domain:")
+    ) {
+      replaceRoots.add(id);
+    }
+  }
+
   if (replaceRoots.size === 0) {
     return {
       changes,

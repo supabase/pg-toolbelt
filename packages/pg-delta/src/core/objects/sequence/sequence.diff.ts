@@ -36,6 +36,7 @@ type SequenceOrColumnSetDefaultChange =
  * @param main - The sequences in the main catalog.
  * @param branch - The sequences in the branch catalog.
  * @param branchTables - The tables in the branch catalog (used to check if owning tables are being dropped).
+ * @param mainTables - The tables in the main catalog (used to detect when a same-name sequence will be cascade-dropped because its main-side owning table is going away).
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
@@ -46,6 +47,7 @@ export function diffSequences(
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
   branchTables: Record<string, Table> = {},
+  mainTables: Record<string, Table> = {},
 ): SequenceOrColumnSetDefaultChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
@@ -160,12 +162,35 @@ export function diffSequences(
       NON_ALTERABLE_FIELDS,
     );
 
-    if (nonAlterablePropsChanged) {
-      // Replace the entire sequence (drop + create)
-      changes.push(
-        new DropSequence({ sequence: mainSequence }),
-        new CreateSequence({ sequence: branchSequence }),
-      );
+    // A sequence kept the same name (so it's "altered" in catalog terms),
+    // but its main-side owning table is going away from the plan (renamed
+    // away or simply dropped). PostgreSQL will cascade-drop the sequence
+    // alongside the table, leaving any later CREATE TABLE / column-default
+    // that depends on the sequence name pointing at nothing. Treat this
+    // like a non-alterable change so we recreate the sequence after the
+    // owning table is dropped.
+    const mainOwnedByTableId =
+      mainSequence.owned_by_schema && mainSequence.owned_by_table
+        ? `table:${mainSequence.owned_by_schema}.${mainSequence.owned_by_table}`
+        : null;
+    const cascadeOrphanedByOwningTable =
+      mainOwnedByTableId !== null &&
+      mainTables[mainOwnedByTableId] !== undefined &&
+      branchTables[mainOwnedByTableId] === undefined;
+
+    if (nonAlterablePropsChanged || cascadeOrphanedByOwningTable) {
+      // When the owning table is going away in this plan, PostgreSQL will
+      // cascade-drop the sequence as part of the DROP TABLE. Emitting an
+      // explicit DROP SEQUENCE here would (a) introduce an unbreakable
+      // DropSequence ↔ DropTable cycle on the catalog edges between the
+      // sequence and the dropped column, and (b) be redundant with the
+      // cascade. The CreateSequence below restores the sequence under its
+      // original name so any same-name reference in a later CREATE TABLE
+      // resolves correctly.
+      if (!cascadeOrphanedByOwningTable) {
+        changes.push(new DropSequence({ sequence: mainSequence }));
+      }
+      changes.push(new CreateSequence({ sequence: branchSequence }));
       // Re-apply OWNED BY if present on branch
       if (
         branchSequence.owned_by_schema !== null &&

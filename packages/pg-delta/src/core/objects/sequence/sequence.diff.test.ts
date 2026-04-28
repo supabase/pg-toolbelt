@@ -322,6 +322,93 @@ describe.concurrent("sequence.diff", () => {
     expect(changes).toHaveLength(0);
   });
 
+  test("recreate same-name sequence when owning table is renamed away", () => {
+    // Reproduces issue #228 case 1: a SERIAL column's table is renamed
+    // (`old_table` → `new_table`). The sequence keeps the same name
+    // (`old_table_id_seq`) but its OWNED BY now points at `new_table.id`.
+    // PostgreSQL cascade-drops the sequence with the old table, so a later
+    // CREATE TABLE that references `old_table_id_seq` fails. The diff must
+    // emit CreateSequence (and skip the explicit DropSequence to avoid an
+    // unbreakable cycle with the DropTable).
+    const tableColumn = {
+      name: "id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: "nextval('public.old_table_id_seq'::regclass)",
+      comment: null,
+    };
+    const tableBaseProps = {
+      schema: "public",
+      persistence: "p" as const,
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d" as const,
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      privileges: [],
+    };
+    const oldTable = new Table({
+      ...tableBaseProps,
+      name: "old_table",
+      columns: [tableColumn],
+    });
+    const newTable = new Table({
+      ...tableBaseProps,
+      name: "new_table",
+      columns: [tableColumn],
+    });
+    const mainSequence = new Sequence({
+      ...base,
+      name: "old_table_id_seq",
+      owned_by_schema: "public",
+      owned_by_table: "old_table",
+      owned_by_column: "id",
+    });
+    const branchSequence = new Sequence({
+      ...base,
+      name: "old_table_id_seq",
+      owned_by_schema: "public",
+      owned_by_table: "new_table",
+      owned_by_column: "id",
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [mainSequence.stableId]: mainSequence },
+      { [branchSequence.stableId]: branchSequence },
+      { [newTable.stableId]: newTable },
+      { [oldTable.stableId]: oldTable },
+    );
+
+    expect(changes.some((c) => c instanceof DropSequence)).toBe(false);
+    expect(changes.some((c) => c instanceof CreateSequence)).toBe(true);
+    expect(changes.some((c) => c instanceof AlterSequenceSetOwnedBy)).toBe(
+      true,
+    );
+  });
+
   test("create with comment emits CreateCommentOnSequence", () => {
     const s = new Sequence({ ...base, comment: "my seq" });
     const changes = diffSequences(testContext, {}, { [s.stableId]: s });

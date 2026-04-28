@@ -97,6 +97,137 @@ describe("expandReplaceDependencies", () => {
     expect(result.replacedTableIds.size).toBe(0);
   });
 
+  test("promotes surviving dependent view when its referenced table is dropped without a same-name create", async () => {
+    // Reproduces issue #228 case 3: ALTER TABLE users RENAME TO members.
+    // pg-delta sees `users` as drop-only and `members` as create-only — the
+    // stableIds differ, so neither is in the createdIds∩droppedIds replace
+    // root set. The dependent view `user_count` exists in both catalogs
+    // (its definition was rewritten to FROM members in branch). Without
+    // expansion, DROP TABLE users would fail because user_count still
+    // references it. The expander must seed the drop-only table as a root
+    // so the surviving dependent gets promoted to DROP+CREATE.
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const usersTable = new Table({
+      schema: "public",
+      name: "users",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "postgres",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+    const mainView = new View({
+      schema: "public",
+      name: "user_count",
+      owner: "postgres",
+      definition: " SELECT count(*) AS n FROM public.users;",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      partition_bound: null,
+      comment: null,
+      columns: [
+        {
+          name: "n",
+          position: 1,
+          data_type: "bigint",
+          data_type_str: "bigint",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      options: null,
+      privileges: [],
+    });
+    const branchView = new View({
+      ...mainView,
+      definition: " SELECT count(*) AS n FROM public.members;",
+    });
+
+    const mainCatalog = new Catalog({
+      ...baseline,
+      tables: { [usersTable.stableId]: usersTable },
+      views: { [mainView.stableId]: mainView },
+      depends: [
+        {
+          dependent_stable_id: mainView.stableId,
+          referenced_stable_id: usersTable.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      ...baseline,
+      views: { [branchView.stableId]: branchView },
+    });
+
+    // Simulated planner output: DropTable(users) + CreateView orReplace(user_count).
+    // The surviving view appears only as a "create" (CREATE OR REPLACE VIEW),
+    // never as a drop, so DROP TABLE users would fail without expansion.
+    const changes: Change[] = [
+      new DropTable({ table: usersTable }),
+      new CreateView({ view: branchView, orReplace: true }),
+    ];
+    const result = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    // The view's surviving CREATE OR REPLACE remains, AND a DropView is
+    // injected so the drop phase removes the view before the table.
+    expect(result.changes.some((c) => c instanceof DropView)).toBe(true);
+  });
+
   test("does not replace the owning table for an owned sequence recreation", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainSequence = new Sequence({
