@@ -158,6 +158,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 
 - **Auto-generated PR titles from external tools** (Claude Code web session launcher, GitHub's "compare" UI, the `gh` CLI default, etc.) routinely produce plain English like `Add integration tests for X` or `Update Y`. These will fail lint. Always verify the PR title before considering the PR opened — if it's not `<type>(<scope>): ...`, rename it (e.g. via `mcp__github__update_pull_request` with a new `title`). The first commit's subject is usually a good source since we write those in Conventional Commits already.
 - **`<scope>` should be the package name** (`pg-delta`, `pg-topo`) or a cross-cutting area (`ci`, `docs`, `release`) — not a feature name.
+- **Link the fixed issue(s) in the PR description.** When the PR resolves or addresses a tracked issue, include a GitHub closing keyword line in the description (for example `Closes #230`, `Fixes supabase/pg-toolbelt#230`, or `Refs #230` for partial work). This auto-closes the issue on merge and gives reviewers one click back to the bug report. If the work spans multiple issues, list them all (`Closes #230, Closes #231`).
 
 ## CI
 
