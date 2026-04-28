@@ -397,5 +397,53 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "set replica identity using index on existing table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.replicated (
+            id integer NOT NULL,
+            tenant_id integer NOT NULL,
+            payload text
+          );
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "create table with replica identity using index",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.replicated (
+            id integer NOT NULL,
+            tenant_id integer NOT NULL,
+            payload text
+          );
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id);
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
+        `,
+        });
+      }),
+    );
   });
 }
