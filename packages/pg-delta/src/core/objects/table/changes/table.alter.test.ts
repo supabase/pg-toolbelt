@@ -436,6 +436,11 @@ describe.concurrent("table", () => {
         data_type: "text",
         data_type_str: "text",
       };
+      const colTextBefore: ColumnProps = {
+        ...colText,
+        data_type: "integer",
+        data_type_str: "integer",
+      };
       const withCols = new Table({
         ...tableProps,
         owner: "o1",
@@ -469,10 +474,11 @@ describe.concurrent("table", () => {
       const changeType = new AlterTableAlterColumnType({
         table: withCols,
         column: colText,
+        previousColumn: colTextBefore,
       });
       await assertValidSql(changeType.serialize());
       expect(changeType.serialize()).toBe(
-        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text",
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text USING b::text",
       );
 
       const changeSetDefault = new AlterTableAlterColumnSetDefault({
@@ -651,10 +657,15 @@ describe.concurrent("table", () => {
       const change = new AlterTableAlterColumnType({
         table: withCols,
         column: col,
+        previousColumn: {
+          ...col,
+          data_type: "integer",
+          data_type_str: "integer",
+        },
       });
       await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
-        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll",
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll USING b::text",
       );
     });
 

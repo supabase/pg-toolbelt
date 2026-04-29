@@ -309,13 +309,16 @@ select
 
           'key_columns',
             case
-              when c.conkey is not null then (
-                select json_agg(quote_ident(att.attname) order by pk.ordinality)
-                from unnest(c.conkey) with ordinality as pk(attnum, ordinality)
-                join pg_attribute att
-                  on att.attrelid = c.conrelid
-                and att.attnum = pk.attnum
-                and att.attisdropped = false
+              when c.conkey is not null then coalesce(
+                (
+                  select json_agg(quote_ident(att.attname) order by pk.ordinality)
+                  from unnest(c.conkey) with ordinality as pk(attnum, ordinality)
+                  join pg_attribute att
+                    on att.attrelid = c.conrelid
+                  and att.attnum = pk.attnum
+                  and att.attisdropped = false
+                ),
+                '[]'::json
               )
               else '[]'::json
             end,

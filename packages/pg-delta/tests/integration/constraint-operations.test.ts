@@ -375,6 +375,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       120_000,
     );
 
+    test(
+      "extract exclude constraint defined over an expression",
+      withDbIsolated(pgVersion, async (db) => {
+        // Regression: an EXCLUDE constraint whose key is an expression stores
+        // attnum=0 in pg_constraint.conkey, which never matches pg_attribute.
+        // The previous extractor's inner json_agg returned SQL NULL in that
+        // case, which tripped tablePropsSchema with "expected array, received
+        // null" at constraints[*].key_columns. Roundtrip must succeed.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.expr_excl (
+            a integer NOT NULL
+          );
+        `,
+          testSql: `
+          ALTER TABLE test_schema.expr_excl
+            ADD CONSTRAINT expr_excl_check
+            EXCLUDE USING gist ((a + 0) WITH =);
+        `,
+        });
+      }),
+      120_000,
+    );
+
     if (pgVersion === 18) {
       test(
         "convert primary key to temporal primary key",
