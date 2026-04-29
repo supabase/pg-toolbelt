@@ -233,7 +233,7 @@ function restoreReplicaIdentityAfterIndexReplace(
  * Object-local PostgreSQL semantics (for example owned-sequence cascades)
  * stay in the corresponding `diff*` function instead of this pass.
  */
-export function normalizePostDiffCycles({
+export function normalizePostDiffChanges({
   changes,
   replacedTableIds = new Set<string>(),
   branchTables = {},

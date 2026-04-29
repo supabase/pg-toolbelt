@@ -363,8 +363,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
          * so DropTable(A) requires DropTable(B), DropTable(B) requires
          * DropTable(C), DropTable(C) requires DropTable(A) → unbreakable cycle.
          *
-         * The existing post-diff cycle-breaker
-         * (`normalizePostDiffCycles` in `post-diff-cycle-breaking.ts`) only
+         * The existing post-diff normalization pass
+         * (`normalizePostDiffChanges` in `post-diff-normalization.ts`) only
          * injects pre-drop `ALTER TABLE ... DROP CONSTRAINT` for *mutual*
          * 2-cycles — `droppedFkTargets.get(referencedId)?.has(table.stableId)`.
          * No edge in a 3-cycle is mutual, so the breaker does nothing and the

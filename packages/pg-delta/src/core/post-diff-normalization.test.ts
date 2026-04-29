@@ -17,7 +17,7 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
-import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
+import { normalizePostDiffChanges } from "./post-diff-normalization.ts";
 
 const baseTableProps = {
   schema: "public",
@@ -62,7 +62,7 @@ function integerColumn(name: string, position: number) {
   };
 }
 
-describe("normalizePostDiffCycles", () => {
+describe("normalizePostDiffChanges", () => {
   test("prunes same-table drop-column and drop-constraint ALTERs for replaced tables only", async () => {
     const mainChildren = new Table({
       ...baseTableProps,
@@ -152,7 +152,7 @@ describe("normalizePostDiffCycles", () => {
       preExistingGrant,
     ];
 
-    const normalized = normalizePostDiffCycles({
+    const normalized = normalizePostDiffChanges({
       changes,
       replacedTableIds: new Set([mainChildren.stableId]),
     });
@@ -276,7 +276,7 @@ describe("normalizePostDiffCycles", () => {
       expansionComment,
     ];
 
-    const normalized = normalizePostDiffCycles({
+    const normalized = normalizePostDiffChanges({
       changes,
       replacedTableIds: new Set([branchChildren.stableId]),
     });
@@ -363,7 +363,7 @@ describe("normalizePostDiffCycles", () => {
         new CreateIndex({ index: newIndex, indexableObject: branchTable }),
       ];
 
-      const normalized = normalizePostDiffCycles({
+      const normalized = normalizePostDiffChanges({
         changes,
         branchTables: { [branchTable.stableId]: branchTable },
       });
@@ -402,7 +402,7 @@ describe("normalizePostDiffCycles", () => {
         }),
       ];
 
-      const normalized = normalizePostDiffCycles({
+      const normalized = normalizePostDiffChanges({
         changes,
         branchTables: { [branchTable.stableId]: branchTable },
       });
@@ -422,7 +422,7 @@ describe("normalizePostDiffCycles", () => {
 
       const changes: Change[] = [new DropIndex({ index: oldIndex })];
 
-      const normalized = normalizePostDiffCycles({
+      const normalized = normalizePostDiffChanges({
         changes,
         branchTables: { [branchTable.stableId]: branchTable },
       });
@@ -454,7 +454,7 @@ describe("normalizePostDiffCycles", () => {
         new CreateIndex({ index: newOtherIndex, indexableObject: branchTable }),
       ];
 
-      const normalized = normalizePostDiffCycles({
+      const normalized = normalizePostDiffChanges({
         changes,
         branchTables: { [branchTable.stableId]: branchTable },
       });
