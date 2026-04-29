@@ -556,11 +556,21 @@ export class AlterTableDropColumn extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly scope = "object" as const;
+  // Drop the implicit `requires(table)` edge. Only set by the lazy
+  // cycle-breaker for the publication↔column case, where the table survives
+  // the migration and the edge is therefore artificial. See
+  // `sort/cycle-breakers.ts` for the full justification.
+  public readonly omitTableRequirement: boolean;
 
-  constructor(props: { table: Table; column: ColumnProps }) {
+  constructor(props: {
+    table: Table;
+    column: ColumnProps;
+    omitTableRequirement?: boolean;
+  }) {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.omitTableRequirement = props.omitTableRequirement ?? false;
   }
 
   get drops() {
@@ -570,10 +580,12 @@ export class AlterTableDropColumn extends AlterTableChange {
   }
 
   get requires() {
-    return [
-      this.table.stableId,
-      stableId.column(this.table.schema, this.table.name, this.column.name),
-    ];
+    const colId = stableId.column(
+      this.table.schema,
+      this.table.name,
+      this.column.name,
+    );
+    return this.omitTableRequirement ? [colId] : [this.table.stableId, colId];
   }
 
   serialize(_options?: SerializeOptions): string {
