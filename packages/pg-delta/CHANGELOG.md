@@ -1,5 +1,34 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.21
+
+### Patch Changes
+
+- fa3f736: fix(pg-delta): emit USING and default-safe flow for ALTER COLUMN TYPE
+- 363fef3: Fix ZodError when extracting tables with EXCLUDE constraints defined over expressions. PostgreSQL stores `attnum=0` in `pg_constraint.conkey` for expression elements, which never matches `pg_attribute`, so the inner aggregate returned SQL `NULL` and tripped `tablePropsSchema` at `constraints[*].key_columns`. The extractor now coalesces the aggregate to an empty JSON array.
+- cbe8946: Defer drop-phase cycle breaking from `normalizePostDiffCycles` to a lazy
+  dispatcher invoked by `sortPhaseChanges` only when edge filtering can't
+  break a cycle. The happy path (no cycles, the vast majority of plans) no
+  longer walks `iterCrossDropFkConstraints` on every diff. The new
+  dispatcher generalizes the existing 2-cycle FK breaker to any
+  N≥2 strongly-connected component of dropped tables (for example
+  `a→b→c→a`) and breaks the
+  `AlterPublicationDropTables ↔ AlterTableDropColumn` cycle that occurred
+  when a publication-listed column was dropped on a surviving table. The
+  breaker round-cap scales with `phaseChanges.length` so big diffs with
+  many independent unbreakable cycles in a single phase resolve cleanly
+  instead of throwing a spurious `CycleError`.
+
+  The sequence diff path now alters `data_type` in place via
+  `ALTER SEQUENCE ... AS <type>` (valid PostgreSQL since PG10) instead of
+  emitting `DROP SEQUENCE + CREATE SEQUENCE`. This eliminates a
+  production `CycleError` seen on alpha.16 (Sentry SUPABASE-API-7RS,
+  "DropSequence ↔ DropTable") triggered when a sequence whose
+  `data_type` changes is referenced by a `DEFAULT nextval(...)` on a
+  surviving column. Altering in place also fixes a silent data-loss
+  regression where the recreated sequence would restart at `1` and
+  collide with existing row ids.
+
 ## 1.0.0-alpha.20
 
 ### Patch Changes
