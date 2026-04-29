@@ -152,10 +152,7 @@ export function diffSequences(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the sequence
-    const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = [
-      "data_type",
-      "persistence",
-    ];
+    const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = ["persistence"];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
       mainSequence,
       branchSequence,
@@ -240,6 +237,7 @@ export function diffSequences(
     } else {
       // Only alterable properties changed - emit ALTER for options/owner
       const optionsChanged =
+        mainSequence.data_type !== branchSequence.data_type ||
         mainSequence.increment !== branchSequence.increment ||
         mainSequence.minimum_value !== branchSequence.minimum_value ||
         mainSequence.maximum_value !== branchSequence.maximum_value ||
@@ -249,6 +247,16 @@ export function diffSequences(
 
       if (optionsChanged) {
         const options: string[] = [];
+        // `AS <type>` must come before any MIN/MAX/RESTART clauses per the
+        // PG ALTER SEQUENCE grammar. Valid types are smallint, integer,
+        // bigint — the same set CREATE SEQUENCE accepts — so the universe
+        // of legal transitions is closed. PG enforces last_value range at
+        // apply time when shrinking; that's the desired behavior because
+        // the previous Drop+Create path silently reset last_value to 1
+        // (data-loss bug, see Sentry SUPABASE-API-7RS).
+        if (mainSequence.data_type !== branchSequence.data_type) {
+          options.push("AS", branchSequence.data_type);
+        }
         if (mainSequence.increment !== branchSequence.increment) {
           options.push("INCREMENT BY", String(branchSequence.increment));
         }

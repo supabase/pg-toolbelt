@@ -230,17 +230,21 @@ describe("expandReplaceDependencies", () => {
 
   test("does not replace the owning table for an owned sequence recreation", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
+    // Use `persistence` (UNLOGGED → LOGGED) to trigger the
+    // non-alterable replace path: it's the only field still in
+    // NON_ALTERABLE_FIELDS. `data_type` was previously in that list
+    // but is now alterable in place via ALTER SEQUENCE ... AS <type>.
     const mainSequence = new Sequence({
       schema: "public",
       name: "user_id_seq",
-      data_type: "integer",
+      data_type: "bigint",
       start_value: 1,
       minimum_value: 1n,
-      maximum_value: 2147483647n,
+      maximum_value: 9223372036854775807n,
       increment: 1,
       cycle_option: false,
       cache_size: 1,
-      persistence: "p",
+      persistence: "u",
       owned_by_schema: "public",
       owned_by_table: "users",
       owned_by_column: "id",
@@ -250,8 +254,7 @@ describe("expandReplaceDependencies", () => {
     });
     const branchSequence = new Sequence({
       ...mainSequence,
-      data_type: "bigint",
-      maximum_value: 9223372036854775807n,
+      persistence: "p",
     });
     const usersTable = new Table({
       schema: "public",
