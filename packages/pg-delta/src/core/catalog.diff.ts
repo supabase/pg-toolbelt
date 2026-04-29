@@ -241,6 +241,7 @@ export function diffCatalogs(
   filteredChanges = normalizePostDiffCycles({
     changes: expandedDependencies.changes,
     replacedTableIds: expandedDependencies.replacedTableIds,
+    branchTables: branch.tables,
   });
 
   debugCatalog(

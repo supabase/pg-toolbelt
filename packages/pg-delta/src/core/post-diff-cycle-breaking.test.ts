@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "./change.types.ts";
+import { CreateIndex } from "./objects/index/changes/index.create.ts";
+import { DropIndex } from "./objects/index/changes/index.drop.ts";
+import { Index, type IndexProps } from "./objects/index/index.model.ts";
 import {
   AlterTableAddConstraint,
   AlterTableChangeOwner,
@@ -299,5 +302,166 @@ describe("normalizePostDiffCycles", () => {
         (change) => change instanceof CreateCommentOnConstraint,
       ),
     ).toHaveLength(1);
+  });
+
+  describe("restoreReplicaIdentityAfterIndexReplace", () => {
+    const baseIndexProps: IndexProps = {
+      schema: "public",
+      table_name: "replicated",
+      name: "tenant_idx",
+      storage_params: [],
+      statistics_target: [],
+      index_type: "btree",
+      tablespace: null,
+      is_unique: true,
+      is_primary: false,
+      is_exclusion: false,
+      nulls_not_distinct: false,
+      immediate: true,
+      is_clustered: false,
+      is_replica_identity: true,
+      key_columns: [],
+      column_collations: [],
+      operator_classes: [],
+      column_options: [],
+      index_expressions: null,
+      partial_predicate: null,
+      table_relkind: "r",
+      is_owned_by_constraint: false,
+      is_partitioned_index: false,
+      is_index_partition: false,
+      parent_index_name: null,
+      definition: "CREATE UNIQUE INDEX tenant_idx ON public.replicated (a)",
+      comment: null,
+      owner: "postgres",
+    };
+
+    function makeBranchTable(replicaIdentityIndex: string | null) {
+      return new Table({
+        ...baseTableProps,
+        name: "replicated",
+        replica_identity: replicaIdentityIndex ? "i" : "d",
+        replica_identity_index: replicaIdentityIndex,
+        columns: [
+          { ...integerColumn("id", 1), not_null: true },
+          integerColumn("a", 2),
+        ],
+      });
+    }
+
+    test("re-emits ALTER TABLE … REPLICA IDENTITY USING INDEX after a DropIndex+CreateIndex pair", () => {
+      const branchTable = makeBranchTable("tenant_idx");
+      const oldIndex = new Index(baseIndexProps);
+      const newIndex = new Index({
+        ...baseIndexProps,
+        definition:
+          "CREATE UNIQUE INDEX tenant_idx ON public.replicated (a, id)",
+      });
+
+      const changes: Change[] = [
+        new DropIndex({ index: oldIndex }),
+        new CreateIndex({ index: newIndex, indexableObject: branchTable }),
+      ];
+
+      const normalized = normalizePostDiffCycles({
+        changes,
+        branchTables: { [branchTable.stableId]: branchTable },
+      });
+
+      expect(normalized.map((c) => c.constructor.name)).toEqual([
+        "DropIndex",
+        "CreateIndex",
+        "AlterTableSetReplicaIdentity",
+      ]);
+
+      const inserted = normalized[2] as AlterTableSetReplicaIdentity;
+      expect(inserted.mode).toBe("i");
+      expect(inserted.indexName).toBe("tenant_idx");
+      expect(inserted.requires).toEqual([
+        "table:public.replicated",
+        "index:public.replicated.tenant_idx",
+      ]);
+    });
+
+    test("does not double-emit when diffTables already produced an AlterTableSetReplicaIdentity for the same table", () => {
+      const branchTable = makeBranchTable("tenant_idx");
+      const oldIndex = new Index(baseIndexProps);
+      const newIndex = new Index({
+        ...baseIndexProps,
+        definition:
+          "CREATE UNIQUE INDEX tenant_idx ON public.replicated (a, id)",
+      });
+
+      const changes: Change[] = [
+        new DropIndex({ index: oldIndex }),
+        new CreateIndex({ index: newIndex, indexableObject: branchTable }),
+        new AlterTableSetReplicaIdentity({
+          table: branchTable,
+          mode: "i",
+          indexName: "tenant_idx",
+        }),
+      ];
+
+      const normalized = normalizePostDiffCycles({
+        changes,
+        branchTables: { [branchTable.stableId]: branchTable },
+      });
+
+      expect(
+        normalized.filter((c) => c instanceof AlterTableSetReplicaIdentity),
+      ).toHaveLength(1);
+    });
+
+    test("ignores DropIndex without a matching CreateIndex (pure drop)", () => {
+      // Pure drop: the user removed the index entirely. The table.diff path is
+      // responsible for emitting the corresponding REPLICA IDENTITY DEFAULT.
+      // The post-diff pass must not synthesize a USING INDEX setter for an
+      // index that no longer exists.
+      const branchTable = makeBranchTable(null);
+      const oldIndex = new Index(baseIndexProps);
+
+      const changes: Change[] = [new DropIndex({ index: oldIndex })];
+
+      const normalized = normalizePostDiffCycles({
+        changes,
+        branchTables: { [branchTable.stableId]: branchTable },
+      });
+
+      expect(
+        normalized.filter((c) => c instanceof AlterTableSetReplicaIdentity),
+      ).toHaveLength(0);
+    });
+
+    test("ignores indexes that are not the table's replica identity", () => {
+      // The table has replica_identity = 'd', so even if some other index is
+      // being replaced, no setter should be injected.
+      const branchTable = makeBranchTable(null);
+      const otherIndex = new Index({
+        ...baseIndexProps,
+        name: "some_other_idx",
+        is_replica_identity: false,
+        definition: "CREATE INDEX some_other_idx ON public.replicated (a)",
+      });
+      const newOtherIndex = new Index({
+        ...baseIndexProps,
+        name: "some_other_idx",
+        is_replica_identity: false,
+        definition: "CREATE INDEX some_other_idx ON public.replicated (a, id)",
+      });
+
+      const changes: Change[] = [
+        new DropIndex({ index: otherIndex }),
+        new CreateIndex({ index: newOtherIndex, indexableObject: branchTable }),
+      ];
+
+      const normalized = normalizePostDiffCycles({
+        changes,
+        branchTables: { [branchTable.stableId]: branchTable },
+      });
+
+      expect(
+        normalized.filter((c) => c instanceof AlterTableSetReplicaIdentity),
+      ).toHaveLength(0);
+    });
   });
 });
