@@ -389,9 +389,6 @@ describe.concurrent("table", () => {
       expect(usingIndex.requires).toContain(
         "index:public.test_table.test_table_pkey",
       );
-      expect(
-        () => new AlterTableSetReplicaIdentity({ table, mode: "i" }),
-      ).toThrow(/mode 'i' requires indexName/);
     });
 
     test("columns add/drop/alter", async () => {

@@ -132,7 +132,11 @@ function restoreReplicaIdentityAfterIndexReplace(
     if (table.replica_identity !== "i" || !table.replica_identity_index) {
       continue;
     }
-    const indexId = `index:${table.schema}.${table.name}.${table.replica_identity_index}`;
+    const indexId = stableId.index(
+      table.schema,
+      table.name,
+      table.replica_identity_index,
+    );
     replicaIdentityIndexToTable.set(indexId, table);
   }
   if (replicaIdentityIndexToTable.size === 0) return changes;

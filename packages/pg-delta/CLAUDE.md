@@ -108,6 +108,20 @@ Used to track objects across databases (OIDs differ per environment):
 - Sub-entities: `type:schema.parent.name` (e.g. `column:public.users.email`).
 - Metadata: `scope:target` (e.g. `comment:public.users`).
 
+**Always build stable identifiers through the `stableId.*` helpers in
+`src/core/objects/utils.ts` (or the `<Object>.stableId` getter on a model
+instance) — never inline the prefix as a template literal.** Inline strings
+like `` `index:${schema}.${table}.${name}` `` drift from the helper if
+prefixes or escaping rules change, scatter the format across the codebase,
+and were caught in review on this exact pattern. If you need a stable id
+for an object type that does not have a helper yet, add the helper to
+`stableId` first, then use it everywhere — including new code paths,
+post-diff passes, and dependency wiring inside change classes.
+
+When asserting stable ids in tests, the literal form is fine as the
+expected value (it documents the on-the-wire format), but the **production
+side** of the comparison should still call the helper.
+
 ### Integration DSL
 
 - **Filter**: JSON pattern to include/exclude changes (e.g. `{ "not": { "schema": ["pg_catalog"] } }`).
