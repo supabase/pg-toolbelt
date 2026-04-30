@@ -34,6 +34,15 @@ const viewPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
+// pg_get_viewdef(oid) can return NULL when the underlying view (or its
+// pg_rewrite row) is dropped between catalog scan and resolution, or under
+// transient catalog state during recovery. An unreadable view cannot be
+// diffed, so we accept NULL here and filter the row out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const viewRowSchema = viewPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 type ViewPrivilegeProps = PrivilegeProps;
 export type ViewProps = z.infer<typeof viewPropsSchema>;
 
@@ -254,9 +263,8 @@ group by
 order by
   v.schema, v.name
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = viewRows.map((row: unknown) =>
-    viewPropsSchema.parse(row),
-  );
+  const validatedRows = viewRows
+    .map((row: unknown) => viewRowSchema.parse(row))
+    .filter((row): row is ViewProps => row.definition !== null);
   return validatedRows.map((row: ViewProps) => new View(row));
 }

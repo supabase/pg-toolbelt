@@ -46,6 +46,15 @@ const triggerPropsSchema = z.object({
   comment: z.string().nullable(),
 });
 
+// pg_get_triggerdef(oid, pretty) can return NULL when the trigger (its
+// pg_trigger row) is dropped between catalog scan and resolution, or under
+// transient catalog state. An unreadable trigger cannot be diffed, so we
+// accept NULL here and filter the row out at extraction time rather than
+// crashing the whole catalog parse with a ZodError.
+const triggerRowSchema = triggerPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 export type TriggerProps = z.infer<typeof triggerPropsSchema>;
 
 export class Trigger extends BasePgModel {
@@ -260,9 +269,8 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = triggerRows.map((row: unknown) =>
-    triggerPropsSchema.parse(row),
-  );
+  const validatedRows = triggerRows
+    .map((row: unknown) => triggerRowSchema.parse(row))
+    .filter((row): row is TriggerProps => row.definition !== null);
   return validatedRows.map((row: TriggerProps) => new Trigger(row));
 }

@@ -50,12 +50,14 @@ describe("extractRules", () => {
         {
           ...baseRow,
           name: '"a"',
-          definition: "CREATE RULE a AS ON INSERT TO events DO INSTEAD NOTHING;",
+          definition:
+            "CREATE RULE a AS ON INSERT TO events DO INSTEAD NOTHING;",
         },
         {
           ...baseRow,
           name: '"b"',
-          definition: "CREATE RULE b AS ON UPDATE TO events DO INSTEAD NOTHING;",
+          definition:
+            "CREATE RULE b AS ON UPDATE TO events DO INSTEAD NOTHING;",
         },
       ]),
     );

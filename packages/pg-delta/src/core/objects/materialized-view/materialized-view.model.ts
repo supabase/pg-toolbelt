@@ -33,6 +33,15 @@ const materializedViewPropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
+// pg_get_viewdef(oid) can return NULL when the underlying matview (or its
+// pg_rewrite row) is dropped between catalog scan and resolution, or under
+// transient catalog state during recovery. An unreadable matview cannot be
+// diffed, so we accept NULL here and filter the row out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const materializedViewRowSchema = materializedViewPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 type MaterializedViewPrivilegeProps = PrivilegeProps;
 export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
 
@@ -248,10 +257,9 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = mvRows.map((row: unknown) =>
-    materializedViewPropsSchema.parse(row),
-  );
+  const validatedRows = mvRows
+    .map((row: unknown) => materializedViewRowSchema.parse(row))
+    .filter((row): row is MaterializedViewProps => row.definition !== null);
   return validatedRows.map(
     (row: MaterializedViewProps) => new MaterializedView(row),
   );

@@ -29,6 +29,15 @@ const rulePropsSchema = z.object({
   columns: z.array(z.string()),
 });
 
+// pg_get_ruledef(oid, pretty) can return NULL when the rule (its pg_rewrite
+// row) is dropped between catalog scan and resolution, or under transient
+// catalog state. An unreadable rule cannot be diffed, so we accept NULL here
+// and filter the row out at extraction time rather than crashing the whole
+// catalog parse with a ZodError.
+const ruleRowSchema = rulePropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 export type RuleEnabledState = z.infer<typeof RuleEnabledStateSchema>;
 export type RuleProps = z.infer<typeof rulePropsSchema>;
 
@@ -165,9 +174,9 @@ export async function extractRules(pool: Pool): Promise<Rule[]> {
         1, 3, 2
   `);
 
-  const validatedRows = ruleRows.map((row: unknown) =>
-    rulePropsSchema.parse(row),
-  );
+  const validatedRows = ruleRows
+    .map((row: unknown) => ruleRowSchema.parse(row))
+    .filter((row): row is RuleProps => row.definition !== null);
 
   return validatedRows.map((row) => new Rule(row));
 }

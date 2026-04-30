@@ -66,6 +66,15 @@ const procedurePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
+// pg_get_functiondef(oid) can return NULL when the function (its pg_proc
+// row) is dropped between catalog scan and resolution, or under transient
+// catalog state. An unreadable function cannot be diffed, so we accept NULL
+// here and filter the row out at extraction time rather than crashing the
+// whole catalog parse with a ZodError.
+const procedureRowSchema = procedurePropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
 
@@ -256,9 +265,8 @@ from
 order by
   1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = procedureRows.map((row: unknown) =>
-    procedurePropsSchema.parse(row),
-  );
+  const validatedRows = procedureRows
+    .map((row: unknown) => procedureRowSchema.parse(row))
+    .filter((row): row is ProcedureProps => row.definition !== null);
   return validatedRows.map((row: ProcedureProps) => new Procedure(row));
 }
