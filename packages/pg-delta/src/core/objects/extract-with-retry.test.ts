@@ -19,9 +19,9 @@ describe("resolveExtractRetries", () => {
     }
   });
 
-  test("defaults to 2 when option and env are unset", () => {
+  test("defaults to 1 when option and env are unset", () => {
     delete process.env.PGDELTA_EXTRACT_RETRIES;
-    expect(resolveExtractRetries()).toBe(2);
+    expect(resolveExtractRetries()).toBe(1);
   });
 
   test("uses option when provided", () => {
@@ -45,12 +45,12 @@ describe("resolveExtractRetries", () => {
 
   test("ignores non-numeric env values", () => {
     process.env.PGDELTA_EXTRACT_RETRIES = "not-a-number";
-    expect(resolveExtractRetries()).toBe(2);
+    expect(resolveExtractRetries()).toBe(1);
   });
 
   test("ignores empty env string", () => {
     process.env.PGDELTA_EXTRACT_RETRIES = "";
-    expect(resolveExtractRetries()).toBe(2);
+    expect(resolveExtractRetries()).toBe(1);
   });
 });
 

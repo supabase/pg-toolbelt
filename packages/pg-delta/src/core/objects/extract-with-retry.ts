@@ -2,7 +2,7 @@ import debug from "debug";
 
 const log = debug("pg-delta:extract");
 
-const DEFAULT_RETRIES = 2;
+const DEFAULT_RETRIES = 1;
 const DEFAULT_BACKOFF_MS = 50;
 
 export interface ExtractRetryOptions {
@@ -11,7 +11,7 @@ export interface ExtractRetryOptions {
    * for at least one row. Total attempts is `retries + 1`. Negative values are
    * clamped to 0. When this option is undefined the value is read from the
    * `PGDELTA_EXTRACT_RETRIES` environment variable, falling back to a default
-   * of 2 (i.e. up to 3 attempts).
+   * of 1 (i.e. the first attempt plus one retry, 2 attempts total).
    */
   retries?: number;
   /**

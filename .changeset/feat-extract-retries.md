@@ -10,6 +10,6 @@ Configuration (precedence: option > env > default):
 
 - `CreatePlanOptions.extractRetries?: number` — public API option on `createPlan`.
 - `PGDELTA_EXTRACT_RETRIES` env var — same value, useful for CLI usage.
-- Default `2` (i.e. up to 3 attempts total).
+- Default `1` (i.e. the first attempt plus one retry, 2 attempts total).
 
 After retries are exhausted, rows whose `pg_get_*def()` is still NULL are filtered out and a warning is emitted via `debug('pg-delta:extract')` (visible with `DEBUG=pg-delta:extract` or `DEBUG=pg-delta:*`). Setting `extractRetries: 0` disables retrying entirely and reproduces the previous "filter-on-first-attempt" behavior.

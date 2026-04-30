@@ -170,7 +170,7 @@ export interface CreatePlanOptions {
    * returns NULL for at least one row (a transient race with concurrent DDL).
    * Total attempts is `extractRetries + 1`. When undefined, the value is read
    * from the `PGDELTA_EXTRACT_RETRIES` environment variable, falling back to
-   * a default of 2 (i.e. up to 3 attempts).
+   * a default of 1 (i.e. the first attempt plus one retry, 2 attempts total).
    */
   extractRetries?: number;
 }
