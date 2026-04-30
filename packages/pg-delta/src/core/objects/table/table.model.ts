@@ -82,6 +82,15 @@ const tableConstraintPropsSchema = z.object({
 
 export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
 
+// pg_get_constraintdef(oid, pretty) can return NULL under the same conditions
+// as pg_get_indexdef: races with concurrent DDL, transient catalog
+// inconsistencies, recovery edges. An unreadable constraint cannot be diffed,
+// so we accept NULL here and filter the constraint out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const tableConstraintRowSchema = tableConstraintPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 const tablePropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
@@ -107,8 +116,13 @@ const tablePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
 });
 
+const tableRowSchema = tablePropsSchema.extend({
+  constraints: z.array(tableConstraintRowSchema).optional(),
+});
+
 type TablePrivilegeProps = PrivilegeProps;
 export type TableProps = z.infer<typeof tablePropsSchema>;
+type TableRow = z.infer<typeof tableRowSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
@@ -457,9 +471,12 @@ group by
 order by
   t.schema, t.name
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = tableRows.map((row: unknown) =>
-    tablePropsSchema.parse(row),
-  );
+  const validatedRows = tableRows.map((row: unknown): TableProps => {
+    const parsed: TableRow = tableRowSchema.parse(row);
+    const filteredConstraints = parsed.constraints?.filter(
+      (c): c is TableConstraintProps => c.definition !== null,
+    );
+    return { ...parsed, constraints: filteredConstraints };
+  });
   return validatedRows.map((row: TableProps) => new Table(row));
 }
