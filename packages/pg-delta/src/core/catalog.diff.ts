@@ -1,7 +1,7 @@
 import debug from "debug";
 import type { Catalog } from "./catalog.model.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
-import { normalizePostDiffCycles } from "./post-diff-cycle-breaking.ts";
+import { normalizePostDiffChanges } from "./post-diff-normalization.ts";
 
 const debugCatalog = debug("pg-delta:catalog");
 
@@ -238,9 +238,10 @@ export function diffCatalogs(
     mainCatalog: main,
     branchCatalog: branch,
   });
-  filteredChanges = normalizePostDiffCycles({
+  filteredChanges = normalizePostDiffChanges({
     changes: expandedDependencies.changes,
     replacedTableIds: expandedDependencies.replacedTableIds,
+    branchTables: branch.tables,
   });
 
   debugCatalog(

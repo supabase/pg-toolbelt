@@ -167,7 +167,11 @@ export class Index extends BasePgModel {
       nulls_not_distinct: this.nulls_not_distinct,
       immediate: this.immediate,
       is_clustered: this.is_clustered,
-      is_replica_identity: this.is_replica_identity,
+      // is_replica_identity excluded: the table's `replica_identity` /
+      // `replica_identity_index` is the source of truth, set via
+      // ALTER TABLE ... REPLICA IDENTITY USING INDEX. Including this flag here
+      // would trigger spurious DROP+CREATE of the index whenever the table's
+      // replica identity changes.
       // key_columns excluded: contains attribute numbers that can differ between databases
       // even when indexes are logically identical. The definition field already captures
       // the logical structure using column names, so we compare by definition instead.

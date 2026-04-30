@@ -107,6 +107,7 @@ const tablePropsSchema = z.object({
   has_subclasses: z.boolean(),
   is_populated: z.boolean(),
   replica_identity: ReplicaIdentitySchema,
+  replica_identity_index: z.string().nullable().optional(),
   is_partition: z.boolean(),
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
@@ -140,6 +141,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly has_subclasses: TableProps["has_subclasses"];
   public readonly is_populated: TableProps["is_populated"];
   public readonly replica_identity: TableProps["replica_identity"];
+  public readonly replica_identity_index: TableProps["replica_identity_index"];
   public readonly is_partition: TableProps["is_partition"];
   public readonly options: TableProps["options"];
   public readonly partition_bound: TableProps["partition_bound"];
@@ -169,6 +171,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.has_subclasses = props.has_subclasses;
     this.is_populated = props.is_populated;
     this.replica_identity = props.replica_identity;
+    this.replica_identity_index = props.replica_identity_index ?? null;
     this.is_partition = props.is_partition;
     this.options = props.options;
     this.partition_bound = props.partition_bound;
@@ -200,6 +203,7 @@ export class Table extends BasePgModel implements TableLikeObject {
       row_security: this.row_security,
       force_row_security: this.force_row_security,
       replica_identity: this.replica_identity,
+      replica_identity_index: this.replica_identity_index,
       options: this.options,
       // Partition membership can be altered via ATTACH/DETACH
       parent_schema: this.parent_schema,
@@ -263,6 +267,14 @@ with extension_oids as (
     c.relhassubclass as has_subclasses,
     c.relispopulated as is_populated,
     c.relreplident as replica_identity,
+    (
+      select quote_ident(ri_class.relname)
+      from pg_index ri
+      join pg_class ri_class on ri_class.oid = ri.indexrelid
+      where ri.indrelid = c.oid
+        and ri.indisreplident is true
+      limit 1
+    ) as replica_identity_index,
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
@@ -293,6 +305,7 @@ select
   t.has_subclasses,
   t.is_populated,
   t.replica_identity,
+  t.replica_identity_index,
   t.is_partition,
   t.options,
   t.partition_bound,
@@ -480,7 +493,7 @@ from
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join pg_type ty on ty.oid = a.atttypid
 group by
-  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
+  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.replica_identity_index, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name
   `);

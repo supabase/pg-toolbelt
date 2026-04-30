@@ -243,6 +243,69 @@ pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 
 
 - Run `bun run test:pg-delta` (full suite) only after all changes are complete and targeted tests pass
 
+### Running integration tests in a sandbox (no systemd, no Docker daemon)
+
+Cloud sandboxes (e.g. Claude Code on the web) typically ship with the Docker
+client installed but no running daemon and no registry credentials. If
+`docker info` reports `Cannot connect to the Docker daemon`, set it up
+yourself instead of giving up and skipping integration coverage:
+
+1. **Start `dockerd` directly** (no systemd in these sandboxes — `systemctl`
+   and `/etc/init.d/docker` will both fail with `Operation not permitted`):
+
+   ```bash
+   sudo dockerd > /tmp/dockerd.log 2>&1 &
+   sleep 5
+   docker info | grep "Server Version"   # confirm the daemon is up
+   ```
+
+2. **Configure a registry mirror before pulling.** Anonymous Docker Hub pulls
+   are rate-limited per source IP and the limit is reached almost immediately
+   on shared CI/sandbox egress. `mirror.gcr.io` is a Google-hosted pull-through
+   cache for Docker Hub `library/*` and other public images and works without
+   credentials:
+
+   ```bash
+   sudo mkdir -p /etc/docker
+   echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+   sudo pkill dockerd; sleep 2
+   sudo dockerd > /tmp/dockerd.log 2>&1 &
+   sleep 5
+   docker info | grep -A1 "Registry Mirrors"   # confirm
+   ```
+
+3. **Pre-pull only the images you need.** `tests/global-setup.ts` pulls *all*
+   Alpine + Supabase tags listed in `tests/constants.ts` at startup. Always
+   limit the matrix with `PGDELTA_TEST_POSTGRES_VERSIONS=17` (or `15`) so the
+   preload only fetches the tags relevant to your run:
+
+   ```bash
+   docker pull postgres:17.6-alpine
+   docker pull supabase/postgres:17.6.1.107   # only if your test uses withDbSupabase*
+   ```
+
+4. **Run integration tests as usual** — the global-setup will reuse the cached
+   images:
+
+   ```bash
+   cd packages/pg-delta
+   PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/integration/<file>.test.ts
+   ```
+
+If you cannot get Docker running (e.g. the sandbox blocks `dockerd`'s
+networking even with the mirror), say so explicitly in your final report —
+do not silently skip the integration step. For unit-only iteration, you can
+bypass the bunfig `preload` (which loads `tests/global-setup.ts` and tries to
+contact the Docker daemon) by invoking `bun test` from outside the package
+directory:
+
+```bash
+cd /tmp && bun test /home/user/pg-toolbelt/packages/pg-delta/src/...
+```
+
+This is a workaround for fast unit-test feedback only; integration tests
+still need a working Docker daemon.
+
 ### Upgrading Supabase test images
 
 When changing `packages/pg-delta/tests/constants.ts`, especially

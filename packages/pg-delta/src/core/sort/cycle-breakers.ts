@@ -284,7 +284,7 @@ function tryBreakPublicationColumnCycle(
 
   // Verify the table is NOT itself being dropped. If `DropTable(T)` is in
   // the same phase, the existing structural rewrites in
-  // `post-diff-cycle-breaking.ts` (replace-expansion superseded filter)
+  // `post-diff-normalization.ts` (replace-expansion superseded filter)
   // already prune the redundant `AlterTableDropColumn`, so we should not
   // see this combination here. Be defensive and bail anyway — flipping
   // `omitTableRequirement` when T is being dropped would let the column
