@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 import { stableId } from "../utils.ts";
 
 const RuleEventSchema = z.enum(["SELECT", "INSERT", "UPDATE", "DELETE"]);
@@ -106,8 +110,16 @@ export class Rule extends BasePgModel {
   }
 }
 
-export async function extractRules(pool: Pool): Promise<Rule[]> {
-  const { rows: ruleRows } = await pool.query<RuleProps>(sql`
+export async function extractRules(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Rule[]> {
+  const ruleRows = await extractWithDefinitionRetry({
+    label: "rules",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<RuleProps>(sql`
       WITH extension_rule_oids AS (
         SELECT
           objid
@@ -173,10 +185,13 @@ export async function extractRules(pool: Pool): Promise<Rule[]> {
       ORDER BY
         1, 3, 2
   `);
+      return result.rows.map((row: unknown) => ruleRowSchema.parse(row));
+    },
+  });
 
-  const validatedRows = ruleRows
-    .map((row: unknown) => ruleRowSchema.parse(row))
-    .filter((row): row is RuleProps => row.definition !== null);
+  const validatedRows = ruleRows.filter(
+    (row): row is RuleProps => row.definition !== null,
+  );
 
   return validatedRows.map((row) => new Rule(row));
 }

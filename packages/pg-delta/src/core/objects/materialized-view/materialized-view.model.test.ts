@@ -27,8 +27,19 @@ const baseRow = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractMaterializedViews", () => {
-  test("skips rows where pg_get_viewdef returned NULL", async () => {
+  test("skips rows where pg_get_viewdef returned NULL after exhausting retries", async () => {
     const mvs = await extractMaterializedViews(
       mockPool([
         {
@@ -38,6 +49,7 @@ describe("extractMaterializedViews", () => {
         },
         { ...baseRow, name: '"orphan_mv"', definition: null },
       ]),
+      NO_BACKOFF,
     );
 
     expect(mvs).toHaveLength(1);
@@ -50,6 +62,7 @@ describe("extractMaterializedViews", () => {
     await expect(
       extractMaterializedViews(
         mockPool([{ ...baseRow, name: '"orphan"', definition: null }]),
+        NO_BACKOFF,
       ),
     ).resolves.toEqual([]);
   });
@@ -60,7 +73,21 @@ describe("extractMaterializedViews", () => {
         { ...baseRow, name: '"a"', definition: "SELECT 1" },
         { ...baseRow, name: '"b"', definition: "SELECT 2" },
       ]),
+      NO_BACKOFF,
     );
     expect(mvs.map((m) => m.name)).toEqual(['"a"', '"b"']);
+  });
+
+  test("recovers when pg_get_viewdef is NULL on first attempt but resolved on retry", async () => {
+    const mvs = await extractMaterializedViews(
+      mockPoolSequence(
+        [{ ...baseRow, name: '"racy_mv"', definition: null }],
+        [{ ...baseRow, name: '"racy_mv"', definition: "SELECT 42" }],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(mvs).toHaveLength(1);
+    expect(mvs[0]?.name).toBe('"racy_mv"');
+    expect(mvs[0]?.definition).toBe("SELECT 42");
   });
 });

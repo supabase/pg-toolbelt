@@ -12,6 +12,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const RelationPersistenceSchema = z.enum([
   "p", // permanent
@@ -230,8 +234,17 @@ export class Table extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractTables(pool: Pool): Promise<Table[]> {
-  const { rows: tableRows } = await pool.query<TableProps>(sql`
+export async function extractTables(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Table[]> {
+  const tableRows = await extractWithDefinitionRetry({
+    label: "table constraints",
+    options,
+    hasNullDefinition: (row: TableRow) =>
+      row.constraints?.some((c) => c.definition === null) ?? false,
+    query: async () => {
+      const result = await pool.query<TableProps>(sql`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -471,12 +484,14 @@ group by
 order by
   t.schema, t.name
   `);
-  const validatedRows = tableRows.map((row: unknown): TableProps => {
-    const parsed: TableRow = tableRowSchema.parse(row);
-    const filteredConstraints = parsed.constraints?.filter(
+      return result.rows.map((row: unknown) => tableRowSchema.parse(row));
+    },
+  });
+  const validatedRows = tableRows.map((row): TableProps => {
+    const filteredConstraints = row.constraints?.filter(
       (c): c is TableConstraintProps => c.definition !== null,
     );
-    return { ...parsed, constraints: filteredConstraints };
+    return { ...row, constraints: filteredConstraints };
   });
   return validatedRows.map((row: TableProps) => new Table(row));
 }

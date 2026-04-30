@@ -36,8 +36,19 @@ const baseRow = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractIndexes", () => {
-  test("skips rows where pg_get_indexdef returned NULL", async () => {
+  test("skips rows where pg_get_indexdef returned NULL after exhausting retries", async () => {
     const indexes = await extractIndexes(
       mockPool([
         {
@@ -47,6 +58,7 @@ describe("extractIndexes", () => {
         },
         { ...baseRow, name: '"orphan_idx"', definition: null },
       ]),
+      NO_BACKOFF,
     );
 
     expect(indexes).toHaveLength(1);
@@ -59,6 +71,7 @@ describe("extractIndexes", () => {
     await expect(
       extractIndexes(
         mockPool([{ ...baseRow, name: '"orphan"', definition: null }]),
+        NO_BACKOFF,
       ),
     ).resolves.toEqual([]);
   });
@@ -77,7 +90,30 @@ describe("extractIndexes", () => {
           definition: "CREATE INDEX b ON users (id)",
         },
       ]),
+      NO_BACKOFF,
     );
     expect(indexes.map((i) => i.name)).toEqual(['"a"', '"b"']);
+  });
+
+  test("recovers when pg_get_indexdef is NULL on first attempt but resolved on retry", async () => {
+    const indexes = await extractIndexes(
+      mockPoolSequence(
+        // attempt 1: definition is NULL (transient race)
+        [{ ...baseRow, name: '"racy_idx"', definition: null }],
+        // attempt 2: catalog scan no longer sees the dropped row, or
+        // pg_get_indexdef successfully resolves the definition
+        [
+          {
+            ...baseRow,
+            name: '"racy_idx"',
+            definition: "CREATE INDEX racy_idx ON users (id)",
+          },
+        ],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(indexes).toHaveLength(1);
+    expect(indexes[0]?.name).toBe('"racy_idx"');
+    expect(indexes[0]?.definition).toBe("CREATE INDEX racy_idx ON users (id)");
   });
 });

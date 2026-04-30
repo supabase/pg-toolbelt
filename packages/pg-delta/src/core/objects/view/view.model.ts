@@ -11,6 +11,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const viewPropsSchema = z.object({
@@ -135,8 +139,16 @@ export class View extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractViews(pool: Pool): Promise<View[]> {
-  const { rows: viewRows } = await pool.query<ViewProps>(sql`
+export async function extractViews(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<View[]> {
+  const viewRows = await extractWithDefinitionRetry({
+    label: "views",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<ViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -263,8 +275,11 @@ group by
 order by
   v.schema, v.name
   `);
-  const validatedRows = viewRows
-    .map((row: unknown) => viewRowSchema.parse(row))
-    .filter((row): row is ViewProps => row.definition !== null);
+      return result.rows.map((row: unknown) => viewRowSchema.parse(row));
+    },
+  });
+  const validatedRows = viewRows.filter(
+    (row): row is ViewProps => row.definition !== null,
+  );
   return validatedRows.map((row: ViewProps) => new View(row));
 }

@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
@@ -215,8 +219,16 @@ export class Index extends BasePgModel {
   }
 }
 
-export async function extractIndexes(pool: Pool): Promise<Index[]> {
-  const { rows: indexRows } = await pool.query<IndexProps>(sql`
+export async function extractIndexes(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Index[]> {
+  const indexRows = await extractWithDefinitionRetry({
+    label: "indexes",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<IndexProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -372,8 +384,11 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
 
       order by 1, 2
   `);
-  const validatedRows = indexRows
-    .map((row: unknown) => indexRowSchema.parse(row))
-    .filter((row): row is IndexProps => row.definition !== null);
+      return result.rows.map((row: unknown) => indexRowSchema.parse(row));
+    },
+  });
+  const validatedRows = indexRows.filter(
+    (row): row is IndexProps => row.definition !== null,
+  );
   return validatedRows.map((row: IndexProps) => new Index(row));
 }

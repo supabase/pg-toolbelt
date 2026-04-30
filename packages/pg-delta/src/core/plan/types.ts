@@ -165,4 +165,12 @@ export interface CreatePlanOptions {
    * the output must be self-contained and not rely on statement execution order.
    */
   skipDefaultPrivilegeSubtraction?: boolean;
+  /**
+   * Number of retry attempts for catalog extractors when `pg_get_*def()`
+   * returns NULL for at least one row (a transient race with concurrent DDL).
+   * Total attempts is `extractRetries + 1`. When undefined, the value is read
+   * from the `PGDELTA_EXTRACT_RETRIES` environment variable, falling back to
+   * a default of 2 (i.e. up to 3 attempts).
+   */
+  extractRetries?: number;
 }

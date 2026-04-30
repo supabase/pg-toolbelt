@@ -10,6 +10,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const materializedViewPropsSchema = z.object({
@@ -151,8 +155,14 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
 
 export async function extractMaterializedViews(
   pool: Pool,
+  options?: ExtractRetryOptions,
 ): Promise<MaterializedView[]> {
-  const { rows: mvRows } = await pool.query<MaterializedViewProps>(sql`
+  const mvRows = await extractWithDefinitionRetry({
+    label: "materialized views",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<MaterializedViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -257,9 +267,14 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname
   `);
-  const validatedRows = mvRows
-    .map((row: unknown) => materializedViewRowSchema.parse(row))
-    .filter((row): row is MaterializedViewProps => row.definition !== null);
+      return result.rows.map((row: unknown) =>
+        materializedViewRowSchema.parse(row),
+      );
+    },
+  });
+  const validatedRows = mvRows.filter(
+    (row): row is MaterializedViewProps => row.definition !== null,
+  );
   return validatedRows.map(
     (row: MaterializedViewProps) => new MaterializedView(row),
   );

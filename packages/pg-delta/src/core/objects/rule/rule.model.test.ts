@@ -17,8 +17,19 @@ const baseRow = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractRules", () => {
-  test("skips rows where pg_get_ruledef returned NULL", async () => {
+  test("skips rows where pg_get_ruledef returned NULL after exhausting retries", async () => {
     const rules = await extractRules(
       mockPool([
         {
@@ -29,6 +40,7 @@ describe("extractRules", () => {
         },
         { ...baseRow, name: '"orphan_rule"', definition: null },
       ]),
+      NO_BACKOFF,
     );
 
     expect(rules).toHaveLength(1);
@@ -40,6 +52,7 @@ describe("extractRules", () => {
     await expect(
       extractRules(
         mockPool([{ ...baseRow, name: '"orphan"', definition: null }]),
+        NO_BACKOFF,
       ),
     ).resolves.toEqual([]);
   });
@@ -60,7 +73,27 @@ describe("extractRules", () => {
             "CREATE RULE b AS ON UPDATE TO events DO INSTEAD NOTHING;",
         },
       ]),
+      NO_BACKOFF,
     );
     expect(rules.map((r) => r.name)).toEqual(['"a"', '"b"']);
+  });
+
+  test("recovers when pg_get_ruledef is NULL on first attempt but resolved on retry", async () => {
+    const rules = await extractRules(
+      mockPoolSequence(
+        [{ ...baseRow, name: '"racy_rule"', definition: null }],
+        [
+          {
+            ...baseRow,
+            name: '"racy_rule"',
+            definition:
+              "CREATE RULE racy_rule AS ON INSERT TO events DO INSTEAD NOTHING;",
+          },
+        ],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.name).toBe('"racy_rule"');
   });
 });

@@ -31,8 +31,19 @@ const baseRow = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractTriggers", () => {
-  test("skips rows where pg_get_triggerdef returned NULL", async () => {
+  test("skips rows where pg_get_triggerdef returned NULL after exhausting retries", async () => {
     const triggers = await extractTriggers(
       mockPool([
         {
@@ -43,6 +54,7 @@ describe("extractTriggers", () => {
         },
         { ...baseRow, name: '"orphan_trg"', definition: null },
       ]),
+      NO_BACKOFF,
     );
 
     expect(triggers).toHaveLength(1);
@@ -54,6 +66,7 @@ describe("extractTriggers", () => {
     await expect(
       extractTriggers(
         mockPool([{ ...baseRow, name: '"orphan"', definition: null }]),
+        NO_BACKOFF,
       ),
     ).resolves.toEqual([]);
   });
@@ -74,7 +87,27 @@ describe("extractTriggers", () => {
             "CREATE TRIGGER b AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION my_fn()",
         },
       ]),
+      NO_BACKOFF,
     );
     expect(triggers.map((t) => t.name)).toEqual(['"a"', '"b"']);
+  });
+
+  test("recovers when pg_get_triggerdef is NULL on first attempt but resolved on retry", async () => {
+    const triggers = await extractTriggers(
+      mockPoolSequence(
+        [{ ...baseRow, name: '"racy_trg"', definition: null }],
+        [
+          {
+            ...baseRow,
+            name: '"racy_trg"',
+            definition:
+              "CREATE TRIGGER racy_trg BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION my_fn()",
+          },
+        ],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.name).toBe('"racy_trg"');
   });
 });

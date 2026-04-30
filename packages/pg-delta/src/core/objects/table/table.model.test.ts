@@ -62,8 +62,19 @@ const baseConstraint = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractTables", () => {
-  test("skips constraints where pg_get_constraintdef returned NULL", async () => {
+  test("skips constraints where pg_get_constraintdef returned NULL after exhausting retries", async () => {
     const tables = await extractTables(
       mockPool([
         {
@@ -84,6 +95,7 @@ describe("extractTables", () => {
           ],
         },
       ]),
+      NO_BACKOFF,
     );
 
     expect(tables).toHaveLength(1);
@@ -116,6 +128,7 @@ describe("extractTables", () => {
           ],
         },
       ]),
+      NO_BACKOFF,
     );
 
     expect(tables).toHaveLength(1);
@@ -143,11 +156,54 @@ describe("extractTables", () => {
           ],
         },
       ]),
+      NO_BACKOFF,
     );
 
     expect(tables[0]?.constraints.map((c) => c.name)).toEqual([
       '"users_pkey"',
       '"users_email_key"',
     ]);
+  });
+
+  test("recovers when pg_get_constraintdef is NULL on first attempt but resolved on retry", async () => {
+    const tables = await extractTables(
+      mockPoolSequence(
+        // attempt 1: one constraint has NULL definition
+        [
+          {
+            ...baseTableRow,
+            constraints: [
+              {
+                ...baseConstraint,
+                name: '"users_racy_chk"',
+                constraint_type: "c",
+                key_columns: [],
+                definition: null,
+              },
+            ],
+          },
+        ],
+        // attempt 2: constraint resolves on retry
+        [
+          {
+            ...baseTableRow,
+            constraints: [
+              {
+                ...baseConstraint,
+                name: '"users_racy_chk"',
+                constraint_type: "c",
+                key_columns: [],
+                definition: "CHECK (id > 0)",
+              },
+            ],
+          },
+        ],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(tables).toHaveLength(1);
+    expect(tables[0]?.constraints).toHaveLength(1);
+    expect(tables[0]?.constraints[0]?.name).toBe('"users_racy_chk"');
+    expect(tables[0]?.constraints[0]?.definition).toBe("CHECK (id > 0)");
   });
 });

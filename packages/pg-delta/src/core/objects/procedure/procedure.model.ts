@@ -6,6 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const FunctionKindSchema = z.enum([
   "f", // function
@@ -192,8 +196,16 @@ export class Procedure extends BasePgModel {
   }
 }
 
-export async function extractProcedures(pool: Pool): Promise<Procedure[]> {
-  const { rows: procedureRows } = await pool.query<ProcedureProps>(sql`
+export async function extractProcedures(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Procedure[]> {
+  const procedureRows = await extractWithDefinitionRetry({
+    label: "procedures",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<ProcedureProps>(sql`
 with extension_oids as (
   select
     objid
@@ -265,8 +277,11 @@ from
 order by
   1, 2
   `);
-  const validatedRows = procedureRows
-    .map((row: unknown) => procedureRowSchema.parse(row))
-    .filter((row): row is ProcedureProps => row.definition !== null);
+      return result.rows.map((row: unknown) => procedureRowSchema.parse(row));
+    },
+  });
+  const validatedRows = procedureRows.filter(
+    (row): row is ProcedureProps => row.definition !== null,
+  );
   return validatedRows.map((row: ProcedureProps) => new Procedure(row));
 }

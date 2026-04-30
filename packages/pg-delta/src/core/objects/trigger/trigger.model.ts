@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const TriggerEnabledSchema = z.enum([
   "O", // ORIGIN - trigger fires in "origin" and "local" replica modes
@@ -163,8 +167,16 @@ export class Trigger extends BasePgModel {
   }
 }
 
-export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
-  const { rows: triggerRows } = await pool.query<TriggerProps>(sql`
+export async function extractTriggers(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Trigger[]> {
+  const triggerRows = await extractWithDefinitionRetry({
+    label: "triggers",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<TriggerProps>(sql`
       with extension_trigger_oids as (
         select objid
         from pg_depend d
@@ -269,8 +281,11 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
 
       order by 1, 2
   `);
-  const validatedRows = triggerRows
-    .map((row: unknown) => triggerRowSchema.parse(row))
-    .filter((row): row is TriggerProps => row.definition !== null);
+      return result.rows.map((row: unknown) => triggerRowSchema.parse(row));
+    },
+  });
+  const validatedRows = triggerRows.filter(
+    (row): row is TriggerProps => row.definition !== null,
+  );
   return validatedRows.map((row: TriggerProps) => new Trigger(row));
 }

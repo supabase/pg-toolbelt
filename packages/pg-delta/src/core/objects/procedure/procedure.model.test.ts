@@ -35,8 +35,19 @@ const baseRow = {
 const mockPool = (rows: unknown[]): Pool =>
   ({ query: async () => ({ rows }) }) as unknown as Pool;
 
+const mockPoolSequence = (...attempts: unknown[][]): Pool => {
+  let i = 0;
+  return {
+    query: async () => ({
+      rows: attempts[Math.min(i++, attempts.length - 1)],
+    }),
+  } as unknown as Pool;
+};
+
+const NO_BACKOFF = { backoffMs: 0 } as const;
+
 describe("extractProcedures", () => {
-  test("skips rows where pg_get_functiondef returned NULL", async () => {
+  test("skips rows where pg_get_functiondef returned NULL after exhausting retries", async () => {
     const procs = await extractProcedures(
       mockPool([
         {
@@ -47,6 +58,7 @@ describe("extractProcedures", () => {
         },
         { ...baseRow, name: '"orphan_fn"', definition: null },
       ]),
+      NO_BACKOFF,
     );
 
     expect(procs).toHaveLength(1);
@@ -58,6 +70,7 @@ describe("extractProcedures", () => {
     await expect(
       extractProcedures(
         mockPool([{ ...baseRow, name: '"orphan"', definition: null }]),
+        NO_BACKOFF,
       ),
     ).resolves.toEqual([]);
   });
@@ -78,7 +91,27 @@ describe("extractProcedures", () => {
             "CREATE OR REPLACE FUNCTION b() RETURNS integer AS $$ select 2 $$ LANGUAGE sql;",
         },
       ]),
+      NO_BACKOFF,
     );
     expect(procs.map((p) => p.name)).toEqual(['"a"', '"b"']);
+  });
+
+  test("recovers when pg_get_functiondef is NULL on first attempt but resolved on retry", async () => {
+    const procs = await extractProcedures(
+      mockPoolSequence(
+        [{ ...baseRow, name: '"racy_fn"', definition: null }],
+        [
+          {
+            ...baseRow,
+            name: '"racy_fn"',
+            definition:
+              "CREATE OR REPLACE FUNCTION racy_fn() RETURNS integer AS $$ select 1 $$ LANGUAGE sql;",
+          },
+        ],
+      ),
+      { retries: 2, backoffMs: 0 },
+    );
+    expect(procs).toHaveLength(1);
+    expect(procs[0]?.name).toBe('"racy_fn"');
   });
 });

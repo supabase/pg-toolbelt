@@ -100,7 +100,9 @@ export async function createPlan(
     }
     const resolved = await resolvePool(input, label);
     pools.push(resolved);
-    return extractCatalog(resolved.pool);
+    return extractCatalog(resolved.pool, {
+      extractRetries: options.extractRetries,
+    });
   };
 
   const pools: Array<{ pool: Pool; shouldClose: boolean }> = [];
