@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const TriggerEnabledSchema = z.enum([
   "O", // ORIGIN - trigger fires in "origin" and "local" replica modes
@@ -44,6 +48,15 @@ const triggerPropsSchema = z.object({
   owner: z.string(),
   definition: z.string(),
   comment: z.string().nullable(),
+});
+
+// pg_get_triggerdef(oid, pretty) can return NULL when the trigger (its
+// pg_trigger row) is dropped between catalog scan and resolution, or under
+// transient catalog state. An unreadable trigger cannot be diffed, so we
+// accept NULL here and filter the row out at extraction time rather than
+// crashing the whole catalog parse with a ZodError.
+const triggerRowSchema = triggerPropsSchema.extend({
+  definition: z.string().nullable(),
 });
 
 export type TriggerProps = z.infer<typeof triggerPropsSchema>;
@@ -134,7 +147,10 @@ export class Trigger extends BasePgModel {
       deferrable: this.deferrable,
       initially_deferred: this.initially_deferred,
       argument_count: this.argument_count,
-      column_numbers: this.column_numbers,
+      // column_numbers excluded: contains pg_trigger.tgattr attnums that differ
+      // between databases when physical column layouts diverge but logical
+      // (named) columns match. The definition field (pg_get_triggerdef) captures
+      // the UPDATE OF column list by name, so we compare by definition instead.
       arguments: this.arguments,
       when_condition: this.when_condition,
       old_table: this.old_table,
@@ -145,13 +161,22 @@ export class Trigger extends BasePgModel {
       parent_table_name: this.parent_table_name,
       is_on_partitioned_table: this.is_on_partitioned_table,
       owner: this.owner,
+      definition: this.definition,
       comment: this.comment,
     };
   }
 }
 
-export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
-  const { rows: triggerRows } = await pool.query<TriggerProps>(sql`
+export async function extractTriggers(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Trigger[]> {
+  const triggerRows = await extractWithDefinitionRetry({
+    label: "triggers",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<TriggerProps>(sql`
       with extension_trigger_oids as (
         select objid
         from pg_depend d
@@ -256,9 +281,11 @@ export async function extractTriggers(pool: Pool): Promise<Trigger[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = triggerRows.map((row: unknown) =>
-    triggerPropsSchema.parse(row),
+      return result.rows.map((row: unknown) => triggerRowSchema.parse(row));
+    },
+  });
+  const validatedRows = triggerRows.filter(
+    (row): row is TriggerProps => row.definition !== null,
   );
   return validatedRows.map((row: TriggerProps) => new Trigger(row));
 }

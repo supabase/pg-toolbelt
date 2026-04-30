@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -49,7 +50,7 @@ export class GrantForeignDataWrapperPrivileges extends AlterForeignDataWrapperCh
     return [this.foreignDataWrapper.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -115,7 +116,7 @@ export class RevokeForeignDataWrapperPrivileges extends AlterForeignDataWrapperC
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList(
       "FOREIGN DATA WRAPPER",
@@ -161,7 +162,7 @@ export class RevokeGrantOptionForeignDataWrapperPrivileges extends AlterForeignD
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const privSql = formatObjectPrivilegeList(
       "FOREIGN DATA WRAPPER",
       this.privilegeNames,

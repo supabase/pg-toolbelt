@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Schema } from "../schema.model.ts";
 import { DropSchemaChange } from "./schema.base.ts";
 
@@ -28,7 +29,7 @@ export class DropSchema extends DropSchemaChange {
     return [this.schema.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP SCHEMA", this.schema.name].join(" ");
   }
 }

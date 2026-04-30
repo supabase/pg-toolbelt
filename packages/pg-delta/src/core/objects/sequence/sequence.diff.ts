@@ -5,6 +5,7 @@ import {
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
 import { diffSecurityLabels } from "../security-label.types.ts";
+import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
@@ -29,6 +30,10 @@ import {
 import type { SequenceChange } from "./changes/sequence.types.ts";
 import type { Sequence } from "./sequence.model.ts";
 
+type SequenceOrColumnSetDefaultChange =
+  | AlterTableAlterColumnSetDefault
+  | SequenceChange;
+
 /**
  * Diff two sets of sequences from main and branch catalogs.
  *
@@ -36,6 +41,7 @@ import type { Sequence } from "./sequence.model.ts";
  * @param main - The sequences in the main catalog.
  * @param branch - The sequences in the branch catalog.
  * @param branchTables - The tables in the branch catalog (used to check if owning tables are being dropped).
+ * @param mainTables - The tables in the main catalog (used to detect when a same-name sequence will be cascade-dropped because its main-side owning table is going away).
  * @returns A list of changes to apply to main to make it match branch.
  */
 export function diffSequences(
@@ -46,10 +52,11 @@ export function diffSequences(
   main: Record<string, Sequence>,
   branch: Record<string, Sequence>,
   branchTables: Record<string, Table> = {},
-): SequenceChange[] {
+  mainTables: Record<string, Table> = {},
+): SequenceOrColumnSetDefaultChange[] {
   const { created, dropped, altered } = diffObjects(main, branch);
 
-  const changes: SequenceChange[] = [];
+  const changes: SequenceOrColumnSetDefaultChange[] = [];
 
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
@@ -124,18 +131,28 @@ export function diffSequences(
 
   for (const sequenceId of dropped) {
     const sequence = main[sequenceId];
-    // Skip generating DROP SEQUENCE if the sequence is owned by a table that's being dropped.
-    // PostgreSQL automatically drops sequences owned by tables when the table is dropped,
-    // so generating DROP SEQUENCE would cause an error (sequence doesn't exist).
+    // Skip generating DROP SEQUENCE if the sequence is owned by a table/column that's being dropped.
+    // PostgreSQL automatically cascades owned sequences when the owning table OR the owning
+    // column is dropped (via OWNED BY). Emitting DROP SEQUENCE in those cases would either
+    // fail at apply time (sequence already gone) or — in the column-drop case — create an
+    // unbreakable DropSequence ↔ AlterTableDropColumn cycle in the drop-phase sort graph.
     if (
       sequence.owned_by_schema &&
       sequence.owned_by_table &&
       sequence.owned_by_column
     ) {
       const ownedByTableId = `table:${sequence.owned_by_schema}.${sequence.owned_by_table}`;
-      // If the owning table doesn't exist in branch catalog, it's being dropped
-      // and will auto-drop this sequence, so skip generating DROP SEQUENCE
-      if (!(ownedByTableId in branchTables)) {
+      const ownedByTable = branchTables[ownedByTableId];
+      // Owning table is dropped → PG auto-drops the owned sequence.
+      if (!ownedByTable) {
+        continue;
+      }
+      // Owning column is dropped (table survives) → PG still auto-drops the owned
+      // sequence as part of the column drop, so we must not emit DROP SEQUENCE.
+      const ownedByColumnExists = ownedByTable.columns?.some(
+        (col) => col.name === sequence.owned_by_column,
+      );
+      if (!ownedByColumnExists) {
         continue;
       }
     }
@@ -148,28 +165,54 @@ export function diffSequences(
 
     // Check if non-alterable properties have changed
     // These require dropping and recreating the sequence
-    const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = [
-      "data_type",
-      "persistence",
-    ];
+    const NON_ALTERABLE_FIELDS: Array<keyof Sequence> = ["persistence"];
     const nonAlterablePropsChanged = hasNonAlterableChanges(
       mainSequence,
       branchSequence,
       NON_ALTERABLE_FIELDS,
     );
 
-    if (nonAlterablePropsChanged) {
-      // Replace the entire sequence (drop + create)
-      changes.push(
-        new DropSequence({ sequence: mainSequence }),
-        new CreateSequence({ sequence: branchSequence }),
-      );
+    // A sequence kept the same name (so it's "altered" in catalog terms),
+    // but its main-side owning table is going away from the plan (renamed
+    // away or simply dropped). PostgreSQL will cascade-drop the sequence
+    // alongside the table, leaving any later CREATE TABLE / column-default
+    // that depends on the sequence name pointing at nothing. Treat this
+    // like a non-alterable change so we recreate the sequence after the
+    // owning table is dropped.
+    const mainOwnedByTableId =
+      mainSequence.owned_by_schema && mainSequence.owned_by_table
+        ? `table:${mainSequence.owned_by_schema}.${mainSequence.owned_by_table}`
+        : null;
+    const cascadeOrphanedByOwningTable =
+      mainOwnedByTableId !== null &&
+      mainTables[mainOwnedByTableId] !== undefined &&
+      branchTables[mainOwnedByTableId] === undefined;
+
+    if (nonAlterablePropsChanged || cascadeOrphanedByOwningTable) {
+      // When the owning table is going away in this plan, PostgreSQL will
+      // cascade-drop the sequence as part of the DROP TABLE. Emitting an
+      // explicit DROP SEQUENCE here would (a) introduce an unbreakable
+      // DropSequence ↔ DropTable cycle on the catalog edges between the
+      // sequence and the dropped column, and (b) be redundant with the
+      // cascade. The CreateSequence below restores the sequence under its
+      // original name so any same-name reference in a later CREATE TABLE
+      // resolves correctly.
+      if (!cascadeOrphanedByOwningTable) {
+        changes.push(new DropSequence({ sequence: mainSequence }));
+      }
+      changes.push(new CreateSequence({ sequence: branchSequence }));
       // Re-apply OWNED BY if present on branch
       if (
         branchSequence.owned_by_schema !== null &&
         branchSequence.owned_by_table !== null &&
         branchSequence.owned_by_column !== null
       ) {
+        const ownedByTableId = `table:${branchSequence.owned_by_schema}.${branchSequence.owned_by_table}`;
+        const ownedByTable = branchTables[ownedByTableId];
+        const ownedByColumn = ownedByTable?.columns?.find(
+          (column) => column.name === branchSequence.owned_by_column,
+        );
+
         changes.push(
           new AlterSequenceSetOwnedBy({
             sequence: branchSequence,
@@ -180,6 +223,17 @@ export function diffSequences(
             } as { schema: string; table: string; column: string },
           }),
         );
+
+        // Replacing an owned sequence with DROP ... CASCADE removes the column's
+        // existing nextval(...) default, so restore it after ownership is reattached.
+        if (ownedByTable && ownedByColumn && ownedByColumn.default !== null) {
+          changes.push(
+            new AlterTableAlterColumnSetDefault({
+              table: ownedByTable,
+              column: ownedByColumn,
+            }),
+          );
+        }
       } else if (
         mainSequence.owned_by_schema !== null ||
         mainSequence.owned_by_table !== null ||
@@ -196,6 +250,7 @@ export function diffSequences(
     } else {
       // Only alterable properties changed - emit ALTER for options/owner
       const optionsChanged =
+        mainSequence.data_type !== branchSequence.data_type ||
         mainSequence.increment !== branchSequence.increment ||
         mainSequence.minimum_value !== branchSequence.minimum_value ||
         mainSequence.maximum_value !== branchSequence.maximum_value ||
@@ -205,6 +260,16 @@ export function diffSequences(
 
       if (optionsChanged) {
         const options: string[] = [];
+        // `AS <type>` must come before any MIN/MAX/RESTART clauses per the
+        // PG ALTER SEQUENCE grammar. Valid types are smallint, integer,
+        // bigint — the same set CREATE SEQUENCE accepts — so the universe
+        // of legal transitions is closed. PG enforces last_value range at
+        // apply time when shrinking; that's the desired behavior because
+        // the previous Drop+Create path silently reset last_value to 1
+        // (data-loss bug, see Sentry SUPABASE-API-7RS).
+        if (mainSequence.data_type !== branchSequence.data_type) {
+          options.push("AS", branchSequence.data_type);
+        }
         if (mainSequence.increment !== branchSequence.increment) {
           options.push("INCREMENT BY", String(branchSequence.increment));
         }

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
 import { CreateViewChange } from "./view.base.ts";
@@ -52,7 +53,7 @@ export class CreateView extends CreateViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       `CREATE${this.orReplace ? " OR REPLACE" : ""} VIEW`,
     ];

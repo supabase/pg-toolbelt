@@ -12,6 +12,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 const RelationPersistenceSchema = z.enum([
@@ -57,6 +61,7 @@ const tableConstraintPropsSchema = z.object({
   validated: z.boolean(),
   is_local: z.boolean(),
   no_inherit: z.boolean(),
+  is_temporal: z.boolean(),
   is_partition_clone: z.boolean(),
   parent_constraint_schema: z.string().nullable(),
   parent_constraint_name: z.string().nullable(),
@@ -82,6 +87,15 @@ const tableConstraintPropsSchema = z.object({
 
 export type TableConstraintProps = z.infer<typeof tableConstraintPropsSchema>;
 
+// pg_get_constraintdef(oid, pretty) can return NULL under the same conditions
+// as pg_get_indexdef: races with concurrent DDL, transient catalog
+// inconsistencies, recovery edges. An unreadable constraint cannot be diffed,
+// so we accept NULL here and filter the constraint out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const tableConstraintRowSchema = tableConstraintPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 const tablePropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
@@ -94,6 +108,7 @@ const tablePropsSchema = z.object({
   has_subclasses: z.boolean(),
   is_populated: z.boolean(),
   replica_identity: ReplicaIdentitySchema,
+  replica_identity_index: z.string().nullable().optional(),
   is_partition: z.boolean(),
   options: z.array(z.string()).nullable(),
   partition_bound: z.string().nullable(),
@@ -108,12 +123,17 @@ const tablePropsSchema = z.object({
   security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
+const tableRowSchema = tablePropsSchema.extend({
+  constraints: z.array(tableConstraintRowSchema).optional(),
+});
+
 type TablePrivilegeProps = PrivilegeProps;
 /**
  * Table input props. `security_labels` is optional on direct construction
  * (defaults to `[]`); extraction always produces it via the Zod default.
  */
 export type TableProps = z.input<typeof tablePropsSchema>;
+type TableRow = z.infer<typeof tableRowSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {
   public readonly schema: TableProps["schema"];
@@ -127,6 +147,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly has_subclasses: TableProps["has_subclasses"];
   public readonly is_populated: TableProps["is_populated"];
   public readonly replica_identity: TableProps["replica_identity"];
+  public readonly replica_identity_index: TableProps["replica_identity_index"];
   public readonly is_partition: TableProps["is_partition"];
   public readonly options: TableProps["options"];
   public readonly partition_bound: TableProps["partition_bound"];
@@ -159,6 +180,7 @@ export class Table extends BasePgModel implements TableLikeObject {
     this.has_subclasses = props.has_subclasses;
     this.is_populated = props.is_populated;
     this.replica_identity = props.replica_identity;
+    this.replica_identity_index = props.replica_identity_index ?? null;
     this.is_partition = props.is_partition;
     this.options = props.options;
     this.partition_bound = props.partition_bound;
@@ -191,6 +213,7 @@ export class Table extends BasePgModel implements TableLikeObject {
       row_security: this.row_security,
       force_row_security: this.force_row_security,
       replica_identity: this.replica_identity,
+      replica_identity_index: this.replica_identity_index,
       options: this.options,
       // Partition membership can be altered via ATTACH/DETACH
       parent_schema: this.parent_schema,
@@ -226,8 +249,17 @@ export class Table extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractTables(pool: Pool): Promise<Table[]> {
-  const { rows: tableRows } = await pool.query<TableProps>(sql`
+export async function extractTables(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Table[]> {
+  const tableRows = await extractWithDefinitionRetry({
+    label: "table constraints",
+    options,
+    hasNullDefinition: (row: TableRow) =>
+      row.constraints?.some((c) => c.definition === null) ?? false,
+    query: async () => {
+      const result = await pool.query<TableProps>(sql`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -246,6 +278,14 @@ with extension_oids as (
     c.relhassubclass as has_subclasses,
     c.relispopulated as is_populated,
     c.relreplident as replica_identity,
+    (
+      select quote_ident(ri_class.relname)
+      from pg_index ri
+      join pg_class ri_class on ri_class.oid = ri.indexrelid
+      where ri.indrelid = c.oid
+        and ri.indisreplident is true
+      limit 1
+    ) as replica_identity_index,
     c.relispartition as is_partition,
     c.reloptions as options,
     pg_get_expr(c.relpartbound, c.oid) as partition_bound,
@@ -276,6 +316,7 @@ select
   t.has_subclasses,
   t.is_populated,
   t.replica_identity,
+  t.replica_identity_index,
   t.is_partition,
   t.options,
   t.partition_bound,
@@ -295,6 +336,7 @@ select
           'validated', c.convalidated,
           'is_local', c.conislocal,
           'no_inherit', c.connoinherit,
+          'is_temporal', coalesce((to_jsonb(c)->>'conperiod')::boolean, false),
 
           -- NEW: propagated-to-partition tagging (PG15+)
           'is_partition_clone', (c.conparentid <> 0::oid),
@@ -305,13 +347,16 @@ select
 
           'key_columns',
             case
-              when c.conkey is not null then (
-                select json_agg(quote_ident(att.attname) order by pk.ordinality)
-                from unnest(c.conkey) with ordinality as pk(attnum, ordinality)
-                join pg_attribute att
-                  on att.attrelid = c.conrelid
-                and att.attnum = pk.attnum
-                and att.attisdropped = false
+              when c.conkey is not null then coalesce(
+                (
+                  select json_agg(quote_ident(att.attname) order by pk.ordinality)
+                  from unnest(c.conkey) with ordinality as pk(attnum, ordinality)
+                  join pg_attribute att
+                    on att.attrelid = c.conrelid
+                  and att.attnum = pk.attnum
+                  and att.attisdropped = false
+                ),
+                '[]'::json
               )
               else '[]'::json
             end,
@@ -381,8 +426,8 @@ select
       and de.refclassid = 'pg_extension'::regclass
 
       where c.conrelid = t.oid
-        -- Skip constraint triggers; they are modeled as triggers, not table constraints
-        and c.contype <> 't'
+        -- Skip constraint triggers and PG18 NOT NULL constraints; they are modeled elsewhere
+        and c.contype not in ('t', 'n')
         and not c.connamespace::regnamespace::text like any(array['pg\\_%', 'information\\_schema'])
         and de.objid is null
     ),
@@ -485,13 +530,18 @@ from
   left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
   left join pg_type ty on ty.oid = a.atttypid
 group by
-  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
+  t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.replica_identity_index, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = tableRows.map((row: unknown) =>
-    tablePropsSchema.parse(row),
-  );
+      return result.rows.map((row: unknown) => tableRowSchema.parse(row));
+    },
+  });
+  const validatedRows = tableRows.map((row): TableProps => {
+    const filteredConstraints = row.constraints?.filter(
+      (c): c is TableConstraintProps => c.definition !== null,
+    );
+    return { ...row, constraints: filteredConstraints };
+  });
   return validatedRows.map((row: TableProps) => new Table(row));
 }

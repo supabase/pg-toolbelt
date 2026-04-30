@@ -5,9 +5,12 @@ import { Table, type TableProps } from "../table.model.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnDropNotNull,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetGenerated,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableAttachPartition,
@@ -340,7 +343,7 @@ describe.concurrent("table", () => {
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
     });
 
-    test("replica identity DEFAULT and INDEX fallback", async () => {
+    test("replica identity DEFAULT and USING INDEX", async () => {
       const baseProps: Omit<
         TableProps,
         "owner" | "options" | "replica_identity"
@@ -369,31 +372,23 @@ describe.concurrent("table", () => {
         options: null,
         replica_identity: "n",
       });
-      const toDefault = new Table({
-        ...baseProps,
-        owner: "o1",
-        options: null,
-        replica_identity: "d",
-      });
-      const toIndex = new Table({
-        ...baseProps,
-        owner: "o1",
-        options: null,
-        replica_identity: "i",
-      });
       expect(
         new AlterTableSetReplicaIdentity({
           table,
-          mode: toDefault.replica_identity,
+          mode: "d",
         }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
-      // AlterTableSetReplicaIdentity of type "i" will not be emitted in diff, it is handled by index changes, we fallback to DEFAULT here
-      expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toIndex.replica_identity,
-        }).serialize(),
-      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
+      const usingIndex = new AlterTableSetReplicaIdentity({
+        table,
+        mode: "i",
+        indexName: "test_table_pkey",
+      });
+      expect(usingIndex.serialize()).toBe(
+        "ALTER TABLE public.test_table REPLICA IDENTITY USING INDEX test_table_pkey",
+      );
+      expect(usingIndex.requires).toContain(
+        "index:public.test_table.test_table_pkey",
+      );
     });
 
     test("columns add/drop/alter", async () => {
@@ -441,6 +436,11 @@ describe.concurrent("table", () => {
         data_type: "text",
         data_type_str: "text",
       };
+      const colTextBefore: ColumnProps = {
+        ...colText,
+        data_type: "integer",
+        data_type_str: "integer",
+      };
       const withCols = new Table({
         ...tableProps,
         owner: "o1",
@@ -474,10 +474,11 @@ describe.concurrent("table", () => {
       const changeType = new AlterTableAlterColumnType({
         table: withCols,
         column: colText,
+        previousColumn: colTextBefore,
       });
       await assertValidSql(changeType.serialize());
       expect(changeType.serialize()).toBe(
-        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text",
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text USING b::text",
       );
 
       const changeSetDefault = new AlterTableAlterColumnSetDefault({
@@ -489,6 +490,20 @@ describe.concurrent("table", () => {
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT 0",
       );
 
+      const changeSetGeneratedExpression = new AlterTableAlterColumnSetDefault({
+        table: withCols,
+        column: {
+          ...colText,
+          name: "computed_name",
+          is_generated: true,
+          default: "lower((b))",
+        },
+      });
+      await assertValidSql(changeSetGeneratedExpression.serialize());
+      expect(changeSetGeneratedExpression.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN computed_name SET EXPRESSION AS (lower((b)))",
+      );
+
       const changeDropDefault = new AlterTableAlterColumnDropDefault({
         table: withCols,
         column: { ...colInt, default: null },
@@ -496,6 +511,41 @@ describe.concurrent("table", () => {
       await assertValidSql(changeDropDefault.serialize());
       expect(changeDropDefault.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a DROP DEFAULT",
+      );
+
+      const changeAddIdentity = new AlterTableAlterColumnAddIdentity({
+        table: withCols,
+        column: {
+          ...colInt,
+          is_identity: true,
+          is_identity_always: true,
+        },
+      });
+      await assertValidSql(changeAddIdentity.serialize());
+      expect(changeAddIdentity.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a ADD GENERATED ALWAYS AS IDENTITY",
+      );
+
+      const changeSetGenerated = new AlterTableAlterColumnSetGenerated({
+        table: withCols,
+        column: {
+          ...colInt,
+          is_identity: true,
+          is_identity_always: false,
+        },
+      });
+      await assertValidSql(changeSetGenerated.serialize());
+      expect(changeSetGenerated.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a SET GENERATED BY DEFAULT",
+      );
+
+      const changeDropIdentity = new AlterTableAlterColumnDropIdentity({
+        table: withCols,
+        column: { ...colInt },
+      });
+      await assertValidSql(changeDropIdentity.serialize());
+      expect(changeDropIdentity.serialize()).toBe(
+        "ALTER TABLE public.test_table ALTER COLUMN a DROP IDENTITY",
       );
 
       const changeSetNotNull = new AlterTableAlterColumnSetNotNull({
@@ -607,10 +657,15 @@ describe.concurrent("table", () => {
       const change = new AlterTableAlterColumnType({
         table: withCols,
         column: col,
+        previousColumn: {
+          ...col,
+          data_type: "integer",
+          data_type_str: "integer",
+        },
       });
       await assertValidSql(change.serialize());
       expect(change.serialize()).toBe(
-        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll",
+        "ALTER TABLE public.test_table ALTER COLUMN b TYPE text COLLATE mycoll USING b::text",
       );
     });
 
@@ -714,6 +769,7 @@ describe.concurrent("table", () => {
         validated: true,
         is_local: true,
         no_inherit: false,
+        is_temporal: false,
         is_partition_clone: false,
         parent_constraint_schema: null,
         parent_constraint_name: null,

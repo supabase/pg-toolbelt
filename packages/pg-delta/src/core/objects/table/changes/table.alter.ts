@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
@@ -62,8 +63,11 @@ import { AlterTableChange } from "./table.base.ts";
 export type AlterTable =
   | AlterTableAddColumn
   | AlterTableAddConstraint
+  | AlterTableAlterColumnAddIdentity
   | AlterTableAlterColumnDropDefault
+  | AlterTableAlterColumnDropIdentity
   | AlterTableAlterColumnDropNotNull
+  | AlterTableAlterColumnSetGenerated
   | AlterTableAlterColumnSetDefault
   | AlterTableAlterColumnSetNotNull
   | AlterTableAlterColumnType
@@ -101,7 +105,7 @@ export class AlterTableChangeOwner extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -127,7 +131,7 @@ export class AlterTableSetLogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -152,7 +156,7 @@ export class AlterTableSetUnlogged extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -177,7 +181,7 @@ export class AlterTableEnableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -202,7 +206,7 @@ export class AlterTableDisableRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -227,7 +231,7 @@ export class AlterTableForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -252,7 +256,7 @@ export class AlterTableNoForceRowLevelSecurity extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -279,7 +283,7 @@ export class AlterTableSetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const storageParams = this.options.join(", ");
     return [
       "ALTER TABLE",
@@ -307,7 +311,7 @@ export class AlterTableResetStorageParams extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const paramsSql = this.params.join(", ");
     return [
       "ALTER TABLE",
@@ -365,7 +369,7 @@ export class AlterTableAddConstraint extends AlterTableChange {
     return reqs;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -411,7 +415,7 @@ export class AlterTableDropConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -446,7 +450,7 @@ export class AlterTableValidateConstraint extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -458,23 +462,49 @@ export class AlterTableValidateConstraint extends AlterTableChange {
 
 /**
  * ALTER TABLE ... REPLICA IDENTITY ...
+ *
+ * When `mode === "i"` (USING INDEX), `indexName` is the name of the index to
+ * use. The extractor populates `Table.replica_identity_index` from
+ * `pg_index.indisreplident` whenever `Table.replica_identity` is `'i'`, so
+ * callers that source their props from a `Table` instance can rely on the
+ * pair being consistent. The non-null assertions in `requires` / `serialize`
+ * below are justified by that data invariant — the same pattern the FK
+ * branch of `AlterTableAddConstraint` uses for `foreign_key_columns!` /
+ * `foreign_key_table!` / `foreign_key_schema!`.
  */
 export class AlterTableSetReplicaIdentity extends AlterTableChange {
   public readonly table: Table;
   public readonly mode: "d" | "n" | "f" | "i";
+  public readonly indexName: string | null;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; mode: "d" | "n" | "f" | "i" }) {
+  constructor(props: {
+    table: Table;
+    mode: "d" | "n" | "f" | "i";
+    indexName?: string | null;
+  }) {
     super();
     this.table = props.table;
     this.mode = props.mode;
+    this.indexName = props.indexName ?? null;
   }
 
   get requires() {
-    return [this.table.stableId];
+    const reqs: string[] = [this.table.stableId];
+    if (this.mode === "i") {
+      reqs.push(
+        stableId.index(
+          this.table.schema,
+          this.table.name,
+          // biome-ignore lint/style/noNonNullAssertion: mode 'i' implies the extractor populated replica_identity_index
+          this.indexName!,
+        ),
+      );
+    }
+    return reqs;
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clause =
       this.mode === "d"
         ? "DEFAULT"
@@ -482,7 +512,8 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
           ? "NOTHING"
           : this.mode === "f"
             ? "FULL"
-            : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
+            : // biome-ignore lint/style/noNonNullAssertion: mode 'i' implies the extractor populated replica_identity_index
+              `USING INDEX ${this.indexName!}`;
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -516,7 +547,7 @@ export class AlterTableAddColumn extends AlterTableChange {
     return [this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -552,11 +583,21 @@ export class AlterTableDropColumn extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
   public readonly scope = "object" as const;
+  // Drop the implicit `requires(table)` edge. Only set by the lazy
+  // cycle-breaker for the publication↔column case, where the table survives
+  // the migration and the edge is therefore artificial. See
+  // `sort/cycle-breakers.ts` for the full justification.
+  public readonly omitTableRequirement: boolean;
 
-  constructor(props: { table: Table; column: ColumnProps }) {
+  constructor(props: {
+    table: Table;
+    column: ColumnProps;
+    omitTableRequirement?: boolean;
+  }) {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.omitTableRequirement = props.omitTableRequirement ?? false;
   }
 
   get drops() {
@@ -566,13 +607,15 @@ export class AlterTableDropColumn extends AlterTableChange {
   }
 
   get requires() {
-    return [
-      this.table.stableId,
-      stableId.column(this.table.schema, this.table.name, this.column.name),
-    ];
+    const colId = stableId.column(
+      this.table.schema,
+      this.table.name,
+      this.column.name,
+    );
+    return this.omitTableRequirement ? [colId] : [this.table.stableId, colId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -588,12 +631,18 @@ export class AlterTableDropColumn extends AlterTableChange {
 export class AlterTableAlterColumnType extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly previousColumn?: ColumnProps;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; column: ColumnProps }) {
+  constructor(props: {
+    table: Table;
+    column: ColumnProps;
+    previousColumn?: ColumnProps;
+  }) {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.previousColumn = props.previousColumn;
   }
 
   get requires() {
@@ -602,7 +651,15 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
+    // previousColumn is optional so direct serializer tests/fixtures can keep
+    // emitting canonical ALTER TYPE SQL without forcing a USING expression.
+    // When provided, we can detect true type changes and add USING for casts
+    // PostgreSQL cannot perform automatically.
+    const hasTypeChangedWithPreviousDefinition =
+      this.previousColumn?.data_type_str !== undefined &&
+      this.previousColumn.data_type_str !== this.column.data_type_str;
+
     const parts: string[] = [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -613,6 +670,9 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
     if (this.column.collation) {
       parts.push("COLLATE", this.column.collation);
+    }
+    if (hasTypeChangedWithPreviousDefinition) {
+      parts.push("USING", `${this.column.name}::${this.column.data_type_str}`);
     }
     return parts.join(" ");
   }
@@ -638,8 +698,11 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const set = this.column.is_generated ? "SET EXPRESSION AS" : "SET DEFAULT";
+    const value = this.column.is_generated
+      ? `(${this.column.default ?? "NULL"})`
+      : (this.column.default ?? "NULL");
 
     return [
       "ALTER TABLE",
@@ -647,7 +710,7 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
       "ALTER COLUMN",
       this.column.name,
       set,
-      this.column.default ?? "NULL",
+      value,
     ].join(" ");
   }
 }
@@ -672,13 +735,110 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
       "ALTER COLUMN",
       this.column.name,
       "DROP DEFAULT",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... ADD GENERATED ... AS IDENTITY
+ */
+export class AlterTableAlterColumnAddIdentity extends AlterTableChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+  public readonly scope = "object" as const;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      "ALTER COLUMN",
+      this.column.name,
+      "ADD",
+      this.column.is_identity_always
+        ? "GENERATED ALWAYS AS IDENTITY"
+        : "GENERATED BY DEFAULT AS IDENTITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... DROP IDENTITY
+ */
+export class AlterTableAlterColumnDropIdentity extends AlterTableChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+  public readonly scope = "object" as const;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      "ALTER COLUMN",
+      this.column.name,
+      "DROP IDENTITY",
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... ALTER COLUMN ... SET GENERATED { ALWAYS | BY DEFAULT }
+ */
+export class AlterTableAlterColumnSetGenerated extends AlterTableChange {
+  public readonly table: Table;
+  public readonly column: ColumnProps;
+  public readonly scope = "object" as const;
+
+  constructor(props: { table: Table; column: ColumnProps }) {
+    super();
+    this.table = props.table;
+    this.column = props.column;
+  }
+
+  get requires() {
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
+  serialize(): string {
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      "ALTER COLUMN",
+      this.column.name,
+      "SET GENERATED",
+      this.column.is_identity_always ? "ALWAYS" : "BY DEFAULT",
     ].join(" ");
   }
 }
@@ -703,7 +863,7 @@ export class AlterTableAlterColumnSetNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -734,7 +894,7 @@ export class AlterTableAlterColumnDropNotNull extends AlterTableChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,
@@ -764,7 +924,7 @@ export class AlterTableAttachPartition extends AlterTableChange {
     return [this.partition.stableId, this.table.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const bound = this.partition.partition_bound ?? "DEFAULT";
     return [
       "ALTER TABLE",
@@ -795,7 +955,7 @@ export class AlterTableDetachPartition extends AlterTableChange {
     return [this.table.stableId, this.partition.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,

@@ -71,6 +71,9 @@ export const stableId = {
   constraint(schema: string, table: string, constraint: string) {
     return `constraint:${schema}.${table}.${constraint}` as const;
   },
+  index(schema: string, table: string, indexName: string) {
+    return `index:${schema}.${table}.${indexName}` as const;
+  },
   comment(objectStableId: string) {
     return `comment:${objectStableId}` as const;
   },

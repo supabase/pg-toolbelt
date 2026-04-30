@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
 import { CreateRoleChange, DropRoleChange } from "./role.base.ts";
@@ -50,7 +51,7 @@ export class GrantRoleMembership extends CreateRoleChange {
     return [this.role.stableId, stableId.role(this.member)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     // On creation, only emit ADMIN OPTION; leave INHERIT/SET to defaults
     const opts: string[] = [];
     if (this.options.admin) opts.push("ADMIN OPTION");
@@ -94,7 +95,7 @@ export class RevokeRoleMembership extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `REVOKE ${this.role.name} FROM ${this.member}`;
   }
 }
@@ -138,7 +139,7 @@ export class RevokeRoleMembershipOptions extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [];
     if (this.admin) parts.push("ADMIN OPTION");
     if (this.inherit) parts.push("INHERIT OPTION");
@@ -197,7 +198,7 @@ export class GrantRoleDefaultPrivileges extends CreateRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
@@ -272,7 +273,7 @@ export class RevokeRoleDefaultPrivileges extends DropRoleChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const scope = this.inSchema ? ` IN SCHEMA ${this.inSchema}` : "";
     const grantOptionPrivs = this.privileges
       .filter((p) => p.grantable)

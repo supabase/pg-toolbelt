@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { EventTrigger } from "../event-trigger.model.ts";
 import { AlterEventTriggerChange } from "./event-trigger.base.ts";
 
@@ -37,7 +38,7 @@ export class AlterEventTriggerChangeOwner extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER EVENT TRIGGER",
       this.eventTrigger.name,
@@ -75,7 +76,7 @@ export class AlterEventTriggerSetEnabled extends AlterEventTriggerChange {
     return [this.eventTrigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clause = ENABLED_SQL[this.enabled];
     return ["ALTER EVENT TRIGGER", this.eventTrigger.name, clause].join(" ");
   }

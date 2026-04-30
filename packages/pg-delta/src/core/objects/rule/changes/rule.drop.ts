@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Rule } from "../rule.model.ts";
 import { DropRuleChange } from "./rule.base.ts";
 
@@ -18,7 +19,7 @@ export class DropRule extends DropRuleChange {
     return [this.rule.stableId, this.rule.relationStableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP RULE",
       this.rule.name,

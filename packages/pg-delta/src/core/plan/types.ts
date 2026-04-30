@@ -4,10 +4,7 @@
 
 import z from "zod";
 import type { Change } from "../change.types.ts";
-import type { FilterDSL } from "../integrations/filter/dsl.ts";
-import type { ChangeFilter } from "../integrations/filter/filter.types.ts";
-import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
-import type { ChangeSerializer } from "../integrations/serialize/serialize.types.ts";
+import type { Integration } from "../integrations/integration.types.ts";
 
 // ============================================================================
 // Core Types
@@ -157,9 +154,9 @@ export type Plan = z.infer<typeof PlanSchema>;
  */
 export interface CreatePlanOptions {
   /** Filter - either FilterDSL (stored in plan) or ChangeFilter function (not stored) */
-  filter?: FilterDSL | ChangeFilter;
+  filter?: Integration["filter"];
   /** Serialize - either SerializeDSL (stored in plan) or ChangeSerializer function (not stored) */
-  serialize?: SerializeDSL | ChangeSerializer;
+  serialize?: Integration["serialize"];
   /** Role to use when executing the migration (SET ROLE will be added to statements) */
   role?: string;
   /**
@@ -168,4 +165,12 @@ export interface CreatePlanOptions {
    * the output must be self-contained and not rely on statement execution order.
    */
   skipDefaultPrivilegeSubtraction?: boolean;
+  /**
+   * Number of retry attempts for catalog extractors when `pg_get_*def()`
+   * returns NULL for at least one row (a transient race with concurrent DDL).
+   * Total attempts is `extractRetries + 1`. When undefined, the value is read
+   * from the `PGDELTA_EXTRACT_RETRIES` environment variable, falling back to
+   * a default of 1 (i.e. the first attempt plus one retry, 2 attempts total).
+   */
+  extractRetries?: number;
 }

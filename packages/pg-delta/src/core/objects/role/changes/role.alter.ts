@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { formatConfigValue } from "../../procedure/utils.ts";
 import type { Role } from "../role.model.ts";
 import { AlterRoleChange } from "./role.base.ts";
@@ -56,7 +57,7 @@ export class AlterRoleSetOptions extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["ALTER ROLE", this.role.name];
     return [...parts, "WITH", this.options.join(" ")].join(" ");
   }
@@ -93,7 +94,7 @@ export class AlterRoleSetConfig extends AlterRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const head = ["ALTER ROLE", this.role.name].join(" ");
     if (this.action === "reset_all") {
       return `${head} RESET ALL`;

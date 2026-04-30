@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Publication } from "../publication.model.ts";
 import { DropPublicationChange } from "./publication.base.ts";
 
@@ -23,7 +24,7 @@ export class DropPublication extends DropPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `DROP PUBLICATION ${this.publication.name}`;
   }
 }

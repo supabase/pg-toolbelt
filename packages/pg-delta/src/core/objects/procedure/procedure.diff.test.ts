@@ -9,6 +9,7 @@ import {
   AlterProcedureSetStrictness,
   AlterProcedureSetVolatility,
 } from "./changes/procedure.alter.ts";
+import { CreateCommentOnProcedure } from "./changes/procedure.comment.ts";
 import { CreateProcedure } from "./changes/procedure.create.ts";
 import { DropProcedure } from "./changes/procedure.drop.ts";
 import { diffProcedures } from "./procedure.diff.ts";
@@ -143,12 +144,13 @@ describe.concurrent("procedure.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterProcedureSetParallel);
   });
 
-  test("create or replace when non-alterable property changes", () => {
+  test("create or replace when body-only non-alterable property changes", () => {
+    // Changing only the language (or source) is OR-REPLACE-safe: no DROP needed.
     const main = new Procedure(base);
     const branch = new Procedure({
       ...base,
-      return_type: "text",
       language: "plpgsql",
+      source_code: "BEGIN RETURN 1; END",
     });
     const changes = diffProcedures(
       testContext,
@@ -157,5 +159,126 @@ describe.concurrent("procedure.diff", () => {
     );
     expect(changes).toHaveLength(1);
     expect(changes[0]).toBeInstanceOf(CreateProcedure);
+    expect((changes[0] as CreateProcedure).orReplace).toBe(true);
+  });
+
+  test("drop + create when return type changes", () => {
+    // `CREATE OR REPLACE FUNCTION` cannot change the return type.
+    const main = new Procedure(base);
+    const branch = new Procedure({ ...base, return_type: "text" });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(DropProcedure);
+    expect(changes[1]).toBeInstanceOf(CreateProcedure);
+    expect((changes[1] as CreateProcedure).orReplace).toBe(false);
+  });
+
+  test("drop + create when parameter name changes but type is identical", () => {
+    // Same argument_types means same stableId (altered path), but
+    // `CREATE OR REPLACE` rejects changing an IN parameter's name.
+    const main = new Procedure({
+      ...base,
+      argument_count: 1,
+      argument_names: ["p"],
+      argument_types: ["int4"],
+      all_argument_types: ["int4"],
+      argument_modes: ["i"],
+    });
+    const branch = new Procedure({
+      ...base,
+      argument_count: 1,
+      argument_names: ["renamed"],
+      argument_types: ["int4"],
+      all_argument_types: ["int4"],
+      argument_modes: ["i"],
+    });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(DropProcedure);
+    expect(changes[1]).toBeInstanceOf(CreateProcedure);
+    expect((changes[1] as CreateProcedure).orReplace).toBe(false);
+  });
+
+  test("drop + create when a parameter default is removed", () => {
+    // `CREATE OR REPLACE` rejects removing parameter defaults.
+    const main = new Procedure({
+      ...base,
+      argument_count: 1,
+      argument_default_count: 1,
+      argument_names: ["p"],
+      argument_types: ["int4"],
+      all_argument_types: ["int4"],
+      argument_modes: ["i"],
+      argument_defaults: "0",
+    });
+    const branch = new Procedure({
+      ...base,
+      argument_count: 1,
+      argument_default_count: 0,
+      argument_names: ["p"],
+      argument_types: ["int4"],
+      all_argument_types: ["int4"],
+      argument_modes: ["i"],
+      argument_defaults: null,
+    });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes[0]).toBeInstanceOf(DropProcedure);
+    expect(changes[1]).toBeInstanceOf(CreateProcedure);
+    expect((changes[1] as CreateProcedure).orReplace).toBe(false);
+  });
+
+  test("create or replace also emits a procedure comment when the comment changes", () => {
+    const main = new Procedure(base);
+    const branch = new Procedure({
+      ...base,
+      definition:
+        "CREATE FUNCTION public.fn1() RETURNS int4 LANGUAGE sql AS $$SELECT 42::int4$$",
+      source_code: "SELECT 42::int4",
+      comment: "updated comment",
+    });
+
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.some((change) => change instanceof CreateProcedure)).toBe(
+      true,
+    );
+    expect(
+      changes.some((change) => change instanceof CreateCommentOnProcedure),
+    ).toBe(true);
+  });
+
+  test("signature change re-emits comment even when comment itself is unchanged", () => {
+    // DROP destroys the old comment, so the new CREATE path must re-emit it.
+    const main = new Procedure({ ...base, comment: "hello" });
+    const branch = new Procedure({
+      ...base,
+      return_type: "text",
+      comment: "hello",
+    });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((change) => change instanceof DropProcedure)).toBe(
+      true,
+    );
+    expect(
+      changes.some((change) => change instanceof CreateCommentOnProcedure),
+    ).toBe(true);
   });
 });

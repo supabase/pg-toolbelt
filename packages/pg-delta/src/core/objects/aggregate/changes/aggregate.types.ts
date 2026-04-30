@@ -5,6 +5,7 @@ import type { DropAggregate } from "./aggregate.drop.ts";
 import type { AggregatePrivilege } from "./aggregate.privilege.ts";
 import type { SecurityLabelAggregate } from "./aggregate.security-label.ts";
 
+/** Union of all aggregate-related change variants (`objectType: "aggregate"`). @category Change Types */
 export type AggregateChange =
   | AlterAggregate
   | CommentAggregate

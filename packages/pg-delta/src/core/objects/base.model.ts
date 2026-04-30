@@ -62,12 +62,15 @@ export abstract class BasePgModel {
   abstract get dataFields(): Record<string, unknown>;
 
   /**
-   * Compare this object with another BasePgModel for equality based on stableId and dataFields.
+   * Compare this object with another BasePgModel for equality based on the stableId and
+   * the data portion of the stable snapshot. By default, the snapshot's `data` comes
+   * from {@link dataFields}, but subclasses may override {@link stableSnapshot} to
+   * normalize or otherwise transform the data used for equality.
    */
   equals(other: BasePgModel): boolean {
     return (
       this.stableId === other.stableId &&
-      deepEqual(this.dataFields, other.dataFields)
+      deepEqual(this.stableSnapshot().data, other.stableSnapshot().data)
     );
   }
 

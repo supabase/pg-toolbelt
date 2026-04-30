@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL materialized view operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -98,6 +98,103 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "replace materialized view with dependent index and view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.orders (
+              id serial PRIMARY KEY,
+              customer text NOT NULL,
+              total numeric NOT NULL,
+              created_at timestamptz DEFAULT now()
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.order_summary AS
+              SELECT customer, sum(total) AS total_spent, count(*) AS order_count
+              FROM test_schema.orders
+              GROUP BY customer;
+
+            CREATE UNIQUE INDEX order_summary_customer_idx
+              ON test_schema.order_summary (customer);
+
+            CREATE VIEW test_schema.top_customers AS
+              SELECT * FROM test_schema.order_summary
+              WHERE total_spent > 1000;
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.top_customers;
+            DROP INDEX test_schema.order_summary_customer_idx;
+            DROP MATERIALIZED VIEW test_schema.order_summary;
+
+            CREATE MATERIALIZED VIEW test_schema.order_summary AS
+              SELECT customer,
+                     sum(total) AS total_spent,
+                     count(*) AS order_count,
+                     max(created_at) AS last_order
+              FROM test_schema.orders
+              GROUP BY customer;
+
+            CREATE UNIQUE INDEX order_summary_customer_idx
+              ON test_schema.order_summary (customer);
+
+            CREATE VIEW test_schema.top_customers AS
+              SELECT * FROM test_schema.order_summary
+              WHERE total_spent > 1000;
+          `,
+          assertSqlStatements: (statements) => {
+            // Invariant: the dependent index and view must be dropped before
+            // the materialized view, and recreated after it. Exact SQL body
+            // varies between PG versions (pg_get_viewdef / pg_get_mvdef
+            // qualifies column references with the relation name on PG15 but
+            // not on PG17+), so this test pins cascade order and the set of
+            // touched objects rather than byte-for-byte SQL.
+            const indexOf = (pattern: RegExp) =>
+              statements.findIndex((s) => pattern.test(s));
+
+            const dropIndexIdx = indexOf(
+              /^DROP INDEX\s+test_schema\.order_summary_customer_idx\b/i,
+            );
+            const dropViewIdx = indexOf(
+              /^DROP VIEW\s+test_schema\.top_customers\b/i,
+            );
+            const dropMatviewIdx = indexOf(
+              /^DROP MATERIALIZED VIEW\s+test_schema\.order_summary\b/i,
+            );
+            const createMatviewIdx = indexOf(
+              /^CREATE MATERIALIZED VIEW\s+test_schema\.order_summary\b/i,
+            );
+            const createIndexIdx = indexOf(
+              /^CREATE UNIQUE INDEX\s+order_summary_customer_idx\s+ON\s+test_schema\.order_summary\b/i,
+            );
+            const createViewIdx = indexOf(
+              /^CREATE(\s+OR\s+REPLACE)?\s+VIEW\s+test_schema\.top_customers\b/i,
+            );
+
+            expect(dropIndexIdx).toBeGreaterThanOrEqual(0);
+            expect(dropViewIdx).toBeGreaterThanOrEqual(0);
+            expect(dropMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(createMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+            expect(createViewIdx).toBeGreaterThanOrEqual(0);
+
+            // Dependents must be dropped before the matview.
+            expect(dropIndexIdx).toBeLessThan(dropMatviewIdx);
+            expect(dropViewIdx).toBeLessThan(dropMatviewIdx);
+            // Matview must be recreated before its dependents.
+            expect(createMatviewIdx).toBeLessThan(createIndexIdx);
+            expect(createMatviewIdx).toBeLessThan(createViewIdx);
+            // The new column must be present in the recreated matview.
+            expect(statements[createMatviewIdx]).toMatch(/last_order/);
+          },
+        });
+      }),
+    );
+
+    test(
       "materialized view with aggregations",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -180,6 +277,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           COMMENT ON MATERIALIZED VIEW test_schema.user_names IS 'user names matview';
         `,
+        });
+      }),
+    );
+
+    test(
+      "refresh materialized view does not trigger a diff",
+      withDb(pgVersion, async (db) => {
+        // Issue #133 acceptance: REFRESH MATERIALIZED VIEW changes data but not
+        // the catalog, so pg-delta must generate an empty plan. If createPlan
+        // returns null (identical catalogs), roundtripFidelityTest returns
+        // early; otherwise the assertion below pins the generated statement
+        // list to zero entries.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA refresh_schema;
+            CREATE TABLE refresh_schema.orders (
+              id integer PRIMARY KEY,
+              total numeric NOT NULL
+            );
+            INSERT INTO refresh_schema.orders (id, total)
+              VALUES (1, 100), (2, 200);
+            CREATE MATERIALIZED VIEW refresh_schema.totals AS
+              SELECT sum(total) AS all_total FROM refresh_schema.orders;
+          `,
+          testSql: dedent`
+            INSERT INTO refresh_schema.orders (id, total) VALUES (3, 300);
+            REFRESH MATERIALIZED VIEW refresh_schema.totals;
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toStrictEqual([]);
+          },
         });
       }),
     );

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -26,7 +27,7 @@ export class CreateCommentOnServer extends CreateServerChange {
     return [this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON SERVER",
       this.server.name,
@@ -54,7 +55,7 @@ export class DropCommentOnServer extends DropServerChange {
     return [stableId.comment(this.server.stableId), this.server.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON SERVER", this.server.name, "IS NULL"].join(" ");
   }
 }

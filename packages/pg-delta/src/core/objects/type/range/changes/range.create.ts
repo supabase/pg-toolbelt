@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import {
   isUserDefinedTypeSchema,
   parseProcedureReference,
@@ -98,7 +99,7 @@ export class CreateRange extends CreateRangeChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const name = `${this.range.schema}.${this.range.name}`;
     const prefix: string = ["CREATE TYPE", name, "AS RANGE"].join(" ");
 

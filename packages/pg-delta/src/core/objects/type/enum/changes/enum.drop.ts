@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Enum } from "../enum.model.ts";
 import { DropEnumChange } from "./enum.base.ts";
 
@@ -28,7 +29,7 @@ export class DropEnum extends DropEnumChange {
     return [this.enum.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP TYPE", `${this.enum.schema}.${this.enum.name}`].join(" ");
   }
 }

@@ -16,6 +16,8 @@ describe("rls-policy", () => {
       with_check_expression: null,
       owner: "test",
       comment: null,
+      referenced_relations: [],
+      referenced_procedures: [],
     });
 
     const change = new DropRlsPolicy({

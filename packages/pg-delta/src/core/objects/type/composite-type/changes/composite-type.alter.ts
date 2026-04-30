@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { AlterCompositeTypeChange } from "./composite-type.base.ts";
 
@@ -42,7 +43,7 @@ export class AlterCompositeTypeChangeOwner extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -77,7 +78,7 @@ export class AlterCompositeTypeAddAttribute extends AlterCompositeTypeChange {
     return [this.compositeType.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts = [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -116,7 +117,7 @@ export class AlterCompositeTypeDropAttribute extends AlterCompositeTypeChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,
@@ -150,7 +151,7 @@ export class AlterCompositeTypeAlterAttributeType extends AlterCompositeTypeChan
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts = [
       "ALTER TYPE",
       `${this.compositeType.schema}.${this.compositeType.name}`,

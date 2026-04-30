@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { isUserDefinedTypeSchema, stableId } from "../../../utils.ts";
 import type { CompositeType } from "../composite-type.model.ts";
 import { CreateCompositeTypeChange } from "./composite-type.base.ts";
@@ -65,7 +66,7 @@ export class CreateCompositeType extends CreateCompositeTypeChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE TYPE"];
 
     // Add schema and name

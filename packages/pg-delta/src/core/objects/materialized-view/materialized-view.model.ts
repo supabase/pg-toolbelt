@@ -10,6 +10,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 import { securityLabelPropsSchema } from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
@@ -35,8 +39,18 @@ const materializedViewPropsSchema = z.object({
   security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
+// pg_get_viewdef(oid) can return NULL when the underlying matview (or its
+// pg_rewrite row) is dropped between catalog scan and resolution, or under
+// transient catalog state during recovery. An unreadable matview cannot be
+// diffed, so we accept NULL here and filter the row out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const materializedViewRowSchema = materializedViewPropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
 type MaterializedViewPrivilegeProps = PrivilegeProps;
 export type MaterializedViewProps = z.input<typeof materializedViewPropsSchema>;
+type MaterializedViewRow = z.infer<typeof materializedViewRowSchema>;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly schema: MaterializedViewProps["schema"];
@@ -149,8 +163,14 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
 
 export async function extractMaterializedViews(
   pool: Pool,
+  options?: ExtractRetryOptions,
 ): Promise<MaterializedView[]> {
-  const { rows: mvRows } = await pool.query<MaterializedViewProps>(sql`
+  const mvRows = await extractWithDefinitionRetry({
+    label: "materialized views",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<MaterializedViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -268,11 +288,14 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = mvRows.map((row: unknown) =>
-    materializedViewPropsSchema.parse(row),
+      return result.rows.map((row: unknown) =>
+        materializedViewRowSchema.parse(row),
+      );
+    },
+  });
+  const validatedRows = mvRows.filter(
+    (row): row is MaterializedViewRow & { definition: string } =>
+      row.definition !== null,
   );
-  return validatedRows.map(
-    (row: MaterializedViewProps) => new MaterializedView(row),
-  );
+  return validatedRows.map((row) => new MaterializedView(row));
 }

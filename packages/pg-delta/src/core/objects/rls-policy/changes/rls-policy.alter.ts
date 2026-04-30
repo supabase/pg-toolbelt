@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { AlterRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -38,7 +39,7 @@ export class AlterRlsPolicySetRoles extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const targetRoles = this.roles;
     const toPublic =
       targetRoles.length === 0 ||
@@ -74,7 +75,7 @@ export class AlterRlsPolicySetUsingExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const expr = this.usingExpression ?? "true";
     return [
       "ALTER POLICY",
@@ -108,7 +109,7 @@ export class AlterRlsPolicySetWithCheckExpression extends AlterRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const expr = this.withCheckExpression ?? "true";
     return [
       "ALTER POLICY",
