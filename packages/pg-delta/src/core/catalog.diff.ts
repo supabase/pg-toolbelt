@@ -190,6 +190,7 @@ export function diffCatalogs(
       main.sequences,
       branch.sequences,
       branch.tables,
+      main.tables,
     ),
   );
   changes.push(...diffTables(diffContext, main.tables, branch.tables));
