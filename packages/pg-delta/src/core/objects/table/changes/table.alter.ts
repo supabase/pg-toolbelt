@@ -462,20 +462,46 @@ export class AlterTableValidateConstraint extends AlterTableChange {
 
 /**
  * ALTER TABLE ... REPLICA IDENTITY ...
+ *
+ * When `mode === "i"` (USING INDEX), `indexName` is the name of the index to
+ * use. The extractor populates `Table.replica_identity_index` from
+ * `pg_index.indisreplident` whenever `Table.replica_identity` is `'i'`, so
+ * callers that source their props from a `Table` instance can rely on the
+ * pair being consistent. The non-null assertions in `requires` / `serialize`
+ * below are justified by that data invariant — the same pattern the FK
+ * branch of `AlterTableAddConstraint` uses for `foreign_key_columns!` /
+ * `foreign_key_table!` / `foreign_key_schema!`.
  */
 export class AlterTableSetReplicaIdentity extends AlterTableChange {
   public readonly table: Table;
   public readonly mode: "d" | "n" | "f" | "i";
+  public readonly indexName: string | null;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; mode: "d" | "n" | "f" | "i" }) {
+  constructor(props: {
+    table: Table;
+    mode: "d" | "n" | "f" | "i";
+    indexName?: string | null;
+  }) {
     super();
     this.table = props.table;
     this.mode = props.mode;
+    this.indexName = props.indexName ?? null;
   }
 
   get requires() {
-    return [this.table.stableId];
+    const reqs: string[] = [this.table.stableId];
+    if (this.mode === "i") {
+      reqs.push(
+        stableId.index(
+          this.table.schema,
+          this.table.name,
+          // biome-ignore lint/style/noNonNullAssertion: mode 'i' implies the extractor populated replica_identity_index
+          this.indexName!,
+        ),
+      );
+    }
+    return reqs;
   }
 
   serialize(_options?: SerializeOptions): string {
@@ -486,7 +512,8 @@ export class AlterTableSetReplicaIdentity extends AlterTableChange {
           ? "NOTHING"
           : this.mode === "f"
             ? "FULL"
-            : "DEFAULT"; // 'i' (USING INDEX) is handled via index changes; fallback to DEFAULT
+            : // biome-ignore lint/style/noNonNullAssertion: mode 'i' implies the extractor populated replica_identity_index
+              `USING INDEX ${this.indexName!}`;
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,

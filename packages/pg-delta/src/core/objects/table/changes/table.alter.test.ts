@@ -343,7 +343,7 @@ describe.concurrent("table", () => {
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY FULL");
     });
 
-    test("replica identity DEFAULT and INDEX fallback", async () => {
+    test("replica identity DEFAULT and USING INDEX", async () => {
       const baseProps: Omit<
         TableProps,
         "owner" | "options" | "replica_identity"
@@ -372,31 +372,23 @@ describe.concurrent("table", () => {
         options: null,
         replica_identity: "n",
       });
-      const toDefault = new Table({
-        ...baseProps,
-        owner: "o1",
-        options: null,
-        replica_identity: "d",
-      });
-      const toIndex = new Table({
-        ...baseProps,
-        owner: "o1",
-        options: null,
-        replica_identity: "i",
-      });
       expect(
         new AlterTableSetReplicaIdentity({
           table,
-          mode: toDefault.replica_identity,
+          mode: "d",
         }).serialize(),
       ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
-      // AlterTableSetReplicaIdentity of type "i" will not be emitted in diff, it is handled by index changes, we fallback to DEFAULT here
-      expect(
-        new AlterTableSetReplicaIdentity({
-          table,
-          mode: toIndex.replica_identity,
-        }).serialize(),
-      ).toBe("ALTER TABLE public.test_table REPLICA IDENTITY DEFAULT");
+      const usingIndex = new AlterTableSetReplicaIdentity({
+        table,
+        mode: "i",
+        indexName: "test_table_pkey",
+      });
+      expect(usingIndex.serialize()).toBe(
+        "ALTER TABLE public.test_table REPLICA IDENTITY USING INDEX test_table_pkey",
+      );
+      expect(usingIndex.requires).toContain(
+        "index:public.test_table.test_table_pkey",
+      );
     });
 
     test("columns add/drop/alter", async () => {
