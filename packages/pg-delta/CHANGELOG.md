@@ -1,5 +1,82 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.22
+
+### Minor Changes
+
+- 2d1991a: feat(pg-delta): retry catalog extractors when `pg_get_*def()` returns NULL
+
+  `pg_get_indexdef`, `pg_get_constraintdef`, `pg_get_viewdef`, `pg_get_triggerdef`, `pg_get_ruledef`, and `pg_get_functiondef` can transiently return NULL when the underlying catalog row is dropped concurrently or the catalog state is in flux. Previously such rows were dropped silently after one attempt; now extraction retries the affected query a configurable number of times before falling back to filtering. In practice the second attempt no longer sees the dropped object (or successfully resolves the definition), so a real CREATE/DROP racing with `createPlan` is reliably preserved or excluded rather than half-captured.
+
+  Configuration (precedence: option > env > default):
+
+  - `CreatePlanOptions.extractRetries?: number` — public API option on `createPlan`.
+  - `PGDELTA_EXTRACT_RETRIES` env var — same value, useful for CLI usage.
+  - Default `1` (i.e. the first attempt plus one retry, 2 attempts total).
+
+  After retries are exhausted, rows whose `pg_get_*def()` is still NULL are filtered out and a warning is emitted via `debug('pg-delta:extract')` (visible with `DEBUG=pg-delta:extract` or `DEBUG=pg-delta:*`). Setting `extractRetries: 0` disables retrying entirely and reproduces the previous "filter-on-first-attempt" behavior.
+
+### Patch Changes
+
+- 9e3541d: fix(pg-delta): order dependency-breaking ALTERs before DROP for types, sequences, and policies (#230)
+
+  `ALTER COLUMN ... DROP DEFAULT`, `ALTER COLUMN ... DROP IDENTITY`, and
+  `ALTER COLUMN ... TYPE <built-in>` are now scheduled in the drop phase so
+  that the catalog edges in `pg_depend` order them ahead of the matching
+  `DROP TYPE` / `DROP SEQUENCE`. `ALTER COLUMN ... TYPE` also drops any
+  existing default before the rewrite (and re-emits a `SET DEFAULT` after)
+  so the stale default expression cannot pin the old type. RLS policies
+  whose `USING` / `WITH CHECK` expressions begin or stop referencing
+  different functions or relations are now emitted as drop+create, letting
+  the policy's drop run before the referenced object's drop and the
+  policy's recreate run after the new object's create. Plans that
+  previously aborted with PostgreSQL `2BP01` ("cannot drop ... because
+  other objects depend on it") now apply cleanly.
+
+- 2d1991a: fix(pg-delta): skip rows when `pg_get_viewdef`, `pg_get_triggerdef`, `pg_get_ruledef`, or `pg_get_functiondef` returns NULL instead of crashing the relevant `extract*` with a ZodError. Same race conditions as the prior `pg_get_indexdef` (#223) and `pg_get_constraintdef` fixes — the underlying catalog row can vanish (concurrent DDL, transient catalog state, recovery edges). A single unreadable view, materialized view, trigger, rule, or function no longer aborts the whole catalog extraction and `createPlan` call.
+- 7c7d18a: fix(pg-delta): produce applyable migrations for `RENAME` operations seen as drop+create
+
+  `pg-delta` is a state-based diff and treats a `RENAME` as `DROP+CREATE` because
+  the final catalogs are indistinguishable. Two scenarios in that drop+create
+  path failed at apply time on schemas that had been renamed in the target
+  (reported in [#228](https://github.com/supabase/pg-toolbelt/issues/228)):
+
+  - A table with a `SERIAL` column renamed in the target left the same-name
+    sequence (e.g. `old_table_id_seq`) "altered" in the diff (only its
+    `OWNED BY` ref changed). `DROP TABLE` cascade-drops the sequence via
+    `OWNED BY`, after which the freshly created table's column default
+    `nextval('old_table_id_seq'::regclass)` referenced a non-existent relation
+    and the migration aborted. `diffSequences` now detects when the sequence's
+    main-side owning table is going away in the same plan and recreates the
+    sequence after the cascade, while suppressing an explicit `DROP SEQUENCE`
+    that would form an unbreakable cycle with `DropTable`.
+  - A table renamed in the target with a dependent view (e.g.
+    `CREATE VIEW user_count AS SELECT count(*) FROM users` with the table
+    renamed to `members`) failed with `cannot drop table users because other
+objects depend on it`. `expandReplaceDependencies` now seeds drop-only
+    schema objects (table, view, materialized view, type, domain) as expansion
+    roots so any surviving dependent in `pg_depend` gets promoted to
+    `DROP+CREATE`. The dependent's drop is sequenced before the parent drop,
+    and its create runs after the new replacement is in place.
+
+- 3b9eb91: fix(pg-delta): preserve `REPLICA IDENTITY USING INDEX` on tables instead of silently reverting to `DEFAULT` on declarative sync.
+
+  The table extractor only stored `replica_identity` as a single character (`'d' | 'n' | 'f' | 'i'`) and discarded the index name when the mode was `'i'`. The diff path then explicitly skipped mode `'i'` ("handled by index changes" — but no such handler existed), and `AlterTableSetReplicaIdentity.serialize()` fell back to `REPLICA IDENTITY DEFAULT` for that mode. Compounding this, `Index.is_replica_identity` participated in equality and was marked non-alterable, so toggling the flag on the index triggered a spurious `DROP INDEX` + `CREATE INDEX` — and Postgres reverts the table to `REPLICA IDENTITY DEFAULT` whenever the configured replica-identity index is dropped.
+
+  End result: a table configured with `ALTER TABLE foo REPLICA IDENTITY USING INDEX foo_idx` would extract as `replica_identity = 'i'` but produce no setter on diff. The next `declarative sync` would generate a migration that dropped the user's index, reset the table to `DEFAULT`, and recreated the index — never converging (reported as supabase/cli#5141).
+
+  The fix:
+
+  - `Table.replica_identity_index` is extracted via `pg_index.indisreplident` and included in `dataFields`, so the index name participates in equality.
+  - `AlterTableSetReplicaIdentity` now serializes `REPLICA IDENTITY USING INDEX <name>` for mode `'i'` and declares the index as a `requires` dependency so it is created first.
+  - The table diff emits the change for all modes (including `'i'`) on both `CREATE` and `ALTER`, and re-emits when the configured index name changes while staying in `'i'` mode.
+  - `Index.is_replica_identity` is no longer in `dataFields` / `NON_ALTERABLE_FIELDS`; the table side is the source of truth, set via `ALTER TABLE`. This stops the spurious `DROP INDEX` + `CREATE INDEX` cycle.
+  - A new `restoreReplicaIdentityAfterIndexReplace` pass in `post-diff-normalization.ts` re-emits `ALTER TABLE ... REPLICA IDENTITY USING INDEX <name>` after any `DropIndex(idx) + CreateIndex(idx)` pair where `idx` is the replica-identity index of a branch table. This covers the second flavor of the bug: when both main and branch already point at the same replica-identity index, but that index's _definition_ changes (e.g. a column added to its key), the index is replaced, Postgres silently flips `relreplident` to `'d'`, and the table-level diff alone cannot see the cross-object interaction. The pass is idempotent — if `diffTables()` already emitted the same setter (because the table is also flipping mode or pointing to a different index), no duplicate is added.
+
+  The post-diff layer file `src/core/post-diff-cycle-breaking.ts` is renamed to `post-diff-normalization.ts` and `normalizePostDiffCycles` to `normalizePostDiffChanges` — the file already contained dedup and replacement-superseded pruning that aren't strictly cycle-breaking, and actual cycle breaking moved to the lazy sort-phase dispatcher in a previous release. The rename brings the file in line with the "post-diff normalization" terminology already used in the package's `CLAUDE.md` rule of thumb.
+
+- 2d1991a: fix(pg-delta): skip table constraints where `pg_get_constraintdef()` returns NULL instead of crashing `extractTables` with a ZodError. Like `pg_get_indexdef`, `pg_get_constraintdef` can return NULL under race conditions with concurrent DDL or transient catalog inconsistencies. Such constraints are now filtered out at extraction time so a single unreadable constraint no longer aborts the whole catalog extraction and `createPlan` call.
+
 ## 1.0.0-alpha.21
 
 ### Patch Changes
