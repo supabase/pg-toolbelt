@@ -11,13 +11,13 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 import {
-  normalizeSecurityLabels,
-  securityLabelPropsSchema,
-} from "../security-label.types.ts";
-import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
 } from "../extract-with-retry.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const materializedViewPropsSchema = z.object({

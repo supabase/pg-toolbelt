@@ -6,11 +6,11 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
 import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
 } from "../extract-with-retry.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 const FunctionKindSchema = z.enum([
   "f", // function
