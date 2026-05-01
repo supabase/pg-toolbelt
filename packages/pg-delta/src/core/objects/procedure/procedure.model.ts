@@ -7,6 +7,10 @@ import {
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
 import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const FunctionKindSchema = z.enum([
   "f", // function
@@ -67,6 +71,17 @@ const procedurePropsSchema = z.object({
   privileges: z.array(privilegePropsSchema),
   security_labels: z.array(securityLabelPropsSchema).default([]),
 });
+
+// pg_get_functiondef(oid) can return NULL when the function (its pg_proc
+// row) is dropped between catalog scan and resolution, or under transient
+// catalog state. An unreadable function cannot be diffed, so we accept NULL
+// here and filter the row out at extraction time rather than crashing the
+// whole catalog parse with a ZodError.
+const procedureRowSchema = procedurePropsSchema.extend({
+  definition: z.string().nullable(),
+});
+
+type ProcedureRow = z.infer<typeof procedureRowSchema>;
 
 type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = z.input<typeof procedurePropsSchema>;
@@ -190,8 +205,16 @@ export class Procedure extends BasePgModel {
   }
 }
 
-export async function extractProcedures(pool: Pool): Promise<Procedure[]> {
-  const { rows: procedureRows } = await pool.query<ProcedureProps>(sql`
+export async function extractProcedures(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Procedure[]> {
+  const procedureRows = await extractWithDefinitionRetry({
+    label: "procedures",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<ProcedureProps>(sql`
 with extension_oids as (
   select
     objid
@@ -276,9 +299,12 @@ from
 order by
   1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = procedureRows.map((row: unknown) =>
-    procedurePropsSchema.parse(row),
+      return result.rows.map((row: unknown) => procedureRowSchema.parse(row));
+    },
+  });
+  const validatedRows = procedureRows.filter(
+    (row): row is ProcedureRow & { definition: string } =>
+      row.definition !== null,
   );
-  return validatedRows.map((row: ProcedureProps) => new Procedure(row));
+  return validatedRows.map((row) => new Procedure(row));
 }

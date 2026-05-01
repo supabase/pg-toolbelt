@@ -11,6 +11,33 @@ const RlsPolicyCommandSchema = z.enum([
   "*", // ALL commands
 ]);
 
+const RlsPolicyReferencedRelationKindSchema = z.enum([
+  "table",
+  "view",
+  "materialized_view",
+  "foreign_table",
+]);
+
+const rlsPolicyReferencedRelationSchema = z.object({
+  kind: RlsPolicyReferencedRelationKindSchema,
+  schema: z.string(),
+  name: z.string(),
+});
+
+export type RlsPolicyReferencedRelation = z.infer<
+  typeof rlsPolicyReferencedRelationSchema
+>;
+
+const rlsPolicyReferencedProcedureSchema = z.object({
+  schema: z.string(),
+  name: z.string(),
+  argument_types: z.array(z.string()),
+});
+
+export type RlsPolicyReferencedProcedure = z.infer<
+  typeof rlsPolicyReferencedProcedureSchema
+>;
+
 const rlsPolicyPropsSchema = z.object({
   schema: z.string(),
   name: z.string(),
@@ -22,6 +49,8 @@ const rlsPolicyPropsSchema = z.object({
   with_check_expression: z.string().nullable(),
   owner: z.string(),
   comment: z.string().nullable(),
+  referenced_relations: z.array(rlsPolicyReferencedRelationSchema),
+  referenced_procedures: z.array(rlsPolicyReferencedProcedureSchema),
 });
 
 export type RlsPolicyProps = z.infer<typeof rlsPolicyPropsSchema>;
@@ -37,6 +66,23 @@ export class RlsPolicy extends BasePgModel {
   public readonly with_check_expression: RlsPolicyProps["with_check_expression"];
   public readonly owner: RlsPolicyProps["owner"];
   public readonly comment: RlsPolicyProps["comment"];
+  /**
+   * Tables / views / materialized views / foreign tables that
+   * `using_expression` / `with_check_expression` reference, sourced from
+   * `pg_depend` (`recordDependencyOnExpr` at policy creation). Drives
+   * ordering dependencies in `CreateRlsPolicy.requires`. Intentionally
+   * excluded from `dataFields` — it's derived from the expression text
+   * and changes lockstep with it.
+   */
+  public readonly referenced_relations: RlsPolicyProps["referenced_relations"];
+  /**
+   * Functions / procedures that `using_expression` / `with_check_expression`
+   * reference, sourced from `pg_depend` (refclassid = `pg_proc`). The
+   * argument-type signature comes straight from `pg_proc.proargtypes` via
+   * `format_type`, so it matches the signature the procedure extractor
+   * embeds in `stableId.procedure(...)`. Not part of `dataFields`.
+   */
+  public readonly referenced_procedures: RlsPolicyProps["referenced_procedures"];
 
   constructor(props: RlsPolicyProps) {
     super();
@@ -54,6 +100,10 @@ export class RlsPolicy extends BasePgModel {
     this.with_check_expression = props.with_check_expression;
     this.owner = props.owner;
     this.comment = props.comment;
+
+    // Derived metadata (not part of equality)
+    this.referenced_relations = props.referenced_relations;
+    this.referenced_procedures = props.referenced_procedures;
   }
 
   get stableId(): `rlsPolicy:${string}` {
@@ -101,6 +151,59 @@ extension_table_oids as (
     d.refclassid = 'pg_extension'::regclass
     and d.classid = 'pg_class'::regclass
     and d.deptype = 'e'
+),
+policy_relation_deps as (
+  -- Relations referenced inside polqual / polwithcheck. PostgreSQL records
+  -- these via recordDependencyOnExpr(..., DEPENDENCY_NORMAL = 'n') at
+  -- CREATE POLICY time, so pg_depend is authoritative and we don't need to
+  -- re-parse the expression text. Covers regular tables, partitioned
+  -- tables, views, materialized views, and foreign tables — any relation
+  -- kind the policy can reference in a subquery.
+  select distinct
+    d.objid                 as policy_oid,
+    case ref_c.relkind
+      when 'r' then 'table'
+      when 'p' then 'table'
+      when 'v' then 'view'
+      when 'm' then 'materialized_view'
+      when 'f' then 'foreign_table'
+    end                     as ref_kind,
+    ref_ns.nspname          as ref_schema,
+    ref_c.relname           as ref_name
+  from
+    pg_depend d
+    join pg_policy p on p.oid = d.objid
+    join pg_class ref_c on ref_c.oid = d.refobjid
+    join pg_namespace ref_ns on ref_ns.oid = ref_c.relnamespace
+  where
+    d.classid = 'pg_policy'::regclass
+    and d.refclassid = 'pg_class'::regclass
+    and d.deptype = 'n'
+    and ref_c.relkind in ('r', 'p', 'v', 'm', 'f')
+    and d.refobjid <> p.polrelid
+),
+policy_procedure_deps as (
+  -- Functions / procedures referenced inside polqual / polwithcheck. Same
+  -- pg_depend mechanism as above, just refclassid = pg_proc. proargtypes
+  -- formatted via format_type(oid, null) matches the signature produced by
+  -- the procedure extractor (see procedure.model.ts), so stableId.procedure
+  -- on both sides of the diff lines up exactly.
+  select distinct
+    d.objid            as policy_oid,
+    ref_ns.nspname     as ref_schema,
+    ref_p.proname      as ref_name,
+    array(
+      select format_type(oid, null)
+      from unnest(ref_p.proargtypes) as oid
+    )                  as ref_argument_types
+  from
+    pg_depend d
+    join pg_proc ref_p on ref_p.oid = d.refobjid
+    join pg_namespace ref_ns on ref_ns.oid = ref_p.pronamespace
+  where
+    d.classid = 'pg_policy'::regclass
+    and d.refclassid = 'pg_proc'::regclass
+    and d.deptype = 'n'
 )
 select
   tc.relnamespace::regnamespace::text as schema,
@@ -120,7 +223,37 @@ select
   pg_get_expr(p.polqual, p.polrelid) as using_expression,
   pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expression,
   tc.relowner::regrole::text as owner,
-  obj_description(p.oid, 'pg_policy') as comment
+  obj_description(p.oid, 'pg_policy') as comment,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'kind', prd.ref_kind,
+          'schema', prd.ref_schema,
+          'name', prd.ref_name
+        )
+        order by prd.ref_schema, prd.ref_name
+      )
+      from policy_relation_deps prd
+      where prd.policy_oid = p.oid
+    ),
+    '[]'
+  ) as referenced_relations,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object(
+          'schema', ppd.ref_schema,
+          'name', ppd.ref_name,
+          'argument_types', ppd.ref_argument_types
+        )
+        order by ppd.ref_schema, ppd.ref_name, ppd.ref_argument_types
+      )
+      from policy_procedure_deps ppd
+      where ppd.policy_oid = p.oid
+    ),
+    '[]'
+  ) as referenced_procedures
 from
   pg_catalog.pg_policy p
   inner join pg_catalog.pg_class tc on tc.oid = p.polrelid

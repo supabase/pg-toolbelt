@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { BaseChange } from "../../base.change.ts";
 import type { Index } from "../index.model.ts";
 import { AlterIndexChange } from "./index.base.ts";
@@ -46,7 +47,7 @@ export class AlterIndexSetStorageParams extends AlterIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const head = [
       "ALTER INDEX",
       `${this.index.schema}.${this.index.name}`,
@@ -90,7 +91,7 @@ export class AlterIndexSetStatistics extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const statements: string[] = [];
     const head = [
       "ALTER INDEX",
@@ -127,7 +128,7 @@ export class AlterIndexSetTablespace extends BaseChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER INDEX",
       `${this.index.schema}.${this.index.name}`,

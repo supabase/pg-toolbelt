@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
-import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb, withDbSupabaseIsolated } from "../utils.ts";
+import { POSTGRES_VERSIONS, SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
+import { withDb, withDbIsolated, withDbSupabaseIsolated } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`catalog extraction (pg${pgVersion})`, () => {
@@ -141,6 +141,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(nameCol.not_null).toBe(true);
         expect(emailCol.not_null).toBe(false);
         expect(ageCol.not_null).toBe(false);
+        expect(
+          constrainedTable.constraints.map(
+            (constraint) => constraint.constraint_type,
+          ),
+        ).toEqual(["c", "p"]);
 
         // Test column ordering
         // biome-ignore lint/style/noNonNullAssertion: seeded data
@@ -152,54 +157,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(orderedTable.columns[1].position).toBe(2);
         expect(orderedTable.columns[2].name).toBe("second_col");
         expect(orderedTable.columns[2].position).toBe(3);
-      }),
-    );
-
-    test(
-      "extract type system and dependencies",
-      withDbSupabaseIsolated(pgVersion, async (db) => {
-        // Create types and check dependencies
-        await db.main.query(`
-        CREATE SCHEMA test_schema;
-        CREATE TYPE test_schema.address AS (
-          street varchar,
-          city varchar,
-          state varchar
-        );
-        CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending');
-        CREATE TABLE test_schema.users (
-          id serial PRIMARY KEY,
-          name text
-        );
-      `);
-
-        const catalog = await extractCatalog(db.main);
-
-        // Test composite types
-        expect(Object.keys(catalog.compositeTypes)).toHaveLength(1);
-        const compositeType = Object.values(catalog.compositeTypes)[0];
-        expect(compositeType.name).toBe("address");
-        expect(compositeType.schema).toBe("test_schema");
-        expect(compositeType.owner).toBe("supabase_admin");
-
-        // Test enum types
-        expect(Object.keys(catalog.enums)).toHaveLength(1);
-        const enumType = Object.values(catalog.enums)[0];
-        expect(enumType.name).toBe("status");
-        expect(enumType.schema).toBe("test_schema");
-        expect(enumType.labels.map((l) => l.label)).toEqual([
-          "active",
-          "inactive",
-          "pending",
-        ]);
-
-        // Test dependencies
-        expect(catalog.depends.length).toBeGreaterThan(0);
-        for (const dep of catalog.depends) {
-          expect(dep.dependent_stable_id).toBeDefined();
-          expect(dep.referenced_stable_id).toBeDefined();
-          expect(["n", "a", "i"]).toContain(dep.deptype);
-        }
       }),
     );
 
@@ -369,6 +326,112 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    if (pgVersion === 18) {
+      test(
+        "extract temporal table constraints",
+        withDbIsolated(pgVersion, async (db) => {
+          await db.main.query(`
+          CREATE EXTENSION IF NOT EXISTS btree_gist;
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.bookings (
+            room_id integer NOT NULL,
+            booking_period tstzrange NOT NULL,
+            CONSTRAINT bookings_pkey PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)
+          );
+          CREATE TABLE test_schema.booking_audit (
+            room_id integer NOT NULL,
+            booking_period tstzrange NOT NULL,
+            CONSTRAINT booking_audit_fkey FOREIGN KEY (room_id, PERIOD booking_period)
+              REFERENCES test_schema.bookings (room_id, PERIOD booking_period)
+          );
+        `);
+
+          const catalog = await extractCatalog(db.main);
+          const bookings =
+            // biome-ignore lint/style/noNonNullAssertion: seeded data
+            catalog.tables["table:test_schema.bookings"]!;
+          const bookingAudit =
+            // biome-ignore lint/style/noNonNullAssertion: seeded data
+            catalog.tables["table:test_schema.booking_audit"]!;
+
+          expect(bookings.constraints).toContainEqual(
+            expect.objectContaining({
+              name: "bookings_pkey",
+              constraint_type: "p",
+              is_temporal: true,
+              key_columns: ["room_id", "booking_period"],
+              definition:
+                "PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)",
+            }),
+          );
+          expect(bookingAudit.constraints).toContainEqual(
+            expect.objectContaining({
+              name: "booking_audit_fkey",
+              constraint_type: "f",
+              is_temporal: true,
+              key_columns: ["room_id", "booking_period"],
+              foreign_key_columns: ["room_id", "booking_period"],
+              definition:
+                "FOREIGN KEY (room_id, PERIOD booking_period) REFERENCES test_schema.bookings(room_id, PERIOD booking_period)",
+            }),
+          );
+        }),
+      );
+    }
+  });
+}
+
+for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
+  describe(`catalog extraction with supabase features (pg${pgVersion})`, () => {
+    test(
+      "extract type system and dependencies",
+      withDbSupabaseIsolated(pgVersion, async (db) => {
+        // Create types and check dependencies
+        await db.main.query(`
+        CREATE SCHEMA test_schema;
+        CREATE TYPE test_schema.address AS (
+          street varchar,
+          city varchar,
+          state varchar
+        );
+        CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'pending');
+        CREATE TABLE test_schema.users (
+          id serial PRIMARY KEY,
+          name text
+        );
+      `);
+
+        const catalog = await extractCatalog(db.main);
+
+        // Test composite types
+        const compositeType = Object.values(catalog.compositeTypes).find(
+          (type) => type.schema === "test_schema" && type.name === "address",
+        );
+        expect(compositeType).toBeDefined();
+        expect(compositeType?.owner).toBe("supabase_admin");
+
+        // Test enum types
+        const enumType = Object.values(catalog.enums).find(
+          (type) => type.schema === "test_schema" && type.name === "status",
+        );
+        expect(enumType).toBeDefined();
+        expect(enumType?.labels.map((l) => l.label)).toEqual([
+          "active",
+          "inactive",
+          "pending",
+        ]);
+
+        // Test dependencies
+        expect(catalog.depends.length).toBeGreaterThan(0);
+        for (const dep of catalog.depends) {
+          expect(dep.dependent_stable_id).toBeDefined();
+          expect(dep.referenced_stable_id).toBeDefined();
+          expect(["n", "a", "i"]).toContain(dep.deptype);
+        }
+      }),
+      60_000,
+    );
+
     test(
       "extract system objects and filtering",
       withDbSupabaseIsolated(pgVersion, async (db) => {
@@ -402,6 +465,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           expect(extension.schema).toBe("extensions");
         }
       }),
+      60_000,
     );
   });
 }

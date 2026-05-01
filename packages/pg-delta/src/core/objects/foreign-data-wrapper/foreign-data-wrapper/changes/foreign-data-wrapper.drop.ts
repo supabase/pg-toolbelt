@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { DropForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
 
@@ -28,7 +29,7 @@ export class DropForeignDataWrapper extends DropForeignDataWrapperChange {
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP FOREIGN DATA WRAPPER", this.foreignDataWrapper.name].join(
       " ",
     );

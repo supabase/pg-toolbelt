@@ -20,6 +20,8 @@ const base: RlsPolicyProps = {
   with_check_expression: null,
   owner: "o1",
   comment: null,
+  referenced_relations: [],
+  referenced_procedures: [],
 };
 
 describe.concurrent("rls-policy.diff", () => {

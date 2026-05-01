@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   formatObjectPrivilegeList,
   getObjectKindPrefix,
@@ -54,7 +55,7 @@ export class GrantSequencePrivileges extends AlterSequenceChange {
     return [this.sequence.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -122,7 +123,7 @@ export class RevokeSequencePrivileges extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("SEQUENCE");
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SEQUENCE", list, this.version);
@@ -166,7 +167,7 @@ export class RevokeGrantOptionSequencePrivileges extends AlterSequenceChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const kindPrefix = getObjectKindPrefix("SEQUENCE");
     const privSql = formatObjectPrivilegeList(
       "SEQUENCE",

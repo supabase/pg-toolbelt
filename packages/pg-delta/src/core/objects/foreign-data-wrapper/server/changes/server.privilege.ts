@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { formatObjectPrivilegeList } from "../../../base.privilege.ts";
 import { stableId } from "../../../utils.ts";
 import type { Server } from "../server.model.ts";
@@ -49,7 +50,7 @@ export class GrantServerPrivileges extends AlterServerChange {
     return [this.server.stableId, stableId.role(this.grantee)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const hasGrantable = this.privileges.some((p) => p.grantable);
     const hasBase = this.privileges.some((p) => !p.grantable);
     if (hasGrantable && hasBase) {
@@ -111,7 +112,7 @@ export class RevokeServerPrivileges extends AlterServerChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("SERVER", list, this.version);
     return `REVOKE ${privSql} ON SERVER ${this.server.name} FROM ${this.grantee}`;
@@ -153,7 +154,7 @@ export class RevokeGrantOptionServerPrivileges extends AlterServerChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const privSql = formatObjectPrivilegeList(
       "SERVER",
       this.privilegeNames,

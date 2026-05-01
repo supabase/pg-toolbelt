@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Role } from "../role.model.ts";
 import { DropRoleChange } from "./role.base.ts";
 
@@ -28,7 +29,7 @@ export class DropRole extends DropRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP ROLE", this.role.name].join(" ");
   }
 }

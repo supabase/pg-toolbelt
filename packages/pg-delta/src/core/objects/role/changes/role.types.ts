@@ -5,6 +5,7 @@ import type { DropRole } from "./role.drop.ts";
 import type { RolePrivilege } from "./role.privilege.ts";
 import type { SecurityLabelRole } from "./role.security-label.ts";
 
+/** Union of all role-related change variants (`objectType: "role"`). @category Change Types */
 export type RoleChange =
   | AlterRole
   | CommentRole

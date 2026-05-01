@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { View } from "../view.model.ts";
@@ -22,7 +23,7 @@ export class CreateCommentOnView extends CreateViewChange {
     return [this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON VIEW",
       `${this.view.schema}.${this.view.name}`,
@@ -49,7 +50,7 @@ export class DropCommentOnView extends DropViewChange {
     return [stableId.comment(this.view.stableId), this.view.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON VIEW",
       `${this.view.schema}.${this.view.name}`,

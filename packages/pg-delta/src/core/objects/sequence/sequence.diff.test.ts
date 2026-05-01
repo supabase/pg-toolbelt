@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DefaultPrivilegeState } from "../base.default-privileges.ts";
-import type { Table } from "../table/table.model.ts";
+import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
+import { Table } from "../table/table.model.ts";
 import {
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
@@ -107,6 +108,82 @@ describe.concurrent("sequence.diff", () => {
     expect(changes[1]).toBeInstanceOf(CreateSequence);
   });
 
+  test("replacing an owned sequence re-emits the owning column default", () => {
+    // Use `persistence` (UNLOGGED → LOGGED) to trigger the
+    // non-alterable replace path: it's the only field still in
+    // NON_ALTERABLE_FIELDS. `data_type` was previously in that list
+    // but is now alterable in place via ALTER SEQUENCE ... AS <type>.
+    const main = new Sequence({
+      ...base,
+      persistence: "u",
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    const branch = new Sequence({
+      ...base,
+      persistence: "p",
+      owned_by_schema: "public",
+      owned_by_table: "users",
+      owned_by_column: "id",
+    });
+    const branchTable = new Table({
+      schema: "public",
+      name: "users",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "bigint",
+          data_type_str: "bigint",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: "nextval('public.seq1'::regclass)",
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes).toHaveLength(4);
+    expect(changes[0]).toBeInstanceOf(DropSequence);
+    expect(changes[1]).toBeInstanceOf(CreateSequence);
+    expect(changes[2]).toBeInstanceOf(AlterSequenceSetOwnedBy);
+    expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
+  });
+
   test("skip DROP SEQUENCE when owned by table being dropped", () => {
     const ownedSequence = new Sequence({
       ...base,
@@ -126,26 +203,215 @@ describe.concurrent("sequence.diff", () => {
     expect(changes).toHaveLength(0);
   });
 
-  test("generate DROP SEQUENCE when owned by table that still exists", () => {
+  test("generate DROP SEQUENCE when owned by table/column that still exists", () => {
     const ownedSequence = new Sequence({
       ...base,
       owned_by_schema: "public",
       owned_by_table: "users",
       owned_by_column: "id",
     });
-    // When the owning table still exists in branch catalog,
-    // DROP SEQUENCE should be generated
+    const branchTable = new Table({
+      schema: "public",
+      name: "users",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "bigint",
+          data_type_str: "bigint",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+    // When the owning table AND the owning column still exist in branch catalog,
+    // DROP SEQUENCE should be generated (sequence is orphaned and needs explicit drop).
     const changes = diffSequences(
       testContext,
       { [ownedSequence.stableId]: ownedSequence },
-      {}, // branch has no sequences
-      {
-        "table:public.users": {} as Table, // table still exists
-      },
+      {},
+      { [branchTable.stableId]: branchTable },
     );
-    // Should generate DROP SEQUENCE since table still exists
     expect(changes).toHaveLength(1);
     expect(changes[0]).toBeInstanceOf(DropSequence);
+  });
+
+  test("skip DROP SEQUENCE when owning column is dropped but table survives", () => {
+    // Reproduction guard for the DropSequence ↔ AlterTableDropColumn cycle:
+    // dropping a SERIAL column on a surviving table leaves PG to cascade-drop
+    // the owned sequence. Emitting DROP SEQUENCE here would both fail at apply
+    // time AND form an unbreakable drop-phase cycle with AlterTableDropColumn.
+    const ownedSequence = new Sequence({
+      ...base,
+      owned_by_schema: "public",
+      owned_by_table: "widgets",
+      owned_by_column: "id",
+    });
+    const branchTable = new Table({
+      schema: "public",
+      name: "widgets",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      // `id` column has been dropped in branch; only `label` remains.
+      columns: [
+        {
+          name: "label",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+    const changes = diffSequences(
+      testContext,
+      { [ownedSequence.stableId]: ownedSequence },
+      {},
+      { [branchTable.stableId]: branchTable },
+    );
+    expect(changes).toHaveLength(0);
+  });
+
+  test("recreate same-name sequence when owning table is renamed away", () => {
+    // Reproduces issue #228 case 1: a SERIAL column's table is renamed
+    // (`old_table` → `new_table`). The sequence keeps the same name
+    // (`old_table_id_seq`) but its OWNED BY now points at `new_table.id`.
+    // PostgreSQL cascade-drops the sequence with the old table, so a later
+    // CREATE TABLE that references `old_table_id_seq` fails. The diff must
+    // emit CreateSequence (and skip the explicit DropSequence to avoid an
+    // unbreakable cycle with the DropTable).
+    const tableColumn = {
+      name: "id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: "nextval('public.old_table_id_seq'::regclass)",
+      comment: null,
+    };
+    const tableBaseProps = {
+      schema: "public",
+      persistence: "p" as const,
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d" as const,
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "test",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      privileges: [],
+    };
+    const oldTable = new Table({
+      ...tableBaseProps,
+      name: "old_table",
+      columns: [tableColumn],
+    });
+    const newTable = new Table({
+      ...tableBaseProps,
+      name: "new_table",
+      columns: [tableColumn],
+    });
+    const mainSequence = new Sequence({
+      ...base,
+      name: "old_table_id_seq",
+      owned_by_schema: "public",
+      owned_by_table: "old_table",
+      owned_by_column: "id",
+    });
+    const branchSequence = new Sequence({
+      ...base,
+      name: "old_table_id_seq",
+      owned_by_schema: "public",
+      owned_by_table: "new_table",
+      owned_by_column: "id",
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [mainSequence.stableId]: mainSequence },
+      { [branchSequence.stableId]: branchSequence },
+      { [newTable.stableId]: newTable },
+      { [oldTable.stableId]: oldTable },
+    );
+
+    expect(changes.some((c) => c instanceof DropSequence)).toBe(false);
+    expect(changes.some((c) => c instanceof CreateSequence)).toBe(true);
+    expect(changes.some((c) => c instanceof AlterSequenceSetOwnedBy)).toBe(
+      true,
+    );
   });
 
   test("create with comment emits CreateCommentOnSequence", () => {

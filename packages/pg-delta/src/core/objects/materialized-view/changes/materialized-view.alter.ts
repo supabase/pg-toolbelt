@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -53,7 +54,7 @@ export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChang
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "ALTER MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,
@@ -88,7 +89,7 @@ export class AlterMaterializedViewSetStorageParams extends AlterMaterializedView
     return [this.materializedView.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const head = [
       "ALTER MATERIALIZED VIEW",
       `${this.materializedView.schema}.${this.materializedView.name}`,

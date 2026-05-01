@@ -5,6 +5,7 @@ import type { DropMaterializedView } from "./materialized-view.drop.ts";
 import type { MaterializedViewPrivilege } from "./materialized-view.privilege.ts";
 import type { SecurityLabelMaterializedView } from "./materialized-view.security-label.ts";
 
+/** Union of all materialized-view-related change variants (`objectType: "materialized_view"`). @category Change Types */
 export type MaterializedViewChange =
   | AlterMaterializedView
   | CommentMaterializedView

@@ -12,6 +12,7 @@ import type { CreatePublication } from "./publication.create.ts";
 import type { DropPublication } from "./publication.drop.ts";
 import type { SecurityLabelPublication } from "./publication.security-label.ts";
 
+/** Union of all publication-related change variants (`objectType: "publication"`). @category Change Types */
 export type PublicationChange =
   | AlterPublicationAddSchemas
   | AlterPublicationAddTables

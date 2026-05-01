@@ -578,6 +578,7 @@ const pkConstraint = {
   validated: true,
   is_local: true,
   no_inherit: false,
+  is_temporal: false,
   is_partition_clone: false,
   parent_constraint_schema: null,
   parent_constraint_name: null,
@@ -609,6 +610,7 @@ const uniqueConstraint = {
   validated: true,
   is_local: true,
   no_inherit: false,
+  is_temporal: false,
   is_partition_clone: false,
   parent_constraint_schema: null,
   parent_constraint_name: null,
@@ -639,6 +641,7 @@ const fkConstraint = {
   validated: true,
   is_local: true,
   no_inherit: false,
+  is_temporal: false,
   is_partition_clone: false,
   parent_constraint_schema: null,
   parent_constraint_name: null,
@@ -670,6 +673,7 @@ const checkConstraint = {
   validated: true,
   is_local: true,
   no_inherit: true,
+  is_temporal: false,
   is_partition_clone: false,
   parent_constraint_schema: null,
   parent_constraint_name: null,
@@ -996,6 +1000,8 @@ const rlsPolicy = new RlsPolicy({
   with_check_expression: null,
   owner: "owner1",
   comment: "rls policy comment",
+  referenced_relations: [],
+  referenced_procedures: [],
 });
 
 const rlsPolicyRestrictive = new RlsPolicy({
@@ -1009,6 +1015,8 @@ const rlsPolicyRestrictive = new RlsPolicy({
   with_check_expression: "status <> 'locked'",
   owner: "owner1",
   comment: null,
+  referenced_relations: [],
+  referenced_procedures: [],
 });
 
 const index = new Index({

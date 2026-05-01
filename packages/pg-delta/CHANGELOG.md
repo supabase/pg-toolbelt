@@ -1,5 +1,279 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.22
+
+### Minor Changes
+
+- 2d1991a: feat(pg-delta): retry catalog extractors when `pg_get_*def()` returns NULL
+
+  `pg_get_indexdef`, `pg_get_constraintdef`, `pg_get_viewdef`, `pg_get_triggerdef`, `pg_get_ruledef`, and `pg_get_functiondef` can transiently return NULL when the underlying catalog row is dropped concurrently or the catalog state is in flux. Previously such rows were dropped silently after one attempt; now extraction retries the affected query a configurable number of times before falling back to filtering. In practice the second attempt no longer sees the dropped object (or successfully resolves the definition), so a real CREATE/DROP racing with `createPlan` is reliably preserved or excluded rather than half-captured.
+
+  Configuration (precedence: option > env > default):
+
+  - `CreatePlanOptions.extractRetries?: number` — public API option on `createPlan`.
+  - `PGDELTA_EXTRACT_RETRIES` env var — same value, useful for CLI usage.
+  - Default `1` (i.e. the first attempt plus one retry, 2 attempts total).
+
+  After retries are exhausted, rows whose `pg_get_*def()` is still NULL are filtered out and a warning is emitted via `debug('pg-delta:extract')` (visible with `DEBUG=pg-delta:extract` or `DEBUG=pg-delta:*`). Setting `extractRetries: 0` disables retrying entirely and reproduces the previous "filter-on-first-attempt" behavior.
+
+### Patch Changes
+
+- 9e3541d: fix(pg-delta): order dependency-breaking ALTERs before DROP for types, sequences, and policies (#230)
+
+  `ALTER COLUMN ... DROP DEFAULT`, `ALTER COLUMN ... DROP IDENTITY`, and
+  `ALTER COLUMN ... TYPE <built-in>` are now scheduled in the drop phase so
+  that the catalog edges in `pg_depend` order them ahead of the matching
+  `DROP TYPE` / `DROP SEQUENCE`. `ALTER COLUMN ... TYPE` also drops any
+  existing default before the rewrite (and re-emits a `SET DEFAULT` after)
+  so the stale default expression cannot pin the old type. RLS policies
+  whose `USING` / `WITH CHECK` expressions begin or stop referencing
+  different functions or relations are now emitted as drop+create, letting
+  the policy's drop run before the referenced object's drop and the
+  policy's recreate run after the new object's create. Plans that
+  previously aborted with PostgreSQL `2BP01` ("cannot drop ... because
+  other objects depend on it") now apply cleanly.
+
+- 2d1991a: fix(pg-delta): skip rows when `pg_get_viewdef`, `pg_get_triggerdef`, `pg_get_ruledef`, or `pg_get_functiondef` returns NULL instead of crashing the relevant `extract*` with a ZodError. Same race conditions as the prior `pg_get_indexdef` (#223) and `pg_get_constraintdef` fixes — the underlying catalog row can vanish (concurrent DDL, transient catalog state, recovery edges). A single unreadable view, materialized view, trigger, rule, or function no longer aborts the whole catalog extraction and `createPlan` call.
+- 7c7d18a: fix(pg-delta): produce applyable migrations for `RENAME` operations seen as drop+create
+
+  `pg-delta` is a state-based diff and treats a `RENAME` as `DROP+CREATE` because
+  the final catalogs are indistinguishable. Two scenarios in that drop+create
+  path failed at apply time on schemas that had been renamed in the target
+  (reported in [#228](https://github.com/supabase/pg-toolbelt/issues/228)):
+
+  - A table with a `SERIAL` column renamed in the target left the same-name
+    sequence (e.g. `old_table_id_seq`) "altered" in the diff (only its
+    `OWNED BY` ref changed). `DROP TABLE` cascade-drops the sequence via
+    `OWNED BY`, after which the freshly created table's column default
+    `nextval('old_table_id_seq'::regclass)` referenced a non-existent relation
+    and the migration aborted. `diffSequences` now detects when the sequence's
+    main-side owning table is going away in the same plan and recreates the
+    sequence after the cascade, while suppressing an explicit `DROP SEQUENCE`
+    that would form an unbreakable cycle with `DropTable`.
+  - A table renamed in the target with a dependent view (e.g.
+    `CREATE VIEW user_count AS SELECT count(*) FROM users` with the table
+    renamed to `members`) failed with `cannot drop table users because other
+objects depend on it`. `expandReplaceDependencies` now seeds drop-only
+    schema objects (table, view, materialized view, type, domain) as expansion
+    roots so any surviving dependent in `pg_depend` gets promoted to
+    `DROP+CREATE`. The dependent's drop is sequenced before the parent drop,
+    and its create runs after the new replacement is in place.
+
+- 3b9eb91: fix(pg-delta): preserve `REPLICA IDENTITY USING INDEX` on tables instead of silently reverting to `DEFAULT` on declarative sync.
+
+  The table extractor only stored `replica_identity` as a single character (`'d' | 'n' | 'f' | 'i'`) and discarded the index name when the mode was `'i'`. The diff path then explicitly skipped mode `'i'` ("handled by index changes" — but no such handler existed), and `AlterTableSetReplicaIdentity.serialize()` fell back to `REPLICA IDENTITY DEFAULT` for that mode. Compounding this, `Index.is_replica_identity` participated in equality and was marked non-alterable, so toggling the flag on the index triggered a spurious `DROP INDEX` + `CREATE INDEX` — and Postgres reverts the table to `REPLICA IDENTITY DEFAULT` whenever the configured replica-identity index is dropped.
+
+  End result: a table configured with `ALTER TABLE foo REPLICA IDENTITY USING INDEX foo_idx` would extract as `replica_identity = 'i'` but produce no setter on diff. The next `declarative sync` would generate a migration that dropped the user's index, reset the table to `DEFAULT`, and recreated the index — never converging (reported as supabase/cli#5141).
+
+  The fix:
+
+  - `Table.replica_identity_index` is extracted via `pg_index.indisreplident` and included in `dataFields`, so the index name participates in equality.
+  - `AlterTableSetReplicaIdentity` now serializes `REPLICA IDENTITY USING INDEX <name>` for mode `'i'` and declares the index as a `requires` dependency so it is created first.
+  - The table diff emits the change for all modes (including `'i'`) on both `CREATE` and `ALTER`, and re-emits when the configured index name changes while staying in `'i'` mode.
+  - `Index.is_replica_identity` is no longer in `dataFields` / `NON_ALTERABLE_FIELDS`; the table side is the source of truth, set via `ALTER TABLE`. This stops the spurious `DROP INDEX` + `CREATE INDEX` cycle.
+  - A new `restoreReplicaIdentityAfterIndexReplace` pass in `post-diff-normalization.ts` re-emits `ALTER TABLE ... REPLICA IDENTITY USING INDEX <name>` after any `DropIndex(idx) + CreateIndex(idx)` pair where `idx` is the replica-identity index of a branch table. This covers the second flavor of the bug: when both main and branch already point at the same replica-identity index, but that index's _definition_ changes (e.g. a column added to its key), the index is replaced, Postgres silently flips `relreplident` to `'d'`, and the table-level diff alone cannot see the cross-object interaction. The pass is idempotent — if `diffTables()` already emitted the same setter (because the table is also flipping mode or pointing to a different index), no duplicate is added.
+
+  The post-diff layer file `src/core/post-diff-cycle-breaking.ts` is renamed to `post-diff-normalization.ts` and `normalizePostDiffCycles` to `normalizePostDiffChanges` — the file already contained dedup and replacement-superseded pruning that aren't strictly cycle-breaking, and actual cycle breaking moved to the lazy sort-phase dispatcher in a previous release. The rename brings the file in line with the "post-diff normalization" terminology already used in the package's `CLAUDE.md` rule of thumb.
+
+- 2d1991a: fix(pg-delta): skip table constraints where `pg_get_constraintdef()` returns NULL instead of crashing `extractTables` with a ZodError. Like `pg_get_indexdef`, `pg_get_constraintdef` can return NULL under race conditions with concurrent DDL or transient catalog inconsistencies. Such constraints are now filtered out at extraction time so a single unreadable constraint no longer aborts the whole catalog extraction and `createPlan` call.
+
+## 1.0.0-alpha.21
+
+### Patch Changes
+
+- fa3f736: fix(pg-delta): emit USING and default-safe flow for ALTER COLUMN TYPE
+- 363fef3: Fix ZodError when extracting tables with EXCLUDE constraints defined over expressions. PostgreSQL stores `attnum=0` in `pg_constraint.conkey` for expression elements, which never matches `pg_attribute`, so the inner aggregate returned SQL `NULL` and tripped `tablePropsSchema` at `constraints[*].key_columns`. The extractor now coalesces the aggregate to an empty JSON array.
+- cbe8946: Defer drop-phase cycle breaking from `normalizePostDiffCycles` to a lazy
+  dispatcher invoked by `sortPhaseChanges` only when edge filtering can't
+  break a cycle. The happy path (no cycles, the vast majority of plans) no
+  longer walks `iterCrossDropFkConstraints` on every diff. The new
+  dispatcher generalizes the existing 2-cycle FK breaker to any
+  N≥2 strongly-connected component of dropped tables (for example
+  `a→b→c→a`) and breaks the
+  `AlterPublicationDropTables ↔ AlterTableDropColumn` cycle that occurred
+  when a publication-listed column was dropped on a surviving table. The
+  breaker round-cap scales with `phaseChanges.length` so big diffs with
+  many independent unbreakable cycles in a single phase resolve cleanly
+  instead of throwing a spurious `CycleError`.
+
+  The sequence diff path now alters `data_type` in place via
+  `ALTER SEQUENCE ... AS <type>` (valid PostgreSQL since PG10) instead of
+  emitting `DROP SEQUENCE + CREATE SEQUENCE`. This eliminates a
+  production `CycleError` seen on alpha.16 (Sentry SUPABASE-API-7RS,
+  "DropSequence ↔ DropTable") triggered when a sequence whose
+  `data_type` changes is referenced by a `DEFAULT nextval(...)` on a
+  surviving column. Altering in place also fixes a silent data-loss
+  regression where the recreated sequence would restart at `1` and
+  collide with existing row ids.
+
+## 1.0.0-alpha.20
+
+### Patch Changes
+
+- ac7b9b8: fix(pg-delta): skip `WITH SCHEMA` when serializing `pgsodium` and `pg_tle` under the Supabase integration
+
+  Both extensions create their install schema (`pgsodium`, `pgtle`) themselves, and those schemas are filtered out of the declarative plan by the Supabase integration because they live in `SUPABASE_SYSTEM_SCHEMAS`. Emitting `CREATE EXTENSION pgsodium WITH SCHEMA pgsodium` (or the equivalent for `pg_tle`) therefore fails against a fresh database with `schema "pgsodium" does not exist` — the same bug shape PR #191 fixed for `pgmq`.
+
+  Closes supabase/pg-toolbelt#222.
+
+## 1.0.0-alpha.19
+
+### Patch Changes
+
+- 4867d88: Handle dependent index and view recreation when replacing a materialized view. Constraint-owned, primary, and partition-attached indexes are left to the owning constraint or parent-index DDL so table replacement does not emit a standalone `DROP INDEX` on a PK-owned index.
+- f00e9a4: fix(pg-delta): skip indexes where `pg_get_indexdef()` returns NULL instead of crashing `extractIndexes` with a ZodError. The three-argument form of `pg_get_indexdef` can return NULL under race conditions with concurrent DDL (e.g. the index being dropped mid-extraction) or when catalog metadata is transiently inconsistent. Such indexes are now filtered out with a debug log (`DEBUG=pg-delta:extract:index`) so a single unreadable index no longer aborts the whole catalog extraction and `createPlan` call.
+- f33d579: fix(pg-delta): order RLS policies after referenced new objects
+
+  Policies whose `USING` / `WITH CHECK` expression references another new object could be emitted before the referenced object on a fresh database, causing plan/apply to fail.
+
+  `extractRlsPolicies` now joins `pg_depend` to surface every relation (tables, partitioned tables, views, materialized views, foreign tables) and function the policy expression references. PostgreSQL already records those edges at `CREATE POLICY` time via `recordDependencyOnExpr`, so the catalog is authoritative and pg-delta's core diffing path does not reparse the expression text. `CreateRlsPolicy.requires` dispatches per relation kind and emits `stableId.procedure(...)` for functions, using the exact argument signature produced by `format_type(proargtypes)` — matching the signature embedded in the procedure extractor's stable id.
+
+  Sequences referenced via `nextval('seq'::regclass)` remain a known gap (tracked as a skipped regression test) because `pg_depend` only records the edge for `regclass` literal arguments.
+
+## 1.0.0-alpha.18
+
+### Patch Changes
+
+- feca870: fix(pg-delta): diff PostgreSQL 18 temporal constraints
+- b812a46: fix(pg-delta): emit DROP + CREATE for function signature changes (return type, parameter names, parameter defaults, modes) instead of unsupported `CREATE OR REPLACE FUNCTION`
+- feca870: fix(pg-delta): dedupe duplicate constraint ADDs on tables promoted to drop+create
+
+  When a table transitively depends on a replaced object (for example a
+  foreign key whose referenced primary key is being dropped and re-added to
+  flip to `WITHOUT OVERLAPS` / `PERIOD`), `expandReplaceDependencies()`
+  promotes the table to a full `DropTable + CreateTable` pair and emits one
+  `AlterTableAddConstraint` (plus optional `VALIDATE CONSTRAINT` /
+  `COMMENT ON CONSTRAINT`) per branch constraint. The original
+  `diffTables()`-emitted `AlterTableAddConstraint` targeting the same
+  constraint on the same replaced table was previously left in the plan,
+  producing duplicate `ALTER TABLE ... ADD CONSTRAINT` statements and a
+  `constraint "..." for relation "..." already exists` apply failure.
+
+  `normalizePostDiffCycles()` now dedupes same-table
+  `AlterTableAddConstraint`, `AlterTableValidateConstraint` and
+  `CreateCommentOnConstraint` changes keyed by
+  `(changeType, table.stableId, constraint.name)` on replaced tables,
+  keeping only the last occurrence. Because `expandReplaceDependencies()`
+  appends its additions after the original `diffTables()` output, the last
+  occurrence is always the expansion's emission — so correctness is
+  preserved while the earlier duplicate is removed. This fixes migrations
+  that combine a temporal-PK flip on one table with a temporal-FK flip on a
+  related table without regressing unrelated replace-expansion scenarios
+  (enum value removal, table replacement via other object replacements).
+
+## 1.0.0-alpha.17
+
+### Patch Changes
+
+- 5cc2a21: fix(pg-delta): stop emitting spurious `CREATE OR REPLACE TRIGGER` on logically-identical triggers whose underlying tables have different physical column layouts.
+
+  The trigger diff was comparing `pg_trigger.tgattr` (raw physical attnums) as part of its non-alterable fields. When the same logical trigger (e.g. `BEFORE UPDATE OF col_a, col_b ...`) existed on two tables with different physical column layouts — one built via a single `CREATE TABLE`, the other grown via `ALTER TABLE DROP/ADD COLUMN` (which leaves "dead" attnums that are never renumbered) — the attnum vectors diverged while the trigger definition (rendered by `pg_get_triggerdef()` using column names) was byte-identical. The diff kept firing a `ReplaceTrigger` every round, and because `CREATE OR REPLACE TRIGGER` does not renumber the table's physical columns, the loop never converged.
+
+  Triggers are now compared by `pg_get_triggerdef()` output (column names) instead of raw `tgattr` attnums, matching the existing `Index` pattern that handles the same class of bug for `indkey`.
+
+## 1.0.0-alpha.16
+
+### Patch Changes
+
+- a0f6f11: fix(pg-delta): strip brackets from IPv6 hosts before handing them to pg so `getaddrinfo` sees a bare address.
+
+  The alpha.14 IPv6 fix normalized percent-encoded hosts into the canonical bracketed URL form (`postgresql://user@[2600:...]:5432/db`). That is a valid URL, but `pg-connection-string`'s WHATWG-based parser keeps the brackets on `config.host`, so `pg` passed `[2600:...]` verbatim to `getaddrinfo` and connections failed with `ENOTFOUND [2600:...]`.
+
+  `createManagedPool` now expands bracketed-IPv6 URLs into explicit `host` / `port` / `user` / `password` / `database` pool fields (plus any remaining query params like `application_name`) and drops `connectionString` on that path — `pg` merges a parsed `connectionString` on top of user config, so a co-provided `host` would otherwise be clobbered. Non-IPv6 URLs still go through `connectionString` unchanged.
+
+## 1.0.0-alpha.15
+
+### Patch Changes
+
+- 82be5f4: fix(pg-delta): break drop-phase cycles for owned-sequence column drops and replace-dependency table recreates
+
+  Two previously unbreakable drop-phase `CycleError`s are now fixed at the
+  source by eliding redundant changes instead of patching the sort-phase
+  cycle filter.
+
+  - `diffSequences` now skips `DROP SEQUENCE` when the owning column is
+    dropped on a surviving table (e.g. dropping a `SERIAL` column).
+    PostgreSQL's `OWNED BY` cascade already drops the sequence with the
+    column, so emitting `DROP SEQUENCE` both failed at apply time and formed
+    an unbreakable cycle with `AlterTableDropColumn`. This mirrors the
+    existing short-circuit for whole-table drops.
+  - `expandReplaceDependencies` now removes pre-existing
+    `AlterTableDropColumn(T.col)` and `AlterTableDropConstraint(T.c)` changes
+    when it enqueues a `DropTable(T) + CreateTable(T)` replacement pair for
+    the same table. Those are the only `AlterTable*` subclasses whose
+    `requires` includes `table.stableId`, producing a `column:T.col → table:T`
+    (or `constraint:T.c → table:T`) explicit edge that closed an unbreakable
+    drop-phase cycle against catalog `constraint → column → table` edges.
+    Supersession is scoped to those two classes only; other `AlterTable*(T)`
+    changes (owner, RLS toggles, replica identity, storage params,
+    SET LOGGED/UNLOGGED) and privilege-scope ALTERs (GRANT/REVOKE) are
+    preserved so the recreated table ends up in the correct state — the sort
+    phase orders them after `CreateTable(T)` via their `table.stableId`
+    requirement.
+
+- 82be5f4: fix(pg-delta): break drop-phase cycle when two tables have mutual FK references
+
+  Previously, diffing two databases where two tables each hold a foreign key
+  pointing at the other (and both tables are being dropped) produced a
+  `CycleError` because both `DropTable` changes claimed the other's FK
+  constraint stableId, creating bidirectional catalog edges in the drop-phase
+  graph. Even if the cycle had been broken at the sort layer, plain
+  `DROP TABLE` would have failed at apply time because PostgreSQL refuses to
+  drop a table while another table still has an FK pointing to it.
+
+  The diff layer now detects mutual FK references between tables dropped in
+  the same phase and emits explicit `ALTER TABLE ... DROP CONSTRAINT ...`
+  statements before the `DROP TABLE`s, producing a safe linear sequence and
+  no cycle in the drop-phase graph.
+
+## 1.0.0-alpha.14
+
+### Patch Changes
+
+- 13e94b9: fix(pg-delta): auto-normalize percent-encoded IPv6 hosts in connection URLs and retry transient connect failures.
+
+  Connection strings with URL-encoded IPv6 hosts (e.g. `postgresql://user:pass@2406%3Ada18%3A...%3Ab3c9:5432/db`) are now transparently rewritten to the canonical bracketed form (`[2406:da18:...:b3c9]`) before reaching `pg`, preventing `getaddrinfo ENOTFOUND` failures on the percent-encoded string. The decoded host is validated as a real IPv6 literal; anything else is passed through unchanged so downstream errors remain honest.
+
+  `createManagedPool` also retries its eager-connect probe with bounded exponential backoff on transient errors (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EAI_AGAIN`, and its own timeout wrapper). Auth failures (`28P01`, `28000`), TLS negotiation errors, and `ENOTFOUND` still fail fast. Tunable via `PGDELTA_CONNECT_MAX_ATTEMPTS` (default 3), `PGDELTA_CONNECT_BASE_BACKOFF_MS` (default 250), and `PGDELTA_CONNECT_MAX_BACKOFF_MS` (default 1000).
+
+- f2420d9: Improve procedure comment diffing, PostgreSQL 17 generated column handling, and Supabase "etl" schema filtering
+
+## 1.0.0-alpha.13
+
+### Patch Changes
+
+- 5b8511b: fix(export): allow declarative schema export to accept raw integration DSL without requiring callers to precompile serialize rules
+
+## 1.0.0-alpha.12
+
+### Patch Changes
+
+- b9c7ebe: fix(pg-delta): support serial and identity transition diffs for table columns
+- d15eb48: fix(sort): order FK-related table drops and publication table removals before dependent destructive operations
+- e065101: Fix Supabase declarative export for `pgmq` by allowing the integration serializer to omit `WITH SCHEMA` during extension creation, so exported schemas can be applied to a fresh database. Formalize serializer option typing with a shared `SerializeOptions` contract so integration DSL options and change serializers stay in sync.
+
+## 1.0.0-alpha.11
+
+### Patch Changes
+
+- 8048cd9: Fix view diffs to drop and recreate views when the projected column list changes (for example when `SELECT *` views need to pick up a new base-table column), instead of emitting `CREATE OR REPLACE VIEW`.
+- bb63513: fix(depend): order CREATE EXTENSION before CREATE INDEX when index uses extension-provided operator class
+- 066683e: fix(pg-delta): order domain CHECK function dependencies before domain creation
+- f2cd63e: Use normalized object snapshots when comparing extracted catalog objects for equality so semantically identical metadata does not produce false-positive diffs.
+
+## 1.0.0-alpha.10
+
+### Patch Changes
+
+- 72dce37: Support PostgreSQL 18 table introspection for NOT NULL constraints and add pg18 test coverage.
+
+## 1.0.0-alpha.9
+
+### Patch Changes
+
+- 505413e: Fix async pool session setup so declarative export no longer triggers concurrent `client.query()` deprecation warnings during catalog extraction.
+- def35a5: Rename the declarative apply CLI flag for skipping final function validation to `--skip-function-validation`.
+
 ## 1.0.0-alpha.8
 
 ### Patch Changes

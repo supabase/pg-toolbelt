@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Index } from "../index.model.ts";
 import { DropIndexChange } from "./index.base.ts";
 
@@ -28,7 +29,7 @@ export class DropIndex extends DropIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP INDEX", `${this.index.schema}.${this.index.name}`].join(" ");
   }
 }

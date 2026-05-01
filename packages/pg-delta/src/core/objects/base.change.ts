@@ -1,5 +1,17 @@
+import type { SerializeOptions } from "../integrations/serialize/serialize.types.ts";
+
 type ChangeOperation = "create" | "alter" | "drop";
 
+/**
+ * Abstract base class for all change objects.
+ *
+ * Every concrete change (e.g. `CreateTable`, `AlterView`) extends this class and
+ * provides an `operation`, `objectType`, and `scope`. The filter DSL flattens
+ * these properties — along with the model sub-object — into path/value pairs
+ * for pattern matching.
+ *
+ * @category Base
+ */
 export abstract class BaseChange {
   /**
    * The operation of the change.
@@ -51,7 +63,7 @@ export abstract class BaseChange {
   /**
    * Serialize the change into a single SQL statement.
    */
-  abstract serialize(options?: Record<string, unknown>): string;
+  abstract serialize(options?: SerializeOptions): string;
 }
 
 /**

@@ -5,6 +5,7 @@ import type { DropView } from "./view.drop.ts";
 import type { ViewPrivilege } from "./view.privilege.ts";
 import type { SecurityLabelView } from "./view.security-label.ts";
 
+/** Union of all view-related change variants (`objectType: "view"`). @category Change Types */
 export type ViewChange =
   | AlterView
   | CommentView

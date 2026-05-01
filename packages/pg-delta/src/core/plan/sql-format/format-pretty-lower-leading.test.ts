@@ -579,7 +579,7 @@ describe("sql formatting snapshots", () => {
       create sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq;
 
       -- sequence.drop
-      drop sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq;
+      drop sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq cascade;
 
       -- sequence.alter.set_owned_by
       alter sequence public.table_with_very_long_name_for_formatting_and_wrapping_test_id_seq owned by

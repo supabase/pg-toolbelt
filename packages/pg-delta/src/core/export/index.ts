@@ -4,7 +4,11 @@
 
 import type { Change } from "../change.types.ts";
 import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
-import type { Integration } from "../integrations/integration.types.ts";
+import {
+  type Integration,
+  type ResolvedIntegration,
+  resolveIntegration,
+} from "../integrations/integration.types.ts";
 import type { createPlan } from "../plan/create.ts";
 import { DEFAULT_OPTIONS } from "../plan/sql-format/constants.ts";
 import type { SqlFormatOptions } from "../plan/sql-format/types.ts";
@@ -29,7 +33,7 @@ type PlanResult = NonNullable<Awaited<ReturnType<typeof createPlan>>>;
 
 export interface ExportOptions {
   /** Integration for custom serialization */
-  integration?: Integration;
+  integration?: Pick<Integration, "serialize">;
   /**
    * SQL formatter options to control the output style.
    * Merged on top of the default export options (maxWidth: 180, keywordCase: "upper").
@@ -64,7 +68,9 @@ export function exportDeclarativeSchema(
   options?: ExportOptions,
 ): DeclarativeSchemaOutput {
   const { ctx, sortedChanges } = planResult;
-  const integration = options?.integration;
+  const integration = options?.integration
+    ? resolveIntegration(options?.integration)
+    : {};
   const formatOptions: SqlFormatOptions | undefined =
     options?.formatOptions === null
       ? undefined
@@ -108,7 +114,10 @@ export function exportDeclarativeSchema(
   };
 }
 
-function serializeChange(change: Change, integration?: Integration): string {
+function serializeChange(
+  change: Change,
+  integration?: ResolvedIntegration,
+): string {
   return integration?.serialize?.(change) ?? change.serialize();
 }
 

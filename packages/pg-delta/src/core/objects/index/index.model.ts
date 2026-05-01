@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
 
 const TableRelkindSchema = z.enum([
   "r", // table (regular relation)
@@ -38,6 +42,16 @@ const indexPropsSchema = z.object({
   definition: z.string(),
   comment: z.string().nullable(),
   owner: z.string(),
+});
+
+// pg_get_indexdef(oid, colno, pretty) invokes pg_get_indexdef_worker with
+// missing_ok = true, so it can return NULL when any internal system-cache lookup
+// fails (race with concurrent DROP, role visibility edge cases, orphaned index
+// metadata, recovery transients). An unreadable index cannot be diffed, so we
+// accept NULL here and filter the row out with a debug log instead of crashing
+// the whole catalog extraction.
+const indexRowSchema = indexPropsSchema.extend({
+  definition: z.string().nullable(),
 });
 
 /**
@@ -153,7 +167,11 @@ export class Index extends BasePgModel {
       nulls_not_distinct: this.nulls_not_distinct,
       immediate: this.immediate,
       is_clustered: this.is_clustered,
-      is_replica_identity: this.is_replica_identity,
+      // is_replica_identity excluded: the table's `replica_identity` /
+      // `replica_identity_index` is the source of truth, set via
+      // ALTER TABLE ... REPLICA IDENTITY USING INDEX. Including this flag here
+      // would trigger spurious DROP+CREATE of the index whenever the table's
+      // replica identity changes.
       // key_columns excluded: contains attribute numbers that can differ between databases
       // even when indexes are logically identical. The definition field already captures
       // the logical structure using column names, so we compare by definition instead.
@@ -205,8 +223,16 @@ export class Index extends BasePgModel {
   }
 }
 
-export async function extractIndexes(pool: Pool): Promise<Index[]> {
-  const { rows: indexRows } = await pool.query<IndexProps>(sql`
+export async function extractIndexes(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Index[]> {
+  const indexRows = await extractWithDefinitionRetry({
+    label: "indexes",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<IndexProps>(sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -362,9 +388,11 @@ export async function extractIndexes(pool: Pool): Promise<Index[]> {
 
       order by 1, 2
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = indexRows.map((row: unknown) =>
-    indexPropsSchema.parse(row),
+      return result.rows.map((row: unknown) => indexRowSchema.parse(row));
+    },
+  });
+  const validatedRows = indexRows.filter(
+    (row): row is IndexProps => row.definition !== null,
   );
   return validatedRows.map((row: IndexProps) => new Index(row));
 }

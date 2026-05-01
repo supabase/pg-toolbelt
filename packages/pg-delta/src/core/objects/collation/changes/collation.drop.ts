@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Collation } from "../collation.model.ts";
 import { DropCollationChange } from "./collation.base.ts";
 
@@ -28,7 +29,7 @@ export class DropCollation extends DropCollationChange {
     return [this.collation.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP COLLATION",
       `${this.collation.schema}.${this.collation.name}`,

@@ -3,9 +3,12 @@ import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnDropNotNull,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetGenerated,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableChangeOwner,
@@ -109,6 +112,7 @@ describe.concurrent("table.diff", () => {
           validated: false,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -325,6 +329,7 @@ describe.concurrent("table.diff", () => {
       validated: false,
       is_local: true,
       no_inherit: false,
+      is_temporal: false,
       is_partition_clone: false,
       parent_constraint_schema: null,
       parent_constraint_name: null,
@@ -450,6 +455,7 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -528,6 +534,7 @@ describe.concurrent("table.diff", () => {
           validated: true,
           is_local: true,
           no_inherit: false,
+          is_temporal: false,
           is_partition_clone: false,
           parent_constraint_schema: null,
           parent_constraint_name: null,
@@ -603,6 +610,104 @@ describe.concurrent("table.diff", () => {
     );
   });
 
+  test("altered temporal constraint metadata triggers drop+add", () => {
+    const tMain = new Table({
+      ...base,
+      name: "t_temporal",
+      columns: [
+        {
+          name: "room_id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+        {
+          name: "booking_period",
+          position: 2,
+          data_type: "tstzrange",
+          data_type_str: "tstzrange",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          name: "bookings_pkey",
+          constraint_type: "p",
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          is_temporal: false,
+          is_partition_clone: false,
+          parent_constraint_schema: null,
+          parent_constraint_name: null,
+          parent_table_schema: null,
+          parent_table_name: null,
+          key_columns: ["room_id", "booking_period"],
+          foreign_key_columns: null,
+          foreign_key_table: null,
+          foreign_key_schema: null,
+          foreign_key_table_is_partition: null,
+          foreign_key_parent_schema: null,
+          foreign_key_parent_table: null,
+          foreign_key_effective_schema: null,
+          foreign_key_effective_table: null,
+          on_update: null,
+          on_delete: null,
+          match_type: null,
+          check_expression: null,
+          owner: "o1",
+          definition: "PRIMARY KEY (room_id, booking_period)",
+        },
+      ],
+    });
+    const tBranch = new Table({
+      ...tMain,
+      constraints: [
+        {
+          ...tMain.constraints[0],
+          is_temporal: true,
+          definition: "PRIMARY KEY (room_id, booking_period WITHOUT OVERLAPS)",
+        },
+      ],
+    });
+    const changes = diffTables(
+      testContext,
+      { [tMain.stableId]: tMain },
+      { [tBranch.stableId]: tBranch },
+    );
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+  });
+
   test("columns added/dropped/altered (type, default, not null)", () => {
     const main = new Table({ ...base, name: "t2", columns: [] });
     const withCol = new Table({
@@ -662,6 +767,9 @@ describe.concurrent("table.diff", () => {
     expect(
       typeChanges.some((c) => c instanceof AlterTableAlterColumnType),
     ).toBe(true);
+    expect(typeChanges.map((c) => c.serialize())).toContain(
+      "ALTER TABLE public.t2 ALTER COLUMN a TYPE text USING a::text",
+    );
 
     const defaultAdded = new Table({
       ...base,
@@ -712,6 +820,219 @@ describe.concurrent("table.diff", () => {
     expect(
       notNullDropped.some((c) => c instanceof AlterTableAlterColumnDropNotNull),
     ).toBe(true);
+
+    const withDefault = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          ...withCol.columns[0],
+          data_type: "text",
+          data_type_str: "text",
+          default: "'active'",
+        },
+      ],
+    });
+    const typeChangedWithDefault = new Table({
+      ...base,
+      name: "t2",
+      columns: [
+        {
+          ...withDefault.columns[0],
+          data_type: "USER-DEFINED",
+          data_type_str: "test_schema.status",
+          is_custom_type: true,
+          custom_type_type: "e",
+          custom_type_category: "E",
+          custom_type_schema: "test_schema",
+          custom_type_name: "status",
+          default: "'active'::test_schema.status",
+        },
+      ],
+    });
+    const typeChangesWithDefault = diffTables(
+      testContext,
+      { [withDefault.stableId]: withDefault },
+      { [typeChangedWithDefault.stableId]: typeChangedWithDefault },
+    );
+    expect(typeChangesWithDefault.map((c) => c.serialize())).toEqual([
+      "ALTER TABLE public.t2 ALTER COLUMN a DROP DEFAULT",
+      "ALTER TABLE public.t2 ALTER COLUMN a TYPE test_schema.status USING a::test_schema.status",
+      "ALTER TABLE public.t2 ALTER COLUMN a SET DEFAULT 'active'::test_schema.status",
+    ]);
+  });
+
+  test("identity transitions emit drop/add/set-generated changes", () => {
+    const serialColumn = {
+      name: "id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: "nextval('public.t_identity_id_seq'::regclass)",
+      comment: null,
+    };
+
+    const identityAlwaysColumn = {
+      ...serialColumn,
+      is_identity: true,
+      is_identity_always: true,
+      default: null,
+    };
+
+    const identityByDefaultColumn = {
+      ...identityAlwaysColumn,
+      is_identity_always: false,
+    };
+
+    const serialToIdentityMain = new Table({
+      ...base,
+      name: "t_identity",
+      columns: [serialColumn],
+    });
+    const serialToIdentityBranch = new Table({
+      ...base,
+      name: "t_identity",
+      columns: [identityAlwaysColumn],
+    });
+
+    const serialToIdentityChanges = diffTables(
+      testContext,
+      { [serialToIdentityMain.stableId]: serialToIdentityMain },
+      { [serialToIdentityBranch.stableId]: serialToIdentityBranch },
+    );
+    expect(
+      serialToIdentityChanges.some(
+        (c) => c instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(true);
+    expect(
+      serialToIdentityChanges.some(
+        (c) => c instanceof AlterTableAlterColumnAddIdentity,
+      ),
+    ).toBe(true);
+
+    const identityToSerialChanges = diffTables(
+      testContext,
+      { [serialToIdentityBranch.stableId]: serialToIdentityBranch },
+      { [serialToIdentityMain.stableId]: serialToIdentityMain },
+    );
+    expect(
+      identityToSerialChanges.some(
+        (c) => c instanceof AlterTableAlterColumnDropIdentity,
+      ),
+    ).toBe(true);
+    expect(
+      identityToSerialChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(true);
+
+    const alwaysToByDefaultMain = new Table({
+      ...base,
+      name: "t_identity_mode",
+      columns: [identityAlwaysColumn],
+    });
+    const alwaysToByDefaultBranch = new Table({
+      ...base,
+      name: "t_identity_mode",
+      columns: [identityByDefaultColumn],
+    });
+    const alwaysToByDefaultChanges = diffTables(
+      testContext,
+      { [alwaysToByDefaultMain.stableId]: alwaysToByDefaultMain },
+      { [alwaysToByDefaultBranch.stableId]: alwaysToByDefaultBranch },
+    );
+    expect(
+      alwaysToByDefaultChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetGenerated,
+      ),
+    ).toBe(true);
+
+    const byDefaultToAlwaysMain = new Table({
+      ...base,
+      name: "t_identity_mode_reverse",
+      columns: [identityByDefaultColumn],
+    });
+    const byDefaultToAlwaysBranch = new Table({
+      ...base,
+      name: "t_identity_mode_reverse",
+      columns: [identityAlwaysColumn],
+    });
+    const byDefaultToAlwaysChanges = diffTables(
+      testContext,
+      { [byDefaultToAlwaysMain.stableId]: byDefaultToAlwaysMain },
+      { [byDefaultToAlwaysBranch.stableId]: byDefaultToAlwaysBranch },
+    );
+    expect(
+      byDefaultToAlwaysChanges.some(
+        (c) => c instanceof AlterTableAlterColumnSetGenerated,
+      ),
+    ).toBe(true);
+  });
+
+  test("postgres 17+ recreates a column when switching from regular to generated", () => {
+    const pg17Context = {
+      ...testContext,
+      version: 170000,
+    };
+
+    const regularColumn = {
+      name: "confirmed_at",
+      position: 1,
+      data_type: "timestamp with time zone",
+      data_type_str: "timestamp with time zone",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+
+    const generatedColumn = {
+      ...regularColumn,
+      is_generated: true,
+      default: "LEAST(email_confirmed_at, phone_confirmed_at)",
+    };
+
+    const mainTable = new Table({
+      ...base,
+      name: "auth_users_like",
+      columns: [regularColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "auth_users_like",
+      columns: [generatedColumn],
+    });
+
+    const changes = diffTables(
+      pg17Context,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.some((c) => c instanceof AlterTableDropColumn)).toBe(true);
+    expect(changes.some((c) => c instanceof AlterTableAddColumn)).toBe(true);
+    expect(
+      changes.some((c) => c instanceof AlterTableAlterColumnSetDefault),
+    ).toBe(false);
   });
 
   test("created table with privileges emits grant changes", () => {

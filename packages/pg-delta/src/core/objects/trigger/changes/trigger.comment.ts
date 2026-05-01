@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
@@ -22,7 +23,7 @@ export class CreateCommentOnTrigger extends CreateTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TRIGGER",
       this.trigger.name,
@@ -52,7 +53,7 @@ export class DropCommentOnTrigger extends DropTriggerChange {
     return [stableId.comment(this.trigger.stableId), this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON TRIGGER",
       this.trigger.name,

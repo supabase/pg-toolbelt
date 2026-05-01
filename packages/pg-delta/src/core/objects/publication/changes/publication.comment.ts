@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Publication } from "../publication.model.ts";
@@ -27,7 +28,7 @@ export class CreateCommentOnPublication extends CreatePublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON PUBLICATION",
       this.publication.name,
@@ -58,7 +59,7 @@ export class DropCommentOnPublication extends DropPublicationChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `COMMENT ON PUBLICATION ${this.publication.name} IS NULL`;
   }
 }

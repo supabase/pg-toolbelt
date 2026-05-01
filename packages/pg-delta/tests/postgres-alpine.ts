@@ -18,6 +18,7 @@ const POSTGRES_PORT = 5432;
 const ALPINE_TAG_FOR_PG_MAJOR: Record<PostgresVersion, string> = {
   15: "3.19",
   17: "3.23",
+  18: "3.22",
 };
 
 const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
@@ -62,7 +63,8 @@ export class PostgresAlpineContainer extends GenericContainer {
     this.withWaitStrategy(Wait.forHealthCheck());
     this.withStartupTimeout(120_000);
     this.withTmpFs({
-      "/var/lib/postgresql/data": "rw,noexec,nosuid,size=256m",
+      // PostgreSQL 18 stores data under /var/lib/postgresql/<major>/docker instead of /data
+      "/var/lib/postgresql": "rw,noexec,nosuid,size=256m",
     });
 
     // Always enable logical replication so subscription tests work. Preload

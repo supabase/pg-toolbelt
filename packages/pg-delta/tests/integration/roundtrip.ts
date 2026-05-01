@@ -21,7 +21,11 @@ import {
   buildPlanScopeFingerprint,
   hashStableIds,
 } from "../../src/core/fingerprint.ts";
-import type { Integration } from "../../src/core/integrations/integration.types.ts";
+import {
+  type Integration,
+  type ResolvedIntegration,
+  resolveIntegration,
+} from "../../src/core/integrations/integration.types.ts";
 import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { sortChanges } from "../../src/core/sort/sort-changes.ts";
@@ -54,6 +58,8 @@ interface RoundtripTestOptions {
    * When defined, random sorting of changes is skipped to ensure deterministic order.
    */
   expectedSqlTerms?: string[] | "same-as-test-sql";
+  /** Optional custom assertion for generated SQL statements (e.g. inline snapshots). */
+  assertSqlStatements?: (sqlStatements: string[]) => void;
   /** Dependencies that must be present in the main catalog after the roundtrip. */
   expectedMainDependencies?: PgDepend[];
   /** Dependencies that must be present in the branch catalog. */
@@ -99,6 +105,7 @@ export async function roundtripFidelityTest(
     initialSetup,
     testSql,
     expectedSqlTerms,
+    assertSqlStatements,
     expectedMainDependencies,
     expectedBranchDependencies,
     expectedOperationOrder,
@@ -149,7 +156,10 @@ export async function roundtripFidelityTest(
   }
 
   let { plan, sortedChanges } = planResult;
-  const integrationFilter = integration?.filter;
+  const resolvedIntegration = integration
+    ? resolveIntegration(integration)
+    : {};
+  const integrationFilter = resolvedIntegration?.filter;
 
   // Optional pre-sort for deterministic tie-breaking in tests
   if (sortChangesCallback) {
@@ -198,6 +208,10 @@ export async function roundtripFidelityTest(
     } else {
       expect(sqlStatements).toStrictEqual(expectedSqlTerms);
     }
+  }
+
+  if (assertSqlStatements) {
+    assertSqlStatements(sqlStatements);
   }
 
   debugTest("migrationScript: %s", migrationScript);
@@ -307,7 +321,10 @@ export async function testDeclarativeExport(
 
   const { sortedChanges, ctx } = planResult;
   const { branchCatalog } = ctx;
-  const integrationFilter = integration?.filter;
+  const resolvedIntegration = integration
+    ? resolveIntegration(integration)
+    : {};
+  const integrationFilter = resolvedIntegration?.filter;
 
   const output = exportDeclarativeSchema(planResult, {
     integration,
@@ -404,7 +421,7 @@ export async function testDeclarativeExport(
 async function verifyNoRemainingChanges(
   mainSession: Pool,
   branchCatalog: Catalog,
-  integrationFilter: Integration["filter"] | undefined,
+  integrationFilter: ResolvedIntegration["filter"] | undefined,
   migrationScript: string,
 ): Promise<void> {
   debugTest("mainCatalogAfter: ");

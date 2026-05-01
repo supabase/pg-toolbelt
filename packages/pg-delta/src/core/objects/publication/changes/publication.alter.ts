@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type {
   Publication,
@@ -31,7 +32,7 @@ export class AlterPublicationSetOptions extends AlterPublicationChange {
     return [this.publication.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const assignments: string[] = [];
 
     if (this.setPublish) {
@@ -79,7 +80,7 @@ export class AlterPublicationSetList extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clauses = formatPublicationObjects(
       this.publication.tables,
       this.publication.schemas,
@@ -118,7 +119,7 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clauses = this.tables.map((table) => formatPublicationTable(table));
     return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
   }
@@ -127,7 +128,7 @@ export class AlterPublicationAddTables extends AlterPublicationChange {
 export class AlterPublicationDropTables extends AlterPublicationChange {
   public readonly publication: Publication;
   public readonly scope = "object" as const;
-  private readonly tables: PublicationTableProps[];
+  public readonly tables: PublicationTableProps[];
 
   constructor(props: {
     publication: Publication;
@@ -150,7 +151,13 @@ export class AlterPublicationDropTables extends AlterPublicationChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  get drops() {
+    // Treat ALTER PUBLICATION ... DROP TABLE as a destructive change so it runs
+    // in the drop phase before DROP TABLE removes the referenced relation.
+    return this.tables.map((table) => stableId.table(table.schema, table.name));
+  }
+
+  serialize(_options?: SerializeOptions): string {
     const targets = this.tables.map((table) => `${table.schema}.${table.name}`);
     return `ALTER PUBLICATION ${this.publication.name} DROP TABLE ${targets.join(", ")}`;
   }
@@ -174,7 +181,7 @@ export class AlterPublicationAddSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
     return `ALTER PUBLICATION ${this.publication.name} ADD ${clauses.join(", ")}`;
   }
@@ -198,7 +205,7 @@ export class AlterPublicationDropSchemas extends AlterPublicationChange {
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const clauses = this.schemas.map((schema) => `TABLES IN SCHEMA ${schema}`);
     return `ALTER PUBLICATION ${this.publication.name} DROP ${clauses.join(", ")}`;
   }
@@ -219,7 +226,7 @@ export class AlterPublicationSetOwner extends AlterPublicationChange {
     return [this.publication.stableId, stableId.role(this.owner)];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `ALTER PUBLICATION ${this.publication.name} OWNER TO ${this.owner}`;
   }
 }

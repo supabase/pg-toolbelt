@@ -59,7 +59,25 @@ export function diffRlsPolicies(
       {},
     );
 
-    if (nonAlterablePropsChanged) {
+    // The set of relations and procedures that the policy's USING / WITH
+    // CHECK expressions reference is recorded by PostgreSQL in pg_depend
+    // (recordDependencyOnExpr at policy creation). When that set changes
+    // it is unsafe to ALTER POLICY in place: the old reference target may
+    // be dropped in the same plan, and the new reference target may only
+    // exist after the create phase. Drop+create lets the sort phase order
+    // the policy's drop before the referenced object's drop and the
+    // policy's recreate after the referenced object's create.
+    const referencedDependenciesChanged = hasNonAlterableChanges(
+      mainRlsPolicy,
+      branchRlsPolicy,
+      ["referenced_procedures", "referenced_relations"] as const,
+      {
+        referenced_procedures: deepEqual,
+        referenced_relations: deepEqual,
+      },
+    );
+
+    if (nonAlterablePropsChanged || referencedDependenciesChanged) {
       // Replace the entire RLS policy (drop + create)
       changes.push(
         new DropRlsPolicy({ policy: mainRlsPolicy }),
