@@ -10,7 +10,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
@@ -46,9 +49,8 @@ const materializedViewPropsSchema = z.object({
 // rather than crashing the whole catalog parse with a ZodError.
 const materializedViewRowSchema = materializedViewPropsSchema.extend({
   definition: z.string().nullable(),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
-
-type MaterializedViewRow = z.infer<typeof materializedViewRowSchema>;
 
 type MaterializedViewPrivilegeProps = PrivilegeProps;
 export type MaterializedViewProps = z.input<typeof materializedViewPropsSchema>;
@@ -157,6 +159,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -295,8 +298,7 @@ order by
     },
   });
   const validatedRows = mvRows.filter(
-    (row): row is MaterializedViewRow & { definition: string } =>
-      row.definition !== null,
+    (row): row is MaterializedViewProps => row.definition !== null,
   );
   return validatedRows.map((row) => new MaterializedView(row));
 }

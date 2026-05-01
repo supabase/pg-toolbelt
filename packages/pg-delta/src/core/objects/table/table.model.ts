@@ -12,7 +12,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
@@ -244,6 +247,7 @@ export class Table extends BasePgModel implements TableLikeObject {
         options: this.options ? [...this.options].sort() : this.options,
         constraints: normalizeConstraints(),
         privileges: normalizePrivileges(this.privileges),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }

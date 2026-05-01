@@ -10,7 +10,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../../table/table.model.ts";
 
 const compositeTypePropsSchema = z.object({
@@ -138,6 +141,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }

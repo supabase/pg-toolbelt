@@ -2,7 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const publicationTablePropsSchema = z.object({
   schema: z.string(),
@@ -125,6 +128,7 @@ export class Publication extends BasePgModel {
             a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name),
         ),
         schemas: [...this.schemas].sort((a, b) => a.localeCompare(b)),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }

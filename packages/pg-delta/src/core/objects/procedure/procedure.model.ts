@@ -79,9 +79,8 @@ const procedurePropsSchema = z.object({
 // whole catalog parse with a ZodError.
 const procedureRowSchema = procedurePropsSchema.extend({
   definition: z.string().nullable(),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
-
-type ProcedureRow = z.infer<typeof procedureRowSchema>;
 
 type ProcedurePrivilegeProps = PrivilegeProps;
 export type ProcedureProps = z.input<typeof procedurePropsSchema>;
@@ -303,8 +302,7 @@ order by
     },
   });
   const validatedRows = procedureRows.filter(
-    (row): row is ProcedureRow & { definition: string } =>
-      row.definition !== null,
+    (row): row is ProcedureProps => row.definition !== null,
   );
   return validatedRows.map((row) => new Procedure(row));
 }

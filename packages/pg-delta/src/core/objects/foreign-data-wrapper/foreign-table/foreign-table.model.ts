@@ -10,7 +10,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 /**
  * All properties exposed by CREATE FOREIGN TABLE statement are included in diff output.
@@ -111,6 +114,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }

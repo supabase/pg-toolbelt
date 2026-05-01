@@ -7,6 +7,10 @@ export const securityLabelPropsSchema = z.object({
 
 export type SecurityLabelProps = z.infer<typeof securityLabelPropsSchema>;
 
+export function normalizeSecurityLabels(labels: readonly SecurityLabelProps[]): SecurityLabelProps[] {
+  return [...labels].sort((a, b) => a.provider.localeCompare(b.provider));
+}
+
 /**
  * Pure helper: compares two arrays of security labels keyed by provider and
  * returns a deterministic list of create/drop changes.

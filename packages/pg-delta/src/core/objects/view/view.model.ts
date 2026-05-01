@@ -11,7 +11,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  normalizeSecurityLabels,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
@@ -47,9 +50,8 @@ const viewPropsSchema = z.object({
 // rather than crashing the whole catalog parse with a ZodError.
 const viewRowSchema = viewPropsSchema.extend({
   definition: z.string().nullable(),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
-
-type ViewRow = z.infer<typeof viewRowSchema>;
 
 type ViewPrivilegeProps = PrivilegeProps;
 export type ViewProps = z.input<typeof viewPropsSchema>;
@@ -143,6 +145,7 @@ export class View extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(this.columns),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -301,7 +304,7 @@ order by
     },
   });
   const validatedRows = viewRows.filter(
-    (row): row is ViewRow & { definition: string } => row.definition !== null,
+    (row): row is ViewProps => row.definition !== null,
   );
   return validatedRows.map((row) => new View(row));
 }
