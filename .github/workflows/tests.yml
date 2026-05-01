@@ -133,7 +133,7 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
-  pg-delta-integration:
+  pg-delta-test-image-hash:
     if: >-
       (
         github.event_name != 'pull_request' || (
@@ -143,9 +143,137 @@ jobs:
       ) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
+    name: "pg-delta: Compute test image hash"
+    runs-on: ubuntu-latest
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
+      can_push: ${{ steps.context.outputs.can_push }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Compute content hash
+        id: hash
+        # Hash both the Dockerfile and the file owning ALPINE_TAG_FOR_PG_MAJOR
+        # so a change to either produces a fresh image tag without colliding
+        # with previously-published ones.
+        run: |
+          HASH=$(cat \
+            packages/pg-delta/tests/dummy-seclabel.Dockerfile \
+            packages/pg-delta/tests/postgres-alpine.ts \
+            | sha256sum | cut -c1-12)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+      - name: Resolve build/push capability
+        id: context
+        # Forked PRs cannot push to GHCR (no write token), so they fall back
+        # to building the image inline inside `buildPostgresTestImage`.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "can_push=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  pg-delta-build-test-images:
+    if: >-
+      needs.pg-delta-test-image-hash.outputs.can_push == 'true'
+    needs:
+      - detect-changes
+      - pg-delta-test-image-hash
+    name: "pg-delta: Build test image (PG ${{ matrix.postgres_version }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep `alpine_tag` in sync with `ALPINE_TAG_FOR_PG_MAJOR` in
+        # `packages/pg-delta/tests/postgres-alpine.ts`. The hash job picks
+        # up changes to either file so a forgotten update produces a fresh
+        # tag rather than reusing a stale image.
+        include:
+          - postgres_version: 15
+            alpine_tag: "3.19"
+            pg_branch: REL_15_STABLE
+          - postgres_version: 17
+            alpine_tag: "3.23"
+            pg_branch: REL_17_STABLE
+          - postgres_version: 18
+            alpine_tag: "3.22"
+            pg_branch: REL_18_STABLE
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve image reference
+        id: ref
+        run: |
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${REPO_LC}/pg-delta-test:${{ matrix.postgres_version }}-${{ needs.pg-delta-test-image-hash.outputs.hash }}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Check if image already published
+        id: probe
+        # `docker manifest inspect` is read-only and avoids re-running the
+        # build (and its `apk add alpine-sdk` + source compile) when the
+        # Dockerfile hasn't changed since the last main-branch run.
+        run: |
+          if docker manifest inspect "${{ steps.ref.outputs.image }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Set up Docker Buildx
+        if: steps.probe.outputs.exists != 'true'
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Build and push
+        if: steps.probe.outputs.exists != 'true'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: packages/pg-delta/tests
+          file: packages/pg-delta/tests/dummy-seclabel.Dockerfile
+          push: true
+          tags: ${{ steps.ref.outputs.image }}
+          build-args: |
+            PG_MAJOR=${{ matrix.postgres_version }}
+            PG_BRANCH=${{ matrix.pg_branch }}
+            ALPINE_TAG=${{ matrix.alpine_tag }}
+          cache-from: type=gha,scope=pg-delta-test-${{ matrix.postgres_version }}
+          cache-to: type=gha,mode=max,scope=pg-delta-test-${{ matrix.postgres_version }}
+
+  pg-delta-integration:
+    if: >-
+      (
+        github.event_name != 'pull_request' || (
+          github.event.pull_request.draft == false &&
+          github.event.pull_request.user.login != 'supabase-releaser[bot]'
+        )
+      ) &&
+      (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true') &&
+      !cancelled() &&
+      (
+        needs.pg-delta-build-test-images.result == 'success' ||
+        (
+          needs.pg-delta-build-test-images.result == 'skipped' &&
+          needs.pg-delta-test-image-hash.outputs.can_push != 'true'
+        )
+      )
+    needs:
+      - detect-changes
+      - pg-delta-test-image-hash
+      - pg-delta-build-test-images
     name: "pg-delta: Integration (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard_index }}/${{ matrix.shard_total }})"
     runs-on: ubuntu-latest
     timeout-minutes: 14
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -157,6 +285,27 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Setup
         uses: ./.github/actions/setup
+      - name: Login to GHCR
+        if: needs.pg-delta-test-image-hash.outputs.can_push == 'true'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull prebuilt test image
+        # On forked PRs `can_push=false` and we let `buildPostgresTestImage`
+        # build the image inline at test time (current behavior). On main
+        # and same-repo PRs we pull the prebuilt image and retag it as
+        # `pg-delta-test:<major>` so the existing test code (which keys
+        # off that tag prefix) finds it via `image.exists` and skips the
+        # docker build entirely.
+        if: needs.pg-delta-test-image-hash.outputs.can_push == 'true'
+        run: |
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          REMOTE="ghcr.io/${REPO_LC}/pg-delta-test:${{ matrix.postgres_version }}-${{ needs.pg-delta-test-image-hash.outputs.hash }}"
+          LOCAL="pg-delta-test:${{ matrix.postgres_version }}"
+          docker pull "$REMOTE"
+          docker tag "$REMOTE" "$LOCAL"
       - name: Run integration tests (shard)
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
@@ -192,10 +341,20 @@ jobs:
   pg-delta-integration-pg15-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
+      - pg-delta-build-test-images
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 15)"
     runs-on: ubuntu-latest
     steps:
+      - name: Validate prebuilt test image status
+        # A failed prebuild silently skips the integration matrix, which
+        # would otherwise look indistinguishable from "no pg-delta changes
+        # to test". Surface the failure here so the aggregator turns red.
+        run: |
+          if [ "${{ needs.pg-delta-build-test-images.result }}" != "success" ] && [ "${{ needs.pg-delta-build-test-images.result }}" != "skipped" ]; then
+            echo "Prebuilt test image status: ${{ needs.pg-delta-build-test-images.result }}"
+            exit 1
+          fi
       - name: Validate integration matrix status
         run: |
           if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
@@ -206,10 +365,17 @@ jobs:
   pg-delta-integration-pg17-compat:
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs:
+      - pg-delta-build-test-images
       - pg-delta-integration
     name: "pg-delta: Integration (PostgreSQL 17)"
     runs-on: ubuntu-latest
     steps:
+      - name: Validate prebuilt test image status
+        run: |
+          if [ "${{ needs.pg-delta-build-test-images.result }}" != "success" ] && [ "${{ needs.pg-delta-build-test-images.result }}" != "skipped" ]; then
+            echo "Prebuilt test image status: ${{ needs.pg-delta-build-test-images.result }}"
+            exit 1
+          fi
       - name: Validate integration matrix status
         run: |
           if [ "${{ needs.pg-delta-integration.result }}" != "success" ] && [ "${{ needs.pg-delta-integration.result }}" != "skipped" ]; then
