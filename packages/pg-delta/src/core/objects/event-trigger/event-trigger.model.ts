@@ -2,7 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const EventTriggerEnabledSchema = z.enum([
   "O", // ORIGIN - trigger fires in origin mode
@@ -20,10 +23,10 @@ const eventTriggerPropsSchema = z.object({
   tags: z.array(z.string()).nullable(),
   owner: z.string(),
   comment: z.string().nullable(),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
-export type EventTriggerProps = z.input<typeof eventTriggerPropsSchema>;
+export type EventTriggerProps = z.infer<typeof eventTriggerPropsSchema>;
 
 export class EventTrigger extends BasePgModel {
   public readonly name: EventTriggerProps["name"];
@@ -34,9 +37,7 @@ export class EventTrigger extends BasePgModel {
   public readonly tags: EventTriggerProps["tags"];
   public readonly owner: EventTriggerProps["owner"];
   public readonly comment: EventTriggerProps["comment"];
-  public readonly security_labels: z.infer<
-    typeof eventTriggerPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: EventTriggerProps) {
     super();

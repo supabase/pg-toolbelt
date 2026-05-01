@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 /**
  * All properties exposed by CREATE SCHEMA statement are included in diff output.
@@ -20,7 +23,7 @@ const schemaPropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type SchemaPrivilegeProps = PrivilegeProps;
@@ -31,7 +34,7 @@ export class Schema extends BasePgModel {
   public readonly owner: SchemaProps["owner"];
   public readonly comment: SchemaProps["comment"];
   public readonly privileges: SchemaPrivilegeProps[];
-  public readonly security_labels: SchemaProps["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: SchemaProps) {
     super();

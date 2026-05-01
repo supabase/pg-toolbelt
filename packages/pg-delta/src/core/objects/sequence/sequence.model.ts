@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const sequencePropsSchema = z.object({
   schema: z.string(),
@@ -25,11 +28,11 @@ const sequencePropsSchema = z.object({
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
   owner: z.string(),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type SequencePrivilegeProps = PrivilegeProps;
-export type SequenceProps = z.input<typeof sequencePropsSchema>;
+export type SequenceProps = z.infer<typeof sequencePropsSchema>;
 
 export class Sequence extends BasePgModel {
   public readonly schema: SequenceProps["schema"];
@@ -48,9 +51,7 @@ export class Sequence extends BasePgModel {
   public readonly comment: SequenceProps["comment"];
   public readonly privileges: SequencePrivilegeProps[];
   public readonly owner: SequenceProps["owner"];
-  public readonly security_labels: z.infer<
-    typeof sequencePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: SequenceProps) {
     super();

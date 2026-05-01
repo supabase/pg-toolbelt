@@ -17,6 +17,7 @@ import {
 } from "../extract-with-retry.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
@@ -40,7 +41,7 @@ const viewPropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 // pg_get_viewdef(oid) can return NULL when the underlying view (or its
@@ -50,11 +51,10 @@ const viewPropsSchema = z.object({
 // rather than crashing the whole catalog parse with a ZodError.
 const viewRowSchema = viewPropsSchema.extend({
   definition: z.string().nullable(),
-  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type ViewPrivilegeProps = PrivilegeProps;
-export type ViewProps = z.input<typeof viewPropsSchema>;
+export type ViewProps = z.infer<typeof viewPropsSchema>;
 
 export class View extends BasePgModel implements TableLikeObject {
   public readonly schema: ViewProps["schema"];
@@ -75,9 +75,7 @@ export class View extends BasePgModel implements TableLikeObject {
   public readonly comment: ViewProps["comment"];
   public readonly columns: ViewProps["columns"];
   public readonly privileges: ViewPrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof viewPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: ViewProps) {
     super();

@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const domainConstraintPropsSchema = z.object({
   name: z.string(),
@@ -32,12 +35,12 @@ const domainPropsSchema = z.object({
   comment: z.string().nullable(),
   constraints: z.array(domainConstraintPropsSchema),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
 type DomainPrivilegeProps = PrivilegeProps;
-export type DomainProps = z.input<typeof domainPropsSchema>;
+export type DomainProps = z.infer<typeof domainPropsSchema>;
 
 /**
  * A domain is a user-defined data type that is based on another underlying type.
@@ -60,9 +63,7 @@ export class Domain extends BasePgModel {
   public readonly comment: DomainProps["comment"];
   public readonly constraints: DomainConstraintProps[];
   public readonly privileges: DomainPrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof domainPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: DomainProps) {
     super();

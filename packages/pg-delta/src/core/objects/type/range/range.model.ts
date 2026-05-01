@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 const rangePropsSchema = z.object({
   schema: z.string(),
@@ -31,11 +34,11 @@ const rangePropsSchema = z.object({
   subtype_opclass_schema: z.string().nullable(),
   subtype_opclass_name: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type RangePrivilegeProps = PrivilegeProps;
-export type RangeProps = z.input<typeof rangePropsSchema>;
+export type RangeProps = z.infer<typeof rangePropsSchema>;
 
 export class Range extends BasePgModel {
   public readonly schema: RangeProps["schema"];
@@ -56,9 +59,7 @@ export class Range extends BasePgModel {
   public readonly subtype_opclass_schema: RangeProps["subtype_opclass_schema"];
   public readonly subtype_opclass_name: RangeProps["subtype_opclass_name"];
   public readonly privileges: RangePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof rangePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: RangeProps) {
     super();

@@ -10,7 +10,10 @@ import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
 } from "../extract-with-retry.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const FunctionKindSchema = z.enum([
   "f", // function
@@ -69,7 +72,7 @@ const procedurePropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 // pg_get_functiondef(oid) can return NULL when the function (its pg_proc
@@ -79,11 +82,10 @@ const procedurePropsSchema = z.object({
 // whole catalog parse with a ZodError.
 const procedureRowSchema = procedurePropsSchema.extend({
   definition: z.string().nullable(),
-  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type ProcedurePrivilegeProps = PrivilegeProps;
-export type ProcedureProps = z.input<typeof procedurePropsSchema>;
+export type ProcedureProps = z.infer<typeof procedurePropsSchema>;
 
 export class Procedure extends BasePgModel {
   public readonly schema: ProcedureProps["schema"];
@@ -115,9 +117,7 @@ export class Procedure extends BasePgModel {
   public readonly owner: ProcedureProps["owner"];
   public readonly comment: ProcedureProps["comment"];
   public readonly privileges: ProcedurePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof procedurePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: ProcedureProps) {
     super();

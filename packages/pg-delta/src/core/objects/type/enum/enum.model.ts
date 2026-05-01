@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 const enumLabelSchema = z.object({
   sort_order: z.number(),
@@ -34,11 +37,11 @@ const enumPropsSchema = z.object({
   labels: z.array(enumLabelSchema),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type EnumPrivilegeProps = PrivilegeProps;
-export type EnumProps = z.input<typeof enumPropsSchema>;
+export type EnumProps = z.infer<typeof enumPropsSchema>;
 
 export class Enum extends BasePgModel {
   public readonly schema: EnumProps["schema"];
@@ -47,9 +50,7 @@ export class Enum extends BasePgModel {
   public readonly labels: EnumProps["labels"];
   public readonly comment: EnumProps["comment"];
   public readonly privileges: EnumPrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof enumPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: EnumProps) {
     super();

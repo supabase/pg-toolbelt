@@ -12,6 +12,7 @@ import {
 } from "../../base.privilege-diff.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../../security-label.types.ts";
 
@@ -34,11 +35,11 @@ const foreignTablePropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type ForeignTablePrivilegeProps = PrivilegeProps;
-export type ForeignTableProps = z.input<typeof foreignTablePropsSchema>;
+export type ForeignTableProps = z.infer<typeof foreignTablePropsSchema>;
 
 export class ForeignTable extends BasePgModel implements TableLikeObject {
   public readonly schema: ForeignTableProps["schema"];
@@ -49,9 +50,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
   public readonly comment: ForeignTableProps["comment"];
   public readonly columns: ForeignTableProps["columns"];
   public readonly privileges: ForeignTablePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof foreignTablePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: ForeignTableProps) {
     super();

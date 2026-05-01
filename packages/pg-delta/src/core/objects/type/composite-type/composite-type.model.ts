@@ -12,6 +12,7 @@ import {
 } from "../../base.privilege-diff.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../../table/table.model.ts";
@@ -34,11 +35,11 @@ const compositeTypePropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type CompositeTypePrivilegeProps = PrivilegeProps;
-export type CompositeTypeProps = z.input<typeof compositeTypePropsSchema>;
+export type CompositeTypeProps = z.infer<typeof compositeTypePropsSchema>;
 
 export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly schema: CompositeTypeProps["schema"];
@@ -58,9 +59,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly comment: CompositeTypeProps["comment"];
   public readonly columns: CompositeTypeProps["columns"];
   public readonly privileges: CompositeTypePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof compositeTypePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: CompositeTypeProps) {
     super();

@@ -2,7 +2,10 @@ import type { Pool } from "pg";
 import z from "zod";
 import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const subscriptionPropsSchema = z.object({
   name: z.string(),
@@ -24,10 +27,10 @@ const subscriptionPropsSchema = z.object({
   synchronous_commit: z.string(),
   publications: z.array(z.string()),
   origin: z.enum(["any", "none"]),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
-export type SubscriptionProps = z.input<typeof subscriptionPropsSchema>;
+export type SubscriptionProps = z.infer<typeof subscriptionPropsSchema>;
 
 export class Subscription extends BasePgModel {
   public readonly name: SubscriptionProps["name"];
@@ -49,9 +52,7 @@ export class Subscription extends BasePgModel {
   public readonly synchronous_commit: SubscriptionProps["synchronous_commit"];
   public readonly publications: SubscriptionProps["publications"];
   public readonly origin: SubscriptionProps["origin"];
-  public readonly security_labels: z.infer<
-    typeof subscriptionPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: SubscriptionProps) {
     super();

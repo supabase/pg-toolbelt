@@ -16,6 +16,7 @@ import {
 } from "../extract-with-retry.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
@@ -39,7 +40,7 @@ const materializedViewPropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 // pg_get_viewdef(oid) can return NULL when the underlying matview (or its
@@ -49,11 +50,10 @@ const materializedViewPropsSchema = z.object({
 // rather than crashing the whole catalog parse with a ZodError.
 const materializedViewRowSchema = materializedViewPropsSchema.extend({
   definition: z.string().nullable(),
-  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type MaterializedViewPrivilegeProps = PrivilegeProps;
-export type MaterializedViewProps = z.input<typeof materializedViewPropsSchema>;
+export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly schema: MaterializedViewProps["schema"];
@@ -74,9 +74,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly comment: MaterializedViewProps["comment"];
   public readonly columns: MaterializedViewProps["columns"];
   public readonly privileges: MaterializedViewPrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof materializedViewPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: MaterializedViewProps) {
     super();

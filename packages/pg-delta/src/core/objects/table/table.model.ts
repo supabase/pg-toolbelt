@@ -18,6 +18,7 @@ import {
 } from "../extract-with-retry.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../security-label.types.ts";
 
@@ -123,7 +124,7 @@ const tablePropsSchema = z.object({
   columns: z.array(columnPropsSchema),
   constraints: z.array(tableConstraintPropsSchema).optional(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 const tableRowSchema = tablePropsSchema.extend({
@@ -135,7 +136,7 @@ type TablePrivilegeProps = PrivilegeProps;
  * Table input props. `security_labels` is optional on direct construction
  * (defaults to `[]`); extraction always produces it via the Zod default.
  */
-export type TableProps = z.input<typeof tablePropsSchema>;
+export type TableProps = z.infer<typeof tablePropsSchema>;
 type TableRow = z.infer<typeof tableRowSchema>;
 
 export class Table extends BasePgModel implements TableLikeObject {
@@ -162,9 +163,7 @@ export class Table extends BasePgModel implements TableLikeObject {
   public readonly columns: TableProps["columns"];
   public readonly constraints: TableConstraintProps[];
   public readonly privileges: TablePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof tablePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: TableProps) {
     super();

@@ -6,7 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const AggregateKindSchema = z.enum([
   "n", // normal aggregate
@@ -76,11 +79,11 @@ const aggregatePropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type AggregatePrivilegeProps = PrivilegeProps;
-type AggregateProps = z.input<typeof aggregatePropsSchema>;
+type AggregateProps = z.infer<typeof aggregatePropsSchema>;
 
 export class Aggregate extends BasePgModel {
   public readonly schema: AggregateProps["schema"];
@@ -124,9 +127,7 @@ export class Aggregate extends BasePgModel {
   public readonly owner: AggregateProps["owner"];
   public readonly comment: AggregateProps["comment"];
   public readonly privileges: AggregatePrivilegeProps[];
-  public readonly security_labels: z.infer<
-    typeof aggregatePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: AggregateProps) {
     super();

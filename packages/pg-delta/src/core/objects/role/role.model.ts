@@ -2,7 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
-import { securityLabelPropsSchema } from "../security-label.types.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const membershipInfoSchema = z.object({
   member: z.string(),
@@ -36,10 +39,10 @@ const rolePropsSchema = z.object({
   comment: z.string().nullable(),
   members: z.array(membershipInfoSchema),
   default_privileges: z.array(defaultPrivilegeSchema),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
-export type RoleProps = z.input<typeof rolePropsSchema>;
+export type RoleProps = z.infer<typeof rolePropsSchema>;
 
 export class Role extends BasePgModel {
   public readonly name: RoleProps["name"];
@@ -55,9 +58,7 @@ export class Role extends BasePgModel {
   public readonly comment: RoleProps["comment"];
   public readonly members: RoleProps["members"];
   public readonly default_privileges: RoleProps["default_privileges"];
-  public readonly security_labels: z.infer<
-    typeof rolePropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: RoleProps) {
     super();

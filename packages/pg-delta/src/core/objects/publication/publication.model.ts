@@ -4,6 +4,7 @@ import z from "zod";
 import { BasePgModel } from "../base.model.ts";
 import {
   normalizeSecurityLabels,
+  type SecurityLabelProps,
   securityLabelPropsSchema,
 } from "../security-label.types.ts";
 
@@ -26,11 +27,11 @@ const publicationPropsSchema = z.object({
   publish_via_partition_root: z.boolean(),
   tables: z.array(publicationTablePropsSchema),
   schemas: z.array(z.string()),
-  security_labels: z.array(securityLabelPropsSchema).default([]),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 export type PublicationTableProps = z.infer<typeof publicationTablePropsSchema>;
-export type PublicationProps = z.input<typeof publicationPropsSchema>;
+export type PublicationProps = z.infer<typeof publicationPropsSchema>;
 
 /**
  * Logical replication publication definition extracted from pg_publication.
@@ -49,9 +50,7 @@ export class Publication extends BasePgModel {
   public readonly publish_via_partition_root: PublicationProps["publish_via_partition_root"];
   public readonly tables: PublicationTableProps[];
   public readonly schemas: PublicationProps["schemas"];
-  public readonly security_labels: z.infer<
-    typeof publicationPropsSchema
-  >["security_labels"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: PublicationProps) {
     super();
