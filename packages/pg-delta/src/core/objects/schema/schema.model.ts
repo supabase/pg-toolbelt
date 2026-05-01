@@ -6,6 +6,7 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 /**
  * All properties exposed by CREATE SCHEMA statement are included in diff output.
@@ -19,6 +20,7 @@ const schemaPropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
 type SchemaPrivilegeProps = PrivilegeProps;
@@ -29,6 +31,7 @@ export class Schema extends BasePgModel {
   public readonly owner: SchemaProps["owner"];
   public readonly comment: SchemaProps["comment"];
   public readonly privileges: SchemaPrivilegeProps[];
+  public readonly security_labels: SchemaProps["security_labels"];
 
   constructor(props: SchemaProps) {
     super();
@@ -40,6 +43,7 @@ export class Schema extends BasePgModel {
     this.owner = props.owner;
     this.comment = props.comment;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `schema:${string}` {
@@ -57,6 +61,7 @@ export class Schema extends BasePgModel {
       owner: this.owner,
       comment: this.comment,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -88,7 +93,19 @@ export async function extractSchemas(pool: Pool): Promise<Schema[]> {
           )
           from lateral aclexplode(COALESCE(nspacl, acldefault('n', nspowner))) as x(grantor, grantee, privilege_type, is_grantable)
         ), '[]'
-      ) as privileges
+      ) as privileges,
+      coalesce(
+        (
+          select json_agg(
+            json_build_object('provider', sl.provider, 'label', sl.label)
+            order by sl.provider
+          )
+          from pg_catalog.pg_seclabel sl
+          where sl.objoid = pg_namespace.oid
+            and sl.classoid = 'pg_namespace'::regclass
+            and sl.objsubid = 0
+        ), '[]'
+      ) as security_labels
     from
       pg_catalog.pg_namespace
       left outer join extension_oids e on e.objid = oid

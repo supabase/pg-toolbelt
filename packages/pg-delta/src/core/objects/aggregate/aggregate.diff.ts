@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import type { Aggregate } from "./aggregate.model.ts";
 import { AlterAggregateChangeOwner } from "./changes/aggregate.alter.ts";
@@ -19,6 +20,10 @@ import {
   RevokeAggregatePrivileges,
   RevokeGrantOptionAggregatePrivileges,
 } from "./changes/aggregate.privilege.ts";
+import {
+  CreateSecurityLabelOnAggregate,
+  DropSecurityLabelOnAggregate,
+} from "./changes/aggregate.security-label.ts";
 import type { AggregateChange } from "./changes/aggregate.types.ts";
 
 export function diffAggregates(
@@ -50,6 +55,14 @@ export function diffAggregates(
 
     if (aggregate.comment !== null) {
       changes.push(new CreateCommentOnAggregate({ aggregate }));
+    }
+    for (const label of aggregate.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnAggregate({
+          aggregate,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -181,6 +194,26 @@ export function diffAggregates(
         );
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnAggregate | DropSecurityLabelOnAggregate
+      >(
+        mainAggregate.security_labels,
+        branchAggregate.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnAggregate({
+            aggregate: branchAggregate,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnAggregate({
+            aggregate: mainAggregate,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PRIVILEGES
     // Filter out PUBLIC's built-in default EXECUTE privilege from main catalog

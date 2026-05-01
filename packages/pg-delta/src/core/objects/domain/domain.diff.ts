@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainChangeOwner,
@@ -26,6 +27,10 @@ import {
   RevokeDomainPrivileges,
   RevokeGrantOptionDomainPrivileges,
 } from "./changes/domain.privilege.ts";
+import {
+  CreateSecurityLabelOnDomain,
+  DropSecurityLabelOnDomain,
+} from "./changes/domain.security-label.ts";
 import type { DomainChange } from "./changes/domain.types.ts";
 import type { Domain } from "./domain.model.ts";
 
@@ -66,6 +71,14 @@ export function diffDomains(
 
     if (newDomain.comment !== null) {
       changes.push(new CreateCommentOnDomain({ domain: newDomain }));
+    }
+    for (const label of newDomain.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnDomain({
+          domain: newDomain,
+          securityLabel: label,
+        }),
+      );
     }
     // For unvalidated constraints, CREATE DOMAIN cannot specify NOT VALID.
     // Add them after creation and validate to match branch state semantics.
@@ -254,6 +267,26 @@ export function diffDomains(
         changes.push(new CreateCommentOnDomain({ domain: branchDomain }));
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnDomain | DropSecurityLabelOnDomain
+      >(
+        mainDomain.security_labels,
+        branchDomain.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnDomain({
+            domain: branchDomain,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnDomain({
+            domain: mainDomain,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PRIVILEGES
     // Filter out PUBLIC's built-in default USAGE privilege from main catalog

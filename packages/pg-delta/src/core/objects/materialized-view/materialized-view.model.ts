@@ -14,6 +14,7 @@ import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
 } from "../extract-with-retry.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const materializedViewPropsSchema = z.object({
@@ -35,6 +36,7 @@ const materializedViewPropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
 // pg_get_viewdef(oid) can return NULL when the underlying matview (or its
@@ -47,7 +49,8 @@ const materializedViewRowSchema = materializedViewPropsSchema.extend({
 });
 
 type MaterializedViewPrivilegeProps = PrivilegeProps;
-export type MaterializedViewProps = z.infer<typeof materializedViewPropsSchema>;
+export type MaterializedViewProps = z.input<typeof materializedViewPropsSchema>;
+type MaterializedViewRow = z.infer<typeof materializedViewRowSchema>;
 
 export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly schema: MaterializedViewProps["schema"];
@@ -68,6 +71,9 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly comment: MaterializedViewProps["comment"];
   public readonly columns: MaterializedViewProps["columns"];
   public readonly privileges: MaterializedViewPrivilegeProps[];
+  public readonly security_labels: z.infer<
+    typeof materializedViewPropsSchema
+  >["security_labels"];
 
   constructor(props: MaterializedViewProps) {
     super();
@@ -93,6 +99,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
     this.comment = props.comment;
     this.columns = props.columns;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `materializedView:${string}` {
@@ -124,6 +131,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       comment: this.comment,
       columns: this.columns,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -252,7 +260,20 @@ select
       join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
       group by x.grantee, x.privilege_type
     ) as grp
-  ), '[]') as privileges
+  ), '[]') as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = c.oid
+        and sl.classoid = 'pg_class'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   pg_catalog.pg_class c
   left outer join extension_oids e on c.oid = e.objid
@@ -273,9 +294,8 @@ order by
     },
   });
   const validatedRows = mvRows.filter(
-    (row): row is MaterializedViewProps => row.definition !== null,
+    (row): row is MaterializedViewRow & { definition: string } =>
+      row.definition !== null,
   );
-  return validatedRows.map(
-    (row: MaterializedViewProps) => new MaterializedView(row),
-  );
+  return validatedRows.map((row) => new MaterializedView(row));
 }

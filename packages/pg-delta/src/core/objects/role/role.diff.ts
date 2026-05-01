@@ -1,4 +1,5 @@
 import { diffObjects } from "../base.diff.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import {
   AlterRoleSetConfig,
   AlterRoleSetOptions,
@@ -16,6 +17,10 @@ import {
   RevokeRoleMembership,
   RevokeRoleMembershipOptions,
 } from "./changes/role.privilege.ts";
+import {
+  CreateSecurityLabelOnRole,
+  DropSecurityLabelOnRole,
+} from "./changes/role.security-label.ts";
 import type { RoleChange } from "./changes/role.types.ts";
 import type { Role } from "./role.model.ts";
 
@@ -50,6 +55,14 @@ export function diffRoles(
     }
     if (role.comment !== null) {
       changes.push(new CreateCommentOnRole({ role }));
+    }
+    for (const label of role.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnRole({
+          role,
+          securityLabel: label,
+        }),
+      );
     }
     // MEMBERSHIPS: Grant memberships immediately after role creation.
     // Members are already deduplicated by the Role model constructor.
@@ -214,6 +227,26 @@ export function diffRoles(
         changes.push(new CreateCommentOnRole({ role: branchRole }));
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnRole | DropSecurityLabelOnRole
+      >(
+        mainRole.security_labels,
+        branchRole.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnRole({
+            role: branchRole,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnRole({
+            role: mainRole,
+            securityLabel,
+          }),
+      ),
+    );
 
     // MEMBERSHIPS
     // Members are already deduplicated by the Role model constructor.

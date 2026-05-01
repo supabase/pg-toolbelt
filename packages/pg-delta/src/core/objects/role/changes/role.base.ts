@@ -7,7 +7,8 @@ abstract class BaseRoleChange extends BaseChange {
     | "object"
     | "comment"
     | "membership"
-    | "default_privilege";
+    | "default_privilege"
+    | "security_label";
   readonly objectType: "role" = "role";
 }
 

@@ -267,6 +267,7 @@ export async function createEmptyCatalog(
     owner: currentUser,
     comment: "standard public schema",
     privileges: [],
+    security_labels: [],
   });
 
   return new Catalog({

@@ -3,7 +3,11 @@ import type { Domain } from "../domain.model.ts";
 
 abstract class BaseDomainChange extends BaseChange {
   abstract readonly domain: Domain;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "domain" = "domain";
 }
 

@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import z from "zod";
 import { extractVersion } from "../../context.ts";
 import { BasePgModel } from "../base.model.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 const subscriptionPropsSchema = z.object({
   name: z.string(),
@@ -23,9 +24,10 @@ const subscriptionPropsSchema = z.object({
   synchronous_commit: z.string(),
   publications: z.array(z.string()),
   origin: z.enum(["any", "none"]),
+  security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
-export type SubscriptionProps = z.infer<typeof subscriptionPropsSchema>;
+export type SubscriptionProps = z.input<typeof subscriptionPropsSchema>;
 
 export class Subscription extends BasePgModel {
   public readonly name: SubscriptionProps["name"];
@@ -47,6 +49,9 @@ export class Subscription extends BasePgModel {
   public readonly synchronous_commit: SubscriptionProps["synchronous_commit"];
   public readonly publications: SubscriptionProps["publications"];
   public readonly origin: SubscriptionProps["origin"];
+  public readonly security_labels: z.infer<
+    typeof subscriptionPropsSchema
+  >["security_labels"];
 
   constructor(props: SubscriptionProps) {
     super();
@@ -72,6 +77,7 @@ export class Subscription extends BasePgModel {
       a.localeCompare(b),
     );
     this.origin = props.origin;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `subscription:${string}` {
@@ -104,6 +110,7 @@ export class Subscription extends BasePgModel {
       synchronous_commit: this.synchronous_commit,
       publications: this.publications,
       origin: this.origin,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -173,7 +180,20 @@ export async function extractSubscriptions(
           ),
           '[]'::json
         ) as publications,
-        ${originExpr} as origin
+        ${originExpr} as origin,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              order by sl.provider
+            )
+            from pg_catalog.pg_seclabel sl
+            where sl.objoid = s.oid
+              and sl.classoid = 'pg_subscription'::regclass
+              and sl.objsubid = 0
+          ),
+          '[]'::json
+        ) as security_labels
       from scoped_subscriptions s
       left join pg_replication_slots r
         on r.slot_name = s.subslotname

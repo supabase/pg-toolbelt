@@ -1,4 +1,5 @@
 import z from "zod";
+import { securityLabelPropsSchema } from "./security-label.types.ts";
 import { deepEqual } from "./utils.ts";
 
 export const columnPropsSchema = z.object({
@@ -18,6 +19,7 @@ export const columnPropsSchema = z.object({
   collation: z.string().nullable(),
   default: z.string().nullable(),
   comment: z.string().nullable(),
+  security_labels: z.array(securityLabelPropsSchema).optional(),
 });
 
 export type ColumnProps = z.infer<typeof columnPropsSchema>;

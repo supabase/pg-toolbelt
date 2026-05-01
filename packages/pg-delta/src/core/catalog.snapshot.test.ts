@@ -195,6 +195,7 @@ describe("catalog snapshot serde", () => {
       owner: "pg_database_owner",
       comment: "standard public schema",
       privileges: [],
+      security_labels: [],
     });
 
     const depends = [
@@ -310,6 +311,7 @@ describe("catalog snapshot serde", () => {
       owner: "pg_database_owner",
       comment: "standard public schema",
       privileges: [],
+      security_labels: [],
     });
 
     const mySchema = new Schema({
@@ -317,6 +319,7 @@ describe("catalog snapshot serde", () => {
       owner: "postgres",
       comment: null,
       privileges: [],
+      security_labels: [],
     });
 
     const target = new Catalog({
@@ -340,12 +343,14 @@ describe("catalog snapshot serde", () => {
       owner: "postgres",
       comment: null,
       privileges: [],
+      security_labels: [],
     });
     const publicSchema = new Schema({
       name: "public",
       owner: "postgres",
       comment: null,
       privileges: [],
+      security_labels: [],
     });
     const postgresRole = new Role({
       name: "postgres",

@@ -11,6 +11,7 @@ const base: SchemaProps = {
   owner: "o1",
   comment: null,
   privileges: [],
+  security_labels: [],
 };
 
 const testContext = {

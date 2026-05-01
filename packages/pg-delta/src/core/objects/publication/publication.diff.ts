@@ -1,5 +1,6 @@
 import { diffObjects } from "../base.diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterPublicationAddSchemas,
@@ -15,6 +16,10 @@ import {
 } from "./changes/publication.comment.ts";
 import { CreatePublication } from "./changes/publication.create.ts";
 import { DropPublication } from "./changes/publication.drop.ts";
+import {
+  CreateSecurityLabelOnPublication,
+  DropSecurityLabelOnPublication,
+} from "./changes/publication.security-label.ts";
 import type { PublicationChange } from "./changes/publication.types.ts";
 import type {
   Publication,
@@ -46,6 +51,14 @@ export function diffPublications(
 
     if (publication.comment !== null) {
       changes.push(new CreateCommentOnPublication({ publication }));
+    }
+    for (const label of publication.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnPublication({
+          publication,
+          securityLabel: label,
+        }),
+      );
     }
   }
 
@@ -172,6 +185,26 @@ export function diffPublications(
         );
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnPublication | DropSecurityLabelOnPublication
+      >(
+        mainPublication.security_labels,
+        branchPublication.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnPublication({
+            publication: branchPublication,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnPublication({
+            publication: mainPublication,
+            securityLabel,
+          }),
+      ),
+    );
   }
 
   return changes;

@@ -4,6 +4,7 @@ import {
   emitObjectPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { AlterSchemaChangeOwner } from "./changes/schema.alter.ts";
 import {
   CreateCommentOnSchema,
@@ -16,6 +17,10 @@ import {
   RevokeGrantOptionSchemaPrivileges,
   RevokeSchemaPrivileges,
 } from "./changes/schema.privilege.ts";
+import {
+  CreateSecurityLabelOnSchema,
+  DropSecurityLabelOnSchema,
+} from "./changes/schema.security-label.ts";
 import type { SchemaChange } from "./changes/schema.types.ts";
 import type { Schema } from "./schema.model.ts";
 
@@ -44,6 +49,14 @@ export function diffSchemas(
     changes.push(new CreateSchema({ schema: sc }));
     if (sc.comment !== null) {
       changes.push(new CreateCommentOnSchema({ schema: sc }));
+    }
+    for (const label of sc.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnSchema({
+          schema: sc,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -87,7 +100,16 @@ export function diffSchemas(
   }
 
   for (const schemaId of dropped) {
-    changes.push(new DropSchema({ schema: main[schemaId] }));
+    const mainSchema = main[schemaId];
+    for (const label of mainSchema.security_labels) {
+      changes.push(
+        new DropSecurityLabelOnSchema({
+          schema: mainSchema,
+          securityLabel: label,
+        }),
+      );
+    }
+    changes.push(new DropSchema({ schema: mainSchema }));
   }
 
   for (const schemaId of altered) {
@@ -112,6 +134,26 @@ export function diffSchemas(
         changes.push(new CreateCommentOnSchema({ schema: branchSchema }));
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnSchema | DropSecurityLabelOnSchema
+      >(
+        mainSchema.security_labels,
+        branchSchema.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnSchema({
+            schema: branchSchema,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnSchema({
+            schema: mainSchema,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PRIVILEGES
     // Filter out owner privileges - owner always has ALL privileges implicitly

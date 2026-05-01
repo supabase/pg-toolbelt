@@ -77,6 +77,9 @@ export const stableId = {
   comment(objectStableId: string) {
     return `comment:${objectStableId}` as const;
   },
+  securityLabel(objectStableId: string, provider: string) {
+    return `securityLabel:${objectStableId}::provider:${provider}` as const;
+  },
   role(role: string) {
     return `role:${role}` as const;
   },

@@ -3,7 +3,11 @@ import type { Sequence } from "../sequence.model.ts";
 
 abstract class BaseSequenceChange extends BaseChange {
   abstract readonly sequence: Sequence;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "sequence" = "sequence";
 }
 

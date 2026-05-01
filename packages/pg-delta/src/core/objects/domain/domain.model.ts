@@ -6,6 +6,7 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import { securityLabelPropsSchema } from "../security-label.types.ts";
 
 const domainConstraintPropsSchema = z.object({
   name: z.string(),
@@ -31,11 +32,12 @@ const domainPropsSchema = z.object({
   comment: z.string().nullable(),
   constraints: z.array(domainConstraintPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]),
 });
 
 export type DomainConstraintProps = z.infer<typeof domainConstraintPropsSchema>;
 type DomainPrivilegeProps = PrivilegeProps;
-export type DomainProps = z.infer<typeof domainPropsSchema>;
+export type DomainProps = z.input<typeof domainPropsSchema>;
 
 /**
  * A domain is a user-defined data type that is based on another underlying type.
@@ -58,6 +60,9 @@ export class Domain extends BasePgModel {
   public readonly comment: DomainProps["comment"];
   public readonly constraints: DomainConstraintProps[];
   public readonly privileges: DomainPrivilegeProps[];
+  public readonly security_labels: z.infer<
+    typeof domainPropsSchema
+  >["security_labels"];
 
   constructor(props: DomainProps) {
     super();
@@ -80,6 +85,7 @@ export class Domain extends BasePgModel {
     this.comment = props.comment;
     this.constraints = props.constraints;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `domain:${string}` {
@@ -107,6 +113,7 @@ export class Domain extends BasePgModel {
       comment: this.comment,
       constraints: this.constraints,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -170,7 +177,20 @@ export async function extractDomains(pool: Pool): Promise<Domain[]> {
             )
             from lateral aclexplode(COALESCE(t.typacl, acldefault('T', t.typowner))) as x(grantor, grantee, privilege_type, is_grantable)
           ), '[]'
-        ) as privileges
+        ) as privileges,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              order by sl.provider
+            )
+            from pg_catalog.pg_seclabel sl
+            where sl.objoid = t.oid
+              and sl.classoid = 'pg_type'::regclass
+              and sl.objsubid = 0
+          ),
+          '[]'::json
+        ) as security_labels
       from
         pg_catalog.pg_type t
         inner join pg_catalog.pg_type bt on bt.oid = t.typbasetype

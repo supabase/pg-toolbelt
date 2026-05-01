@@ -3,7 +3,7 @@ import type { EventTrigger } from "../event-trigger.model.ts";
 
 abstract class BaseEventTriggerChange extends BaseChange {
   abstract readonly eventTrigger: EventTrigger;
-  abstract readonly scope: "object" | "comment";
+  abstract readonly scope: "object" | "comment" | "security_label";
   readonly objectType = "event_trigger" as const;
 }
 

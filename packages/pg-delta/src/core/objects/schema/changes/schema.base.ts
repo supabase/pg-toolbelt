@@ -3,7 +3,11 @@ import type { Schema } from "../schema.model.ts";
 
 abstract class BaseSchemaChange extends BaseChange {
   abstract readonly schema: Schema;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "schema" = "schema";
 }
 

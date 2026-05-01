@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -26,6 +27,10 @@ import {
   RevokeGrantOptionProcedurePrivileges,
   RevokeProcedurePrivileges,
 } from "./changes/procedure.privilege.ts";
+import {
+  CreateSecurityLabelOnProcedure,
+  DropSecurityLabelOnProcedure,
+} from "./changes/procedure.security-label.ts";
 import type { ProcedureChange } from "./changes/procedure.types.ts";
 import type { Procedure } from "./procedure.model.ts";
 
@@ -65,6 +70,14 @@ export function diffProcedures(
 
     if (proc.comment !== null) {
       changes.push(new CreateCommentOnProcedure({ procedure: proc }));
+    }
+    for (const label of proc.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnProcedure({
+          procedure: proc,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -224,6 +237,26 @@ export function diffProcedures(
           );
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnProcedure | DropSecurityLabelOnProcedure
+        >(
+          mainProcedure.security_labels,
+          branchProcedure.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnProcedure({
+              procedure: branchProcedure,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnProcedure({
+              procedure: mainProcedure,
+              securityLabel,
+            }),
+        ),
+      );
 
       // SECURITY DEFINER/INVOKER
       if (mainProcedure.security_definer !== branchProcedure.security_definer) {
