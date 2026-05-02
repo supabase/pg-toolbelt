@@ -3,7 +3,7 @@
  *
  * Changes are split into two execution phases:
  * - `drop`: Destructive operations (executed first, in reverse dependency order)
- * - `create_alter_object`: All remaining changes (executed second, in forward dependency order)
+ * - `forward`: All remaining changes (executed second, in forward dependency order)
  *
  * Within each phase, changes are sorted using Constraints derived from:
  * - Catalog dependencies (from pg_depend)
@@ -20,6 +20,7 @@ import { printDebugGraph } from "./debug-visualization.ts";
 
 const debugGraph = debug("pg-delta:graph");
 
+import type { Phase } from "../objects/base.change.ts";
 import {
   filterEdgesForCycleBreaking,
   getEdgesInCycle,
@@ -39,7 +40,6 @@ import {
   performStableTopologicalSort,
 } from "./topological-sort.ts";
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
-import { getExecutionPhase, type Phase } from "./utils.ts";
 
 // `sortPhaseChanges` caps the change-injection breaker at one round per
 // node in the initial phase: there can never be more disjoint unbreakable
@@ -92,12 +92,12 @@ function sortChangesByPhasedGraph(
 ): Change[] {
   const changesByPhase: Record<Phase, Change[]> = {
     drop: [],
-    create_alter_object: [],
+    forward: [],
   };
 
   // Partition changes into execution phases
   for (const changeItem of changeList) {
-    const phase = getExecutionPhase(changeItem);
+    const phase = changeItem.phase;
     changesByPhase[phase].push(changeItem);
   }
 
@@ -110,7 +110,7 @@ function sortChangesByPhasedGraph(
 
   // Sort CREATE/ALTER phase: forward dependency order using branch catalog dependencies
   const sortedCreateAlterPhase = sortPhaseChanges(
-    changesByPhase.create_alter_object,
+    changesByPhase.forward,
     catalogContext.branchCatalog.depends,
     {},
   );

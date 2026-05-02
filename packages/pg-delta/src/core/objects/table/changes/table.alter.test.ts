@@ -30,6 +30,55 @@ import {
   AlterTableValidateConstraint,
 } from "./table.alter.ts";
 
+function makePhaseTestTable(): Table {
+  return new Table({
+    schema: "public",
+    name: "test_table",
+    persistence: "p",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: false,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    partition_by: null,
+    owner: "o1",
+    parent_schema: null,
+    parent_name: null,
+    columns: [],
+    privileges: [],
+  });
+}
+
+function makePhaseTestColumn(
+  overrides: Partial<ColumnProps> = {},
+): ColumnProps {
+  return {
+    name: "a",
+    position: 1,
+    data_type: "text",
+    data_type_str: "text",
+    is_custom_type: false,
+    custom_type_type: null,
+    custom_type_category: null,
+    custom_type_schema: null,
+    custom_type_name: null,
+    not_null: false,
+    is_identity: false,
+    is_identity_always: false,
+    is_generated: false,
+    collation: null,
+    default: null,
+    comment: null,
+    ...overrides,
+  };
+}
+
 describe.concurrent("table", () => {
   describe("alter", () => {
     test("change owner", async () => {
@@ -717,6 +766,54 @@ describe.concurrent("table", () => {
       expect(change.serialize()).toBe(
         "ALTER TABLE public.test_table ALTER COLUMN a SET DEFAULT NULL",
       );
+    });
+
+    test("ALTER COLUMN ... DROP DEFAULT is always in drop phase", () => {
+      const table = makePhaseTestTable();
+      const change = new AlterTableAlterColumnDropDefault({
+        table,
+        column: makePhaseTestColumn(),
+      });
+
+      expect(change.phase).toBe("drop");
+    });
+
+    test("ALTER COLUMN ... DROP IDENTITY is always in drop phase", () => {
+      const table = makePhaseTestTable();
+      const change = new AlterTableAlterColumnDropIdentity({
+        table,
+        column: makePhaseTestColumn(),
+      });
+
+      expect(change.phase).toBe("drop");
+    });
+
+    test("ALTER COLUMN ... TYPE custom type stays in forward phase", () => {
+      const table = makePhaseTestTable();
+      const change = new AlterTableAlterColumnType({
+        table,
+        column: makePhaseTestColumn({
+          data_type: "my_type",
+          data_type_str: "public.my_type",
+          is_custom_type: true,
+          custom_type_type: "enum",
+          custom_type_category: "E",
+          custom_type_schema: "public",
+          custom_type_name: "my_type",
+        }),
+      });
+
+      expect(change.phase).toBe("forward");
+    });
+
+    test("ALTER COLUMN ... TYPE built-in type runs in drop phase", () => {
+      const table = makePhaseTestTable();
+      const change = new AlterTableAlterColumnType({
+        table,
+        column: makePhaseTestColumn(),
+      });
+
+      expect(change.phase).toBe("drop");
     });
 
     test("constraints add/drop/validate and flavors", async () => {

@@ -1,4 +1,5 @@
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
+import type { Phase } from "../../base.change.ts";
 import type { ColumnProps } from "../../base.model.ts";
 import { stableId } from "../../utils.ts";
 import type { Table, TableConstraintProps } from "../table.model.ts";
@@ -651,6 +652,10 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
   }
 
+  override get phase(): Phase {
+    return this.column.is_custom_type ? "forward" : "drop";
+  }
+
   serialize(_options?: SerializeOptions): string {
     // previousColumn is optional so direct serializer tests/fixtures can keep
     // emitting canonical ALTER TYPE SQL without forcing a USING expression.
@@ -735,6 +740,10 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
     ];
   }
 
+  override get phase(): Phase {
+    return "drop";
+  }
+
   serialize(_options?: SerializeOptions): string {
     return [
       "ALTER TABLE",
@@ -798,6 +807,10 @@ export class AlterTableAlterColumnDropIdentity extends AlterTableChange {
     return [
       stableId.column(this.table.schema, this.table.name, this.column.name),
     ];
+  }
+
+  override get phase(): Phase {
+    return "drop";
   }
 
   serialize(): string {

@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type { Change } from "../change.types.ts";
+import type { Phase } from "../objects/base.change.ts";
+import { isMetadataStableId } from "../stable-id.ts";
 import { logicalSort } from "./logical-sort.ts";
 
 function mockChange(
   overrides: Partial<{
     objectType: string;
-    operation: string;
+    operation: "create" | "alter" | "drop";
     scope: string;
     creates: string[];
     drops: string[];
     requires: string[];
+    phase: Phase;
     schema: string | null;
     className: string;
     inSchema: string | null;
@@ -25,6 +28,7 @@ function mockChange(
     creates = [],
     drops = [],
     requires = [],
+    phase,
     schema = "public",
     className = "MockChange",
     inSchema,
@@ -40,6 +44,7 @@ function mockChange(
     creates,
     drops,
     requires,
+    phase: phase ?? getDefaultPhase(operation, drops),
   };
 
   if (objectType === "table") {
@@ -67,6 +72,21 @@ function mockChange(
 
   Object.defineProperty(change, "constructor", { value: { name: className } });
   return change as unknown as Change;
+}
+
+function getDefaultPhase(
+  operation: "create" | "alter" | "drop",
+  drops: string[],
+): Phase {
+  if (operation === "drop") {
+    return "drop";
+  }
+
+  if (operation === "create") {
+    return "forward";
+  }
+
+  return drops.some((id) => !isMetadataStableId(id)) ? "drop" : "forward";
 }
 
 describe("logicalSort", () => {
