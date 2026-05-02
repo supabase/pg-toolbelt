@@ -74,6 +74,8 @@ function mockChange(
   return change as unknown as Change;
 }
 
+// Keep mock changes aligned with BaseChange.phase defaults for tests that use
+// plain object fixtures instead of concrete BaseChange subclasses.
 function getDefaultPhase(
   operation: "create" | "alter" | "drop",
   drops: string[],

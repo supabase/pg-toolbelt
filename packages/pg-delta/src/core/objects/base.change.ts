@@ -69,6 +69,9 @@ export abstract class BaseChange {
       case "create":
         return "forward";
       case "alter": {
+        // ALTER classification is based on whether an actual object is dropped.
+        // Privilege/comment/default-privilege alterations either drop metadata
+        // stable IDs or nothing, so they naturally stay in the forward phase.
         const dropsRealObject = this.drops.some(
           (id) => !isMetadataStableId(id),
         );

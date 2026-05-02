@@ -49,12 +49,7 @@ describe("BaseChange.phase", () => {
     for (const scope of scopes) {
       test(`${operation}/${scope} uses default phase`, () => {
         const change = new TestChange(operation, scope);
-        const expectedPhase =
-          operation === "drop"
-            ? "drop"
-            : operation === "create"
-              ? "forward"
-              : "forward";
+        const expectedPhase = operation === "drop" ? "drop" : "forward";
 
         expect(change.phase).toBe(expectedPhase);
       });
@@ -75,6 +70,15 @@ describe("BaseChange.phase", () => {
 
   test("alter with object drops goes to drop phase", () => {
     const change = new TestChange("alter", "object", ["table:public.t"]);
+
+    expect(change.phase).toBe("drop");
+  });
+
+  test("alter with mixed metadata and object drops goes to drop phase", () => {
+    const change = new TestChange("alter", "object", [
+      "comment:table:public.t",
+      "table:public.other",
+    ]);
 
     expect(change.phase).toBe("drop");
   });
