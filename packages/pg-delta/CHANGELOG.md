@@ -1,5 +1,15 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.23
+
+### Minor Changes
+
+- 9a0831a: feat(pg-delta): add support for PostgreSQL SECURITY LABEL across all 17 supported object types (schemas, tables, columns, views, materialized views, sequences, functions, procedures, aggregates, composite/enum/range types, domains, event triggers, foreign tables, publications, subscriptions, roles). Includes round-trip fidelity, a new `scope: "security_label"` in the filter DSL, and per-provider filtering via the new `provider` extractor.
+
+### Patch Changes
+
+- 9a0831a: Expose security-label providers to the filter DSL so provider-specific security label filters work as documented.
+
 ## 1.0.0-alpha.22
 
 ### Minor Changes
