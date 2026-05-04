@@ -62,7 +62,9 @@ function fkConstraint(props: {
   fkColumn: string;
   targetSchema: string;
   targetTable: string;
+  targetColumn?: string;
 }) {
+  const targetColumn = props.targetColumn ?? "id";
   return {
     name: props.name,
     constraint_type: "f" as const,
@@ -78,7 +80,7 @@ function fkConstraint(props: {
     parent_table_schema: null,
     parent_table_name: null,
     key_columns: [props.fkColumn],
-    foreign_key_columns: ["id"],
+    foreign_key_columns: [targetColumn],
     foreign_key_table: props.targetTable,
     foreign_key_schema: props.targetSchema,
     foreign_key_table_is_partition: false,
@@ -91,7 +93,41 @@ function fkConstraint(props: {
     match_type: "s" as const,
     check_expression: null,
     owner: "postgres",
-    definition: `FOREIGN KEY (${props.fkColumn}) REFERENCES ${props.targetSchema}.${props.targetTable}(id)`,
+    definition: `FOREIGN KEY (${props.fkColumn}) REFERENCES ${props.targetSchema}.${props.targetTable}(${targetColumn})`,
+    comment: null,
+  };
+}
+
+function uniqueConstraint(name: string, column: string) {
+  return {
+    name,
+    constraint_type: "u" as const,
+    deferrable: false,
+    initially_deferred: false,
+    validated: true,
+    is_local: true,
+    no_inherit: false,
+    is_temporal: false,
+    is_partition_clone: false,
+    parent_constraint_schema: null,
+    parent_constraint_name: null,
+    parent_table_schema: null,
+    parent_table_name: null,
+    key_columns: [column],
+    foreign_key_columns: null,
+    foreign_key_table: null,
+    foreign_key_schema: null,
+    foreign_key_table_is_partition: null,
+    foreign_key_parent_schema: null,
+    foreign_key_parent_table: null,
+    foreign_key_effective_schema: null,
+    foreign_key_effective_table: null,
+    on_update: null,
+    on_delete: null,
+    match_type: null,
+    check_expression: null,
+    owner: "postgres",
+    definition: `UNIQUE (${column})`,
     comment: null,
   };
 }
@@ -446,6 +482,204 @@ describe("tryBreakCycleByChangeInjection", () => {
 
     const broken = tryBreakCycleByChangeInjection([0, 1, 2], changes);
     expect(broken).toBeNull();
+  });
+
+  test("publication FK-chain constraint-drop 3-cycle: injects terminal FK drop", () => {
+    // Schema:
+    //   publication p includes labs and posts
+    //   posts.lab_id REFERENCES labs(id)
+    // Diff drops posts and drops labs.unique_lab_id while also removing both
+    // tables from the publication. The FK edge from posts to the terminal
+    // constraint drop forms:
+    //   AlterPublicationDropTables → DropTable(posts)
+    //   DropTable(posts) → AlterTableDropConstraint(labs.unique_lab_id)
+    //   AlterTableDropConstraint(labs.unique_lab_id) → AlterPublicationDropTables
+    const tableLabs = new Table({
+      ...baseTableProps,
+      name: "labs",
+      columns: [{ ...integerColumn("id", 1), not_null: true }],
+      constraints: [uniqueConstraint("unique_lab_id", "id")],
+    });
+    const tablePosts = new Table({
+      ...baseTableProps,
+      name: "posts",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("lab_id", 2),
+      ],
+      constraints: [
+        fkConstraint({
+          name: "posts_lab_id_fkey",
+          fkColumn: "lab_id",
+          targetSchema: "public",
+          targetTable: "labs",
+        }),
+      ],
+    });
+    const publication = new Publication({
+      name: "p",
+      owner: "postgres",
+      comment: null,
+      all_tables: false,
+      publish_insert: true,
+      publish_update: true,
+      publish_delete: true,
+      publish_truncate: true,
+      publish_via_partition_root: false,
+      tables: [
+        { schema: "public", name: "labs", columns: null, row_filter: null },
+        { schema: "public", name: "posts", columns: null, row_filter: null },
+      ],
+      schemas: [],
+    });
+
+    const terminalDrop = new AlterTableDropConstraint({
+      table: tableLabs,
+      constraint: tableLabs.constraints[0],
+    });
+    const changes: Change[] = [
+      new AlterPublicationDropTables({
+        publication,
+        tables: publication.tables,
+      }),
+      new DropTable({ table: tablePosts }),
+      terminalDrop,
+    ];
+
+    const broken = tryBreakCycleByChangeInjection([0, 1, 2], changes);
+    if (broken === null) throw new Error("expected breaker to fire");
+
+    const injectedDrops = broken.filter(
+      (change): change is AlterTableDropConstraint =>
+        change instanceof AlterTableDropConstraint &&
+        change.table.stableId === tablePosts.stableId,
+    );
+    expect(injectedDrops).toHaveLength(1);
+    expect(injectedDrops[0].constraint.name).toBe("posts_lab_id_fkey");
+
+    const rewrittenPostsDrop = broken.find(
+      (change): change is DropTable =>
+        change instanceof DropTable &&
+        change.table.stableId === tablePosts.stableId,
+    );
+    if (!rewrittenPostsDrop) throw new Error("missing rewritten DropTable");
+    expect(
+      rewrittenPostsDrop.externallyDroppedConstraints.has("posts_lab_id_fkey"),
+    ).toBe(true);
+    expect(broken).toContain(terminalDrop);
+  });
+
+  test("publication FK-chain constraint-drop 4-cycle: injects FK drops along the dropped-table chain", () => {
+    // Schema:
+    //   publication p includes labs, posts, and post_attachments
+    //   post_attachments.post_id REFERENCES posts(id)
+    //   posts.lab_id REFERENCES labs(id)
+    // Diff drops post_attachments and posts, drops labs.unique_lab_id,
+    // and removes all three tables from the publication.
+    const tableLabs = new Table({
+      ...baseTableProps,
+      name: "labs",
+      columns: [{ ...integerColumn("id", 1), not_null: true }],
+      constraints: [uniqueConstraint("unique_lab_id", "id")],
+    });
+    const tablePosts = new Table({
+      ...baseTableProps,
+      name: "posts",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("lab_id", 2),
+      ],
+      constraints: [
+        fkConstraint({
+          name: "posts_lab_id_fkey",
+          fkColumn: "lab_id",
+          targetSchema: "public",
+          targetTable: "labs",
+        }),
+      ],
+    });
+    const tablePostAttachments = new Table({
+      ...baseTableProps,
+      name: "post_attachments",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("post_id", 2),
+      ],
+      constraints: [
+        fkConstraint({
+          name: "post_attachments_post_id_fkey",
+          fkColumn: "post_id",
+          targetSchema: "public",
+          targetTable: "posts",
+        }),
+      ],
+    });
+    const publication = new Publication({
+      name: "p",
+      owner: "postgres",
+      comment: null,
+      all_tables: false,
+      publish_insert: true,
+      publish_update: true,
+      publish_delete: true,
+      publish_truncate: true,
+      publish_via_partition_root: false,
+      tables: [
+        { schema: "public", name: "labs", columns: null, row_filter: null },
+        {
+          schema: "public",
+          name: "post_attachments",
+          columns: null,
+          row_filter: null,
+        },
+        { schema: "public", name: "posts", columns: null, row_filter: null },
+      ],
+      schemas: [],
+    });
+
+    const terminalDrop = new AlterTableDropConstraint({
+      table: tableLabs,
+      constraint: tableLabs.constraints[0],
+    });
+    const changes: Change[] = [
+      new AlterPublicationDropTables({
+        publication,
+        tables: publication.tables,
+      }),
+      new DropTable({ table: tablePostAttachments }),
+      new DropTable({ table: tablePosts }),
+      terminalDrop,
+    ];
+
+    const broken = tryBreakCycleByChangeInjection([0, 1, 2, 3], changes);
+    if (broken === null) throw new Error("expected breaker to fire");
+
+    const injectedDropNames = broken
+      .filter(
+        (change): change is AlterTableDropConstraint =>
+          change instanceof AlterTableDropConstraint && change !== terminalDrop,
+      )
+      .map((change) => change.constraint.name)
+      .sort();
+    expect(injectedDropNames).toEqual([
+      "post_attachments_post_id_fkey",
+      "posts_lab_id_fkey",
+    ]);
+
+    for (const [tableId, constraintName] of [
+      [tablePostAttachments.stableId, "post_attachments_post_id_fkey"],
+      [tablePosts.stableId, "posts_lab_id_fkey"],
+    ] as const) {
+      const rewrittenDrop = broken.find(
+        (change): change is DropTable =>
+          change instanceof DropTable && change.table.stableId === tableId,
+      );
+      if (!rewrittenDrop) throw new Error(`missing DropTable for ${tableId}`);
+      expect(
+        rewrittenDrop.externallyDroppedConstraints.has(constraintName),
+      ).toBe(true);
+    }
+    expect(broken).toContain(terminalDrop);
   });
 
   test("returns null for a cycle with no recognised pattern (e.g. publication-only)", () => {

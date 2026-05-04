@@ -6,7 +6,7 @@
  * and tables created with columns that reference those sequences via DEFAULT.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { PgDepend } from "../../src/core/depend.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -509,6 +509,83 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         await roundtripFidelityTest({
           mainSession: db.main,
           branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
+      "drop publication FK-chain tables and referenced constraint should not produce a cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for production CycleError:
+         *
+         *   CycleError: dependency graph contains a cycle involving 4 changes:
+         *     1. AlterPublicationDropTables
+         *     2. DropTable(post_attachments)
+         *     3. DropTable(posts)
+         *     4. AlterTableDropConstraint(labs.unique_lab_id)
+         *
+         * Cycle path:
+         *   publication:supabase_realtime → table:public.post_attachments
+         *   post_attachments.post_id_fkey → column:public.posts.id
+         *   posts.posts_lab_id_fkey → constraint:public.labs.unique_lab_id
+         *   constraint:public.labs.unique_lab_id → table:public.labs
+         *
+         * Expected: sort-phase change injection inserts explicit FK drops for
+         * the dropped-table FK chain, then the surviving table's unique
+         * constraint can drop without cycling through the publication change.
+         */
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+            CREATE TABLE public.labs (
+              id bigint PRIMARY KEY,
+              lab_id bigint NOT NULL,
+              CONSTRAINT unique_lab_id UNIQUE (lab_id)
+            );
+
+            CREATE TABLE public.posts (
+              id bigint PRIMARY KEY,
+              lab_id bigint NOT NULL,
+              CONSTRAINT posts_lab_id_fkey
+                FOREIGN KEY (lab_id)
+                REFERENCES public.labs(lab_id)
+            );
+
+            CREATE TABLE public.post_attachments (
+              id bigint PRIMARY KEY,
+              post_id bigint NOT NULL,
+              CONSTRAINT post_attachments_post_id_fkey
+                FOREIGN KEY (post_id)
+                REFERENCES public.posts(id)
+            );
+
+            CREATE PUBLICATION supabase_realtime
+              FOR TABLE public.labs, public.posts, public.post_attachments;
+          `,
+          testSql: `
+            ALTER PUBLICATION supabase_realtime
+              DROP TABLE public.post_attachments, public.posts, public.labs;
+
+            DROP TABLE public.post_attachments;
+            DROP TABLE public.posts;
+
+            ALTER TABLE public.labs
+              DROP CONSTRAINT unique_lab_id;
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE public.post_attachments DROP CONSTRAINT post_attachments_post_id_fkey",
+                "ALTER TABLE public.posts DROP CONSTRAINT posts_lab_id_fkey",
+                "ALTER TABLE public.labs DROP CONSTRAINT unique_lab_id",
+                "ALTER PUBLICATION supabase_realtime DROP TABLE public.labs, public.post_attachments, public.posts",
+                "DROP TABLE public.post_attachments",
+                "DROP TABLE public.posts",
+              ]
+            `);
+          },
         });
       }),
     );
