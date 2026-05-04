@@ -19,7 +19,7 @@ outputs:
     value: ${{ steps.filter.outputs.root }}
   is-release-pr-content:
     description: >-
-      'true' iff every changed file is part of the changesets release-PR
+      'true' if every changed file is part of the changesets release-PR
       whitelist (CHANGELOGs, package.json version bumps, .changeset state).
       Used to skip heavy tests on release PRs while still running them if
       anything unexpected slipped in.
