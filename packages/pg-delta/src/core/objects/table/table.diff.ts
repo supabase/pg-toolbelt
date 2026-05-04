@@ -4,6 +4,7 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
@@ -47,6 +48,12 @@ import {
   RevokeGrantOptionTablePrivileges,
   RevokeTablePrivileges,
 } from "./changes/table.privilege.ts";
+import {
+  CreateSecurityLabelOnColumn,
+  CreateSecurityLabelOnTable,
+  DropSecurityLabelOnColumn,
+  DropSecurityLabelOnTable,
+} from "./changes/table.security-label.ts";
 import type { TableChange } from "./changes/table.types.ts";
 import { Table } from "./table.model.ts";
 
@@ -279,6 +286,29 @@ export function diffTables(
       }
     }
 
+    // Table security labels on creation
+    for (const label of branchTable.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnTable({
+          table: branchTable,
+          securityLabel: label,
+        }),
+      );
+    }
+
+    // Column security labels on creation
+    for (const col of branchTable.columns) {
+      for (const label of col.security_labels ?? []) {
+        changes.push(
+          new CreateSecurityLabelOnColumn({
+            table: branchTable,
+            column: col,
+            securityLabel: label,
+          }),
+        );
+      }
+    }
+
     // PRIVILEGES: For created objects, compare against default privileges state
     // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
     // so objects are created with the default privileges state in effect.
@@ -439,6 +469,26 @@ export function diffTables(
         changes.push(new CreateCommentOnTable({ table: branchTable }));
       }
     }
+
+    // TABLE SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnTable | DropSecurityLabelOnTable
+      >(
+        mainTable.security_labels,
+        branchTable.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnTable({
+            table: branchTable,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnTable({
+            table: mainTable,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PARTITION ATTACH/DETACH
     const mainIsPartition = Boolean(
@@ -882,6 +932,43 @@ export function diffTables(
             new CreateCommentOnColumn({
               table: branchTable,
               column: branchCol,
+            }),
+          );
+        }
+      }
+
+      // SECURITY LABELS on column
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnColumn | DropSecurityLabelOnColumn
+        >(
+          mainCol.security_labels ?? [],
+          branchCol.security_labels ?? [],
+          (securityLabel) =>
+            new CreateSecurityLabelOnColumn({
+              table: branchTable,
+              column: branchCol,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnColumn({
+              table: mainTable,
+              column: mainCol,
+              securityLabel,
+            }),
+        ),
+      );
+    }
+
+    // Added columns with security labels (for created columns on existing tables)
+    for (const [name, col] of branchCols) {
+      if (!mainCols.has(name)) {
+        for (const label of col.security_labels ?? []) {
+          changes.push(
+            new CreateSecurityLabelOnColumn({
+              table: branchTable,
+              column: col,
+              securityLabel: label,
             }),
           );
         }

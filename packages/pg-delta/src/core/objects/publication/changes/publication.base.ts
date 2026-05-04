@@ -3,7 +3,7 @@ import type { Publication } from "../publication.model.ts";
 
 abstract class BasePublicationChange extends BaseChange {
   abstract readonly publication: Publication;
-  abstract readonly scope: "object" | "comment";
+  abstract readonly scope: "object" | "comment" | "security_label";
   readonly objectType = "publication" as const;
 }
 

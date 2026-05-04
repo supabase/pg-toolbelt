@@ -3,7 +3,11 @@ import type { Range } from "../range.model.ts";
 
 abstract class BaseRangeChange extends BaseChange {
   abstract readonly range: Range;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "range" = "range";
 }
 

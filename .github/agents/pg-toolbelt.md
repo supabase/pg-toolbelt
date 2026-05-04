@@ -169,9 +169,42 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 
 When changing shard count or PG versions, update all of these locations:
 
-- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix
+- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix; the `pg-delta-build-test-images` matrix (`postgres_version`, `alpine_tag`, `pg_branch`) **must** stay in sync with `ALPINE_TAG_FOR_PG_MAJOR` in `packages/pg-delta/tests/alpine-tags.ts`
 - `scripts/coverage.ts` — default `--shards` value (doc comment + code)
 - This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
+
+### Prebuilt `dummy_seclabel` test image
+
+The `pg-delta-test:<major>` postgres image (which preloads the
+`dummy_seclabel` contrib so integration tests can exercise
+`SECURITY LABEL`) is **prebuilt once per PG version on GHCR** rather than
+rebuilt by every shard. The flow:
+
+1. `pg-delta-test-image-hash` job hashes
+   `packages/pg-delta/tests/dummy-seclabel.Dockerfile` +
+   `packages/pg-delta/tests/alpine-tags.ts` and decides whether the
+   run can push (same-repo) or must fall back to inline builds (forked PR).
+2. `pg-delta-build-test-images` (matrix on PG version) probes
+   `ghcr.io/<repo>/pg-delta-test:<major>-<hash>` with
+   `docker manifest inspect`; if missing, it builds with `buildx`
+   (GitHub Actions cache) and pushes.
+3. Each `pg-delta-integration` shard logs into GHCR, pulls the prebuilt
+   image, and retags it locally as `pg-delta-test:<major>`. The
+   `image.exists(...)` short-circuit in
+   `packages/pg-delta/tests/postgres-alpine.ts::buildPostgresTestImage`
+   then skips the docker build entirely.
+4. On forked PRs the prebuild is skipped and `buildPostgresTestImage`
+   builds inline at test time (current behavior). `getBuildInvocationCount()`
+   in that file is exposed only so `tests/postgres-alpine.test.ts` can
+   verify the short-circuit doesn't regress.
+
+When you change `dummy-seclabel.Dockerfile` or `ALPINE_TAG_FOR_PG_MAJOR`,
+the hash flips automatically and the next CI run rebuilds + republishes;
+no manual cache invalidation is needed. If you add a new PG version,
+update **all three** of: `ALPINE_TAG_FOR_PG_MAJOR` in `tests/alpine-tags.ts`, the
+`pg-delta-build-test-images` matrix in `tests.yml`, and the
+`postgres_version` list in `pg-delta-integration` / `pg-delta-unit` /
+the compat aggregator jobs.
 
 ## Agent Workflow
 
@@ -189,18 +222,6 @@ Wait for user approval before implementing.
 
 When implementing a **fix**, **feat**, or any change that affects package behavior (patch/minor/major), add a changeset before considering the work complete. Run `bunx changeset`, select the affected package(s), pick the appropriate bump type, and commit the generated `.changeset/*.md` file with your changes.
 
-<<<<<<< copilot/handle-cascade-dependencies-mv
-### Test-Driven Fixes
-
-Every bug fix must land as two commits (or one clearly described TDD history in the commit body):
-
-1. **Red.** Add a test that reproduces the bug and fails against the current code. Run the focused command and paste the failure output into the commit body so reviewers can see the regression shape.
-2. **Green.** Apply the minimum code change that makes the red test pass. Do not touch unrelated code in the same commit.
-
-A fix without a failing test first is not complete. If the bug genuinely cannot be reproduced in a test (e.g. a race, a user-environment-only issue), say so explicitly in the PR and explain what manual verification was performed instead.
-
-This rule applies to every `fix(...)` and to any `feat(...)` that changes existing behavior. New `feat(...)` work follows the usual coverage expectations in the _Test Coverage Expectations_ section.
-=======
 See also **Test-Driven Fixes** below — the regression test must exist (and fail) before the fix that the changeset describes.
 
 ### Test-Driven Fixes
@@ -226,7 +247,6 @@ If a repository policy or reviewer asks for a single squashed commit, keep the R
 - Refactors that claim to preserve behavior: if there is doubt, pin the current behavior with a passing test first, then refactor.
 
 **Don't:** write the production code first and then "backfill" a test that already passes. That test cannot prove the fix was necessary.
->>>>>>> main
 
 ### Testing Discipline
 

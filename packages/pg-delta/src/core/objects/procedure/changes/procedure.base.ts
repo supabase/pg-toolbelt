@@ -3,7 +3,11 @@ import type { Procedure } from "../procedure.model.ts";
 
 abstract class BaseProcedureChange extends BaseChange {
   abstract readonly procedure: Procedure;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "procedure" = "procedure";
 }
 

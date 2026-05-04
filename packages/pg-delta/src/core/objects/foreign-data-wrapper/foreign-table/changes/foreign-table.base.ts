@@ -3,7 +3,11 @@ import type { ForeignTable } from "../foreign-table.model.ts";
 
 abstract class BaseForeignTableChange extends BaseChange {
   abstract readonly foreignTable: ForeignTable;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "foreign_table" = "foreign_table";
 }
 

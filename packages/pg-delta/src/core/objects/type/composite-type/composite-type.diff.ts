@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../../diff-context.ts";
+import { diffSecurityLabels } from "../../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../../utils.ts";
 import {
   AlterCompositeTypeAddAttribute,
@@ -25,6 +26,10 @@ import {
   RevokeCompositeTypePrivileges,
   RevokeGrantOptionCompositeTypePrivileges,
 } from "./changes/composite-type.privilege.ts";
+import {
+  CreateSecurityLabelOnCompositeType,
+  DropSecurityLabelOnCompositeType,
+} from "./changes/composite-type.security-label.ts";
 import type { CompositeTypeChange } from "./changes/composite-type.types.ts";
 import type { CompositeType } from "./composite-type.model.ts";
 
@@ -66,6 +71,14 @@ export function diffCompositeTypes(
     // Type comment on creation
     if (ct.comment !== null) {
       changes.push(new CreateCommentOnCompositeType({ compositeType: ct }));
+    }
+    for (const label of ct.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnCompositeType({
+          compositeType: ct,
+          securityLabel: label,
+        }),
+      );
     }
     // Attribute comments on creation
     for (const attr of ct.columns) {
@@ -188,6 +201,26 @@ export function diffCompositeTypes(
           );
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnCompositeType | DropSecurityLabelOnCompositeType
+        >(
+          mainCompositeType.security_labels,
+          branchCompositeType.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnCompositeType({
+              compositeType: branchCompositeType,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnCompositeType({
+              compositeType: mainCompositeType,
+              securityLabel,
+            }),
+        ),
+      );
 
       // ATTRIBUTE diffs
       const mainAttrs = new Map(

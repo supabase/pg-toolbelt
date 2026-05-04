@@ -1,11 +1,69 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AbstractStartedContainer,
   GenericContainer,
+  getContainerRuntimeClient,
+  ImageName,
   type StartedTestContainer,
   Wait,
 } from "testcontainers";
+import { ALPINE_TAG_FOR_PG_MAJOR } from "./alpine-tags.ts";
+import type { PostgresVersion } from "./constants.ts";
 
 const POSTGRES_PORT = 5432;
+
+const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
+const DUMMY_SECLABEL_IMAGE_PREFIX = "pg-delta-test";
+
+/**
+ * Internal counter incremented every time `buildPostgresTestImage` actually
+ * invokes `GenericContainer.fromDockerfile(...)` (i.e. when no prebuilt
+ * image is found locally). Exposed only so tests can verify the
+ * short-circuit path.
+ */
+let buildInvocations = 0;
+
+/** @internal */
+export function getBuildInvocationCount(): number {
+  return buildInvocations;
+}
+
+/**
+ * Build (or reuse) a Postgres image that has the `dummy_seclabel` test
+ * contrib module pre-installed, so integration tests can exercise
+ * `SECURITY LABEL` end-to-end. Tagged locally as `pg-delta-test:<major>`.
+ *
+ * Skips the docker build entirely when the tag already exists in the
+ * local daemon — CI prebuilds these images once per PG version (see
+ * `pg-delta-build-test-images` in `.github/workflows/tests.yml`) and
+ * pulls + retags them in each integration shard, so this short-circuit
+ * is what saves shards from paying the rebuild cost.
+ */
+export async function buildPostgresTestImage(
+  version: PostgresVersion,
+): Promise<string> {
+  const imageTag = `${DUMMY_SECLABEL_IMAGE_PREFIX}:${version}`;
+
+  const containerRuntimeClient = await getContainerRuntimeClient();
+  const alreadyPresent = await containerRuntimeClient.image.exists(
+    ImageName.fromString(imageTag),
+  );
+  if (alreadyPresent) {
+    return imageTag;
+  }
+
+  buildInvocations += 1;
+  await GenericContainer.fromDockerfile(TESTS_DIR, "dummy-seclabel.Dockerfile")
+    .withBuildArgs({
+      PG_MAJOR: String(version),
+      PG_BRANCH: `REL_${version}_STABLE`,
+      ALPINE_TAG: ALPINE_TAG_FOR_PG_MAJOR[version],
+    })
+    .withCache(true)
+    .build(imageTag, { deleteOnExit: false });
+  return imageTag;
+}
 
 export class PostgresAlpineContainer extends GenericContainer {
   private database = "postgres";
@@ -28,8 +86,16 @@ export class PostgresAlpineContainer extends GenericContainer {
       // PostgreSQL 18 stores data under /var/lib/postgresql/<major>/docker instead of /data
       "/var/lib/postgresql": "rw,noexec,nosuid,size=256m",
     });
-    // Enable logical replication to be able to create subscriptions
-    this.withCommand(["postgres", "-c", "wal_level=logical"]);
+
+    // Always enable logical replication so subscription tests work. Preload
+    // `dummy_seclabel` only on our custom `pg-delta-test:*` image (which has
+    // the module installed — see dummy-seclabel.Dockerfile); stock postgres
+    // images would fail to start with `shared_preload_libraries=dummy_seclabel`.
+    const command = ["postgres", "-c", "wal_level=logical"];
+    if (image.startsWith(`${DUMMY_SECLABEL_IMAGE_PREFIX}:`)) {
+      command.push("-c", "shared_preload_libraries=dummy_seclabel");
+    }
+    this.withCommand(command);
   }
 
   public override async start(): Promise<StartedPostgresAlpineContainer> {

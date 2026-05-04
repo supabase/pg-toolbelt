@@ -6,6 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 const enumLabelSchema = z.object({
   sort_order: z.number(),
@@ -33,6 +37,7 @@ const enumPropsSchema = z.object({
   labels: z.array(enumLabelSchema),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type EnumPrivilegeProps = PrivilegeProps;
@@ -45,6 +50,7 @@ export class Enum extends BasePgModel {
   public readonly labels: EnumProps["labels"];
   public readonly comment: EnumProps["comment"];
   public readonly privileges: EnumPrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: EnumProps) {
     super();
@@ -58,6 +64,7 @@ export class Enum extends BasePgModel {
     this.labels = props.labels;
     this.comment = props.comment;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `type:${string}` {
@@ -105,6 +112,7 @@ export class Enum extends BasePgModel {
       labels,
       comment: this.comment,
       privileges,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -118,6 +126,7 @@ export async function extractEnums(pool: Pool): Promise<Enum[]> {
     owner: string;
     comment: string | null;
     privileges: { grantee: string; privilege: string; grantable: boolean }[];
+    security_labels: { provider: string; label: string }[];
   }>(sql`
 with extension_oids as (
   select
@@ -147,7 +156,20 @@ select
       )
       from lateral aclexplode(COALESCE(t.typacl, acldefault('T', t.typowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
-  ) as privileges
+  ) as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = t.oid
+        and sl.classoid = 'pg_type'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   pg_catalog.pg_enum e
   inner join pg_catalog.pg_type t on t.oid = e.enumtypid
@@ -170,6 +192,7 @@ order by
         privilege: string;
         grantable: boolean;
       }[];
+      security_labels: { provider: string; label: string }[];
     }
   > = {};
   for (const e of enumRows) {
@@ -182,6 +205,7 @@ order by
         labels: [],
         comment: e.comment,
         privileges: e.privileges,
+        security_labels: e.security_labels,
       };
     }
     grouped[key].labels.push({ sort_order: e.sort_order, label: e.label });

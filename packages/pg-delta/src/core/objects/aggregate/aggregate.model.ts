@@ -6,6 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const AggregateKindSchema = z.enum([
   "n", // normal aggregate
@@ -75,6 +79,7 @@ const aggregatePropsSchema = z.object({
   owner: z.string(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type AggregatePrivilegeProps = PrivilegeProps;
@@ -122,6 +127,7 @@ export class Aggregate extends BasePgModel {
   public readonly owner: AggregateProps["owner"];
   public readonly comment: AggregateProps["comment"];
   public readonly privileges: AggregatePrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: AggregateProps) {
     super();
@@ -168,6 +174,7 @@ export class Aggregate extends BasePgModel {
     this.owner = props.owner;
     this.comment = props.comment;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `aggregate:${string}` {
@@ -224,6 +231,7 @@ export class Aggregate extends BasePgModel {
       owner: this.owner,
       comment: this.comment,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -294,7 +302,20 @@ select
       )
       from lateral aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
-  ) as privileges
+  ) as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = p.oid
+        and sl.classoid = 'pg_proc'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   pg_catalog.pg_proc p
   inner join pg_catalog.pg_aggregate a on a.aggfnoid = p.oid

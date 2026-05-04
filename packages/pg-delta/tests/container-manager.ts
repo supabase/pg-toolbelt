@@ -1,11 +1,9 @@
 import debug from "debug";
 import type { Pool } from "pg";
 import { createPool } from "../src/core/postgres-config.ts";
+import type { PostgresVersion } from "./constants.ts";
 import {
-  POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
-  type PostgresVersion,
-} from "./constants.ts";
-import {
+  buildPostgresTestImage,
   PostgresAlpineContainer,
   type StartedPostgresAlpineContainer,
 } from "./postgres-alpine.ts";
@@ -79,7 +77,7 @@ class ContainerManager {
   }
 
   private async _doInitializeVersion(version: PostgresVersion): Promise<void> {
-    const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+    const image = await buildPostgresTestImage(version);
 
     try {
       debugContainer(
@@ -223,7 +221,7 @@ class ContainerManager {
     branch: Pool;
     cleanup: () => Promise<void>;
   }> {
-    const image = `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+    const image = await buildPostgresTestImage(version);
 
     const [containerMain, containerBranch] = await Promise.all([
       new PostgresAlpineContainer(image).start(),

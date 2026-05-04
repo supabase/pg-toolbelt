@@ -15,6 +15,11 @@ import {
   type ExtractRetryOptions,
   extractWithDefinitionRetry,
 } from "../extract-with-retry.ts";
+import {
+  normalizeSecurityLabels,
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const viewPropsSchema = z.object({
@@ -36,6 +41,7 @@ const viewPropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 // pg_get_viewdef(oid) can return NULL when the underlying view (or its
@@ -69,6 +75,7 @@ export class View extends BasePgModel implements TableLikeObject {
   public readonly comment: ViewProps["comment"];
   public readonly columns: ViewProps["columns"];
   public readonly privileges: ViewPrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: ViewProps) {
     super();
@@ -94,6 +101,7 @@ export class View extends BasePgModel implements TableLikeObject {
     this.comment = props.comment;
     this.columns = props.columns;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `view:${string}` {
@@ -125,6 +133,7 @@ export class View extends BasePgModel implements TableLikeObject {
       comment: this.comment,
       columns: this.columns,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -134,6 +143,7 @@ export class View extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(this.columns),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -264,7 +274,20 @@ select
       join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
       group by x.grantee, x.privilege_type
     ) as grp
-  ), '[]') as privileges
+  ), '[]') as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = v.oid
+        and sl.classoid = 'pg_class'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   views v
   left join pg_attribute a on a.attrelid = v.oid and a.attnum > 0 and not a.attisdropped
@@ -281,5 +304,5 @@ order by
   const validatedRows = viewRows.filter(
     (row): row is ViewProps => row.definition !== null,
   );
-  return validatedRows.map((row: ViewProps) => new View(row));
+  return validatedRows.map((row) => new View(row));
 }

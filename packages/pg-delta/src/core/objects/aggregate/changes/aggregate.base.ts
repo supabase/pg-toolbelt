@@ -3,7 +3,11 @@ import type { Aggregate } from "../aggregate.model.ts";
 
 abstract class BaseAggregateChange extends BaseChange {
   abstract readonly aggregate: Aggregate;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "aggregate" = "aggregate";
 }
 

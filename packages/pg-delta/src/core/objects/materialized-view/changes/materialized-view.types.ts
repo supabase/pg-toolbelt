@@ -3,6 +3,7 @@ import type { CommentMaterializedView } from "./materialized-view.comment.ts";
 import type { CreateMaterializedView } from "./materialized-view.create.ts";
 import type { DropMaterializedView } from "./materialized-view.drop.ts";
 import type { MaterializedViewPrivilege } from "./materialized-view.privilege.ts";
+import type { SecurityLabelMaterializedView } from "./materialized-view.security-label.ts";
 
 /** Union of all materialized-view-related change variants (`objectType: "materialized_view"`). @category Change Types */
 export type MaterializedViewChange =
@@ -10,4 +11,5 @@ export type MaterializedViewChange =
   | CommentMaterializedView
   | CreateMaterializedView
   | DropMaterializedView
-  | MaterializedViewPrivilege;
+  | MaterializedViewPrivilege
+  | SecurityLabelMaterializedView;

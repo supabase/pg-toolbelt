@@ -3,6 +3,7 @@ import type { CommentProcedure } from "./procedure.comment.ts";
 import type { CreateProcedure } from "./procedure.create.ts";
 import type { DropProcedure } from "./procedure.drop.ts";
 import type { ProcedurePrivilege } from "./procedure.privilege.ts";
+import type { SecurityLabelProcedure } from "./procedure.security-label.ts";
 
 /** Union of all procedure-related change variants (`objectType: "procedure"`). @category Change Types */
 export type ProcedureChange =
@@ -10,4 +11,5 @@ export type ProcedureChange =
   | CommentProcedure
   | CreateProcedure
   | DropProcedure
-  | ProcedurePrivilege;
+  | ProcedurePrivilege
+  | SecurityLabelProcedure;

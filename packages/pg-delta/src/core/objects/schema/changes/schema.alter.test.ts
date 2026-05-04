@@ -10,6 +10,7 @@ describe.concurrent("schema", () => {
         name: "test_schema",
         comment: null,
         privileges: [],
+        security_labels: [],
       };
       const schemaObj = new Schema({
         ...props,

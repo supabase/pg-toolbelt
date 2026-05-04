@@ -3,7 +3,11 @@ import type { View } from "../view.model.ts";
 
 abstract class BaseViewChange extends BaseChange {
   abstract readonly view: View;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "view" = "view";
 }
 

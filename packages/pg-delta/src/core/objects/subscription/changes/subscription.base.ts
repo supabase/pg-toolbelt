@@ -3,7 +3,7 @@ import type { Subscription } from "../subscription.model.ts";
 
 abstract class BaseSubscriptionChange extends BaseChange {
   abstract readonly subscription: Subscription;
-  abstract readonly scope: "object" | "comment";
+  abstract readonly scope: "object" | "comment" | "security_label";
   readonly objectType = "subscription" as const;
 }
 

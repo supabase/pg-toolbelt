@@ -1,5 +1,6 @@
 import { diffObjects } from "../base.diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterEventTriggerChangeOwner,
@@ -11,6 +12,10 @@ import {
 } from "./changes/event-trigger.comment.ts";
 import { CreateEventTrigger } from "./changes/event-trigger.create.ts";
 import { DropEventTrigger } from "./changes/event-trigger.drop.ts";
+import {
+  CreateSecurityLabelOnEventTrigger,
+  DropSecurityLabelOnEventTrigger,
+} from "./changes/event-trigger.security-label.ts";
 import type { EventTriggerChange } from "./changes/event-trigger.types.ts";
 import type { EventTrigger } from "./event-trigger.model.ts";
 
@@ -48,6 +53,14 @@ export function diffEventTriggers(
 
     if (eventTrigger.comment !== null) {
       changes.push(new CreateCommentOnEventTrigger({ eventTrigger }));
+    }
+    for (const label of eventTrigger.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnEventTrigger({
+          eventTrigger,
+          securityLabel: label,
+        }),
+      );
     }
   }
 
@@ -121,6 +134,26 @@ export function diffEventTriggers(
         );
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnEventTrigger | DropSecurityLabelOnEventTrigger
+      >(
+        mainEventTrigger.security_labels,
+        branchEventTrigger.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnEventTrigger({
+            eventTrigger: branchEventTrigger,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnEventTrigger({
+            eventTrigger: mainEventTrigger,
+            securityLabel,
+          }),
+      ),
+    );
   }
 
   return changes;

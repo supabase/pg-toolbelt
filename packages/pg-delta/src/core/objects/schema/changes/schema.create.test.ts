@@ -10,6 +10,7 @@ describe("schema", () => {
       owner: "test",
       comment: null,
       privileges: [],
+      security_labels: [],
     });
 
     const change = new CreateSchema({

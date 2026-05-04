@@ -10,6 +10,11 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
+import {
+  normalizeSecurityLabels,
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../../table/table.model.ts";
 
 const compositeTypePropsSchema = z.object({
@@ -30,6 +35,7 @@ const compositeTypePropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type CompositeTypePrivilegeProps = PrivilegeProps;
@@ -53,6 +59,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
   public readonly comment: CompositeTypeProps["comment"];
   public readonly columns: CompositeTypeProps["columns"];
   public readonly privileges: CompositeTypePrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: CompositeTypeProps) {
     super();
@@ -77,6 +84,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
     this.comment = props.comment;
     this.columns = props.columns;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `type:${string}` {
@@ -107,6 +115,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       comment: this.comment,
       columns: this.columns,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -131,6 +140,7 @@ export class CompositeType extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -165,7 +175,8 @@ export async function extractCompositeTypes(
           obj_description(c.reltype, 'pg_type') AS comment,
           c.relacl                            AS relacl,    -- used by privileges LATERAL
           c.relowner                          AS relowner,
-          c.oid                                AS oid
+          c.oid                                AS oid,
+          c.reltype                            AS reltype
         FROM pg_catalog.pg_class c
         LEFT JOIN extension_oids e ON c.reltype = e.objid
         WHERE NOT c.relnamespace::regnamespace::text LIKE ANY (ARRAY['pg\\_%', 'information\\_schema'])
@@ -189,7 +200,20 @@ export async function extractCompositeTypes(
         ct.owner,
         ct.comment,
         COALESCE(priv.privileges, '[]') AS privileges,
-        COALESCE(cols.columns, '[]')    AS columns
+        COALESCE(cols.columns, '[]')    AS columns,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              ORDER BY sl.provider
+            )
+            FROM pg_catalog.pg_seclabel sl
+            WHERE sl.objoid = ct.reltype
+              AND sl.classoid = 'pg_type'::regclass
+              AND sl.objsubid = 0
+          ),
+          '[]'::json
+        ) AS security_labels
       FROM composite_types ct
 
       -- privileges as a per-row LATERAL subquery
