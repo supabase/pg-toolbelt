@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import {
   AbstractStartedContainer,
   GenericContainer,
+  getContainerRuntimeClient,
+  ImageName,
   type StartedTestContainer,
   Wait,
 } from "testcontainers";
@@ -14,6 +16,11 @@ const POSTGRES_PORT = 5432;
  * Maps a PostgreSQL major version to the Alpine base tag that ships the
  * matching `postgresql<PG_MAJOR>-dev` package. Needed because a given
  * alpine release typically only carries the current pg-dev headers.
+ *
+ * Keep in sync with the matrix in `.github/workflows/tests.yml`
+ * (`pg-delta-build-test-images` job) — CI uses these same values to
+ * build the prebuilt `pg-delta-test:<major>` image and push it to GHCR
+ * so test shards can pull instead of rebuilding locally.
  */
 const ALPINE_TAG_FOR_PG_MAJOR: Record<PostgresVersion, string> = {
   15: "3.19",
@@ -25,15 +32,43 @@ const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
 const DUMMY_SECLABEL_IMAGE_PREFIX = "pg-delta-test";
 
 /**
+ * Internal counter incremented every time `buildPostgresTestImage` actually
+ * invokes `GenericContainer.fromDockerfile(...)` (i.e. when no prebuilt
+ * image is found locally). Exposed only so tests can verify the
+ * short-circuit path.
+ */
+let buildInvocations = 0;
+
+/** @internal */
+export function getBuildInvocationCount(): number {
+  return buildInvocations;
+}
+
+/**
  * Build (or reuse) a Postgres image that has the `dummy_seclabel` test
  * contrib module pre-installed, so integration tests can exercise
- * `SECURITY LABEL` end-to-end. Tagged locally as `pg-delta-test:<major>`
- * and cached by the Docker daemon between runs.
+ * `SECURITY LABEL` end-to-end. Tagged locally as `pg-delta-test:<major>`.
+ *
+ * Skips the docker build entirely when the tag already exists in the
+ * local daemon — CI prebuilds these images once per PG version (see
+ * `pg-delta-build-test-images` in `.github/workflows/tests.yml`) and
+ * pulls + retags them in each integration shard, so this short-circuit
+ * is what saves shards from paying the rebuild cost.
  */
 export async function buildPostgresTestImage(
   version: PostgresVersion,
 ): Promise<string> {
   const imageTag = `${DUMMY_SECLABEL_IMAGE_PREFIX}:${version}`;
+
+  const containerRuntimeClient = await getContainerRuntimeClient();
+  const alreadyPresent = await containerRuntimeClient.image.exists(
+    ImageName.fromString(imageTag),
+  );
+  if (alreadyPresent) {
+    return imageTag;
+  }
+
+  buildInvocations += 1;
   await GenericContainer.fromDockerfile(TESTS_DIR, "dummy-seclabel.Dockerfile")
     .withBuildArgs({
       PG_MAJOR: String(version),
