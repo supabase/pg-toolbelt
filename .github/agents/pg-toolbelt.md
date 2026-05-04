@@ -169,7 +169,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 
 When changing shard count or PG versions, update all of these locations:
 
-- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix; the `pg-delta-build-test-images` matrix (`postgres_version`, `alpine_tag`, `pg_branch`) **must** stay in sync with `ALPINE_TAG_FOR_PG_MAJOR` in `packages/pg-delta/tests/postgres-alpine.ts`
+- `.github/workflows/tests.yml` — `shard_index`, `shard_total` in the matrix; the `pg-delta-build-test-images` matrix (`postgres_version`, `alpine_tag`, `pg_branch`) **must** stay in sync with `ALPINE_TAG_FOR_PG_MAJOR` in `packages/pg-delta/tests/alpine-tags.ts`
 - `scripts/coverage.ts` — default `--shards` value (doc comment + code)
 - This file (`AGENTS.md` / `CLAUDE.md`) — both the CI section and the Testing Discipline section
 
@@ -182,7 +182,7 @@ rebuilt by every shard. The flow:
 
 1. `pg-delta-test-image-hash` job hashes
    `packages/pg-delta/tests/dummy-seclabel.Dockerfile` +
-   `packages/pg-delta/tests/postgres-alpine.ts` and decides whether the
+   `packages/pg-delta/tests/alpine-tags.ts` and decides whether the
    run can push (same-repo) or must fall back to inline builds (forked PR).
 2. `pg-delta-build-test-images` (matrix on PG version) probes
    `ghcr.io/<repo>/pg-delta-test:<major>-<hash>` with
@@ -201,7 +201,7 @@ rebuilt by every shard. The flow:
 When you change `dummy-seclabel.Dockerfile` or `ALPINE_TAG_FOR_PG_MAJOR`,
 the hash flips automatically and the next CI run rebuilds + republishes;
 no manual cache invalidation is needed. If you add a new PG version,
-update **all three** of: the matrix in `tests/postgres-alpine.ts`, the
+update **all three** of: `ALPINE_TAG_FOR_PG_MAJOR` in `tests/alpine-tags.ts`, the
 `pg-delta-build-test-images` matrix in `tests.yml`, and the
 `postgres_version` list in `pg-delta-integration` / `pg-delta-unit` /
 the compat aggregator jobs.

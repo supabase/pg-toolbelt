@@ -166,11 +166,12 @@ jobs:
         id: hash
         # Hash both the Dockerfile and the file owning ALPINE_TAG_FOR_PG_MAJOR
         # so a change to either produces a fresh image tag without colliding
-        # with previously-published ones.
+        # with previously-published ones. (Alpine tags live in alpine-tags.ts
+        # alone so unrelated edits to postgres-alpine.ts do not bump the hash.)
         run: |
           HASH=$(cat \
             packages/pg-delta/tests/dummy-seclabel.Dockerfile \
-            packages/pg-delta/tests/postgres-alpine.ts \
+            packages/pg-delta/tests/alpine-tags.ts \
             | sha256sum | cut -c1-12)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
       - name: Resolve build/push capability
@@ -201,9 +202,9 @@ jobs:
       fail-fast: false
       matrix:
         # Keep `alpine_tag` in sync with `ALPINE_TAG_FOR_PG_MAJOR` in
-        # `packages/pg-delta/tests/postgres-alpine.ts`. The hash job picks
-        # up changes to either file so a forgotten update produces a fresh
-        # tag rather than reusing a stale image.
+        # `packages/pg-delta/tests/alpine-tags.ts`. The hash job picks
+        # up changes to Dockerfile or alpine-tags so a forgotten update
+        # produces a fresh tag rather than reusing a stale image.
         include:
           - postgres_version: 15
             alpine_tag: "3.19"
