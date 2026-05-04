@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 /**
@@ -207,9 +207,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
     test(
       "role label (shared catalog)",
-      withDb(pgVersion, async (db) => {
-        // Roles are cluster-wide; use DO/IF-NOT-EXISTS so the setup is
-        // idempotent across tests that share a container.
+      withDbIsolated(pgVersion, async (db) => {
+        // Roles and role security labels are cluster-wide, so this test needs
+        // full container isolation instead of withDb's database-only isolation.
         await roundtripFidelityTest({
           mainSession: db.main,
           branchSession: db.branch,
@@ -228,6 +228,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
             SECURITY LABEL FOR dummy ON ROLE test_role_with_label IS 'classified';
           `,
+          expectedSqlTerms: [
+            "SECURITY LABEL FOR dummy ON ROLE test_role_with_label IS 'classified'",
+          ],
         });
       }),
     );

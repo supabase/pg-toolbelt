@@ -105,6 +105,22 @@ export function flattenChange(change: Change): Record<string, FlatValue> {
           flat[`${prefix}/${subKey}`] = flatVal;
         }
       }
+    } else if (
+      key === "securityLabel" &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      // Security labels are change-level metadata, so expose provider/label as
+      // bare keys for filters like { scope: "security_label", provider: "..." }.
+      for (const [subKey, subValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        const flatVal = toFlatValue(subValue);
+        if (flatVal !== undefined) {
+          flat[subKey] = flatVal;
+        }
+      }
     } else {
       const flatVal = toFlatValue(value);
       if (flatVal !== undefined) {

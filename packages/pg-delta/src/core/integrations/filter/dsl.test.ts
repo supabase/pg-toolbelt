@@ -41,6 +41,16 @@ const membershipChange = {
   requires: [],
 } as unknown as Change;
 
+const securityLabelChange = {
+  objectType: "schema",
+  operation: "create",
+  scope: "security_label",
+  schema: { name: "labeled" },
+  securityLabel: { provider: "dummy", label: "classified" },
+  requires: ["schema:labeled"],
+  creates: ["security_label:schema:labeled:dummy"],
+} as unknown as Change;
+
 describe("evaluatePattern", () => {
   describe("bare key matching (top-level properties)", () => {
     test("objectType match", () => {
@@ -239,6 +249,23 @@ describe("evaluatePattern", () => {
 
     test("member not present returns false", () => {
       expect(evaluatePattern({ member: "app_user" }, tableCreate)).toBe(false);
+    });
+  });
+
+  describe("security label matching", () => {
+    test("provider matches security label changes", () => {
+      expect(
+        evaluatePattern(
+          { scope: "security_label", provider: "dummy" },
+          securityLabelChange,
+        ),
+      ).toBe(true);
+      expect(
+        evaluatePattern(
+          { scope: "security_label", provider: "other" },
+          securityLabelChange,
+        ),
+      ).toBe(false);
     });
   });
 
