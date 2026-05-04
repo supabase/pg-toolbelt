@@ -213,7 +213,7 @@ jobs:
             alpine_tag: "3.23"
             pg_branch: REL_17_STABLE
           - postgres_version: 18
-            alpine_tag: "3.22"
+            alpine_tag: "3.23"
             pg_branch: REL_18_STABLE
     steps:
       - name: Checkout

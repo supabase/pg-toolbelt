@@ -17,5 +17,6 @@ import type { PostgresVersion } from "./constants.ts";
 export const ALPINE_TAG_FOR_PG_MAJOR: Record<PostgresVersion, string> = {
   15: "3.19",
   17: "3.23",
-  18: "3.22",
+  // v3.22 has no postgresql18 in main/community; v3.23 ships postgresql18-dev.
+  18: "3.23",
 };
