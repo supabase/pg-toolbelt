@@ -6,8 +6,6 @@
  * Requires Docker. Uses `PGDELTA_TEST_POSTGRES_VERSIONS` (default: `17`).
  */
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { Pool } from "pg";
 import { diffCatalogs } from "../src/core/catalog.diff.ts";
 import {
@@ -27,10 +25,24 @@ import {
 } from "../tests/constants.ts";
 import { SupabasePostgreSqlContainer } from "../tests/supabase-postgres.ts";
 import { applySupabaseBaseInit, waitForPool } from "../tests/utils.ts";
+import { generateLargeSchemaSql } from "./large-schema-generator.ts";
 
 const WARMUP = 3;
 const ITERS = 5;
-const FIXTURE_SQL = join(import.meta.dir, "fixtures", "large-schema.sql");
+
+const E2E_TABLE_COUNT = Number(
+  process.env.BENCH_E2E_TABLE_COUNT ?? process.env.BENCH_TABLE_COUNT ?? "400",
+);
+if (
+  !Number.isInteger(E2E_TABLE_COUNT) ||
+  E2E_TABLE_COUNT < 1 ||
+  E2E_TABLE_COUNT > 50_000
+) {
+  console.error(
+    `[bench:e2e] BENCH_E2E_TABLE_COUNT / BENCH_TABLE_COUNT must be integer 1..50000, got ${String(process.env.BENCH_E2E_TABLE_COUNT ?? process.env.BENCH_TABLE_COUNT ?? "400")}`,
+  );
+  process.exit(1);
+}
 
 function median(nums: readonly number[]): number {
   if (nums.length === 0) return Number.NaN;
@@ -135,15 +147,9 @@ if (versions.length === 0) {
   process.exit(0);
 }
 
-let largeSql: string;
-try {
-  largeSql = await readFile(FIXTURE_SQL, "utf-8");
-} catch {
-  console.error(
-    `Missing ${FIXTURE_SQL}. Run: bun bench/generate-large-schema.ts`,
-  );
-  process.exit(1);
-}
+console.error(
+  `[bench:e2e] synthetic schema: ${E2E_TABLE_COUNT} tables; postgres_fdw loopback; security labels if BENCH_SECURITY_LABELS=1`,
+);
 
 console.log(
   "| mode | PG | extract | emptyBaseline | diff | sort | planBuild | total_ms |",
@@ -169,9 +175,22 @@ for (const pgVersion of versions) {
     const mA = await measurePhases(pool);
     console.log(formatRow("base-init only", pgVersion, mA));
 
+    const largeSql = generateLargeSchemaSql({
+      tableCount: E2E_TABLE_COUNT,
+      includeSecurityLabels: process.env.BENCH_SECURITY_LABELS === "1",
+      fdwLoopback: {
+        host: "127.0.0.1",
+        port: 5432,
+        dbname: container.getDatabase(),
+        user: container.getUsername(),
+        password: container.getPassword(),
+      },
+    });
     await pool.query(largeSql);
     const mB = await measurePhases(pool);
-    console.log(formatRow("+ large-schema.sql", pgVersion, mB));
+    console.log(
+      formatRow(`+ synthetic schema (N=${E2E_TABLE_COUNT})`, pgVersion, mB),
+    );
   } catch (e) {
     console.error(`[bench:e2e] pg${pgVersion} failed:`, e);
     console.error(

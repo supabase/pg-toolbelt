@@ -79,6 +79,7 @@
     "bench": "bun bench/sort-changes.bench.ts",
     "bench:profile": "bun --cpu-prof-md --cpu-prof-dir ./bench/profiles bench/cpu-profile.bench.ts",
     "bench:e2e": "bun bench/e2e.bench.ts",
+    "bench:e2e-mutations": "bun bench/e2e-mutations.bench.ts",
     "bench:gen-fixture": "bun bench/generate-large-schema.ts",
     "update-empty-baseline": "bun scripts/update-empty-catalog-baseline.ts",
     "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
