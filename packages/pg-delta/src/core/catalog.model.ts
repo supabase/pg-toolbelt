@@ -311,11 +311,33 @@ interface ExtractCatalogOptions {
   extractRetries?: number;
 }
 
+/**
+ * Run a fast `ANALYZE` against the system catalogs that pg-delta's
+ * extractor queries depend on for plan estimates. With stale statistics
+ * (typically right after a bulk schema build), the planner picks
+ * O(N²) join plans for the catalog-dependency query and extraction can
+ * take 5-10 s instead of <300 ms. The cost of these targeted ANALYZE
+ * calls is usually well under 200 ms, so it is worth eating it
+ * unconditionally to avoid the worst case.
+ *
+ * Returns silently on permission errors so non-superusers can still run
+ * extractCatalog (planner will fall back to whatever stats exist).
+ */
+async function refreshCatalogStats(pool: Pool): Promise<void> {
+  try {
+    await pool.query("ANALYZE");
+  } catch {
+    // Ignore — non-superuser without MAINTAIN privilege etc. Planner falls
+    // back to whatever stats exist (potentially slow on freshly-built DBs).
+  }
+}
+
 export async function extractCatalog(
   pool: Pool,
   options: ExtractCatalogOptions = {},
 ) {
   const retryOptions = { retries: options.extractRetries };
+  await refreshCatalogStats(pool);
   const [
     aggregates,
     collations,

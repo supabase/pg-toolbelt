@@ -513,12 +513,34 @@ async function extractPrivilegeAndMembershipDepends(
 }
 
 /**
- * SQL for {@link extractDepends}. Lifted to a module scope so
- * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
- * query. Do not modify this constant in isolation — it is the only source of
- * the catalog-dependency query.
+ * Raw `pg_depend` rows. Returned to the client untranslated; the TS-side
+ * translation step (`translateRawDepends`) joins each row to a stable_id via
+ * the `OID_IDENTITY_SQL` lookup table. Replaces the old `base` CTE inside
+ * `DEPENDS_SQL`, which materialised pg_depend joined to a 30-branch `objects`
+ * CTE entirely server-side and was the single biggest server-cost in catalog
+ * extraction.
  */
-export const DEPENDS_SQL = sql`
+export const RAW_DEPENDS_SQL = sql`
+  SELECT
+    classid::int        AS classid,
+    objid::int          AS objid,
+    objsubid::int       AS objsubid,
+    refclassid::int     AS refclassid,
+    refobjid::int       AS refobjid,
+    refobjsubid::int    AS refobjsubid,
+    deptype
+  FROM pg_depend
+  WHERE deptype IN ('n','a')
+`;
+
+/**
+ * Identity table for every catalog object that appears (as dependent or
+ * referenced) in `pg_depend`. The output is exactly the rows of the old
+ * `objects` CTE — one row per (classid, objid, objsubid) with its formatted
+ * stable_id and schema name. The TS translator builds a `Map` from these rows
+ * to look up stable_ids when materialising raw pg_depend edges.
+ */
+export const OID_IDENTITY_SQL = sql`
   WITH ids AS (
     -- only the objects that actually show up in dependencies (both sides)
     SELECT DISTINCT classid, objid, objsubid FROM pg_depend WHERE deptype IN ('n','a')
@@ -579,44 +601,34 @@ export const DEPENDS_SQL = sql`
     UNION ALL
     /* Types (map row types back to their owning relation when applicable) */
     SELECT 'pg_type'::regclass, t.oid, 0::int2,
-          COALESCE(rns.nspname, ns.nspname) AS schema_name,  -- prefer owning rel's schema if present
+          COALESCE(rns.nspname, ns.nspname) AS schema_name,
           CASE t.typtype
             WHEN 'd' THEN format('domain:%I.%I', ns.nspname, t.typname)
             WHEN 'e' THEN format('type:%I.%I', ns.nspname, t.typname)
             WHEN 'r' THEN format('type:%I.%I', ns.nspname, t.typname)
             WHEN 'm' THEN format('multirange:%I.%I', ns.nspname, t.typname)
-
             WHEN 'c' THEN
               CASE
-                /* Row type owned by a table / partitioned table / foreign table */
                 WHEN r.oid IS NOT NULL AND r.relkind IN ('r','p','f') THEN
                   CASE
                     WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
                       THEN format('systemTable:%I.%I', rns.nspname, r.relname)
                     ELSE    format('table:%I.%I',       rns.nspname, r.relname)
                   END
-
-                /* Row type owned by a view */
                 WHEN r.oid IS NOT NULL AND r.relkind = 'v' THEN
                   CASE
                     WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
                       THEN format('systemView:%I.%I', rns.nspname, r.relname)
                     ELSE    format('view:%I.%I',       rns.nspname, r.relname)
                   END
-
-                /* Row type owned by a materialized view */
                 WHEN r.oid IS NOT NULL AND r.relkind = 'm' THEN
                   CASE
-                    /* your pg_class system-branch uses systemObject for relkind m */
                     WHEN rns.nspname IN ('information_schema','pg_catalog','pg_toast')
                       THEN format('systemObject:%I.%I:%s', rns.nspname, r.relname, 'm')
                     ELSE    format('materializedView:%I.%I', rns.nspname, r.relname)
                   END
-
-                /* Standalone composite type */
                 ELSE format('type:%I.%I', ns.nspname, t.typname)
               END
-
             WHEN 'p' THEN format('pseudoType:%I.%I', ns.nspname, t.typname)
             ELSE         format('type:%I.%I',       ns.nspname, t.typname)
           END AS stable_id
@@ -635,7 +647,6 @@ export const DEPENDS_SQL = sql`
     JOIN pg_type ty ON ty.oid = c.contypid
     JOIN pg_namespace ns ON ns.oid = ty.typnamespace
     JOIN ids i ON i.classid = 'pg_constraint'::regclass AND i.objid = c.oid AND COALESCE(i.objsubid,0) = 0
-    WHERE c.contypid <> 0
 
     UNION ALL
     /* Constraints on table */
@@ -754,14 +765,14 @@ export const DEPENDS_SQL = sql`
     UNION ALL
     /* Publication–table membership rows (collapse to publication stable id) */
     SELECT 'pg_publication_rel'::regclass, pr.oid, 0::int2,
-           NULL::text AS schema_name, -- publication isn’t really “in” a schema
+           NULL::text AS schema_name,
            format('publication:%I', pub.pubname) AS stable_id
     FROM pg_publication_rel pr
     JOIN pg_publication pub ON pub.oid = pr.prpubid
     JOIN ids i ON i.classid = 'pg_publication_rel'::regclass
               AND i.objid   = pr.oid
               AND COALESCE(i.objsubid,0) = 0
-              
+
     UNION ALL
     /* Language (no schema), Event trigger, Extension */
     SELECT 'pg_language'::regclass, l.oid, 0::int2, NULL::text, format('language:%I', l.lanname)
@@ -819,21 +830,24 @@ export const DEPENDS_SQL = sql`
     JOIN pg_foreign_data_wrapper fdw ON fdw.oid = srv.srvfdw
     JOIN ids i ON i.classid = 'pg_user_mapping'::regclass AND i.objid = um.oid AND COALESCE(i.objsubid,0) = 0
     WHERE NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
-  ),
-  base AS (
-    SELECT DISTINCT
-      COALESCE(dep.stable_id, format('unknown:%s.%s', (d.classid::regclass)::text, d.objid::text)) AS dependent_stable_id,
-      COALESCE(ref.stable_id, format('unknown:%s.%s', (d.refclassid::regclass)::text, d.refobjid::text)) AS referenced_stable_id,
-      d.deptype,
-      dep.schema_name AS dep_schema,
-      ref.schema_name AS ref_schema
-    FROM pg_depend d
-    LEFT JOIN objects dep
-      ON dep.classid = d.classid AND dep.objid = d.objid AND dep.objsubid = COALESCE(NULLIF(d.objsubid,0),0)
-    LEFT JOIN objects ref
-      ON ref.classid = d.refclassid AND ref.objid = d.refobjid AND ref.objsubid = COALESCE(NULLIF(d.refobjsubid,0),0)
-    WHERE d.deptype IN ('n','a')
-  ),
+  )
+  SELECT
+    classid::int    AS classid,
+    objid::int      AS objid,
+    objsubid::int   AS objsubid,
+    schema_name,
+    stable_id
+  FROM objects
+`;
+
+/**
+ * SQL for {@link extractDepends}. Lifted to a module scope so
+ * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
+ * query. Do not modify this constant in isolation — it is the only source of
+ * the catalog-dependency query.
+ */
+export const DEPENDS_SQL = sql`
+  WITH
   comment_deps AS (
     -- Table comments
     SELECT DISTINCT
@@ -1277,45 +1291,31 @@ export const DEPENDS_SQL = sql`
   ),
   view_rewrite_rel_deps AS (
     SELECT DISTINCT
-      COALESCE(
-        dep_view.stable_id,
-        CASE v.relkind
-          WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
-          WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
-          ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
-        END
-      ) AS dependent_stable_id,
-      COALESCE(
-        ref_obj.stable_id,
-        CASE
-          WHEN ref_attr.attnum IS NOT NULL THEN format('column:%I.%I.%I', ref_ns.nspname, ref_rel.relname, ref_attr.attname)
-          WHEN ref_rel.relkind IN ('r','p','f') THEN format('table:%I.%I', ref_ns.nspname, ref_rel.relname)
-          WHEN ref_rel.relkind = 'v' THEN format('view:%I.%I', ref_ns.nspname, ref_rel.relname)
-          WHEN ref_rel.relkind = 'm' THEN format('materializedView:%I.%I', ref_ns.nspname, ref_rel.relname)
-          ELSE format('unknown:%s.%s', 'pg_class', COALESCE(ref_rel.oid::text, d.refobjid::text))
-        END
-      ) AS referenced_stable_id,
+      CASE v.relkind
+        WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
+        WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
+        ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
+      END AS dependent_stable_id,
+      CASE
+        WHEN ref_attr.attnum IS NOT NULL THEN format('column:%I.%I.%I', ref_ns.nspname, ref_rel.relname, ref_attr.attname)
+        WHEN ref_rel.relkind IN ('r','p','f') THEN format('table:%I.%I', ref_ns.nspname, ref_rel.relname)
+        WHEN ref_rel.relkind = 'v' THEN format('view:%I.%I', ref_ns.nspname, ref_rel.relname)
+        WHEN ref_rel.relkind = 'm' THEN format('materializedView:%I.%I', ref_ns.nspname, ref_rel.relname)
+        ELSE format('unknown:%s.%s', 'pg_class', COALESCE(ref_rel.oid::text, d.refobjid::text))
+      END AS referenced_stable_id,
       d.deptype,
-      COALESCE(dep_view.schema_name, v_ns.nspname) AS dep_schema,
-      COALESCE(ref_obj.schema_name, ref_ns.nspname) AS ref_schema
+      v_ns.nspname AS dep_schema,
+      ref_ns.nspname AS ref_schema
     FROM pg_depend d
     JOIN pg_rewrite r ON r.oid = d.objid
     JOIN pg_class v ON r.ev_class = v.oid
     JOIN pg_namespace v_ns ON v.relnamespace = v_ns.oid
-    LEFT JOIN objects dep_view
-      ON dep_view.classid = 'pg_class'::regclass
-     AND dep_view.objid = v.oid
-     AND dep_view.objsubid = 0
     LEFT JOIN pg_class ref_rel ON ref_rel.oid = d.refobjid
     LEFT JOIN pg_namespace ref_ns ON ref_rel.relnamespace = ref_ns.oid
     LEFT JOIN pg_attribute ref_attr
       ON ref_attr.attrelid = ref_rel.oid
      AND ref_attr.attnum = d.refobjsubid
      AND d.refobjsubid <> 0
-    LEFT JOIN objects ref_obj
-      ON ref_obj.classid = d.refclassid
-     AND ref_obj.objid = d.refobjid
-     AND ref_obj.objsubid = COALESCE(NULLIF(d.refobjsubid,0),0)
     WHERE d.classid = 'pg_rewrite'::regclass
       AND d.refclassid = 'pg_class'::regclass
       AND v.relkind IN ('v','m')
@@ -1329,54 +1329,40 @@ export const DEPENDS_SQL = sql`
   ),
   view_rewrite_proc_deps AS (
     SELECT DISTINCT
-      COALESCE(
-        dep_view.stable_id,
-        CASE v.relkind
-          WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
-          WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
-          ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
-        END
-      ) AS dependent_stable_id,
-      COALESCE(
-        ref_proc_obj.stable_id,
-        CASE
-          WHEN ref_proc.prokind = 'a' THEN format(
-            'aggregate:%I.%I(%s)',
-            ref_proc_ns.nspname,
-            ref_proc.proname,
-            trim(pg_catalog.pg_get_function_identity_arguments(ref_proc.oid))
+      CASE v.relkind
+        WHEN 'v' THEN format('view:%I.%I', v_ns.nspname, v.relname)
+        WHEN 'm' THEN format('materializedView:%I.%I', v_ns.nspname, v.relname)
+        ELSE format('unknown:%s.%s', 'pg_class', v.oid::text)
+      END AS dependent_stable_id,
+      CASE
+        WHEN ref_proc.prokind = 'a' THEN format(
+          'aggregate:%I.%I(%s)',
+          ref_proc_ns.nspname,
+          ref_proc.proname,
+          trim(pg_catalog.pg_get_function_identity_arguments(ref_proc.oid))
+        )
+        ELSE format(
+          'procedure:%I.%I(%s)',
+          ref_proc_ns.nspname,
+          ref_proc.proname,
+          COALESCE(
+            (
+              SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
+              FROM unnest(ref_proc.proargtypes) WITH ORDINALITY AS t(oid, ord)
+            ),
+            ''
           )
-          ELSE format(
-            'procedure:%I.%I(%s)',
-            ref_proc_ns.nspname,
-            ref_proc.proname,
-            COALESCE(
-              (
-                SELECT string_agg(format_type(oid, NULL), ',' ORDER BY ord)
-                FROM unnest(ref_proc.proargtypes) WITH ORDINALITY AS t(oid, ord)
-              ),
-              ''
-            )
-          )
-        END
-      ) AS referenced_stable_id,
+        )
+      END AS referenced_stable_id,
       d.deptype,
-      COALESCE(dep_view.schema_name, v_ns.nspname) AS dep_schema,
-      COALESCE(ref_proc_obj.schema_name, ref_proc_ns.nspname) AS ref_schema
+      v_ns.nspname AS dep_schema,
+      ref_proc_ns.nspname AS ref_schema
     FROM pg_depend d
     JOIN pg_rewrite r ON r.oid = d.objid
     JOIN pg_class v ON r.ev_class = v.oid
     JOIN pg_namespace v_ns ON v.relnamespace = v_ns.oid
-    LEFT JOIN objects dep_view
-      ON dep_view.classid = 'pg_class'::regclass
-     AND dep_view.objid = v.oid
-     AND dep_view.objsubid = 0
     JOIN pg_proc ref_proc ON ref_proc.oid = d.refobjid
     JOIN pg_namespace ref_proc_ns ON ref_proc_ns.oid = ref_proc.pronamespace
-    LEFT JOIN objects ref_proc_obj
-      ON ref_proc_obj.classid = 'pg_proc'::regclass
-     AND ref_proc_obj.objid = ref_proc.oid
-     AND ref_proc_obj.objsubid = 0
     WHERE d.classid = 'pg_rewrite'::regclass
       AND d.refclassid = 'pg_proc'::regclass
       AND v.relkind IN ('v','m')
@@ -1849,8 +1835,6 @@ export const DEPENDS_SQL = sql`
       AND NOT fdw.fdwname LIKE ANY (ARRAY['pg\\_%'])
   ),
   all_rows AS (
-    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM base
-    UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM comment_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM type_usage_deps
@@ -1890,30 +1874,130 @@ export const DEPENDS_SQL = sql`
   ORDER BY dependent_stable_id, referenced_stable_id;
   `;
 
+/** A row returned by {@link RAW_DEPENDS_SQL}. */
+interface RawDependRow {
+  classid: number;
+  objid: number;
+  objsubid: number;
+  refclassid: number;
+  refobjid: number;
+  refobjsubid: number;
+  deptype: PgDependType;
+}
+
+/** A row returned by {@link OID_IDENTITY_SQL}. */
+interface OidIdentityRow {
+  classid: number;
+  objid: number;
+  objsubid: number;
+  schema_name: string | null;
+  stable_id: string;
+}
+
+/**
+ * Build a `(classid:objid:objsubid) → stable_id` map from the rows of
+ * {@link OID_IDENTITY_SQL}. Used by {@link translateRawDepends} to resolve
+ * raw `pg_depend` tuples into the stable_id edges that the rest of the
+ * codebase expects.
+ */
+function buildOidStableIdMap(
+  rows: readonly OidIdentityRow[],
+): Map<string, OidIdentityRow> {
+  const map = new Map<string, OidIdentityRow>();
+  for (const r of rows) {
+    map.set(`${r.classid}:${r.objid}:${r.objsubid}`, r);
+  }
+  return map;
+}
+
+/**
+ * Translate raw `pg_depend` rows into the stable_id edge format produced by
+ * the (former) `base` CTE. Mirrors the SQL semantics:
+ *
+ *   - Look up dependent and referenced via (classid, objid, COALESCE(NULLIF(objsubid,0),0)).
+ *   - When a side has no identity match, emit `unknown:<class_oid>.<oid>`.
+ *   - Filter out edges where the dependent is in pg_/information_schema.
+ *   - Filter out self-edges (dependent == referenced).
+ *   - Deduplicate.
+ */
+function translateRawDepends(
+  rows: readonly RawDependRow[],
+  oidMap: Map<string, OidIdentityRow>,
+): PgDepend[] {
+  const out: PgDepend[] = [];
+  // Caller-side dedup; matches the SQL's `SELECT DISTINCT` over the base CTE.
+  const seen = new Set<string>();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r === undefined) continue;
+    const depKey = `${r.classid}:${r.objid}:${r.objsubid || 0}`;
+    const refKey = `${r.refclassid}:${r.refobjid}:${r.refobjsubid || 0}`;
+    const dep = oidMap.get(depKey);
+    const ref = oidMap.get(refKey);
+
+    const depStableId = dep?.stable_id ?? `unknown:${r.classid}.${r.objid}`;
+    const refStableId =
+      ref?.stable_id ?? `unknown:${r.refclassid}.${r.refobjid}`;
+
+    if (depStableId === refStableId) continue; // self-edge
+
+    // Skip rows whose dependent is in pg_*/information_schema. SQL did this in
+    // the final WHERE; we do it here to avoid materialising those rows at all.
+    const depSchema = dep?.schema_name ?? "";
+    if (depSchema.startsWith("pg_") || depSchema === "information_schema") {
+      continue;
+    }
+
+    const dedupeKey = `${depStableId}|${refStableId}|${r.deptype}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    out.push({
+      dependent_stable_id: depStableId,
+      referenced_stable_id: refStableId,
+      deptype: r.deptype,
+    });
+  }
+  return out;
+}
+
 /**
  * Extract all dependencies from pg_depend, joining with pg_class for class
  * names and applying user object filters.
  */
 export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
-  const { rows: dependsRows } = await pool.query<PgDepend>(DEPENDS_SQL);
+  // Three queries in parallel:
+  //   1. RAW_DEPENDS_SQL — raw pg_depend rows (what the old `base` CTE turned
+  //      into edge tuples server-side).
+  //   2. OID_IDENTITY_SQL — (classid, objid, objsubid) → stable_id table that
+  //      the TS-side translator joins to.
+  //   3. DEPENDS_SQL — the synthesised CTEs (comment_deps, view_rewrite_*,
+  //      constraint_deps, index_*, ownership_deps, publication_deps,
+  //      fdw_deps). These produce edges that aren't in pg_depend directly,
+  //      so they stay server-side.
+  // Plus the privilege-and-membership query which we already had.
+  const [
+    rawDependsResult,
+    identityResult,
+    synthDependsResult,
+    privilegeDepends,
+  ] = await Promise.all([
+    pool.query<RawDependRow>(RAW_DEPENDS_SQL),
+    pool.query<OidIdentityRow>(OID_IDENTITY_SQL),
+    pool.query<PgDepend>(DEPENDS_SQL),
+    extractPrivilegeAndMembershipDepends(pool),
+  ]);
 
-  // Extract privilege and membership dependencies
-  const privilegeDepends = await extractPrivilegeAndMembershipDepends(pool);
+  const oidMap = buildOidStableIdMap(identityResult.rows);
+  const translatedDepends = translateRawDepends(rawDependsResult.rows, oidMap);
 
-  // The two queries return disjoint stable-id namespaces:
-  //   - DEPENDS_SQL → schema:/table:/view:/column:/… (catalog dependencies)
-  //   - PRIVILEGE_AND_MEMBERSHIP_DEPENDS_SQL → acl:/aclcol:/defacl:/membership:
-  // so a (dependent_stable_id, referenced_stable_id) pair can never appear in
-  // both. The previous `new Set([...a, ...b])` therefore did no actual dedup
-  // (rows are fresh objects → all unique by reference) and just paid the cost
-  // of a 25k-element copy + identity-Set on a hot path.
-  //
-  // Codepoint comparison is ~5× faster than `String#localeCompare` over a 25k
-  // catalog and is sufficient here: stable IDs are ASCII (`schema:foo`,
-  // `acl:table:public.x::grantee:postgres`, …) so codepoint and locale order
-  // agree on what matters; only case-tiebreaks differ, and no consumer of
-  // `catalog.depends` asserts a specific case ordering.
-  const merged = dependsRows.concat(privilegeDepends);
+  // Stable-id namespaces are disjoint between the four sources, so a simple
+  // concat is correct (no dedup needed across sources). Sort by codepoint
+  // for deterministic output.
+  const merged = translatedDepends.concat(
+    synthDependsResult.rows,
+    privilegeDepends,
+  );
   merged.sort((a, b) => {
     if (a.dependent_stable_id < b.dependent_stable_id) return -1;
     if (a.dependent_stable_id > b.dependent_stable_id) return 1;
