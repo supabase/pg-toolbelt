@@ -78,6 +78,35 @@ export function tryBreakCycleByChangeInjection(
   );
   if (pubColBroken) return pubColBroken;
 
+  // ─── Branch C: Publication ↔ dropped FK chain ↔ constraint drop ──────
+  // Triggered when publication membership is being removed for tables in
+  // the same drop phase as a FK chain, and the chain ends at a separately
+  // emitted `AlterTableDropConstraint` on a table that is also being
+  // removed from the publication.
+  //
+  // Example (4-change cycle):
+  //   AlterPublicationDropTables(p, [labs, posts, post_attachments])
+  //   DropTable(post_attachments)
+  //   DropTable(posts)
+  //   AlterTableDropConstraint(labs.unique_lab_id)
+  //
+  // Cycle:
+  //   publication:p → table:post_attachments
+  //   post_attachments.post_id_fkey → column:posts.id
+  //   posts.lab_id_fkey → constraint:labs.unique_lab_id
+  //   constraint:labs.unique_lab_id → table:labs
+  //
+  // Fix: inject explicit FK drops for the FK constraints claimed by the
+  // DropTables in the cycle, including FKs that point at the terminal
+  // dropped constraint. The publication and terminal constraint changes
+  // stay unchanged; only the intermediate FK ownership is reassigned from
+  // DropTable to dedicated AlterTableDropConstraint changes.
+  const pubFkConstraintBroken = tryBreakPublicationFkConstraintDropCycle(
+    cycleNodeIndexes,
+    phaseChanges,
+  );
+  if (pubFkConstraintBroken) return pubFkConstraintBroken;
+
   // No known pattern. Returning null lets sortPhaseChanges throw the
   // formatted CycleError with full diagnostic — better a clear bug
   // report than silently shipping a broken plan.
@@ -109,6 +138,34 @@ function tryBreakFkCycle(
     cycleDropTables.map((change) => change.table.stableId),
   );
 
+  return injectFkConstraintDropsForDropTables({
+    phaseChanges,
+    dropTables: cycleDropTables,
+    shouldInject: (fk, tableId) =>
+      isCrossCycleFkConstraint(fk, tableId, cycleTableIds),
+  });
+}
+
+type FkConstraintPredicate = (
+  fk: TableConstraintProps,
+  tableId: string,
+) => boolean;
+
+/**
+ * Shared FK-drop injection used by Branch A and Branch C. The caller owns
+ * the cycle-specific matcher; this helper only handles the mechanical
+ * rewrite: add dedicated `AlterTableDropConstraint` changes and rebuild
+ * affected `DropTable`s with updated `externallyDroppedConstraints`.
+ */
+function injectFkConstraintDropsForDropTables({
+  phaseChanges,
+  dropTables,
+  shouldInject,
+}: {
+  phaseChanges: readonly Change[];
+  dropTables: readonly DropTable[];
+  shouldInject: FkConstraintPredicate;
+}): Change[] | null {
   // For each DropTable in the cycle, find every FK whose referenced table
   // is also in the cycle. Each such FK becomes one injected
   // `AlterTableDropConstraint` and one entry on the source table's
@@ -120,16 +177,14 @@ function tryBreakFkCycle(
   const updatedExternalsByTableId = new Map<string, Set<string>>();
   let didMutate = false;
 
-  for (const dropTable of cycleDropTables) {
+  for (const dropTable of dropTables) {
     const tableId = dropTable.table.stableId;
     const existingExternals = new Set(dropTable.externallyDroppedConstraints);
     let tableMutated = false;
 
-    for (const fk of iterCrossCycleFkConstraints(
-      dropTable.table.constraints,
-      tableId,
-      cycleTableIds,
-    )) {
+    for (const fk of iterFkConstraints(dropTable.table.constraints)) {
+      if (!shouldInject(fk, tableId)) continue;
+
       // Skip if a same-table `AlterTableDropConstraint` is already in the
       // change list — could happen if a previous breaker iteration
       // injected one, or the diff layer emitted one explicitly.
@@ -187,33 +242,43 @@ function tryBreakFkCycle(
 }
 
 /**
- * Yield FK constraints on `constraints` whose referenced table is also a
- * member of the cycle (i.e. an FK strictly between two cycle DropTables).
+ * Yield FK constraints on `constraints`.
+ *
+ * Partition clones are skipped because PostgreSQL drops them when the
+ * parent constraint is dropped.
+ */
+function* iterFkConstraints(
+  constraints: readonly TableConstraintProps[],
+): Iterable<TableConstraintProps> {
+  for (const constraint of constraints) {
+    if (constraint.constraint_type !== "f") continue;
+    if (constraint.is_partition_clone) continue;
+    yield constraint;
+  }
+}
+
+/**
+ * True when `constraint` references another DropTable in the cycle.
  *
  * Self-referencing FKs are skipped — they create a self-loop in the
  * dependency graph which the existing sort-phase handler resolves on its
  * own; injecting an `AlterTableDropConstraint` for a self-FK would just
  * add noise.
  */
-function* iterCrossCycleFkConstraints(
-  constraints: readonly TableConstraintProps[],
+function isCrossCycleFkConstraint(
+  constraint: TableConstraintProps,
   ownTableId: string,
   cycleTableIds: ReadonlySet<string>,
-): Iterable<TableConstraintProps> {
-  for (const constraint of constraints) {
-    if (constraint.constraint_type !== "f") continue;
-    if (constraint.is_partition_clone) continue;
-    if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
-      continue;
-    }
-    const referencedId = stableId.table(
-      constraint.foreign_key_schema,
-      constraint.foreign_key_table,
-    );
-    if (referencedId === ownTableId) continue;
-    if (!cycleTableIds.has(referencedId)) continue;
-    yield constraint;
+): boolean {
+  if (!constraint.foreign_key_schema || !constraint.foreign_key_table) {
+    return false;
   }
+  const referencedId = stableId.table(
+    constraint.foreign_key_schema,
+    constraint.foreign_key_table,
+  );
+  if (referencedId === ownTableId) return false;
+  return cycleTableIds.has(referencedId);
 }
 
 /**
@@ -308,4 +373,99 @@ function tryBreakPublicationColumnCycle(
     omitTableRequirement: true,
   });
   return rewritten;
+}
+
+/**
+ * Branch C worker — break a publication membership removal cycle where
+ * dropped tables form a FK chain ending at a separately dropped referenced
+ * constraint.
+ */
+function tryBreakPublicationFkConstraintDropCycle(
+  cycleNodeIndexes: readonly number[],
+  phaseChanges: readonly Change[],
+): Change[] | null {
+  let pubChange: AlterPublicationDropTables | null = null;
+  let terminalConstraintDrop: AlterTableDropConstraint | null = null;
+  const dropTables: DropTable[] = [];
+
+  for (const nodeIndex of cycleNodeIndexes) {
+    const change = phaseChanges[nodeIndex];
+    if (change instanceof AlterPublicationDropTables) {
+      if (pubChange !== null) return null;
+      pubChange = change;
+    } else if (change instanceof AlterTableDropConstraint) {
+      if (terminalConstraintDrop !== null) return null;
+      terminalConstraintDrop = change;
+    } else if (change instanceof DropTable) {
+      dropTables.push(change);
+    } else {
+      return null;
+    }
+  }
+
+  if (
+    pubChange === null ||
+    terminalConstraintDrop === null ||
+    dropTables.length === 0
+  ) {
+    return null;
+  }
+
+  const publicationTableIds = new Set<string>(
+    pubChange.tables.map((table) => stableId.table(table.schema, table.name)),
+  );
+  if (!publicationTableIds.has(terminalConstraintDrop.table.stableId)) {
+    return null;
+  }
+
+  for (const dropTable of dropTables) {
+    if (!publicationTableIds.has(dropTable.table.stableId)) return null;
+  }
+
+  const cycleDropTableIds = new Set(
+    dropTables.map((change) => change.table.stableId),
+  );
+  let hasFkToTerminalConstraint = false;
+
+  for (const dropTable of dropTables) {
+    for (const fk of iterFkConstraints(dropTable.table.constraints)) {
+      if (fkReferencesConstraint(fk, terminalConstraintDrop)) {
+        hasFkToTerminalConstraint = true;
+        break;
+      }
+    }
+    if (hasFkToTerminalConstraint) break;
+  }
+  if (!hasFkToTerminalConstraint) return null;
+
+  return injectFkConstraintDropsForDropTables({
+    phaseChanges,
+    dropTables,
+    shouldInject: (fk, tableId) =>
+      isCrossCycleFkConstraint(fk, tableId, cycleDropTableIds) ||
+      fkReferencesConstraint(fk, terminalConstraintDrop),
+  });
+}
+
+function fkReferencesConstraint(
+  fk: TableConstraintProps,
+  constraintDrop: AlterTableDropConstraint,
+): boolean {
+  if (
+    fk.foreign_key_schema !== constraintDrop.table.schema ||
+    fk.foreign_key_table !== constraintDrop.table.name ||
+    fk.foreign_key_columns === null
+  ) {
+    return false;
+  }
+
+  return sameOrderedStrings(
+    fk.foreign_key_columns,
+    constraintDrop.constraint.key_columns,
+  );
+}
+
+function sameOrderedStrings(left: readonly string[], right: readonly string[]) {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }

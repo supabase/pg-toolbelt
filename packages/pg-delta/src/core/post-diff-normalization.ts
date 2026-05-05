@@ -1,6 +1,7 @@
 import type { Change } from "./change.types.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
+import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import {
   AlterTableAddConstraint,
   AlterTableDropColumn,
@@ -24,12 +25,40 @@ function isSupersededByTableReplacement(
   replacedTableIds: ReadonlySet<string>,
 ): boolean {
   if (
-    !(change instanceof AlterTableDropColumn) &&
-    !(change instanceof AlterTableDropConstraint)
+    change instanceof AlterTableDropColumn ||
+    change instanceof AlterTableDropConstraint
   ) {
-    return false;
+    return replacedTableIds.has(change.table.stableId);
   }
-  return replacedTableIds.has(change.table.stableId);
+
+  // `DropSequence(S)` is superseded when S is OWNED BY a column on a table
+  // that `expandReplaceDependencies` has promoted to `DropTable + CreateTable`
+  // in the same plan. PostgreSQL cascade-drops the OWNED BY sequence as part
+  // of the DROP TABLE, so the explicit DROP SEQUENCE is redundant and — more
+  // importantly — closes an unbreakable `DropSequence ↔ DropTable` cycle in
+  // the drop phase via the bidirectional pg_depend edges between the
+  // sequence and its owning column (`column → sequence` for the DEFAULT
+  // nextval reference, `sequence → column` for the OWNED BY auto-dependency).
+  // The alpha.15 short-circuit in `diffSequences.dropped` only suppresses
+  // `DropSequence` when the owning table itself is gone from `branchTables`;
+  // here the table survives in branch and the replacement is added later by
+  // the expander, so this whole-plan rewrite has to happen post-diff.
+  if (change instanceof DropSequence) {
+    if (
+      !change.sequence.owned_by_schema ||
+      !change.sequence.owned_by_table ||
+      !change.sequence.owned_by_column
+    ) {
+      return false;
+    }
+    const ownedByTableId = stableId.table(
+      change.sequence.owned_by_schema,
+      change.sequence.owned_by_table,
+    );
+    return replacedTableIds.has(ownedByTableId);
+  }
+
+  return false;
 }
 
 /**
@@ -219,6 +248,13 @@ function restoreReplicaIdentityAfterIndexReplace(
  *   `DropTable(T) + CreateTable(T)` pair. Without this, the apply phase
  *   would try to drop a column that no longer exists in the freshly
  *   recreated table.
+ * - Prunes `DropSequence(S)` changes when `S` is `OWNED BY` a column on a
+ *   table promoted to `DropTable + CreateTable` by the expander. The
+ *   `DROP TABLE` cascade drops the sequence at apply time; emitting an
+ *   explicit `DROP SEQUENCE` in the same drop phase both duplicates the
+ *   cascade and forms an unbreakable `DropSequence ↔ DropTable` cycle on
+ *   the bidirectional pg_depend edges between the sequence and the
+ *   owning column.
  * - Dedupes duplicate `AlterTableAddConstraint` /
  *   `AlterTableValidateConstraint` / `CreateCommentOnConstraint` changes
  *   produced when `diffTables()` and `expandReplaceDependencies()` both

@@ -3,6 +3,12 @@ import type { Change } from "./change.types.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index, type IndexProps } from "./objects/index/index.model.ts";
+import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
+import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
+import {
+  Sequence,
+  type SequenceProps,
+} from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAddConstraint,
   AlterTableChangeOwner,
@@ -302,6 +308,123 @@ describe("normalizePostDiffChanges", () => {
         (change) => change instanceof CreateCommentOnConstraint,
       ),
     ).toHaveLength(1);
+  });
+
+  describe("DropSequence pruning on replaced tables", () => {
+    const baseSequenceProps: SequenceProps = {
+      schema: "public",
+      name: "project_link_type_id_seq",
+      data_type: "integer",
+      start_value: 1,
+      minimum_value: 1n,
+      maximum_value: 2147483647n,
+      increment: 1,
+      cycle_option: false,
+      cache_size: 1,
+      persistence: "p",
+      owned_by_schema: "public",
+      owned_by_table: "project_link_type",
+      owned_by_column: "id",
+      comment: null,
+      privileges: [],
+      owner: "postgres",
+    };
+
+    test("prunes DropSequence when its OWNED BY table is in replacedTableIds", () => {
+      const replacedTable = new Table({
+        ...baseTableProps,
+        name: "project_link_type",
+        columns: [{ ...integerColumn("id", 1), not_null: true }],
+      });
+      const ownedSequence = new Sequence(baseSequenceProps);
+
+      const dropSequence = new DropSequence({ sequence: ownedSequence });
+      const dropTable = new DropTable({ table: replacedTable });
+      const createTable = new CreateTable({ table: replacedTable });
+
+      const changes: Change[] = [dropSequence, dropTable, createTable];
+
+      const normalized = normalizePostDiffChanges({
+        changes,
+        replacedTableIds: new Set([replacedTable.stableId]),
+      });
+
+      expect(normalized.some((change) => change instanceof DropSequence)).toBe(
+        false,
+      );
+      expect(normalized).toContain(dropTable);
+      expect(normalized).toContain(createTable);
+    });
+
+    test("keeps DropSequence whose OWNED BY table is not in replacedTableIds", () => {
+      const survivingTable = new Table({
+        ...baseTableProps,
+        name: "project_link_type",
+        columns: [{ ...integerColumn("id", 1), not_null: true }],
+      });
+      const ownedSequence = new Sequence(baseSequenceProps);
+
+      const dropSequence = new DropSequence({ sequence: ownedSequence });
+
+      const normalized = normalizePostDiffChanges({
+        changes: [dropSequence],
+        // Different table is being replaced; the sequence's OWNED BY does
+        // not match, so DropSequence must survive.
+        replacedTableIds: new Set([
+          `table:${survivingTable.schema}.unrelated_table` as const,
+        ]),
+      });
+
+      expect(normalized).toContain(dropSequence);
+    });
+
+    test("keeps DropSequence with no OWNED BY when replacedTableIds is non-empty", () => {
+      const orphanSequence = new Sequence({
+        ...baseSequenceProps,
+        owned_by_schema: null,
+        owned_by_table: null,
+        owned_by_column: null,
+      });
+
+      const dropSequence = new DropSequence({ sequence: orphanSequence });
+
+      const normalized = normalizePostDiffChanges({
+        changes: [dropSequence],
+        replacedTableIds: new Set(["table:public.project_link_type" as const]),
+      });
+
+      expect(normalized).toContain(dropSequence);
+    });
+
+    test("keeps unrelated CreateSequence and DropSequence even when its non-owning table is replaced", () => {
+      const sequenceA = new Sequence(baseSequenceProps);
+      const sequenceB = new Sequence({
+        ...baseSequenceProps,
+        name: "unrelated_seq",
+        owned_by_schema: null,
+        owned_by_table: null,
+        owned_by_column: null,
+      });
+
+      const dropOwned = new DropSequence({ sequence: sequenceA });
+      const createUnrelated = new CreateSequence({ sequence: sequenceB });
+
+      const replacedTable = new Table({
+        ...baseTableProps,
+        name: "project_link_type",
+        columns: [{ ...integerColumn("id", 1), not_null: true }],
+      });
+
+      const normalized = normalizePostDiffChanges({
+        changes: [dropOwned, createUnrelated],
+        replacedTableIds: new Set([replacedTable.stableId]),
+      });
+
+      expect(normalized.some((change) => change instanceof DropSequence)).toBe(
+        false,
+      );
+      expect(normalized).toContain(createUnrelated);
+    });
   });
 
   describe("restoreReplicaIdentityAfterIndexReplace", () => {
