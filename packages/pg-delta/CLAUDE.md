@@ -15,6 +15,24 @@ bun run check-types   # Type check without emitting
 bun run pgdelta       # Run CLI (e.g. bun run pgdelta plan --help)
 ```
 
+## Benchmarking (sort / plan hot paths)
+
+Synthetic benches need no Docker; E2E needs Docker + a Supabase test image pull.
+
+```bash
+# In-memory synthetic catalogs → diff → `sortChanges` timings (mitata `measure`)
+bun run bench
+
+# ~2.5s burn per scenario for `bun --cpu-prof-md` (writes markdown under `bench/profiles/`, gitignored)
+bun run bench:profile
+
+# Live DB: replay Supabase base-init, then optional `bench/fixtures/large-schema.sql`; times extract / empty baseline / diff / sort / plan-build
+PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run bench:e2e
+
+# Regenerate `bench/fixtures/large-schema.sql` after editing `bench/generate-large-schema.ts`
+bun run bench:gen-fixture
+```
+
 ## Test Patterns
 
 ### Unit tests (`src/**/*.test.ts`)
