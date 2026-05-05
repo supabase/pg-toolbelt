@@ -672,6 +672,85 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop SERIAL sequence on table replaced via dependent enum should not produce DropSequence ↔ DropTable cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for the production CycleError observed in
+         * @supabase/pg-delta@1.0.0-alpha.22 (see Sentry pattern referenced in
+         * the upstream regression report; the production cycle was on
+         * `sequence:public.project_link_type_id_seq ↔ column:public.project_link_type.id`).
+         *
+         * Real-world shape:
+         *
+         *   CycleError: dependency graph contains a cycle involving 2 changes:
+         *     1. [N] DropSequence(<table>_id_seq)
+         *     2. [M] DropTable(<table>)
+         *   Cycle path:
+         *     [N] -> [M] (catalog) sequence:<table>_id_seq -> column:<table>.id
+         *     [M] -> [N] (catalog) column:<table>.id -> sequence:<table>_id_seq
+         *
+         * The alpha.15 short-circuit in `diffSequences.dropped` only suppresses
+         * `DropSequence` when the OWNED BY table is itself absent from the
+         * branch catalog. In this scenario the branch DOES contain the table
+         * (`status` keeps the same enum_E reference, `id` survives as plain
+         * `integer` without a default), so the short-circuit does not fire and
+         * `DropSequence` is emitted.
+         *
+         * Independently, `expandReplaceDependencies` walks dependents of the
+         * replaced enum_E (label removed → DropEnum + CreateEnum), reaches
+         * `column:T.status`, normalizes to `table:T`, and promotes the table
+         * to a `DropTable + CreateTable` pair. The drop phase now contains
+         * both `DropSequence(T_id_seq)` and `DropTable(T)`, which the
+         * bidirectional pg_depend edges between sequence and column close
+         * into an unbreakable 2-cycle:
+         *
+         *   sequence -> column   (deptype 'a', OWNED BY)
+         *   column   -> sequence (deptype 'n', column DEFAULT nextval(...))
+         *
+         * `dependency-filter.ts` only filters this edge pair when a
+         * `CreateSequence` change is present (CREATE phase); none of the
+         * sort-phase change-injection breakers in `cycle-breakers.ts` match
+         * `DropSequence ↔ DropTable`.
+         */
+        await db.main.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            `CREATE TYPE public.project_link_type_kind AS ENUM ('a', 'b', 'c')`,
+            `CREATE TABLE public.project_link_type (
+              id SERIAL PRIMARY KEY,
+              kind public.project_link_type_kind
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await db.branch.query(
+          [
+            "SET LOCAL client_min_messages = error",
+            // Enum lost a label → DropEnum+CreateEnum, which
+            // expandReplaceDependencies propagates to the dependent table
+            // `project_link_type`, adding DropTable+CreateTable. The table
+            // itself stays in the branch catalog, so diffSequences sees the
+            // OWNED BY sequence's owning table+column as still present and
+            // emits an explicit DropSequence — closing the cycle.
+            `CREATE TYPE public.project_link_type_kind AS ENUM ('a', 'b')`,
+            // `id` column survives but loses SERIAL: no nextval default and
+            // no owned sequence in branch. The sequence appears in the
+            // `dropped` set in diffSequences.
+            `CREATE TABLE public.project_link_type (
+              id integer PRIMARY KEY,
+              kind public.project_link_type_kind
+            )`,
+          ].join(";\n\n"),
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+        });
+      }),
+    );
+
+    test(
       "drop table that owns a SERIAL sequence should not produce DropSequence ↔ DropTable cycle",
       withDb(pgVersion, async (db) => {
         /**
