@@ -11,7 +11,8 @@
 
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../change-utils.ts";
-import { getExecutionPhase, isMetadataStableId, type Phase } from "./utils.ts";
+import type { Phase } from "../objects/base.change.ts";
+import { isMetadataStableId } from "../stable-id.ts";
 
 /**
  * Object type ordering for logical grouping.
@@ -47,7 +48,7 @@ const OBJECT_TYPE_ORDER: Record<string, number> = {
  * Scope ordering within each stable ID group.
  * Lower numbers come first.
  */
-const SCOPE_ORDER_CREATE_ALTER: Record<string, number> = {
+const SCOPE_ORDER_FORWARD: Record<string, number> = {
   default_privilege: 1,
   object: 2,
   comment: 3,
@@ -344,8 +345,7 @@ function getObjectTypeOrder(objectType: string): number {
  * Get the scope order for sorting within a stable ID group.
  */
 function getScopeOrder(scope: string, phase: Phase): number {
-  const orderMap =
-    phase === "drop" ? SCOPE_ORDER_DROP : SCOPE_ORDER_CREATE_ALTER;
+  const orderMap = phase === "drop" ? SCOPE_ORDER_DROP : SCOPE_ORDER_FORWARD;
   return orderMap[scope] ?? 999;
 }
 
@@ -371,20 +371,17 @@ export function logicalSort(changes: Change[]): Change[] {
   // Step 1: Partition by phase
   const changesByPhase: Record<Phase, Change[]> = {
     drop: [],
-    create_alter_object: [],
+    forward: [],
   };
 
   for (const change of changes) {
-    const phase = getExecutionPhase(change);
+    const phase = change.phase;
     changesByPhase[phase].push(change);
   }
 
   // Step 2: Sort each phase
   const sortedDrop = sortPhase(changesByPhase.drop, "drop");
-  const sortedCreateAlter = sortPhase(
-    changesByPhase.create_alter_object,
-    "create_alter_object",
-  );
+  const sortedCreateAlter = sortPhase(changesByPhase.forward, "forward");
 
   // Step 3: Combine phases (DROP first, then CREATE/ALTER)
   return [...sortedDrop, ...sortedCreateAlter];

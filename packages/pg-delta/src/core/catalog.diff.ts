@@ -221,6 +221,8 @@ export function diffCatalogs(
   // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
   const droppedObjectStableIds = new Set<string>();
   for (const change of changes) {
+    // This intentionally targets top-level object drops only, not all drop-phase
+    // changes (e.g. ALTER ... DROP COLUMN also runs in drop phase).
     if (change.operation === "drop" && change.scope === "object") {
       for (const dep of change.requires) {
         droppedObjectStableIds.add(dep);

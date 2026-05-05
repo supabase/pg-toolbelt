@@ -1,6 +1,8 @@
 import type { SerializeOptions } from "../integrations/serialize/serialize.types.ts";
+import { isMetadataStableId } from "../stable-id.ts";
 
 type ChangeOperation = "create" | "alter" | "drop";
+export type Phase = "drop" | "forward";
 
 /**
  * Abstract base class for all change objects.
@@ -58,6 +60,28 @@ export abstract class BaseChange {
    */
   get requires(): string[] {
     return [];
+  }
+
+  get phase(): Phase {
+    switch (this.operation) {
+      case "drop":
+        return "drop";
+      case "create":
+        return "forward";
+      case "alter": {
+        // ALTER classification is based on whether an actual object is dropped.
+        // Privilege/comment/default-privilege alterations either drop metadata
+        // stable IDs or nothing, so they naturally stay in the forward phase.
+        const dropsRealObject = this.drops.some(
+          (id) => !isMetadataStableId(id),
+        );
+        return dropsRealObject ? "drop" : "forward";
+      }
+      default: {
+        const unhandledOperation: never = this.operation;
+        return unhandledOperation;
+      }
+    }
   }
 
   /**
