@@ -40,10 +40,13 @@ export interface PgDepend {
  *  - membership:<role>-><member> -> role:<role>
  *  - membership:<role>-><member> -> role:<member>
  */
-async function extractPrivilegeAndMembershipDepends(
-  pool: Pool,
-): Promise<PgDepend[]> {
-  const { rows } = await pool.query<PgDepend>(sql`
+/**
+ * SQL for {@link extractPrivilegeAndMembershipDepends}. Lifted to a module
+ * scope so `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact
+ * production query. Do not modify this constant in isolation — it is the
+ * only source of the priv/membership dependency query.
+ */
+export const PRIVILEGE_AND_MEMBERSHIP_DEPENDS_SQL = sql`
 with
   -- OBJECT PRIVILEGES (relations)
   extension_rel_oids as (
@@ -497,19 +500,25 @@ where dependent_stable_id <> referenced_stable_id
   and NOT (
     COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
   )
-  `);
+  `;
+
+async function extractPrivilegeAndMembershipDepends(
+  pool: Pool,
+): Promise<PgDepend[]> {
+  const { rows } = await pool.query<PgDepend>(
+    PRIVILEGE_AND_MEMBERSHIP_DEPENDS_SQL,
+  );
 
   return rows;
 }
 
 /**
- * Extract all dependencies from pg_depend, joining with pg_class for class names and applying user object filters.
- * @param sql - The SQL client.
- * @param params - Object containing arrays of OIDs for filtering (user_oids, user_namespace_oids, etc.)
- * @returns Array of dependency objects with class names.
+ * SQL for {@link extractDepends}. Lifted to a module scope so
+ * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
+ * query. Do not modify this constant in isolation — it is the only source of
+ * the catalog-dependency query.
  */
-export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
-  const { rows: dependsRows } = await pool.query<PgDepend>(sql`
+export const DEPENDS_SQL = sql`
   WITH ids AS (
     -- only the objects that actually show up in dependencies (both sides)
     SELECT DISTINCT classid, objid, objsubid FROM pg_depend WHERE deptype IN ('n','a')
@@ -1879,7 +1888,14 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
       COALESCE(dep_schema, '') LIKE ANY (ARRAY['pg\\_%','information\\_schema'])
     )
   ORDER BY dependent_stable_id, referenced_stable_id;
-  `);
+  `;
+
+/**
+ * Extract all dependencies from pg_depend, joining with pg_class for class
+ * names and applying user object filters.
+ */
+export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
+  const { rows: dependsRows } = await pool.query<PgDepend>(DEPENDS_SQL);
 
   // Extract privilege and membership dependencies
   const privilegeDepends = await extractPrivilegeAndMembershipDepends(pool);

@@ -77,9 +77,12 @@ export class Extension extends BasePgModel {
   }
 }
 
-// TODO: fetch extension dependencies so we can determine when to use CASCADE on creation
-export async function extractExtensions(pool: Pool): Promise<Extension[]> {
-  const { rows: extensionRows } = await pool.query<ExtensionProps>(sql`
+/**
+ * SQL for {@link extractExtensions}. Lifted to a module scope so
+ * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
+ * query.
+ */
+export const EXTENSIONS_SQL = sql`
   with extension_rows as (
     select
       e.oid,
@@ -271,7 +274,12 @@ export async function extractExtensions(pool: Pool): Promise<Extension[]> {
   from extension_rows er
   order by
     er.name
-  `);
+  `;
+
+// TODO: fetch extension dependencies so we can determine when to use CASCADE on creation
+export async function extractExtensions(pool: Pool): Promise<Extension[]> {
+  const { rows: extensionRows } =
+    await pool.query<ExtensionProps>(EXTENSIONS_SQL);
   // Validate and parse each row using the Zod schema
   const validatedRows = extensionRows.map((row: unknown) =>
     extensionPropsSchema.parse(row),

@@ -223,16 +223,12 @@ export class Index extends BasePgModel {
   }
 }
 
-export async function extractIndexes(
-  pool: Pool,
-  options?: ExtractRetryOptions,
-): Promise<Index[]> {
-  const indexRows = await extractWithDefinitionRetry({
-    label: "indexes",
-    options,
-    hasNullDefinition: (row) => row.definition === null,
-    query: async () => {
-      const result = await pool.query<IndexProps>(sql`
+/**
+ * SQL for {@link extractIndexes}. Lifted to a module scope so
+ * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
+ * query.
+ */
+export const INDEXES_SQL = sql`
       with extension_oids as (
         select objid
         from pg_depend d
@@ -387,7 +383,18 @@ export async function extractIndexes(
         and e_table.objid is null
 
       order by 1, 2
-  `);
+  `;
+
+export async function extractIndexes(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Index[]> {
+  const indexRows = await extractWithDefinitionRetry({
+    label: "indexes",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<IndexProps>(INDEXES_SQL);
       return result.rows.map((row: unknown) => indexRowSchema.parse(row));
     },
   });

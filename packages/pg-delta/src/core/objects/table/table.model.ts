@@ -252,17 +252,12 @@ export class Table extends BasePgModel implements TableLikeObject {
   }
 }
 
-export async function extractTables(
-  pool: Pool,
-  options?: ExtractRetryOptions,
-): Promise<Table[]> {
-  const tableRows = await extractWithDefinitionRetry({
-    label: "table constraints",
-    options,
-    hasNullDefinition: (row: TableRow) =>
-      row.constraints?.some((c) => c.definition === null) ?? false,
-    query: async () => {
-      const result = await pool.query<TableProps>(sql`
+/**
+ * SQL for {@link extractTables}. Lifted to a module scope so
+ * `bench/explain-extract.bench.ts` can `EXPLAIN ANALYZE` the exact production
+ * query.
+ */
+export const TABLES_SQL = sql`
 with extension_oids as (
   select objid
   from pg_depend d
@@ -536,7 +531,19 @@ group by
   t.oid, t.schema, t.name, t.persistence, t.row_security, t.force_row_security, t.has_indexes, t.has_rules, t.has_triggers, t.has_subclasses, t.is_populated, t.replica_identity, t.replica_identity_index, t.is_partition, t.options, t.partition_bound, t.partition_by, t.owner, t.parent_schema, t.parent_name
 order by
   t.schema, t.name
-  `);
+  `;
+
+export async function extractTables(
+  pool: Pool,
+  options?: ExtractRetryOptions,
+): Promise<Table[]> {
+  const tableRows = await extractWithDefinitionRetry({
+    label: "table constraints",
+    options,
+    hasNullDefinition: (row: TableRow) =>
+      row.constraints?.some((c) => c.definition === null) ?? false,
+    query: async () => {
+      const result = await pool.query<TableProps>(TABLES_SQL);
       return result.rows.map((row: unknown) => tableRowSchema.parse(row));
     },
   });
