@@ -353,7 +353,7 @@ baseline fixtures as part of the upgrade.
 - After upgrading the image tags, rerun the focused regression tests before
   considering the upgrade done:
   - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15,17 bun run test tests/integration/supabase-base-init.test.ts tests/integration/catalog-model.test.ts tests/integration/supabase-dsl-e2e.test.ts`
-  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15 bun run test tests/integration/dbdev-roundtrip.test.ts`
+  - `cd packages/pg-delta && PGDELTA_TEST_POSTGRES_VERSIONS=15 PGDELTA_SUPABASE_PROJECT=dbdev bun run test tests/integration/supabase-project-declarative.test.ts`
 - If the sync script or focused tests reveal new schemas, roles, grants, or
   comments, update pg-delta’s Supabase handling (for example
   `packages/pg-delta/src/core/integrations/supabase.ts` or the relevant
