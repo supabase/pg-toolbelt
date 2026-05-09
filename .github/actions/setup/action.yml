@@ -1,12 +1,41 @@
 name: Setup
+description: Install pinned Bun (with toolchain cache + retried fallback installer), Node.js, and project dependencies.
 
 runs:
   using: "composite"
   steps:
-    - name: Install Bun
-      uses: oven-sh/setup-bun@v2
+    - name: Resolve Bun version
+      shell: bash
+      run: echo "BUN_VERSION=1.3.13" >> "$GITHUB_ENV"
+
+    - name: Restore Bun toolchain cache
+      id: bun-toolchain-cache
+      uses: actions/cache@v4
       with:
-        bun-version: latest
+        path: /opt/hostedtoolcache/bun
+        key: bun-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}
+
+    - name: Install Bun
+      id: install-bun
+      uses: oven-sh/setup-bun@v2
+      continue-on-error: true
+      with:
+        bun-version: ${{ env.BUN_VERSION }}
+
+    - name: Install Bun (fallback with retries)
+      if: steps.install-bun.outcome == 'failure'
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 3
+        max_attempts: 5
+        retry_wait_seconds: 30
+        command: |
+          curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+    - name: Verify Bun
+      shell: bash
+      run: bun --version
 
     - name: Install Node.js
       uses: actions/setup-node@v6
