@@ -99,6 +99,34 @@ export const supabase: IntegrationDSL = {
         operation: "drop",
         scope: "object",
       },
+      // Include user-attached triggers on tables in Supabase-managed schemas.
+      //
+      // Triggers live in the schema of the table they fire on, so a user
+      // trigger on `auth.users` reports `trigger/schema = auth` and is
+      // otherwise indistinguishable from Supabase's own triggers via the
+      // schema-level deny list. Triggers also have no real owner — pg-delta
+      // surfaces the parent table's owner as `trigger/owner`, which for
+      // `auth.users` and `storage.objects` is always a Supabase system role,
+      // so the owner-level deny list catches them too.
+      //
+      // The trigger function, however, is genuinely user-owned: a customer
+      // who wants to run code on an auth event creates a function in
+      // `public` (or any non-managed schema) and points the trigger at it.
+      // Supabase's own auth/storage triggers either come from extensions
+      // (already filtered out at extract time via `pg_depend`) or call
+      // functions inside the same managed schema, so `function_schema`
+      // outside the managed list is a reliable user-defined marker.
+      {
+        and: [
+          { objectType: "trigger" },
+          { "trigger/schema": [...SUPABASE_SYSTEM_SCHEMAS] },
+          {
+            not: {
+              "trigger/function_schema": [...SUPABASE_SYSTEM_SCHEMAS],
+            },
+          },
+        ],
+      },
       // Exclude system objects
       {
         not: {
