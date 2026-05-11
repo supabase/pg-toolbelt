@@ -55,18 +55,19 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      expect(planResult).not.toBeNull();
-      const statements = planResult?.plan.statements ?? [];
-      expect(
-        statements.some((stmt) =>
-          /CREATE TRIGGER on_auth_user_created/i.test(stmt),
-        ),
-      ).toBe(true);
-      expect(
-        statements.some((stmt) =>
-          /CREATE FUNCTION public\.handle_new_user/i.test(stmt),
-        ),
-      ).toBe(true);
+      expect(planResult?.plan.statements).toMatchInlineSnapshot(`
+        [
+          "SET check_function_bodies = false",
+          
+        "CREATE FUNCTION public.handle_new_user()
+         RETURNS trigger
+         LANGUAGE plpgsql
+        AS $function$ BEGIN RETURN NEW; END $function$"
+        ,
+          "CREATE TRIGGER on_auth_user_created AFTER INSERT ON users FOR EACH ROW EXECUTE FUNCTION handle_new_user()",
+          "ALTER FUNCTION public.handle_new_user() OWNER TO postgres",
+        ]
+      `);
     }),
     120_000,
   );
