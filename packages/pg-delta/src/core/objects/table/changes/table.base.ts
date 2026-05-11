@@ -3,7 +3,11 @@ import type { Table } from "../table.model.ts";
 
 abstract class BaseTableChange extends BaseChange {
   abstract readonly table: Table;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "table" = "table";
 }
 

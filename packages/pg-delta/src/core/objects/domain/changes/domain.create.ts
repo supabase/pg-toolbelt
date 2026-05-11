@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import {
   isUserDefinedTypeSchema,
   parseTypeString,
@@ -34,7 +35,23 @@ export class CreateDomain extends CreateDomainChange {
   }
 
   get creates() {
-    return [this.domain.stableId];
+    const creates: Array<
+      `domain:${string}` | `constraint:${string}.${string}.${string}`
+    > = [this.domain.stableId];
+
+    for (const constraint of this.domain.constraints) {
+      if (constraint.check_expression && constraint.validated) {
+        creates.push(
+          stableId.constraint(
+            this.domain.schema,
+            this.domain.name,
+            constraint.name,
+          ),
+        );
+      }
+    }
+
+    return creates;
   }
 
   get requires() {
@@ -71,7 +88,7 @@ export class CreateDomain extends CreateDomainChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [];
 
     // Schema-qualified name

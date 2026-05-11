@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { CreateMaterializedViewChange } from "./materialized-view.base.ts";
@@ -62,7 +63,7 @@ export class CreateMaterializedView extends CreateMaterializedViewChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE MATERIALIZED VIEW"];
 
     // Add schema and name

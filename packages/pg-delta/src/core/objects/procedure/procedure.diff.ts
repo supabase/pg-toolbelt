@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterProcedureChangeOwner,
@@ -26,6 +27,10 @@ import {
   RevokeGrantOptionProcedurePrivileges,
   RevokeProcedurePrivileges,
 } from "./changes/procedure.privilege.ts";
+import {
+  CreateSecurityLabelOnProcedure,
+  DropSecurityLabelOnProcedure,
+} from "./changes/procedure.security-label.ts";
 import type { ProcedureChange } from "./changes/procedure.types.ts";
 import type { Procedure } from "./procedure.model.ts";
 
@@ -49,8 +54,7 @@ export function diffProcedures(
 
   const changes: ProcedureChange[] = [];
 
-  for (const procedureId of created) {
-    const proc = branch[procedureId];
+  const appendCreateProcedureChanges = (proc: Procedure) => {
     changes.push(new CreateProcedure({ procedure: proc }));
 
     // OWNER: If the procedure should be owned by someone other than the current user,
@@ -66,6 +70,14 @@ export function diffProcedures(
 
     if (proc.comment !== null) {
       changes.push(new CreateCommentOnProcedure({ procedure: proc }));
+    }
+    for (const label of proc.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnProcedure({
+          procedure: proc,
+          securityLabel: label,
+        }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -112,6 +124,10 @@ export function diffProcedures(
         ctx.version,
       ) as ProcedureChange[]),
     );
+  };
+
+  for (const procedureId of created) {
+    appendCreateProcedureChanges(branch[procedureId]);
   }
 
   for (const procedureId of dropped) {
@@ -122,22 +138,18 @@ export function diffProcedures(
     const mainProcedure = main[procedureId];
     const branchProcedure = branch[procedureId];
 
-    // Check if non-alterable properties have changed
-    // These require dropping and recreating the procedure
-    const NON_ALTERABLE_FIELDS: Array<keyof Procedure> = [
+    // Fields that are part of the function's identity/signature. PostgreSQL
+    // rejects `CREATE OR REPLACE FUNCTION` for any of these changes with
+    // errors such as:
+    //   - cannot change return type of existing function
+    //   - cannot change name of input parameter "..."
+    //   - cannot change whether a procedure has output parameters
+    //   - cannot remove parameter defaults from existing function
+    // These require `DROP FUNCTION` followed by `CREATE FUNCTION`.
+    const SIGNATURE_BREAKING_FIELDS: Array<keyof Procedure> = [
       "kind",
       "return_type",
       "return_type_schema",
-      "language",
-      // The following properties are alterable in SQL, but our generator may choose
-      // to replace on changes not covered by explicit ALTER actions. Keep them out here
-      // to allow ALTER for those we implement below.
-      // security_definer,
-      // volatility,
-      // parallel_safety,
-      // is_strict,
-      // leakproof,
-      // Returns-set is part of the signature and not alterable
       "returns_set",
       "argument_count",
       "argument_default_count",
@@ -146,29 +158,60 @@ export function diffProcedures(
       "all_argument_types",
       "argument_modes",
       "argument_defaults",
+    ];
+    // Fields where `CREATE OR REPLACE` is sufficient - body replacement only.
+    // Other fields (security_definer, volatility, parallel_safety, is_strict,
+    // leakproof, config) are alterable via dedicated ALTER actions below.
+    const OR_REPLACEABLE_NON_ALTERABLE_FIELDS: Array<keyof Procedure> = [
+      "language",
       "source_code",
       "binary_path",
       "sql_body",
-      // config is alterable via SET/RESET
     ];
-    const nonAlterablePropsChanged = hasNonAlterableChanges(
+    const signatureChanged = hasNonAlterableChanges(
       mainProcedure,
       branchProcedure,
-      NON_ALTERABLE_FIELDS,
+      SIGNATURE_BREAKING_FIELDS,
       {
         argument_names: deepEqual,
         argument_types: deepEqual,
         all_argument_types: deepEqual,
         argument_modes: deepEqual,
-        config: deepEqual,
       },
     );
+    const nonAlterablePropsChanged =
+      signatureChanged ||
+      hasNonAlterableChanges(
+        mainProcedure,
+        branchProcedure,
+        OR_REPLACEABLE_NON_ALTERABLE_FIELDS,
+      );
 
-    if (nonAlterablePropsChanged) {
-      // Replace the entire procedure
+    if (signatureChanged) {
+      // PostgreSQL cannot change an existing function's signature via
+      // `CREATE OR REPLACE`. Drop the old signature, then recreate.
+      // `expandReplaceDependencies` will cascade the replacement to dependent
+      // objects (views, triggers, column defaults) via pg_depend edges.
+      changes.push(new DropProcedure({ procedure: mainProcedure }));
+      appendCreateProcedureChanges(branchProcedure);
+    } else if (nonAlterablePropsChanged) {
+      // Body-only non-alterable change - `CREATE OR REPLACE` preserves the
+      // function OID and keeps dependent objects attached.
       changes.push(
         new CreateProcedure({ procedure: branchProcedure, orReplace: true }),
       );
+
+      if (mainProcedure.comment !== branchProcedure.comment) {
+        if (branchProcedure.comment === null) {
+          changes.push(
+            new DropCommentOnProcedure({ procedure: mainProcedure }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnProcedure({ procedure: branchProcedure }),
+          );
+        }
+      }
     } else {
       // Only alterable properties changed - check each one
 
@@ -194,6 +237,26 @@ export function diffProcedures(
           );
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnProcedure | DropSecurityLabelOnProcedure
+        >(
+          mainProcedure.security_labels,
+          branchProcedure.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnProcedure({
+              procedure: branchProcedure,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnProcedure({
+              procedure: mainProcedure,
+              securityLabel,
+            }),
+        ),
+      );
 
       // SECURITY DEFINER/INVOKER
       if (mainProcedure.security_definer !== branchProcedure.security_definer) {

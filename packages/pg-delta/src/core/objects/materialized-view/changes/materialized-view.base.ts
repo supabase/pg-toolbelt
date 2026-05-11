@@ -3,7 +3,11 @@ import type { MaterializedView } from "../materialized-view.model.ts";
 
 abstract class BaseMaterializedViewChange extends BaseChange {
   abstract readonly materializedView: MaterializedView;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "materialized_view" = "materialized_view";
 }
 

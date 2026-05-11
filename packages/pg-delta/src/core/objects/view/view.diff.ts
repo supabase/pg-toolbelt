@@ -1,9 +1,11 @@
 import { diffObjects } from "../base.diff.ts";
+import { normalizeColumns } from "../base.model.ts";
 import {
   diffPrivileges,
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual, hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterViewChangeOwner,
@@ -21,6 +23,10 @@ import {
   RevokeGrantOptionViewPrivileges,
   RevokeViewPrivileges,
 } from "./changes/view.privilege.ts";
+import {
+  CreateSecurityLabelOnView,
+  DropSecurityLabelOnView,
+} from "./changes/view.security-label.ts";
 import type { ViewChange } from "./changes/view.types.ts";
 import type { View } from "./view.model.ts";
 
@@ -43,19 +49,23 @@ export function diffViews(
   const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: ViewChange[] = [];
-
-  for (const viewId of created) {
-    const v = branch[viewId];
-    changes.push(new CreateView({ view: v }));
+  const appendCreateViewChanges = (view: View) => {
+    changes.push(new CreateView({ view }));
 
     // OWNER: If the view should be owned by someone other than the current user,
     // emit ALTER VIEW ... OWNER TO after creation
-    if (v.owner !== ctx.currentUser) {
-      changes.push(new AlterViewChangeOwner({ view: v, owner: v.owner }));
+    if (view.owner !== ctx.currentUser) {
+      changes.push(new AlterViewChangeOwner({ view, owner: view.owner }));
     }
 
-    if (v.comment !== null) {
-      changes.push(new CreateCommentOnView({ view: v }));
+    if (view.comment !== null) {
+      changes.push(new CreateCommentOnView({ view }));
+    }
+
+    for (const label of view.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnView({ view, securityLabel: label }),
+      );
     }
 
     // PRIVILEGES: For created objects, compare against default privileges state
@@ -66,26 +76,26 @@ export function diffViews(
     const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
       ctx.currentUser,
       "view",
-      v.schema ?? "",
+      view.schema ?? "",
     );
     const creatorFilteredDefaults =
-      v.owner !== ctx.currentUser
+      view.owner !== ctx.currentUser
         ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
         : effectiveDefaults;
-    const desiredPrivileges = v.privileges;
+    const desiredPrivileges = view.privileges;
     // Filter out owner privileges - owner always has ALL privileges implicitly
     // and shouldn't be compared. Use the view owner as the reference.
     const privilegeResults = diffPrivileges(
       creatorFilteredDefaults,
       desiredPrivileges,
-      v.owner,
+      view.owner,
     );
 
     changes.push(
       ...(emitColumnPrivilegeChanges(
         privilegeResults,
-        v,
-        v,
+        view,
+        view,
         "view",
         {
           Grant: GrantViewPrivileges,
@@ -96,6 +106,10 @@ export function diffViews(
         ctx.version,
       ) as ViewChange[]),
     );
+  };
+
+  for (const viewId of created) {
+    appendCreateViewChanges(branch[viewId]);
   }
 
   for (const viewId of dropped) {
@@ -128,7 +142,19 @@ export function diffViews(
       { options: deepEqual },
     );
 
-    if (nonAlterablePropsChanged) {
+    // Normalize columns (strip position, sort by name) to match stableSnapshot().
+    // Position-only differences are safe to ignore here because column order in a
+    // view is determined by its definition, which is already checked above via
+    // NON_ALTERABLE_FIELDS - a position change always implies a definition change.
+    if (
+      !deepEqual(
+        normalizeColumns(mainView.columns),
+        normalizeColumns(branchView.columns),
+      )
+    ) {
+      changes.push(new DropView({ view: mainView }));
+      appendCreateViewChanges(branchView);
+    } else if (nonAlterablePropsChanged) {
       // Replace the entire view using CREATE OR REPLACE to avoid drop when possible
       changes.push(new CreateView({ view: branchView, orReplace: true }));
     } else {
@@ -179,6 +205,26 @@ export function diffViews(
           changes.push(new CreateCommentOnView({ view: branchView }));
         }
       }
+
+      // SECURITY LABELS
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnView | DropSecurityLabelOnView
+        >(
+          mainView.security_labels,
+          branchView.security_labels,
+          (securityLabel) =>
+            new CreateSecurityLabelOnView({
+              view: branchView,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnView({
+              view: mainView,
+              securityLabel,
+            }),
+        ),
+      );
 
       // Note: View renaming would also use ALTER VIEW ... RENAME TO ...
       // But since our View model uses 'name' as the identity field,

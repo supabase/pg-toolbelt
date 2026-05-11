@@ -288,6 +288,57 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "replace function signature referenced by RLS policy",
+      withDb(pgVersion, async (db) => {
+        // Regression for https://github.com/supabase/pg-toolbelt/issues/230
+        // The policy's USING expression keeps a pg_depend edge to the
+        // function. When the function signature changes (parameter list),
+        // pg-delta must remove the policy that references the old signature
+        // before dropping the old function; otherwise PostgreSQL aborts the
+        // migration with error 2BP01.
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA app;
+          CREATE FUNCTION app.check_access(user_id uuid)
+          RETURNS boolean AS $$
+          BEGIN
+            RETURN true;
+          END;
+          $$ LANGUAGE plpgsql;
+
+          CREATE TABLE app.docs (
+            id integer PRIMARY KEY,
+            owner_id uuid,
+            content text
+          );
+          ALTER TABLE app.docs ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY docs_policy ON app.docs
+            FOR ALL
+            TO public
+            USING (app.check_access(owner_id));
+        `,
+          testSql: `
+          DROP POLICY docs_policy ON app.docs;
+          DROP FUNCTION app.check_access(uuid);
+          CREATE FUNCTION app.check_access(user_id uuid, resource_id integer)
+          RETURNS boolean AS $$
+          BEGIN
+            RETURN true;
+          END;
+          $$ LANGUAGE plpgsql;
+          CREATE POLICY docs_policy ON app.docs
+            FOR ALL
+            TO public
+            USING (app.check_access(owner_id, id));
+        `,
+        });
+      }),
+    );
+
+    test(
       "policy comments",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

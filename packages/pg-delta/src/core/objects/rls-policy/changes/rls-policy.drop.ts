@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { RlsPolicy } from "../rls-policy.model.ts";
 import { DropRlsPolicyChange } from "./rls-policy.base.ts";
 
@@ -28,7 +29,7 @@ export class DropRlsPolicy extends DropRlsPolicyChange {
     return [this.policy.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP POLICY",
       this.policy.name,

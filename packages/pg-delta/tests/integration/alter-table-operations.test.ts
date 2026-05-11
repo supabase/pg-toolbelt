@@ -108,6 +108,55 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "change column type to enum with default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TYPE test_schema.status AS ENUM ('active', 'inactive', 'archived');
+          CREATE TABLE test_schema.items (
+            id integer NOT NULL,
+            state text NOT NULL DEFAULT 'active'
+          );
+          INSERT INTO test_schema.items (id, state) VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state DROP DEFAULT;
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state TYPE test_schema.status USING state::test_schema.status;
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state SET DEFAULT 'active'::test_schema.status;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "change varchar column type to integer with using cast",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.orders (
+            id integer NOT NULL,
+            amount varchar(10)
+          );
+          INSERT INTO test_schema.orders (id, amount) VALUES (1, '42');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.orders
+            ALTER COLUMN amount TYPE integer USING amount::integer;
+        `,
+        });
+      }),
+    );
+
+    test(
       "set column default",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -339,6 +388,141 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           COMMENT ON TABLE test_schema.events IS 'events table';
           COMMENT ON COLUMN test_schema.events.created_at IS 'created_at column';
+        `,
+        });
+      }),
+    );
+
+    // Regression coverage for CLI-754: widening the type of a column that
+    // already has a default on main must preserve the default.
+    test(
+      "widen column type preserves pre-existing default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.priced (
+            id integer NOT NULL,
+            price numeric(8,2) DEFAULT 0.00
+          );
+          INSERT INTO test_schema.priced (id) VALUES (1);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.priced ALTER COLUMN price TYPE numeric(12,4);
+        `,
+        });
+      }),
+    );
+
+    test(
+      "change column type from enum to text preserves default",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TYPE test_schema.status AS ENUM ('active', 'inactive');
+          CREATE TABLE test_schema.items (
+            id integer NOT NULL,
+            state test_schema.status DEFAULT 'active'
+          );
+          INSERT INTO test_schema.items (id) VALUES (1);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.items
+            ALTER COLUMN state DROP DEFAULT,
+            ALTER COLUMN state TYPE text USING state::text,
+            ALTER COLUMN state SET DEFAULT 'active';
+          DROP TYPE test_schema.status;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "set replica identity using index on existing table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.replicated (
+            id integer NOT NULL,
+            tenant_id integer NOT NULL,
+            payload text
+          );
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id);
+        `,
+          testSql: `
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "create table with replica identity using index",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+        `,
+          testSql: `
+          CREATE TABLE test_schema.replicated (
+            id integer NOT NULL,
+            tenant_id integer NOT NULL,
+            payload text
+          );
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id);
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
+        `,
+        });
+      }),
+    );
+
+    test(
+      "redefine replica identity index without changing the table's replica identity setting",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          // Both sides start with the index and the REPLICA IDENTITY pointing
+          // at it, so table.replica_identity / replica_identity_index match
+          // between main and branch and table.diff sees no change.
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.replicated (
+            id integer NOT NULL,
+            tenant_id integer NOT NULL,
+            payload text
+          );
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id);
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
+        `,
+          // Branch widens the index key. The index diff emits DROP + CREATE
+          // because the definition changed; PostgreSQL silently flips the
+          // table to REPLICA IDENTITY DEFAULT on the DROP, and CREATE INDEX
+          // alone cannot restore the marker. The post-diff pass must inject
+          // the table's ALTER TABLE ... REPLICA IDENTITY USING INDEX after
+          // the recreated index for the roundtrip to converge.
+          testSql: `
+          DROP INDEX test_schema.replicated_tenant_id_key;
+          CREATE UNIQUE INDEX replicated_tenant_id_key
+            ON test_schema.replicated (tenant_id, id);
+          ALTER TABLE test_schema.replicated
+            REPLICA IDENTITY USING INDEX replicated_tenant_id_key;
         `,
         });
       }),

@@ -5,6 +5,7 @@ import {
   filterPublicBuiltInDefaults,
 } from "../../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../../diff-context.ts";
+import { diffSecurityLabels } from "../../security-label.types.ts";
 import {
   AlterForeignTableAddColumn,
   AlterForeignTableAlterColumnDropDefault,
@@ -27,6 +28,10 @@ import {
   RevokeForeignTablePrivileges,
   RevokeGrantOptionForeignTablePrivileges,
 } from "./changes/foreign-table.privilege.ts";
+import {
+  CreateSecurityLabelOnForeignTable,
+  DropSecurityLabelOnForeignTable,
+} from "./changes/foreign-table.security-label.ts";
 import type { ForeignTableChange } from "./changes/foreign-table.types.ts";
 import type { ForeignTable } from "./foreign-table.model.ts";
 
@@ -68,6 +73,14 @@ export function diffForeignTables(
     if (createdTable.comment !== null) {
       changes.push(
         new CreateCommentOnForeignTable({ foreignTable: createdTable }),
+      );
+    }
+    for (const label of createdTable.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnForeignTable({
+          foreignTable: createdTable,
+          securityLabel: label,
+        }),
       );
     }
 
@@ -248,6 +261,26 @@ export function diffForeignTables(
         );
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnForeignTable | DropSecurityLabelOnForeignTable
+      >(
+        mainTable.security_labels,
+        branchTable.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnForeignTable({
+            foreignTable: branchTable,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnForeignTable({
+            foreignTable: mainTable,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PRIVILEGES
     const mainPrivilegesFiltered = filterPublicBuiltInDefaults(

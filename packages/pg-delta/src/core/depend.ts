@@ -1420,6 +1420,29 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
     JOIN pg_namespace ns ON ns.oid = idx_rel.relnamespace
     WHERE idx_rel.relkind = 'i'
   ),
+  index_extension_deps AS (
+    -- Indexes depend on extensions that provide their operator classes
+    -- (e.g. gin_trgm_ops from pg_trgm). Without this, CREATE INDEX can be
+    -- ordered before CREATE EXTENSION when schemas sort alphabetically.
+    SELECT DISTINCT
+      format('index:%I.%I.%I', ns.nspname, tbl.relname, idx_rel.relname) AS dependent_stable_id,
+      format('extension:%I', ext.extname) AS referenced_stable_id,
+      'n'::"char" AS deptype,
+      ns.nspname AS dep_schema,
+      NULL::text AS ref_schema
+    FROM pg_class idx_rel
+    JOIN pg_index idx ON idx.indexrelid = idx_rel.oid
+    JOIN pg_class tbl ON tbl.oid = idx.indrelid
+    JOIN pg_namespace ns ON ns.oid = idx_rel.relnamespace
+    JOIN LATERAL unnest(idx.indclass) WITH ORDINALITY AS oc(oid, ord) ON true
+    JOIN pg_opclass opcl ON opcl.oid = oc.oid
+    JOIN pg_depend d ON d.classid = 'pg_opclass'::regclass
+      AND d.objid = opcl.oid
+      AND d.refclassid = 'pg_extension'::regclass
+      AND d.deptype = 'e'
+    JOIN pg_extension ext ON ext.oid = d.refobjid
+    WHERE idx_rel.relkind IN ('i', 'I')
+  ),
   ownership_deps AS (
     -- Schema ownership dependencies
     SELECT DISTINCT
@@ -1832,6 +1855,8 @@ export async function extractDepends(pool: Pool): Promise<PgDepend[]> {
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_schema_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_table_deps
+    UNION ALL
+    SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM index_extension_deps
     UNION ALL
     SELECT dependent_stable_id, referenced_stable_id, deptype, dep_schema, ref_schema FROM ownership_deps
     UNION ALL

@@ -10,6 +10,11 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
+import {
+  normalizeSecurityLabels,
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 /**
  * All properties exposed by CREATE FOREIGN TABLE statement are included in diff output.
@@ -30,6 +35,7 @@ const foreignTablePropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type ForeignTablePrivilegeProps = PrivilegeProps;
@@ -44,6 +50,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
   public readonly comment: ForeignTableProps["comment"];
   public readonly columns: ForeignTableProps["columns"];
   public readonly privileges: ForeignTablePrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: ForeignTableProps) {
     super();
@@ -59,6 +66,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
     this.comment = props.comment;
     this.columns = props.columns;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `foreignTable:${string}` {
@@ -80,6 +88,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
       comment: this.comment,
       columns: this.columns,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -104,6 +113,7 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -209,7 +219,20 @@ export async function extractForeignTables(
             join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
             group by x.grantee, x.privilege_type
           ) as grp
-        ), '[]') as privileges
+        ), '[]') as privileges,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              order by sl.provider
+            )
+            from pg_catalog.pg_seclabel sl
+            where sl.objoid = ft.oid
+              and sl.classoid = 'pg_class'::regclass
+              and sl.objsubid = 0
+          ),
+          '[]'::json
+        ) as security_labels
       from
         foreign_tables ft
         left join pg_attribute a on a.attrelid = ft.oid and a.attnum > 0 and not a.attisdropped

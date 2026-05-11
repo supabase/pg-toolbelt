@@ -6,6 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../../base.privilege-diff.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../../security-label.types.ts";
 
 const rangePropsSchema = z.object({
   schema: z.string(),
@@ -30,6 +34,7 @@ const rangePropsSchema = z.object({
   subtype_opclass_schema: z.string().nullable(),
   subtype_opclass_name: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type RangePrivilegeProps = PrivilegeProps;
@@ -54,6 +59,7 @@ export class Range extends BasePgModel {
   public readonly subtype_opclass_schema: RangeProps["subtype_opclass_schema"];
   public readonly subtype_opclass_name: RangeProps["subtype_opclass_name"];
   public readonly privileges: RangePrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: RangeProps) {
     super();
@@ -75,6 +81,7 @@ export class Range extends BasePgModel {
     this.subtype_opclass_schema = props.subtype_opclass_schema;
     this.subtype_opclass_name = props.subtype_opclass_name;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `type:${string}` {
@@ -102,6 +109,7 @@ export class Range extends BasePgModel {
       subtype_opclass_name: this.subtype_opclass_name,
       comment: this.comment,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -166,7 +174,20 @@ select
       )
       from lateral aclexplode(COALESCE(t.typacl, acldefault('T', t.typowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
-  ) as privileges
+  ) as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = t.oid
+        and sl.classoid = 'pg_type'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from pg_catalog.pg_range r
 join pg_catalog.pg_type t on t.oid = r.rngtypid
 join pg_catalog.pg_type subt on subt.oid = r.rngsubtype

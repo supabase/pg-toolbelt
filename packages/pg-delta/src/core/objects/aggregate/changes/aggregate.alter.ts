@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Aggregate } from "../aggregate.model.ts";
 import { AlterAggregateChange } from "./aggregate.base.ts";
 
@@ -23,7 +24,7 @@ export class AlterAggregateChangeOwner extends AlterAggregateChange {
     return [this.aggregate.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const signature = this.aggregate.identityArguments;
     const qualifiedName = `${this.aggregate.schema}.${this.aggregate.name}`;
     const withArgs = signature.length > 0 ? `(${signature})` : "()";

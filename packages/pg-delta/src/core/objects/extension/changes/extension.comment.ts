@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Extension } from "../extension.model.ts";
@@ -30,7 +31,7 @@ export class CreateCommentOnExtension extends CreateExtensionChange {
     return [this.extension.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON EXTENSION",
       this.extension.name,
@@ -58,7 +59,7 @@ export class DropCommentOnExtension extends DropExtensionChange {
     return [stableId.comment(this.extension.stableId), this.extension.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON EXTENSION", this.extension.name, "IS NULL"].join(" ");
   }
 }

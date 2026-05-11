@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { parseProcedureReference, stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
 import { CreateLanguageChange } from "./language.base.ts";
@@ -71,7 +72,7 @@ export class CreateLanguage extends CreateLanguageChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = [`CREATE${this.orReplace ? " OR REPLACE" : ""}`];
 
     // Only include non-default flags. We never print the optional

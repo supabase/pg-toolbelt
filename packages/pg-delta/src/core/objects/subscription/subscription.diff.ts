@@ -1,5 +1,6 @@
 import { diffObjects } from "../base.diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
   AlterSubscriptionDisable,
@@ -15,6 +16,10 @@ import {
 } from "./changes/subscription.comment.ts";
 import { CreateSubscription } from "./changes/subscription.create.ts";
 import { DropSubscription } from "./changes/subscription.drop.ts";
+import {
+  CreateSecurityLabelOnSubscription,
+  DropSecurityLabelOnSubscription,
+} from "./changes/subscription.security-label.ts";
 import type { SubscriptionChange } from "./changes/subscription.types.ts";
 import type { Subscription } from "./subscription.model.ts";
 import type { SubscriptionSettableOption } from "./utils.ts";
@@ -60,6 +65,14 @@ export function diffSubscriptions(
 
     if (subscription.comment !== null) {
       changes.push(new CreateCommentOnSubscription({ subscription }));
+    }
+    for (const label of subscription.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnSubscription({
+          subscription,
+          securityLabel: label,
+        }),
+      );
     }
   }
 
@@ -236,6 +249,26 @@ export function diffSubscriptions(
         );
       }
     }
+
+    // SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnSubscription | DropSecurityLabelOnSubscription
+      >(
+        mainSubscription.security_labels,
+        branchSubscription.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnSubscription({
+            subscription: branchSubscription,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnSubscription({
+            subscription: mainSubscription,
+            securityLabel,
+          }),
+      ),
+    );
   }
 
   return changes;

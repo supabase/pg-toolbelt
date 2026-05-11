@@ -4,13 +4,17 @@ import {
   emitColumnPrivilegeChanges,
 } from "../base.privilege-diff.ts";
 import type { ObjectDiffContext } from "../diff-context.ts";
+import { diffSecurityLabels } from "../security-label.types.ts";
 import { deepEqual } from "../utils.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnDropNotNull,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnSetGenerated,
   AlterTableAlterColumnSetNotNull,
   AlterTableAlterColumnType,
   AlterTableAttachPartition,
@@ -44,6 +48,12 @@ import {
   RevokeGrantOptionTablePrivileges,
   RevokeTablePrivileges,
 } from "./changes/table.privilege.ts";
+import {
+  CreateSecurityLabelOnColumn,
+  CreateSecurityLabelOnTable,
+  DropSecurityLabelOnColumn,
+  DropSecurityLabelOnTable,
+} from "./changes/table.security-label.ts";
 import type { TableChange } from "./changes/table.types.ts";
 import { Table } from "./table.model.ts";
 
@@ -127,6 +137,7 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
       mainC.validated !== branchC.validated ||
       mainC.is_local !== branchC.is_local ||
       mainC.no_inherit !== branchC.no_inherit ||
+      mainC.is_temporal !== branchC.is_temporal ||
       JSON.stringify(mainC.key_columns) !==
         JSON.stringify(branchC.key_columns) ||
       JSON.stringify(mainC.foreign_key_columns) !==
@@ -241,15 +252,13 @@ export function diffTables(
 
     // REPLICA IDENTITY: If non-default, emit ALTER TABLE ... REPLICA IDENTITY
     if (branchTable.replica_identity !== "d") {
-      // Skip 'i' (USING INDEX) — handled by index changes
-      if (branchTable.replica_identity !== "i") {
-        changes.push(
-          new AlterTableSetReplicaIdentity({
-            table: branchTable,
-            mode: branchTable.replica_identity,
-          }),
-        );
-      }
+      changes.push(
+        new AlterTableSetReplicaIdentity({
+          table: branchTable,
+          mode: branchTable.replica_identity,
+          indexName: branchTable.replica_identity_index,
+        }),
+      );
     }
 
     changes.push(
@@ -273,6 +282,29 @@ export function diffTables(
       if (col.comment !== null && col.comment !== undefined) {
         changes.push(
           new CreateCommentOnColumn({ table: branchTable, column: col }),
+        );
+      }
+    }
+
+    // Table security labels on creation
+    for (const label of branchTable.security_labels) {
+      changes.push(
+        new CreateSecurityLabelOnTable({
+          table: branchTable,
+          securityLabel: label,
+        }),
+      );
+    }
+
+    // Column security labels on creation
+    for (const col of branchTable.columns) {
+      for (const label of col.security_labels ?? []) {
+        changes.push(
+          new CreateSecurityLabelOnColumn({
+            table: branchTable,
+            column: col,
+            securityLabel: label,
+          }),
         );
       }
     }
@@ -400,16 +432,23 @@ export function diffTables(
     }
 
     // REPLICA IDENTITY
-    if (mainTable.replica_identity !== branchTable.replica_identity) {
-      // Skip when target is 'i' (USING INDEX) — handled by index changes
-      if (branchTable.replica_identity !== "i") {
-        changes.push(
-          new AlterTableSetReplicaIdentity({
-            table: mainTable,
-            mode: branchTable.replica_identity,
-          }),
-        );
-      }
+    // Re-emit when the mode changes, or when staying in 'i' mode but pointing
+    // at a different index. The index named on the branch must already exist
+    // before this ALTER runs; AlterTableSetReplicaIdentity declares that
+    // dependency in its `requires`.
+    const replicaIdentityChanged =
+      mainTable.replica_identity !== branchTable.replica_identity ||
+      (branchTable.replica_identity === "i" &&
+        mainTable.replica_identity_index !==
+          branchTable.replica_identity_index);
+    if (replicaIdentityChanged) {
+      changes.push(
+        new AlterTableSetReplicaIdentity({
+          table: mainTable,
+          mode: branchTable.replica_identity,
+          indexName: branchTable.replica_identity_index,
+        }),
+      );
     }
 
     // OWNER
@@ -430,6 +469,26 @@ export function diffTables(
         changes.push(new CreateCommentOnTable({ table: branchTable }));
       }
     }
+
+    // TABLE SECURITY LABELS
+    changes.push(
+      ...diffSecurityLabels<
+        CreateSecurityLabelOnTable | DropSecurityLabelOnTable
+      >(
+        mainTable.security_labels,
+        branchTable.security_labels,
+        (securityLabel) =>
+          new CreateSecurityLabelOnTable({
+            table: branchTable,
+            securityLabel,
+          }),
+        (securityLabel) =>
+          new DropSecurityLabelOnTable({
+            table: mainTable,
+            securityLabel,
+          }),
+      ),
+    );
 
     // PARTITION ATTACH/DETACH
     const mainIsPartition = Boolean(
@@ -545,7 +604,7 @@ export function diffTables(
     // Helper to check if parent has the same column property change
     const parentHasSameColumnPropertyChange = (
       columnName: string,
-      property: "type" | "default" | "not_null",
+      property: "type" | "default" | "not_null" | "identity",
     ): boolean => {
       const { parentMain, parentBranch } = getParentTables();
       if (!parentMain || !parentBranch) {
@@ -599,6 +658,21 @@ export function diffTables(
             parentNotNullChanged &&
             partitionNotNullChanged &&
             parentBranchCol.not_null === branchCol.not_null
+          );
+        }
+        case "identity": {
+          const parentIdentityChanged =
+            parentMainCol.is_identity !== parentBranchCol.is_identity ||
+            parentMainCol.is_identity_always !==
+              parentBranchCol.is_identity_always;
+          const partitionIdentityChanged =
+            mainCol.is_identity !== branchCol.is_identity ||
+            mainCol.is_identity_always !== branchCol.is_identity_always;
+          return (
+            parentIdentityChanged &&
+            partitionIdentityChanged &&
+            parentBranchCol.is_identity === branchCol.is_identity &&
+            parentBranchCol.is_identity_always === branchCol.is_identity_always
           );
         }
       }
@@ -682,15 +756,48 @@ export function diffTables(
       const branchCol = branchCols.get(name);
       if (!branchCol) continue;
 
+      const columnTypeChanged =
+        mainCol.data_type_str !== branchCol.data_type_str;
+      const columnCollationChanged = mainCol.collation !== branchCol.collation;
+      const needsDefaultSafeFlow =
+        columnTypeChanged && mainCol.default !== null;
+
       // TYPE or COLLATION change
-      if (
-        mainCol.data_type_str !== branchCol.data_type_str ||
-        mainCol.collation !== branchCol.collation
-      ) {
+      if (columnTypeChanged || columnCollationChanged) {
         // Skip if parent has the same type/collation change
         if (!parentHasSameColumnPropertyChange(name, "type")) {
+          if (needsDefaultSafeFlow) {
+            changes.push(
+              new AlterTableAlterColumnDropDefault({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
           changes.push(
             new AlterTableAlterColumnType({
+              table: branchTable,
+              column: branchCol,
+              previousColumn: mainCol,
+            }),
+          );
+          if (needsDefaultSafeFlow && branchCol.default !== null) {
+            changes.push(
+              new AlterTableAlterColumnSetDefault({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          }
+        }
+      }
+
+      // PostgreSQL rejects SET DEFAULT while the column still has identity metadata,
+      // so identity removal must lead the IDENTITY -> serial/default transition.
+      if (mainCol.is_identity && !branchCol.is_identity) {
+        if (!parentHasSameColumnPropertyChange(name, "identity")) {
+          changes.push(
+            new AlterTableAlterColumnDropIdentity({
               table: branchTable,
               column: branchCol,
             }),
@@ -702,6 +809,10 @@ export function diffTables(
       if (mainCol.default !== branchCol.default) {
         // Skip if parent has the same default change
         if (!parentHasSameColumnPropertyChange(name, "default")) {
+          if (needsDefaultSafeFlow) {
+            // Defaults were already dropped/re-set in the type-change flow above.
+            continue;
+          }
           if (branchCol.default === null) {
             // Drop default value
             changes.push(
@@ -714,10 +825,18 @@ export function diffTables(
             // Set new default value
             const isGeneratedColumn = branchCol.is_generated;
             const isPostgresLowerThan17 = ctx.version < 170000;
+            const generatedStatusChanged =
+              mainCol.is_generated !== branchCol.is_generated;
 
-            if (isGeneratedColumn && isPostgresLowerThan17) {
+            if (
+              isGeneratedColumn &&
+              (isPostgresLowerThan17 || generatedStatusChanged)
+            ) {
               // For generated columns in < PostgreSQL 17, we need to drop and recreate
-              // instead of using SET EXPRESSION AS for computed columns
+              // instead of using SET EXPRESSION AS for computed columns. We also
+              // need to recreate the column when switching between regular and
+              // generated states because SET EXPRESSION only applies to existing
+              // generated columns.
               // cf: https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=5d06e99a3
               // cf: https://www.postgresql.org/docs/release/17.0/
               // > Allow ALTER TABLE to change a column's generation expression
@@ -742,6 +861,38 @@ export function diffTables(
                 }),
               );
             }
+          }
+        }
+      }
+
+      // Serial-like defaults have to be cleared before ADD GENERATED AS IDENTITY,
+      // while mode-only flips stay in-place on an existing identity column.
+      if (
+        (!mainCol.is_identity && branchCol.is_identity) ||
+        (mainCol.is_identity &&
+          branchCol.is_identity &&
+          mainCol.is_identity_always !== branchCol.is_identity_always)
+      ) {
+        // Skip if parent has the same identity change
+        if (!parentHasSameColumnPropertyChange(name, "identity")) {
+          if (!mainCol.is_identity && branchCol.is_identity) {
+            changes.push(
+              new AlterTableAlterColumnAddIdentity({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          } else if (
+            mainCol.is_identity &&
+            branchCol.is_identity &&
+            mainCol.is_identity_always !== branchCol.is_identity_always
+          ) {
+            changes.push(
+              new AlterTableAlterColumnSetGenerated({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
           }
         }
       }
@@ -781,6 +932,43 @@ export function diffTables(
             new CreateCommentOnColumn({
               table: branchTable,
               column: branchCol,
+            }),
+          );
+        }
+      }
+
+      // SECURITY LABELS on column
+      changes.push(
+        ...diffSecurityLabels<
+          CreateSecurityLabelOnColumn | DropSecurityLabelOnColumn
+        >(
+          mainCol.security_labels ?? [],
+          branchCol.security_labels ?? [],
+          (securityLabel) =>
+            new CreateSecurityLabelOnColumn({
+              table: branchTable,
+              column: branchCol,
+              securityLabel,
+            }),
+          (securityLabel) =>
+            new DropSecurityLabelOnColumn({
+              table: mainTable,
+              column: mainCol,
+              securityLabel,
+            }),
+        ),
+      );
+    }
+
+    // Added columns with security labels (for created columns on existing tables)
+    for (const [name, col] of branchCols) {
+      if (!mainCols.has(name)) {
+        for (const label of col.security_labels ?? []) {
+          changes.push(
+            new CreateSecurityLabelOnColumn({
+              table: branchTable,
+              column: col,
+              securityLabel: label,
             }),
           );
         }

@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const membershipInfoSchema = z.object({
   member: z.string(),
@@ -35,6 +39,7 @@ const rolePropsSchema = z.object({
   comment: z.string().nullable(),
   members: z.array(membershipInfoSchema),
   default_privileges: z.array(defaultPrivilegeSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 export type RoleProps = z.infer<typeof rolePropsSchema>;
@@ -53,6 +58,7 @@ export class Role extends BasePgModel {
   public readonly comment: RoleProps["comment"];
   public readonly members: RoleProps["members"];
   public readonly default_privileges: RoleProps["default_privileges"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: RoleProps) {
     super();
@@ -73,6 +79,7 @@ export class Role extends BasePgModel {
     this.comment = props.comment;
     this.members = deduplicateMembers(props.members);
     this.default_privileges = props.default_privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `role:${string}` {
@@ -129,6 +136,7 @@ export class Role extends BasePgModel {
       comment: this.comment,
       members: sortedMembers,
       default_privileges: sortedDefaultPrivs,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -232,6 +240,18 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
             r.rolbypassrls  AS can_bypass_rls,
             r.rolconfig     AS config,
             obj_description(r.oid, 'pg_authid') AS comment,
+            COALESCE(
+              (
+                SELECT json_agg(
+                  json_build_object('provider', sl.provider, 'label', sl.label)
+                  ORDER BY sl.provider
+                )
+                FROM pg_catalog.pg_shseclabel sl
+                WHERE sl.objoid = r.oid
+                  AND sl.classoid = 'pg_authid'::regclass
+              ),
+              '[]'::json
+            ) AS security_labels,
             COALESCE(rm.members, '[]') AS members,
             COALESCE(
               (
@@ -353,6 +373,18 @@ export async function extractRoles(pool: Pool): Promise<Role[]> {
             r.rolbypassrls   AS can_bypass_rls,
             r.rolconfig      AS config,
             obj_description(r.oid, 'pg_authid') AS comment,
+            COALESCE(
+              (
+                SELECT json_agg(
+                  json_build_object('provider', sl.provider, 'label', sl.label)
+                  ORDER BY sl.provider
+                )
+                FROM pg_catalog.pg_shseclabel sl
+                WHERE sl.objoid = r.oid
+                  AND sl.classoid = 'pg_authid'::regclass
+              ),
+              '[]'::json
+            ) AS security_labels,
             COALESCE(rm.members, '[]') AS members,
             COALESCE(
               (

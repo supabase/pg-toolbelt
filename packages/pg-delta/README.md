@@ -181,7 +181,13 @@ See [Integrations Documentation](./docs/integrations.md) for complete details.
 
 ## Contributing
 
-Contributions welcome! Feel free to submit issues and pull requests.
+Please follow the repository-level guide in [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+In particular:
+
+- Open an issue first.
+- Wait for maintainer triage via one of `✨ Feature`, `🐛 Bug`, `📘 Docs`, or `🛠️ Chore` before opening a pull request.
+- Use [../../ISSUES.md](../../ISSUES.md) when reporting `pg-delta` bugs so maintainers have what they need to reproduce them.
 
 ## License
 

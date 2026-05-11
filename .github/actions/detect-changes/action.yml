@@ -17,11 +17,18 @@ outputs:
   root:
     description: Whether root config changed
     value: ${{ steps.filter.outputs.root }}
+  is-release-pr-content:
+    description: >-
+      'true' if every changed file is part of the changesets release-PR
+      whitelist (CHANGELOGs, package.json version bumps, .changeset state).
+      Used to skip heavy tests on release PRs while still running them if
+      anything unexpected slipped in.
+    value: ${{ steps.release-pr-content.outputs.is-release-pr-content }}
 
 runs:
   using: "composite"
   steps:
-    - uses: dorny/paths-filter@v3
+    - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       id: filter
       with:
         filters: |
@@ -38,3 +45,30 @@ runs:
             - 'bunfig.toml'
             - 'biome.json'
             - '.changeset/**'
+
+    # Detect any file outside the release-PR whitelist. Uses
+    # predicate-quantifier: every so a file matches only when it satisfies
+    # ALL listed patterns (including the negated ones). The filter therefore
+    # fires on any file that is NOT one of the release-PR artifacts.
+    - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+      id: non-release-files
+      with:
+        predicate-quantifier: "every"
+        filters: |
+          non-release-files:
+            - "**"
+            - "!.changeset/pre.json"
+            - "!.changeset/*.md"
+            - "!packages/pg-delta/package.json"
+            - "!packages/pg-delta/CHANGELOG.md"
+            - "!packages/pg-topo/package.json"
+            - "!packages/pg-topo/CHANGELOG.md"
+
+    - id: release-pr-content
+      shell: bash
+      run: |
+        if [ "${{ steps.non-release-files.outputs.non-release-files }}" = "false" ]; then
+          echo "is-release-pr-content=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "is-release-pr-content=false" >> "$GITHUB_OUTPUT"
+        fi

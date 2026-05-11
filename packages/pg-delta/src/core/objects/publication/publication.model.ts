@@ -2,6 +2,11 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  normalizeSecurityLabels,
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const publicationTablePropsSchema = z.object({
   schema: z.string(),
@@ -22,6 +27,7 @@ const publicationPropsSchema = z.object({
   publish_via_partition_root: z.boolean(),
   tables: z.array(publicationTablePropsSchema),
   schemas: z.array(z.string()),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 export type PublicationTableProps = z.infer<typeof publicationTablePropsSchema>;
@@ -44,6 +50,7 @@ export class Publication extends BasePgModel {
   public readonly publish_via_partition_root: PublicationProps["publish_via_partition_root"];
   public readonly tables: PublicationTableProps[];
   public readonly schemas: PublicationProps["schemas"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: PublicationProps) {
     super();
@@ -72,6 +79,7 @@ export class Publication extends BasePgModel {
     });
 
     this.schemas = [...props.schemas].sort((a, b) => a.localeCompare(b));
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `publication:${string}` {
@@ -96,6 +104,7 @@ export class Publication extends BasePgModel {
       publish_via_partition_root: this.publish_via_partition_root,
       tables: this.tables,
       schemas: this.schemas,
+      security_labels: this.security_labels,
     };
   }
 
@@ -118,6 +127,7 @@ export class Publication extends BasePgModel {
             a.schema.localeCompare(b.schema) || a.name.localeCompare(b.name),
         ),
         schemas: [...this.schemas].sort((a, b) => a.localeCompare(b)),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -194,7 +204,20 @@ export async function extractPublications(pool: Pool): Promise<Publication[]> {
             where s.pnpubid = p.oid
           ),
           '[]'::json
-        ) as schemas
+        ) as schemas,
+        coalesce(
+          (
+            select json_agg(
+              json_build_object('provider', sl.provider, 'label', sl.label)
+              order by sl.provider
+            )
+            from pg_catalog.pg_seclabel sl
+            where sl.objoid = p.oid
+              and sl.classoid = 'pg_publication'::regclass
+              and sl.objsubid = 0
+          ),
+          '[]'::json
+        ) as security_labels
       from pg_publication p
       left join extension_oids e on e.objid = p.oid
       where e.objid is null

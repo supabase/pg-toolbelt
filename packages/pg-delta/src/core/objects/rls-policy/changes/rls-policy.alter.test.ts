@@ -23,6 +23,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "owner",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,
@@ -52,6 +54,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "owner",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,
@@ -81,6 +85,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "owner",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const main = new RlsPolicy({
         ...props,
@@ -120,6 +126,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "owner",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const main = new RlsPolicy({
         ...props,
@@ -159,6 +167,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "test",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,
@@ -188,6 +198,8 @@ describe.concurrent("rls-policy", () => {
         with_check_expression: null,
         owner: "test",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,
@@ -217,6 +229,8 @@ describe.concurrent("rls-policy", () => {
         using_expression: "expr",
         owner: "test",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,
@@ -246,6 +260,8 @@ describe.concurrent("rls-policy", () => {
         using_expression: "expr",
         owner: "test",
         comment: null,
+        referenced_relations: [],
+        referenced_procedures: [],
       };
       const policy = new RlsPolicy({
         ...props,

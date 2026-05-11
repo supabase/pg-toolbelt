@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Language } from "../language.model.ts";
@@ -25,7 +26,7 @@ export class CreateCommentOnLanguage extends CreateLanguageChange {
     return [this.language.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON LANGUAGE",
       this.language.name,
@@ -52,7 +53,7 @@ export class DropCommentOnLanguage extends DropLanguageChange {
     return [stableId.comment(this.language.stableId), this.language.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON LANGUAGE", this.language.name, "IS NULL"].join(" ");
   }
 }

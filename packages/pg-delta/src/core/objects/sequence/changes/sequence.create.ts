@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Sequence } from "../sequence.model.ts";
 import { CreateSequenceChange } from "./sequence.base.ts";
@@ -61,7 +62,7 @@ export class CreateSequence extends CreateSequenceChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     const parts: string[] = ["CREATE SEQUENCE"];
 
     // Add schema and name

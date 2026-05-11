@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Subscription } from "../subscription.model.ts";
 import { DropSubscriptionChange } from "./subscription.base.ts";
 
@@ -14,7 +15,7 @@ export class DropSubscription extends DropSubscriptionChange {
     return [this.subscription.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return `DROP SUBSCRIPTION ${this.subscription.name}`;
   }
 }

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Role } from "../role.model.ts";
@@ -22,7 +23,7 @@ export class CreateCommentOnRole extends CreateRoleChange {
     return [this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON ROLE",
       this.role.name,
@@ -49,7 +50,7 @@ export class DropCommentOnRole extends DropRoleChange {
     return [stableId.comment(this.role.stableId), this.role.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["COMMENT ON ROLE", this.role.name, "IS NULL"].join(" ");
   }
 }

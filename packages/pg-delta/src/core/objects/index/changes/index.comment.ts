@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import { stableId } from "../../utils.ts";
 import type { Index } from "../index.model.ts";
@@ -25,7 +26,7 @@ export class CreateCommentOnIndex extends CreateIndexChange {
     return [this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON INDEX",
       `${this.index.schema}.${this.index.name}`,
@@ -53,7 +54,7 @@ export class DropCommentOnIndex extends DropIndexChange {
     return [stableId.comment(this.index.stableId), this.index.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON INDEX",
       `${this.index.schema}.${this.index.name}`,

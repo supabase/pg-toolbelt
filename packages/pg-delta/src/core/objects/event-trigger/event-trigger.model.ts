@@ -2,6 +2,10 @@ import { sql } from "@ts-safeql/sql-tag";
 import type { Pool } from "pg";
 import z from "zod";
 import { BasePgModel } from "../base.model.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const EventTriggerEnabledSchema = z.enum([
   "O", // ORIGIN - trigger fires in origin mode
@@ -19,6 +23,7 @@ const eventTriggerPropsSchema = z.object({
   tags: z.array(z.string()).nullable(),
   owner: z.string(),
   comment: z.string().nullable(),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 export type EventTriggerProps = z.infer<typeof eventTriggerPropsSchema>;
@@ -32,6 +37,7 @@ export class EventTrigger extends BasePgModel {
   public readonly tags: EventTriggerProps["tags"];
   public readonly owner: EventTriggerProps["owner"];
   public readonly comment: EventTriggerProps["comment"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: EventTriggerProps) {
     super();
@@ -47,6 +53,7 @@ export class EventTrigger extends BasePgModel {
     this.tags = props.tags;
     this.owner = props.owner;
     this.comment = props.comment;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `eventTrigger:${string}` {
@@ -68,6 +75,7 @@ export class EventTrigger extends BasePgModel {
       tags: this.tags,
       owner: this.owner,
       comment: this.comment,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -90,7 +98,20 @@ select
   et.evtenabled as enabled,
   et.evttags as tags,
   et.evtowner::regrole::text as owner,
-  obj_description(et.oid, 'pg_event_trigger') as comment
+  obj_description(et.oid, 'pg_event_trigger') as comment,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = et.oid
+        and sl.classoid = 'pg_event_trigger'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from pg_catalog.pg_event_trigger et
 join pg_catalog.pg_proc p on p.oid = et.evtfoid
 left join extension_oids e on e.objid = et.oid

@@ -267,6 +267,7 @@ export async function createEmptyCatalog(
     owner: currentUser,
     comment: "standard public schema",
     privileges: [],
+    security_labels: [],
   });
 
   return new Catalog({
@@ -302,7 +303,19 @@ export async function createEmptyCatalog(
   });
 }
 
-export async function extractCatalog(pool: Pool) {
+interface ExtractCatalogOptions {
+  /**
+   * Number of retry attempts for catalog extractors when `pg_get_*def()`
+   * returns NULL for at least one row. See `ExtractRetryOptions.retries`.
+   */
+  extractRetries?: number;
+}
+
+export async function extractCatalog(
+  pool: Pool,
+  options: ExtractCatalogOptions = {},
+) {
+  const retryOptions = { retries: options.extractRetries };
   const [
     aggregates,
     collations,
@@ -339,21 +352,21 @@ export async function extractCatalog(pool: Pool) {
     extractDomains(pool).then(listToRecord),
     extractEnums(pool).then(listToRecord),
     extractExtensions(pool).then(listToRecord),
-    extractIndexes(pool).then(listToRecord),
-    extractMaterializedViews(pool).then(listToRecord),
+    extractIndexes(pool, retryOptions).then(listToRecord),
+    extractMaterializedViews(pool, retryOptions).then(listToRecord),
     extractSubscriptions(pool).then(listToRecord),
     extractPublications(pool).then(listToRecord),
-    extractProcedures(pool).then(listToRecord),
+    extractProcedures(pool, retryOptions).then(listToRecord),
     extractRlsPolicies(pool).then(listToRecord),
     extractRoles(pool).then(listToRecord),
     extractSchemas(pool).then(listToRecord),
     extractSequences(pool).then(listToRecord),
-    extractTables(pool).then(listToRecord),
-    extractTriggers(pool).then(listToRecord),
+    extractTables(pool, retryOptions).then(listToRecord),
+    extractTriggers(pool, retryOptions).then(listToRecord),
     extractEventTriggers(pool).then(listToRecord),
-    extractRules(pool).then(listToRecord),
+    extractRules(pool, retryOptions).then(listToRecord),
     extractRanges(pool).then(listToRecord),
-    extractViews(pool).then(listToRecord),
+    extractViews(pool, retryOptions).then(listToRecord),
     extractForeignDataWrappers(pool).then(listToRecord),
     extractServers(pool).then(listToRecord),
     extractUserMappings(pool).then(listToRecord),

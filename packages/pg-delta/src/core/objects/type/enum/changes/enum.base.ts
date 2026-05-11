@@ -3,7 +3,11 @@ import type { Enum } from "../enum.model.ts";
 
 abstract class BaseEnumChange extends BaseChange {
   abstract readonly enum: Enum;
-  abstract readonly scope: "object" | "comment" | "privilege";
+  abstract readonly scope:
+    | "object"
+    | "comment"
+    | "privilege"
+    | "security_label";
   readonly objectType: "enum" = "enum";
 }
 

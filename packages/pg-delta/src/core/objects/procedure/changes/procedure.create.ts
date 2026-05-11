@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { parseTypeString, stableId } from "../../utils.ts";
 import type { Procedure } from "../procedure.model.ts";
 import { CreateProcedureChange } from "./procedure.base.ts";
@@ -78,7 +79,7 @@ export class CreateProcedure extends CreateProcedureChange {
     return Array.from(dependencies);
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     // Use the server-generated CREATE statement for functions/procedures
     // Normalize trailing semicolon and OR REPLACE clause according to flag
     let definition = this.procedure.definition.trim();

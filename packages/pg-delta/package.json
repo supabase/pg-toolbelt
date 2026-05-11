@@ -1,6 +1,6 @@
 {
   "name": "@supabase/pg-delta",
-  "version": "1.0.0-alpha.8",
+  "version": "1.0.0-alpha.24",
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "sideEffects": false,
@@ -68,9 +68,11 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
+    "docs": "typedoc",
     "format-and-lint": "biome check . --error-on-warnings",
     "knip": "knip",
     "pgdelta": "bun src/cli/bin/cli.ts",
+    "sync-base-images": "bun scripts/sync-supabase-base-images.ts",
     "test": "bun scripts/run-tests.ts",
     "test:unit": "bun run test src/",
     "test:integration": "bun run test tests/",
@@ -84,6 +86,7 @@
     "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "pg": "^8.17.2",
+    "picomatch": "^4.0.3",
     "zod": "^4.2.1"
   },
   "devDependencies": {
@@ -94,9 +97,11 @@
     "@types/debug": "^4.1.12",
     "@types/node": "^24.10.4",
     "@types/pg": "^8.11.10",
+    "@types/picomatch": "^4.0.2",
     "dedent": "^1.7.1",
     "knip": "^5.75.2",
     "testcontainers": "^11.10.0",
+    "typedoc": "^0.28.17",
     "typescript": "^5.9.3"
   }
 }

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
@@ -31,7 +32,7 @@ export class CreateCommentOnForeignDataWrapper extends CreateForeignDataWrapperC
     return [this.foreignDataWrapper.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON FOREIGN DATA WRAPPER",
       this.foreignDataWrapper.name,
@@ -62,7 +63,7 @@ export class DropCommentOnForeignDataWrapper extends DropForeignDataWrapperChang
     ];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "COMMENT ON FOREIGN DATA WRAPPER",
       this.foreignDataWrapper.name,

@@ -1,7 +1,7 @@
+import type { SchemaSerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { stableId } from "../../utils.ts";
 import type { Schema } from "../schema.model.ts";
 import { CreateSchemaChange } from "./schema.base.ts";
-
 /**
  * Create a schema.
  *
@@ -18,7 +18,7 @@ export class CreateSchema extends CreateSchemaChange {
   public readonly schema: Schema;
   public readonly scope = "object" as const;
 
-  constructor(props: { schema: Schema; skipAuthorization?: boolean }) {
+  constructor(props: { schema: Schema } & SchemaSerializeOptions) {
     super();
     this.schema = props.schema;
   }
@@ -31,7 +31,7 @@ export class CreateSchema extends CreateSchemaChange {
     return [stableId.role(this.schema.owner)];
   }
 
-  serialize(options?: { skipAuthorization?: boolean }): string {
+  serialize(options?: SchemaSerializeOptions): string {
     const parts: string[] = ["CREATE SCHEMA"];
 
     // Add schema name

@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { DropForeignTableChange } from "./foreign-table.base.ts";
 
@@ -28,7 +29,7 @@ export class DropForeignTable extends DropForeignTableChange {
     return [this.foreignTable.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP FOREIGN TABLE",
       `${this.foreignTable.schema}.${this.foreignTable.name}`,

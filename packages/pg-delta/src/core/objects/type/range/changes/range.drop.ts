@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import type { Range } from "../range.model.ts";
 import { DropRangeChange } from "./range.base.ts";
 
@@ -28,7 +29,7 @@ export class DropRange extends DropRangeChange {
     return [this.range.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return ["DROP TYPE", `${this.range.schema}.${this.range.name}`].join(" ");
   }
 }

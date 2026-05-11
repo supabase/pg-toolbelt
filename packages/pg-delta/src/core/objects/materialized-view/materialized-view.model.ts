@@ -10,6 +10,15 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type ExtractRetryOptions,
+  extractWithDefinitionRetry,
+} from "../extract-with-retry.ts";
+import {
+  normalizeSecurityLabels,
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 import { ReplicaIdentitySchema } from "../table/table.model.ts";
 
 const materializedViewPropsSchema = z.object({
@@ -31,6 +40,16 @@ const materializedViewPropsSchema = z.object({
   comment: z.string().nullable(),
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
+});
+
+// pg_get_viewdef(oid) can return NULL when the underlying matview (or its
+// pg_rewrite row) is dropped between catalog scan and resolution, or under
+// transient catalog state during recovery. An unreadable matview cannot be
+// diffed, so we accept NULL here and filter the row out at extraction time
+// rather than crashing the whole catalog parse with a ZodError.
+const materializedViewRowSchema = materializedViewPropsSchema.extend({
+  definition: z.string().nullable(),
 });
 
 type MaterializedViewPrivilegeProps = PrivilegeProps;
@@ -55,6 +74,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
   public readonly comment: MaterializedViewProps["comment"];
   public readonly columns: MaterializedViewProps["columns"];
   public readonly privileges: MaterializedViewPrivilegeProps[];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: MaterializedViewProps) {
     super();
@@ -80,6 +100,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
     this.comment = props.comment;
     this.columns = props.columns;
     this.privileges = props.privileges;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `materializedView:${string}` {
@@ -111,6 +132,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       comment: this.comment,
       columns: this.columns,
       privileges: this.privileges,
+      security_labels: this.security_labels,
     };
   }
 
@@ -135,6 +157,7 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
       data: {
         ...this.dataFields,
         columns: normalizeColumns(),
+        security_labels: normalizeSecurityLabels(this.security_labels),
       },
     };
   }
@@ -142,8 +165,14 @@ export class MaterializedView extends BasePgModel implements TableLikeObject {
 
 export async function extractMaterializedViews(
   pool: Pool,
+  options?: ExtractRetryOptions,
 ): Promise<MaterializedView[]> {
-  const { rows: mvRows } = await pool.query<MaterializedViewProps>(sql`
+  const mvRows = await extractWithDefinitionRetry({
+    label: "materialized views",
+    options,
+    hasNullDefinition: (row) => row.definition === null,
+    query: async () => {
+      const result = await pool.query<MaterializedViewProps>(sql`
 with extension_oids as (
   select
     objid
@@ -233,7 +262,20 @@ select
       join lateral aclexplode(src.acl) as x(grantor, grantee, privilege_type, is_grantable) on true
       group by x.grantee, x.privilege_type
     ) as grp
-  ), '[]') as privileges
+  ), '[]') as privileges,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = c.oid
+        and sl.classoid = 'pg_class'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   pg_catalog.pg_class c
   left outer join extension_oids e on c.oid = e.objid
@@ -248,11 +290,13 @@ group by
 order by
   c.relnamespace::regnamespace, c.relname
   `);
-  // Validate and parse each row using the Zod schema
-  const validatedRows = mvRows.map((row: unknown) =>
-    materializedViewPropsSchema.parse(row),
+      return result.rows.map((row: unknown) =>
+        materializedViewRowSchema.parse(row),
+      );
+    },
+  });
+  const validatedRows = mvRows.filter(
+    (row): row is MaterializedViewProps => row.definition !== null,
   );
-  return validatedRows.map(
-    (row: MaterializedViewProps) => new MaterializedView(row),
-  );
+  return validatedRows.map((row) => new MaterializedView(row));
 }

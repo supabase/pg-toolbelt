@@ -6,16 +6,7 @@
 
 import type { Change } from "../../change.types.ts";
 import { evaluatePattern, type FilterPattern } from "../filter/dsl.ts";
-import type { ChangeSerializer } from "./serialize.types.ts";
-
-/**
- * Serialization options that can be passed to change.serialize().
- */
-type SerializeOptions = {
-  skipAuthorization?: boolean;
-  // Can be extended with more options in the future
-  [key: string]: unknown;
-};
+import type { ChangeSerializer, SerializeOptions } from "./serialize.types.ts";
 
 /**
  * A serialization rule that applies options when a pattern matches.
@@ -33,8 +24,11 @@ type SerializeRule = {
 };
 
 /**
- * Serialization DSL - array of rules evaluated in order.
- * First matching rule's options are applied.
+ * Array of serialization rules evaluated in order. The first matching rule's
+ * options are passed to `change.serialize()`. If no rule matches, default
+ * serialization is used.
+ *
+ * @category Integration
  */
 export type SerializeDSL = SerializeRule[];
 
@@ -52,9 +46,9 @@ export type SerializeDSL = SerializeRule[];
  * const serializer = compileSerializeDSL([
  *   {
  *     when: {
- *       type: "schema",
+ *       objectType: "schema",
  *       operation: "create",
- *       owner: ["service_role"]
+ *       "schema/owner": ["service_role"]
  *     },
  *     options: { skipAuthorization: true }
  *   }

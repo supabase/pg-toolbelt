@@ -1,3 +1,4 @@
+import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { DropTriggerChange } from "./trigger.base.ts";
 
@@ -28,7 +29,7 @@ export class DropTrigger extends DropTriggerChange {
     return [this.trigger.stableId];
   }
 
-  serialize(): string {
+  serialize(_options?: SerializeOptions): string {
     return [
       "DROP TRIGGER",
       this.trigger.name,

@@ -6,7 +6,7 @@
  * before the referenced table existed.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -191,6 +191,42 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           FOREIGN KEY (user_id) REFERENCES test_schema.users(id)
           ON DELETE CASCADE ON UPDATE CASCADE;
         `,
+        });
+      }),
+    );
+
+    test(
+      "drop referencing table before referenced table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.challenge_levels (
+            id BIGSERIAL PRIMARY KEY
+          );
+
+          CREATE TABLE public.user_challenge_progress (
+            id BIGSERIAL PRIMARY KEY,
+            level_id BIGINT REFERENCES public.challenge_levels(id)
+          );
+        `,
+          testSql: `
+          DROP TABLE public.user_challenge_progress;
+          DROP TABLE public.challenge_levels;
+        `,
+          assertSqlStatements: (statements) => {
+            const dropTableStatements = statements.filter((statement) =>
+              statement.startsWith("DROP TABLE public."),
+            );
+
+            expect(dropTableStatements).toMatchInlineSnapshot(`
+              [
+                "DROP TABLE public.user_challenge_progress",
+                "DROP TABLE public.challenge_levels",
+              ]
+            `);
+          },
         });
       }),
     );

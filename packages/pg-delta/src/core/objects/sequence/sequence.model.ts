@@ -6,6 +6,10 @@ import {
   type PrivilegeProps,
   privilegePropsSchema,
 } from "../base.privilege-diff.ts";
+import {
+  type SecurityLabelProps,
+  securityLabelPropsSchema,
+} from "../security-label.types.ts";
 
 const sequencePropsSchema = z.object({
   schema: z.string(),
@@ -24,6 +28,7 @@ const sequencePropsSchema = z.object({
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
   owner: z.string(),
+  security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
 });
 
 type SequencePrivilegeProps = PrivilegeProps;
@@ -46,6 +51,7 @@ export class Sequence extends BasePgModel {
   public readonly comment: SequenceProps["comment"];
   public readonly privileges: SequencePrivilegeProps[];
   public readonly owner: SequenceProps["owner"];
+  public readonly security_labels: SecurityLabelProps[];
 
   constructor(props: SequenceProps) {
     super();
@@ -69,6 +75,7 @@ export class Sequence extends BasePgModel {
     this.comment = props.comment;
     this.privileges = props.privileges;
     this.owner = props.owner;
+    this.security_labels = props.security_labels ?? [];
   }
 
   get stableId(): `sequence:${string}` {
@@ -98,6 +105,7 @@ export class Sequence extends BasePgModel {
       comment: this.comment,
       privileges: this.privileges,
       owner: this.owner,
+      security_labels: this.security_labels,
     };
   }
 }
@@ -151,7 +159,20 @@ select
       from lateral aclexplode(COALESCE(c.relacl, acldefault('S', c.relowner))) as x(grantor, grantee, privilege_type, is_grantable)
     ), '[]'
   ) as privileges,
-  c.relowner::regrole::text as owner
+  c.relowner::regrole::text as owner,
+  coalesce(
+    (
+      select json_agg(
+        json_build_object('provider', sl.provider, 'label', sl.label)
+        order by sl.provider
+      )
+      from pg_catalog.pg_seclabel sl
+      where sl.objoid = c.oid
+        and sl.classoid = 'pg_class'::regclass
+        and sl.objsubid = 0
+    ),
+    '[]'::json
+  ) as security_labels
 from
   pg_catalog.pg_class c
   inner join pg_catalog.pg_sequence s on s.seqrelid = c.oid
