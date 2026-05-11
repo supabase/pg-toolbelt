@@ -305,12 +305,41 @@ yourself instead of giving up and skipping integration coverage:
    docker pull supabase/postgres:17.6.1.107   # only if your test uses withDbSupabase*
    ```
 
-4. **Run integration tests as usual** — the global-setup will reuse the cached
+4. **Skip the `dummy_seclabel` image with `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1`.**
+   The default integration path requires the `pg-delta-test:<major>` image
+   (stock alpine + the upstream `dummy_seclabel` test contrib so SECURITY
+   LABEL tests can run). CI prebuilds it and uploads to
+   `ghcr.io/supabase/pg-toolbelt/pg-delta-test:<major>-<hash>`. In sandboxes
+   you usually cannot get it either way:
+
+   - `pkg-containers.githubusercontent.com` (where GHCR keeps the actual
+     blobs) is typically *not* on the Claude Code web egress allow-list, so
+     `docker pull ghcr.io/supabase/pg-toolbelt/pg-delta-test:...` fails with
+     `403 Forbidden` even though the package is public.
+   - Building locally from `dummy-seclabel.Dockerfile` fetches
+     `https://dl-cdn.alpinelinux.org/` over TLS, which the sandbox also
+     intercepts (`TLS: server certificate not trusted`), so `apk add` fails
+     before `dummy_seclabel.so` can be compiled.
+
+   `buildPostgresTestImage` in `packages/pg-delta/tests/postgres-alpine.ts`
+   honors `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` (or `true`) by returning the
+   plain `postgres:<alpine_tag>` image instead. The container constructor
+   already gates the `shared_preload_libraries=dummy_seclabel` flag on the
+   tag prefix, so stock alpine boots cleanly. The two test files that
+   actually need the module (`tests/integration/security-label-operations.test.ts`,
+   `tests/integration/security-label-filter.test.ts`) skip themselves via
+   `describe.skipIf(...)` when the flag is set; `tests/postgres-alpine.test.ts`
+   (which asserts the `pg-delta-test:` tag) does too. **Never set this flag
+   in CI** — security-label coverage would silently disappear.
+
+5. **Run integration tests as usual** — the global-setup will reuse the cached
    images:
 
    ```bash
    cd packages/pg-delta
-   PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/integration/<file>.test.ts
+   PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1 \
+   PGDELTA_TEST_POSTGRES_VERSIONS=17 \
+     bun run test tests/integration/<file>.test.ts
    ```
 
 If you cannot get Docker running (e.g. the sandbox blocks `dockerd`'s

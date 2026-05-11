@@ -9,12 +9,35 @@ import {
   Wait,
 } from "testcontainers";
 import { ALPINE_TAG_FOR_PG_MAJOR } from "./alpine-tags.ts";
-import type { PostgresVersion } from "./constants.ts";
+import {
+  POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG,
+  type PostgresVersion,
+} from "./constants.ts";
 
 const POSTGRES_PORT = 5432;
 
 const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
 const DUMMY_SECLABEL_IMAGE_PREFIX = "pg-delta-test";
+
+/**
+ * Sandbox escape hatch: when this env var is set, `buildPostgresTestImage`
+ * returns the stock `postgres:<alpine_tag>` image instead of building (or
+ * pulling) the dummy_seclabel-augmented `pg-delta-test:<major>` image.
+ *
+ * Intended for environments that cannot reach
+ * `pkg-containers.githubusercontent.com` (the GHCR blob host) **and** cannot
+ * compile dummy_seclabel locally because the alpine package mirror is not
+ * reachable — the typical Claude Code sandbox profile. Tests that actually
+ * exercise `SECURITY LABEL` (`security-label-*.test.ts`) skip themselves
+ * when this flag is set; everything else runs unmodified against the stock
+ * image.
+ *
+ * Do NOT set this in CI — security-label coverage would silently disappear.
+ */
+export function shouldSkipDummySeclabelBuild(): boolean {
+  const flag = process.env.PGDELTA_SKIP_DUMMY_SECLABEL_BUILD;
+  return flag === "1" || flag === "true";
+}
 
 /**
  * Internal counter incremented every time `buildPostgresTestImage` actually
@@ -43,6 +66,14 @@ export function getBuildInvocationCount(): number {
 export async function buildPostgresTestImage(
   version: PostgresVersion,
 ): Promise<string> {
+  if (shouldSkipDummySeclabelBuild()) {
+    // The container constructor below conditions the dummy_seclabel preload
+    // on the tag starting with `pg-delta-test:`, so returning the stock
+    // tag naturally skips it. SECURITY LABEL tests must opt themselves out
+    // via the same env var — see security-label-*.test.ts.
+    return `postgres:${POSTGRES_VERSION_TO_ALPINE_POSTGRES_TAG[version]}`;
+  }
+
   const imageTag = `${DUMMY_SECLABEL_IMAGE_PREFIX}:${version}`;
 
   const containerRuntimeClient = await getContainerRuntimeClient();

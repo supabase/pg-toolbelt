@@ -14,6 +14,7 @@ import { POSTGRES_VERSIONS } from "./constants.ts";
 import {
   buildPostgresTestImage,
   getBuildInvocationCount,
+  shouldSkipDummySeclabelBuild,
 } from "./postgres-alpine.ts";
 
 const [version] = POSTGRES_VERSIONS;
@@ -23,17 +24,24 @@ if (version === undefined) {
   );
 }
 
-describe(`buildPostgresTestImage (pg${version})`, () => {
-  test("returns the same tag and skips the docker build on a second call", async () => {
-    // Global setup has already invoked buildPostgresTestImage for every
-    // version in POSTGRES_VERSIONS, so the image is guaranteed to exist
-    // by the time this test runs.
-    const before = getBuildInvocationCount();
+// When the sandbox escape hatch is enabled, `buildPostgresTestImage` returns
+// the stock `postgres:<alpine_tag>` and never invokes a docker build, so the
+// `pg-delta-test:` assertion below does not apply. CI never sets this flag,
+// so coverage of the GHCR short-circuit path is preserved there.
+describe.skipIf(shouldSkipDummySeclabelBuild())(
+  `buildPostgresTestImage (pg${version})`,
+  () => {
+    test("returns the same tag and skips the docker build on a second call", async () => {
+      // Global setup has already invoked buildPostgresTestImage for every
+      // version in POSTGRES_VERSIONS, so the image is guaranteed to exist
+      // by the time this test runs.
+      const before = getBuildInvocationCount();
 
-    const tag = await buildPostgresTestImage(version);
-    expect(tag).toBe(`pg-delta-test:${version}`);
+      const tag = await buildPostgresTestImage(version);
+      expect(tag).toBe(`pg-delta-test:${version}`);
 
-    const after = getBuildInvocationCount();
-    expect(after).toBe(before);
-  });
-});
+      const after = getBuildInvocationCount();
+      expect(after).toBe(before);
+    });
+  },
+);
