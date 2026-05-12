@@ -9,5 +9,5 @@
       "@supabase/pg-topo": ["../pg-topo/src/index.ts"]
     }
   },
-  "include": ["./src", "./tests", "./scripts"]
+  "include": ["./src", "./tests", "./scripts", "./bench"]
 }

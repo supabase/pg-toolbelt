@@ -15,6 +15,31 @@ bun run check-types   # Type check without emitting
 bun run pgdelta       # Run CLI (e.g. bun run pgdelta plan --help)
 ```
 
+## Benchmarking (sort / plan hot paths)
+
+Synthetic benches need no Docker; E2E needs Docker + a Supabase test image pull.
+
+```bash
+# In-memory synthetic catalogs → diff → `sortChanges` timings (mitata `measure`)
+bun run bench
+
+# ~2.5s burn per scenario for `bun --cpu-prof-md` (writes markdown under `bench/profiles/`, gitignored)
+bun run bench:profile
+
+# Live DB: replay Supabase base-init, then programmatic synthetic schema (N tables + kitchen-sink objects); times extract / empty baseline / diff / sort / plan-build
+# Table count: `BENCH_E2E_TABLE_COUNT` (default 400), or `BENCH_TABLE_COUNT` as fallback
+# `dummy_seclabel` security labels: `BENCH_SECURITY_LABELS=1` (off by default — `supabase/postgres` does not ship that contrib; use `pg-delta-test:*` images if you need labels)
+PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run bench:e2e
+
+# Two full DBs (clone `WITH TEMPLATE postgres` after base-init; distinct `bench_*_{main,branch}` roles) + branch-only ALTER/DROP mutations; times extract×2 / diff / sort / plan-build
+# `BENCH_E2E_MUTATION_COUNT` (default 32) is clamped to the ordered mutation list length for `BENCH_E2E_TABLE_COUNT`
+PGDELTA_TEST_POSTGRES_VERSIONS=17 BENCH_E2E_MUTATION_COUNT=24 bun run bench:e2e-mutations
+
+# Optional: print SQL to stdout, or `--out path` to write a file (for debugging)
+bun run bench:gen-fixture
+BENCH_TABLE_COUNT=200 bun run bench:gen-fixture -- --out /tmp/bench-schema.sql
+```
+
 ## Test Patterns
 
 ### Unit tests (`src/**/*.test.ts`)

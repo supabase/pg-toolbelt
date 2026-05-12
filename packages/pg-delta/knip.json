@@ -4,6 +4,7 @@
     "tests/global-setup.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts",
+    "bench/**/*.ts",
     "src/typedoc.ts"
   ],
   "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"],
