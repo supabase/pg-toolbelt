@@ -106,16 +106,16 @@ describe.concurrent("user-mapping", () => {
       const change = new AlterUserMappingSetOptions({
         userMapping,
         options: [
-          { action: "ADD", option: "new_option", value: "new_value" },
-          { action: "SET", option: "existing_option", value: "updated_value" },
-          { action: "DROP", option: "old_option" },
+          { action: "ADD", option: "user", value: "remote_user" },
+          { action: "SET", option: "sslmode", value: "require" },
+          { action: "DROP", option: "application_name" },
         ],
       });
 
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD user 'remote_user', SET sslmode 'require', DROP application_name)",
       );
     });
   });

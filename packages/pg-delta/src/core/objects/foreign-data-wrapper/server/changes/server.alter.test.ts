@@ -167,16 +167,16 @@ describe.concurrent("server", () => {
       const change = new AlterServerSetOptions({
         server,
         options: [
-          { action: "ADD", option: "new_option", value: "new_value" },
-          { action: "SET", option: "existing_option", value: "updated_value" },
-          { action: "DROP", option: "old_option" },
+          { action: "ADD", option: "host", value: "localhost" },
+          { action: "SET", option: "port", value: "5433" },
+          { action: "DROP", option: "dbname" },
         ],
       });
 
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "ALTER SERVER test_server OPTIONS (ADD host 'localhost', SET port '5433', DROP dbname)",
       );
     });
 

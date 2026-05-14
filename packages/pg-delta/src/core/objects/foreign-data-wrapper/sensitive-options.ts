@@ -7,40 +7,96 @@
  * snapshots, declarative export, fingerprints — leaks the credentials to
  * disk, stdout, CI logs, and version control.
  *
- * To prevent this, replace values whose option key is in
- * {@link SENSITIVE_OPTION_KEYS} with a stable `__OPTION_<KEY>__` placeholder.
- * Non-sensitive options (`host`, `port`, `user`, `dbname`, …) pass through
- * unchanged so they continue to roundtrip.
+ * The redaction policy is **allowlist-based**: replace every option value
+ * with `__OPTION_<KEY>__` unless the option key appears in
+ * {@link SAFE_OPTION_KEYS}. Failure mode of a missing entry is "the plan
+ * shows the placeholder instead of the real value" — annoying, but safe;
+ * a denylist's failure mode was secrets leaking, which is the bug we are
+ * fixing (CLI-1467).
  *
- * The denylist is keyed exactly (case-insensitive) — not a substring match —
- * so an option named e.g. `password_validator_extension` would not be
- * redacted. Add the literal key here if you need to cover a new FDW.
- *
- * Tracked in CLI-1467.
+ * Match is case-insensitive but exact — substrings do not match, so an
+ * option key like `password_validator_extension` will be redacted unless
+ * explicitly allowlisted. When a new wrapper introduces a non-credential
+ * key we want to surface in plans, add it here.
  */
 
-const SENSITIVE_OPTION_KEYS = new Set<string>([
-  // libpq / postgres_fdw, dblink, oracle_fdw, mysql_fdw, mssql_fdw,
-  // redis_fdw, mongo_fdw, clickhouse_fdw, …
-  "password",
-  "passfile",
-  "passcode",
-  "sslpassword",
-  // Third-party / Supabase Wrappers and common cloud-service FDWs.
-  // Sources include https://github.com/supabase/wrappers and the libpq
-  // / FDW docs. Add keys here as new wrappers are integrated.
-  "api_key",
-  "apikey",
-  "secret",
-  "secret_key",
-  "private_key",
-  "access_token",
-  "auth_token",
-  "bearer_token",
-  "client_secret",
-  "aws_secret_access_key",
-  "aws_session_token",
-  "sa_key",
+const SAFE_OPTION_KEYS = new Set<string>([
+  // libpq connection params (non-credential subset).
+  //   https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
+  "host",
+  "hostaddr",
+  "port",
+  "dbname",
+  "user",
+  "sslmode",
+  "sslcompression",
+  "sslcert",
+  "sslkey",
+  "sslrootcert",
+  "sslcrl",
+  "sslcrldir",
+  "sslsni",
+  "requirepeer",
+  "krbsrvname",
+  "gsslib",
+  "sspi",
+  "gssencmode",
+  "gssdelegation",
+  "channel_binding",
+  "target_session_attrs",
+  "application_name",
+  "fallback_application_name",
+  "connect_timeout",
+  "client_encoding",
+  "options",
+  "keepalives",
+  "keepalives_idle",
+  "keepalives_interval",
+  "keepalives_count",
+  "tcp_user_timeout",
+  "replication",
+  "load_balance_hosts",
+  // postgres_fdw behavior tuning.
+  //   https://www.postgresql.org/docs/current/postgres-fdw.html#POSTGRES-FDW-OPTIONS-CONNECTION
+  "use_remote_estimate",
+  "fdw_startup_cost",
+  "fdw_tuple_cost",
+  "fetch_size",
+  "batch_size",
+  "async_capable",
+  "analyze_sampling",
+  "parallel_commit",
+  "parallel_abort",
+  "extensions",
+  "updatable",
+  "truncatable",
+  "schema_name",
+  "table_name",
+  "column_name",
+  // Common shape for table-like FDWs (file_fdw, cloud-storage wrappers).
+  "schema",
+  "database",
+  "table",
+  "format",
+  "header",
+  "delimiter",
+  "quote",
+  "escape",
+  "encoding",
+  "compression",
+  // Cloud / Supabase Wrappers non-credential shape.
+  //   https://github.com/supabase/wrappers
+  "region",
+  "endpoint",
+  "bucket",
+  "prefix",
+  "location",
+  "project_id",
+  "dataset_id",
+  "dataset",
+  "workspace",
+  "organization",
+  "api_version",
 ]);
 
 function redactedOptionPlaceholder(key: string): string {
@@ -48,14 +104,15 @@ function redactedOptionPlaceholder(key: string): string {
 }
 
 export function redactOptionValue(key: string, value: string): string {
-  return SENSITIVE_OPTION_KEYS.has(key.toLowerCase())
-    ? redactedOptionPlaceholder(key)
-    : value;
+  return SAFE_OPTION_KEYS.has(key.toLowerCase())
+    ? value
+    : redactedOptionPlaceholder(key);
 }
 
 /**
- * Redact sensitive values in a flat `[key, value, key, value, ...]` options
- * array — the shape used by the {@link Server} and {@link UserMapping} models.
+ * Redact non-allowlisted values in a flat `[key, value, key, value, ...]`
+ * options array — the shape used by the {@link Server} and
+ * {@link UserMapping} models.
  */
 export function redactSensitiveOptionPairs(
   options: readonly string[] | null,
