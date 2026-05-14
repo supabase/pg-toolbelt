@@ -1,46 +1,50 @@
 import { describe, expect, test } from "bun:test";
 import {
-  isSensitiveOptionKey,
   redactOptionValue,
   redactSensitiveOptionPairs,
 } from "./sensitive-options.ts";
 
 describe("sensitive-options", () => {
-  describe("isSensitiveOptionKey", () => {
-    test.each([
-      "password",
-      "PASSWORD",
-      "Password",
-      "passfile",
-      "passcode",
-      "sslpassword",
-    ])("flags %s as sensitive", (key) => {
-      expect(isSensitiveOptionKey(key)).toBe(true);
-    });
+  test("redacts a representative slice of the denylist (case-insensitive)", () => {
+    // One assertion per denylist family so an accidental drop is caught
+    // here instead of silently leaking through `serialize()`.
+    expect(redactOptionValue("password", "p1")).toBe("__OPTION_PASSWORD__");
+    expect(redactOptionValue("PASSWORD", "p2")).toBe("__OPTION_PASSWORD__");
+    expect(redactOptionValue("passfile", "/tmp/pf")).toBe(
+      "__OPTION_PASSFILE__",
+    );
+    expect(redactOptionValue("sslpassword", "x")).toBe(
+      "__OPTION_SSLPASSWORD__",
+    );
+    expect(redactOptionValue("api_key", "x")).toBe("__OPTION_API_KEY__");
+    expect(redactOptionValue("secret_key", "x")).toBe("__OPTION_SECRET_KEY__");
+    expect(redactOptionValue("private_key", "x")).toBe(
+      "__OPTION_PRIVATE_KEY__",
+    );
+    expect(redactOptionValue("aws_secret_access_key", "x")).toBe(
+      "__OPTION_AWS_SECRET_ACCESS_KEY__",
+    );
+  });
 
-    test.each([
+  test("preserves connection options that are not credentials", () => {
+    for (const safe of [
       "host",
       "port",
-      "user",
       "dbname",
+      "user",
       "schema",
       "fetch_size",
-    ])("leaves %s untouched", (key) => {
-      expect(isSensitiveOptionKey(key)).toBe(false);
-    });
+      // Adjacent names that are NOT in the denylist (substring matches must
+      // not redact) — would only be a problem if the matcher slipped from
+      // exact-match to substring.
+      "password_validator_extension",
+      "api_keyword",
+    ]) {
+      expect(redactOptionValue(safe, "real-value")).toBe("real-value");
+    }
   });
 
-  test("redactOptionValue replaces sensitive values with placeholder", () => {
-    expect(redactOptionValue("password", "supersecret")).toBe(
-      "__OPTION_PASSWORD__",
-    );
-    expect(redactOptionValue("PASSWORD", "supersecret")).toBe(
-      "__OPTION_PASSWORD__",
-    );
-    expect(redactOptionValue("host", "localhost")).toBe("localhost");
-  });
-
-  test("redactSensitiveOptionPairs preserves non-secret options", () => {
+  test("redactSensitiveOptionPairs leaves non-secrets intact and redacts secrets", () => {
     expect(
       redactSensitiveOptionPairs([
         "host",
@@ -64,7 +68,7 @@ describe("sensitive-options", () => {
     ]);
   });
 
-  test("redactSensitiveOptionPairs handles null/empty", () => {
+  test("redactSensitiveOptionPairs handles null and empty input", () => {
     expect(redactSensitiveOptionPairs(null)).toBeNull();
     expect(redactSensitiveOptionPairs([])).toEqual([]);
   });

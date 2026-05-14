@@ -12,26 +12,45 @@
  * Non-sensitive options (`host`, `port`, `user`, `dbname`, …) pass through
  * unchanged so they continue to roundtrip.
  *
+ * The denylist is keyed exactly (case-insensitive) — not a substring match —
+ * so an option named e.g. `password_validator_extension` would not be
+ * redacted. Add the literal key here if you need to cover a new FDW.
+ *
  * Tracked in CLI-1467.
  */
 
 const SENSITIVE_OPTION_KEYS = new Set<string>([
+  // libpq / postgres_fdw, dblink, oracle_fdw, mysql_fdw, mssql_fdw,
+  // redis_fdw, mongo_fdw, clickhouse_fdw, …
   "password",
   "passfile",
   "passcode",
   "sslpassword",
+  // Third-party / Supabase Wrappers and common cloud-service FDWs.
+  // Sources include https://github.com/supabase/wrappers and the libpq
+  // / FDW docs. Add keys here as new wrappers are integrated.
+  "api_key",
+  "apikey",
+  "secret",
+  "secret_key",
+  "private_key",
+  "access_token",
+  "auth_token",
+  "bearer_token",
+  "client_secret",
+  "aws_secret_access_key",
+  "aws_session_token",
+  "sa_key",
 ]);
-
-export function isSensitiveOptionKey(key: string): boolean {
-  return SENSITIVE_OPTION_KEYS.has(key.toLowerCase());
-}
 
 function redactedOptionPlaceholder(key: string): string {
   return `__OPTION_${key.toUpperCase()}__`;
 }
 
 export function redactOptionValue(key: string, value: string): string {
-  return isSensitiveOptionKey(key) ? redactedOptionPlaceholder(key) : value;
+  return SENSITIVE_OPTION_KEYS.has(key.toLowerCase())
+    ? redactedOptionPlaceholder(key)
+    : value;
 }
 
 /**
