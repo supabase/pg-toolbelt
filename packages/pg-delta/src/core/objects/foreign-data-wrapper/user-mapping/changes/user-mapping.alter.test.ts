@@ -27,6 +27,37 @@ describe.concurrent("user-mapping", () => {
       );
     });
 
+    test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+      const props: UserMappingProps = {
+        user: "postgres",
+        server: "live_risk_server",
+        options: null,
+      };
+      const userMapping = new UserMapping(props);
+      const change = new AlterUserMappingSetOptions({
+        userMapping,
+        options: [
+          { action: "ADD", option: "password", value: "real-user-password" },
+          { action: "SET", option: "user", value: "fdw_reader" },
+          {
+            action: "ADD",
+            option: "passfile",
+            value: "/etc/secrets/passfile",
+          },
+          { action: "SET", option: "sslpassword", value: "ssl-secret" },
+        ],
+      });
+
+      const sql = change.serialize();
+      expect(sql).not.toContain("real-user-password");
+      expect(sql).not.toContain("/etc/secrets/passfile");
+      expect(sql).not.toContain("ssl-secret");
+      expect(sql).toContain("SET user 'fdw_reader'");
+      expect(sql).toContain("ADD password '__OPTION_PASSWORD__'");
+      expect(sql).toContain("ADD passfile '__OPTION_PASSFILE__'");
+      expect(sql).toContain("SET sslpassword '__OPTION_SSLPASSWORD__'");
+    });
+
     test("set options SET", async () => {
       const props: UserMappingProps = {
         user: "test_user",

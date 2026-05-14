@@ -179,5 +179,38 @@ describe.concurrent("server", () => {
         "ALTER SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
       );
     });
+
+    test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+      const props: ServerProps = {
+        name: "live_risk_server",
+        owner: "postgres",
+        foreign_data_wrapper: "postgres_fdw",
+        type: null,
+        version: null,
+        options: null,
+        comment: null,
+        privileges: [],
+      };
+      const server = new Server(props);
+      const change = new AlterServerSetOptions({
+        server,
+        options: [
+          { action: "ADD", option: "password", value: "server-shared-secret" },
+          { action: "SET", option: "host", value: "remote.example.com" },
+          {
+            action: "ADD",
+            option: "passfile",
+            value: "/etc/secrets/passfile",
+          },
+        ],
+      });
+
+      const sql = change.serialize();
+      expect(sql).not.toContain("server-shared-secret");
+      expect(sql).not.toContain("/etc/secrets/passfile");
+      expect(sql).toContain("SET host 'remote.example.com'");
+      expect(sql).toContain("ADD password '__OPTION_PASSWORD__'");
+      expect(sql).toContain("ADD passfile '__OPTION_PASSFILE__'");
+    });
   });
 });
