@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { Server } from "../server.model.ts";
 import { AlterServerChange } from "./server.base.ts";
 
@@ -112,7 +113,10 @@ export class AlterServerSetOptions extends AlterServerChange {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
+        const value =
+          opt.value !== undefined
+            ? quoteLiteral(redactOptionValue(opt.option, opt.value))
+            : "''";
         optionParts.push(`${opt.action} ${opt.option} ${value}`);
       }
     }

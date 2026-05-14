@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { UserMapping } from "../user-mapping.model.ts";
 import { CreateUserMappingChange } from "./user-mapping.base.ts";
 
@@ -51,11 +52,12 @@ export class CreateUserMapping extends CreateUserMappingChange {
     if (this.userMapping.options && this.userMapping.options.length > 0) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.userMapping.options.length; i += 2) {
-        if (i + 1 < this.userMapping.options.length) {
-          optionPairs.push(
-            `${this.userMapping.options[i]} ${quoteLiteral(this.userMapping.options[i + 1])}`,
-          );
-        }
+        const key = this.userMapping.options[i];
+        const value = this.userMapping.options[i + 1];
+        if (key === undefined || value === undefined) continue;
+        optionPairs.push(
+          `${key} ${quoteLiteral(redactOptionValue(key, value))}`,
+        );
       }
       if (optionPairs.length > 0) {
         parts.push(`OPTIONS (${optionPairs.join(", ")})`);

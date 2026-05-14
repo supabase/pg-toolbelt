@@ -72,7 +72,7 @@ describe("user-mapping", () => {
     await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
-      "CREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user 'remote_user', password 'secret')",
+      "CREATE USER MAPPING FOR test_user SERVER test_server OPTIONS (user 'remote_user', password '__OPTION_PASSWORD__')",
     );
   });
 
@@ -90,7 +90,7 @@ describe("user-mapping", () => {
     await assertValidSql(change.serialize());
 
     expect(change.serialize()).toBe(
-      "CREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user 'remote_user', password 'secret')",
+      "CREATE USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (user 'remote_user', password '__OPTION_PASSWORD__')",
     );
   });
 

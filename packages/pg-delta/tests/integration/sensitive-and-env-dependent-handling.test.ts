@@ -6,7 +6,7 @@
  * 2. Diff Filtering: Environment-dependent value changes are ignored during diff (SET actions filtered)
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { sql } from "@ts-safeql/sql-tag";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
@@ -73,7 +73,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       );
 
       test(
-        "server with options are masked",
+        "server with sensitive options are redacted but safe options roundtrip",
         withDb(pgVersion, async (db) => {
           // Note: postgres_fdw doesn't accept password/user in server options,
           // so we test with a custom FDW that accepts arbitrary options
@@ -88,14 +88,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             `,
             expectedSqlTerms: [
               "CREATE FOREIGN DATA WRAPPER test_sensitive_fdw NO HANDLER NO VALIDATOR",
-              "CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user '__OPTION_USER__', host '__OPTION_HOST__')",
+              "CREATE SERVER test_sensitive_server2 FOREIGN DATA WRAPPER test_sensitive_fdw OPTIONS (password '__OPTION_PASSWORD__', user 'testuser', host 'localhost')",
             ],
+            assertSqlStatements: (sqlStatements) => {
+              const joined = sqlStatements.join("\n");
+              expect(joined).not.toContain("secret123");
+            },
           });
         }),
       );
 
       test(
-        "user mapping with options are masked",
+        "user mapping with sensitive options are redacted but safe options roundtrip",
         withDb(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
@@ -112,9 +116,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 OPTIONS (user 'testuser', password 'secret456');
             `,
             expectedSqlTerms: [
-              "CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '__OPTION_HOST__')",
-              "CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user '__OPTION_USER__', password '__OPTION_PASSWORD__')",
+              "CREATE SERVER test_um_server FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'localhost')",
+              "CREATE USER MAPPING FOR postgres SERVER test_um_server OPTIONS (user 'testuser', password '__OPTION_PASSWORD__')",
             ],
+            assertSqlStatements: (sqlStatements) => {
+              const joined = sqlStatements.join("\n");
+              expect(joined).not.toContain("secret456");
+            },
           });
         }),
       );
@@ -242,7 +250,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       );
 
       test(
-        "server: SET option changes do not generate ALTER",
+        "server: SET option changes for non-sensitive options generate ALTER",
         withDb(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
@@ -261,8 +269,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 SET fetch_size '200'
               );
             `,
-            // SET actions are filtered out, so no ALTER should be generated
-            expectedSqlTerms: [],
+            // Non-sensitive options roundtrip with their real values now.
+            expectedSqlTerms: [
+              "ALTER SERVER test_env_server OPTIONS (SET host 'dev.example.com', SET port '5433', SET dbname 'dev_db', SET fetch_size '200')",
+            ],
           });
         }),
       );
@@ -285,16 +295,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 ADD port '5433'
               );
             `,
-            // ADD actions are not filtered, so ALTER should be generated
             expectedSqlTerms: [
-              "ALTER SERVER test_env_server OPTIONS (ADD host '__OPTION_HOST__', ADD port '__OPTION_PORT__')",
+              "ALTER SERVER test_env_server OPTIONS (ADD host 'dev.example.com', ADD port '5433')",
             ],
           });
         }),
       );
 
       test(
-        "user mapping: SET option changes do not generate ALTER",
+        "user mapping: SET on password is suppressed (redaction makes values equal); SET on non-secret options emits ALTER",
         withDb(pgVersion, async (db) => {
           await roundtripFidelityTest({
             mainSession: db.main,
@@ -316,8 +325,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   SET password 'dev_pass'
                 );
             `,
-            // SET actions are filtered out, so no ALTER should be generated
-            expectedSqlTerms: [],
+            // Both passwords redact to the same placeholder so diff sees no
+            // change for password and skips it; non-secret options diff normally.
+            expectedSqlTerms: [
+              "ALTER USER MAPPING FOR postgres SERVER test_um_server OPTIONS (SET user 'dev_user')",
+            ],
+            assertSqlStatements: (sqlStatements) => {
+              const joined = sqlStatements.join("\n");
+              expect(joined).not.toContain("dev_pass");
+              expect(joined).not.toContain("prod_pass");
+            },
           });
         }),
       );

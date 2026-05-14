@@ -794,13 +794,13 @@ describe("sql formatting snapshots", () => {
       REVOKE GRANT OPTION FOR ALL ON SERVER remote_server FROM app_user;
 
       -- user_mapping.create
-      CREATE USER MAPPING FOR app_user SERVER remote_server OPTIONS (user 'remote_app', password 'secret123');
+      CREATE USER MAPPING FOR app_user SERVER remote_server OPTIONS (user 'remote_app', password '__OPTION_PASSWORD__');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER remote_server;
 
       -- user_mapping.alter.set_options
-      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password 'new_secret');"
+      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password '__OPTION_PASSWORD__');"
     `);
   });
 });

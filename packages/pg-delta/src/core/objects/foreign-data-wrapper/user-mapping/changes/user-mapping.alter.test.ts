@@ -23,7 +23,7 @@ describe.concurrent("user-mapping", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password 'secret')",
+        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password '__OPTION_PASSWORD__')",
       );
     });
 
@@ -73,7 +73,7 @@ describe.concurrent("user-mapping", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password 'new_secret')",
+        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password '__OPTION_PASSWORD__')",
       );
     });
 

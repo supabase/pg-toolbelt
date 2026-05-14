@@ -1264,7 +1264,7 @@ describe("sql formatting snapshots", () => {
         remote_server
         OPTIONS
         (user 'remote_app', password
-        'secret123');
+        '__OPTION_PASSWORD__');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER
@@ -1273,7 +1273,8 @@ describe("sql formatting snapshots", () => {
       -- user_mapping.alter.set_options
       ALTER USER MAPPING FOR app_user SERVER
         remote_server
-        OPTIONS (SET password 'new_secret');"
+        OPTIONS
+        (SET password '__OPTION_PASSWORD__');"
     `);
   });
 });
