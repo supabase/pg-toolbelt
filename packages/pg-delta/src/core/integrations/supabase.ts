@@ -159,6 +159,37 @@ export const supabase: IntegrationDSL = {
                 },
               ],
             },
+            // Platform-managed foreign data wrappers — Wasm-based FDWs
+            // (e.g. `clerk`, `clerk_oauth`) whose handler/validator live in
+            // the `extensions` schema. `CREATE FOREIGN DATA WRAPPER`
+            // requires superuser, and Supabase Cloud provisions these via
+            // `supabase_admin` at project creation; replaying the DDL
+            // against a local image fails because the local environment
+            // has no equivalent pre-step. We can't rely on the FDW owner
+            // alone — after a dump/restore the owner is often rewritten
+            // away from `supabase_admin` — so match on the function
+            // reference instead.
+            {
+              and: [
+                { objectType: "foreign_data_wrapper" },
+                {
+                  or: [
+                    {
+                      "foreign_data_wrapper/handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "foreign_data_wrapper/validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       },

@@ -134,4 +134,45 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
     }),
     120_000,
   );
+
+  // Regression for CLI-1470: Wasm-based foreign data wrappers (e.g.
+  // `clerk`, `clerk_oauth`) wire their handler/validator through the
+  // `extensions.*` schema. Supabase Cloud provisions them as
+  // `supabase_admin`, but local Docker images do not have an equivalent
+  // pre-step, so `supabase db reset` cannot replay
+  // `CREATE FOREIGN DATA WRAPPER`. The Supabase integration filter must
+  // suppress these FDW changes regardless of who owns the wrapper at
+  // diff time.
+  test(
+    "suppresses CREATE FOREIGN DATA WRAPPER backed by extensions.* handler",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE FOREIGN DATA WRAPPER wasm_lookalike
+          HANDLER extensions.postgres_fdw_handler
+          VALIDATOR extensions.postgres_fdw_validator;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      // postgres_fdw is allow-listed for CREATE EXTENSION; the only
+      // expected output is the extension itself. No
+      // `CREATE FOREIGN DATA WRAPPER` for the Wasm-lookalike wrapper
+      // should appear, since it depends on a handler that lives in the
+      // managed `extensions` schema.
+      const statements = planResult?.plan.statements ?? [];
+      const fdwStatements = statements.filter((stmt) =>
+        stmt.includes("FOREIGN DATA WRAPPER"),
+      );
+      expect(fdwStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
 });
