@@ -175,4 +175,46 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
     }),
     120_000,
   );
+
+  // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
+  // requires superuser. On Supabase Cloud `postgres` has the elevated
+  // rights; the local Docker image does not, so `supabase db reset`
+  // aborts. FDW ACL is platform-managed, so the supabase integration
+  // must drop those changes from the plan regardless of owner.
+  test(
+    "suppresses GRANT/REVOKE on FOREIGN DATA WRAPPER and FOREIGN SERVER",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      // Install the same FDW in both, then diverge their ACLs so the
+      // diff exercises both GRANT (branch-only) and REVOKE (main-only).
+      // postgres_fdw is on the Supabase image's allow-list and creates
+      // its own FDW + handler/validator in the `extensions` schema.
+      await db.main.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        GRANT ALL ON FOREIGN DATA WRAPPER postgres_fdw TO postgres;
+        CREATE SERVER main_only_server FOREIGN DATA WRAPPER postgres_fdw;
+        GRANT ALL ON FOREIGN SERVER main_only_server TO postgres;
+      `);
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE SERVER branch_only_server FOREIGN DATA WRAPPER postgres_fdw;
+        GRANT ALL ON FOREIGN SERVER branch_only_server TO postgres;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const aclStatements = statements.filter((stmt) =>
+        /\b(?:GRANT|REVOKE)\b.*\bON\b.*\bFOREIGN\b/.test(stmt),
+      );
+      expect(aclStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
 });

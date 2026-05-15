@@ -159,6 +159,21 @@ export const supabase: IntegrationDSL = {
                 },
               ],
             },
+            // Platform-managed foreign data wrapper / foreign server ACL.
+            // `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER` requires
+            // superuser; on Supabase Cloud `postgres` has the elevated
+            // rights to make this work, but the local Docker image does
+            // not, so `supabase db reset` aborts with
+            // `permission denied for foreign-data wrapper`. FDW (and the
+            // adjacent FOREIGN SERVER) ACL is platform-managed state,
+            // not user-declarative state — drop it from the plan
+            // regardless of owner.
+            {
+              and: [
+                { objectType: ["foreign_data_wrapper", "server"] },
+                { scope: "privilege" },
+              ],
+            },
             // Platform-managed foreign data wrappers — Wasm-based FDWs
             // (e.g. `clerk`, `clerk_oauth`) whose handler/validator live in
             // the `extensions` schema. `CREATE FOREIGN DATA WRAPPER`

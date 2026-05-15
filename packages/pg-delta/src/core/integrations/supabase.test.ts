@@ -101,3 +101,95 @@ describe("supabase integration filter — foreign data wrappers", () => {
     expect(evaluatePattern(filter, change)).toBe(true);
   });
 });
+
+function fdwPrivilegeChange(
+  operation: "create" | "drop",
+  fdw: { name: string; owner: string },
+): Change {
+  return {
+    objectType: "foreign_data_wrapper",
+    operation,
+    scope: "privilege",
+    foreignDataWrapper: { ...fdw, handler: null, validator: null },
+    grantee: "postgres",
+    requires: [],
+    creates: [],
+    drops: [],
+  } as unknown as Change;
+}
+
+function serverPrivilegeChange(
+  operation: "create" | "drop",
+  server: { name: string; owner: string },
+): Change {
+  return {
+    objectType: "server",
+    operation,
+    scope: "privilege",
+    server,
+    grantee: "postgres",
+    requires: [],
+    creates: [],
+    drops: [],
+  } as unknown as Change;
+}
+
+describe("supabase integration filter — foreign data wrapper / server ACLs", () => {
+  if (!supabase.filter) {
+    throw new Error("supabase integration is missing a filter");
+  }
+  const filter = supabase.filter;
+
+  // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
+  // require superuser. On Supabase Cloud `postgres` has the elevated
+  // rights to make them work; the local Docker image does not, so
+  // `supabase db reset` aborts with `permission denied for foreign-data
+  // wrapper`. FDW ACL is platform-managed, not user-declarative state.
+  test("suppresses GRANT on FOREIGN DATA WRAPPER", () => {
+    const change = fdwPrivilegeChange("create", {
+      name: "dblink_fdw",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  test("suppresses REVOKE on FOREIGN DATA WRAPPER", () => {
+    const change = fdwPrivilegeChange("drop", {
+      name: "postgres_fdw",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  // Defense-in-depth: foreign-server ACL is owned by `supabase_admin` on
+  // Supabase Cloud for the same reason, and the local image can't replay
+  // those grants either.
+  test("suppresses GRANT on FOREIGN SERVER", () => {
+    const change = serverPrivilegeChange("create", {
+      name: "my_server",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  test("suppresses REVOKE on FOREIGN SERVER", () => {
+    const change = serverPrivilegeChange("drop", {
+      name: "my_server",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  // Non-privilege FDW changes whose handler/validator aren't in
+  // `extensions.*` should still pass through (a user FDW is plain DDL,
+  // not the platform-managed flavor).
+  test("preserves non-privilege FDW changes for user wrappers", () => {
+    const change = fdwChange("create", {
+      name: "user_fdw",
+      owner: "postgres",
+      handler: "public.my_fdw_handler",
+      validator: null,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+});
