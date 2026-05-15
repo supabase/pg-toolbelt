@@ -120,17 +120,47 @@ describe.concurrent("foreign-data-wrapper", () => {
       const change = new AlterForeignDataWrapperSetOptions({
         foreignDataWrapper: fdw,
         options: [
-          { action: "ADD", option: "new_option", value: "new_value" },
-          { action: "SET", option: "existing_option", value: "updated_value" },
-          { action: "DROP", option: "old_option" },
+          { action: "ADD", option: "use_remote_estimate", value: "true" },
+          { action: "SET", option: "fetch_size", value: "200" },
+          { action: "DROP", option: "fdw_tuple_cost" },
         ],
       });
 
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER FOREIGN DATA WRAPPER test_fdw OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "ALTER FOREIGN DATA WRAPPER test_fdw OPTIONS (ADD use_remote_estimate 'true', SET fetch_size '200', DROP fdw_tuple_cost)",
       );
+    });
+
+    test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+      const props: ForeignDataWrapperProps = {
+        name: "leaky_fdw",
+        owner: "postgres",
+        handler: null,
+        validator: null,
+        options: null,
+        comment: null,
+        privileges: [],
+      };
+      const fdw = new ForeignDataWrapper(props);
+      const change = new AlterForeignDataWrapperSetOptions({
+        foreignDataWrapper: fdw,
+        options: [
+          { action: "ADD", option: "password", value: "shared-fdw-secret" },
+          { action: "SET", option: "use_remote_estimate", value: "true" },
+          { action: "ADD", option: "api_key", value: "leaked-api-key" },
+        ],
+      });
+
+      await assertValidSql(change.serialize());
+
+      const sql = change.serialize();
+      expect(sql).not.toContain("shared-fdw-secret");
+      expect(sql).not.toContain("leaked-api-key");
+      expect(sql).toContain("SET use_remote_estimate 'true'");
+      expect(sql).toContain("ADD password '__OPTION_PASSWORD__'");
+      expect(sql).toContain("ADD api_key '__OPTION_API_KEY__'");
     });
   });
 });

@@ -78,6 +78,17 @@ export class ForeignDataWrapper extends BasePgModel {
   }
 }
 
+/**
+ * Extract `pg_foreign_data_wrapper` rows into `ForeignDataWrapper` models.
+ *
+ * The returned models carry option values **verbatim** from
+ * `pg_foreign_data_wrapper.fdwoptions`, which means a wrapper that ships
+ * shared credentials (`password`, `api_key`, …) would expose them
+ * cleartext in memory. Always route through `extractCatalog` (which
+ * calls `normalizeCatalog`) before emitting options to any output
+ * channel — see CLI-1467 and
+ * `packages/pg-delta/src/core/objects/foreign-data-wrapper/sensitive-options.ts`.
+ */
 export async function extractForeignDataWrappers(
   pool: Pool,
 ): Promise<ForeignDataWrapper[]> {

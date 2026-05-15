@@ -116,6 +116,8 @@ describe("user-mapping", () => {
       userMapping,
     });
 
+    await assertValidSql(change.serialize());
+
     const sql = change.serialize();
     expect(sql).not.toContain("real-user-password");
     expect(sql).not.toContain("/etc/secrets/passfile");

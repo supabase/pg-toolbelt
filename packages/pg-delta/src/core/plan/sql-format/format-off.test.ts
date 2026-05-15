@@ -689,7 +689,7 @@ describe("sql formatting snapshots", () => {
       COMMENT ON SUBSCRIPTION sub_replica IS NULL;
 
       -- fdw.create
-      CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug 'true');
+      CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug '__OPTION_DEBUG__');
 
       -- fdw.drop
       DROP FOREIGN DATA WRAPPER postgres_fdw;
@@ -698,7 +698,7 @@ describe("sql formatting snapshots", () => {
       ALTER FOREIGN DATA WRAPPER postgres_fdw OWNER TO new_owner;
 
       -- fdw.alter.set_options
-      ALTER FOREIGN DATA WRAPPER postgres_fdw OPTIONS (SET debug 'false', ADD use_remote_estimate '');
+      ALTER FOREIGN DATA WRAPPER postgres_fdw OPTIONS (SET debug '__OPTION_DEBUG__', ADD use_remote_estimate '');
 
       -- fdw.comment
       COMMENT ON FOREIGN DATA WRAPPER postgres_fdw IS 'PostgreSQL foreign data wrapper';

@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { CreateForeignTableChange } from "./foreign-table.base.ts";
 
@@ -66,11 +67,12 @@ export class CreateForeignTable extends CreateForeignTableChange {
     if (this.foreignTable.options && this.foreignTable.options.length > 0) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.foreignTable.options.length; i += 2) {
-        if (i + 1 < this.foreignTable.options.length) {
-          optionPairs.push(
-            `${this.foreignTable.options[i]} ${quoteLiteral(this.foreignTable.options[i + 1])}`,
-          );
-        }
+        const key = this.foreignTable.options[i];
+        const value = this.foreignTable.options[i + 1];
+        if (key === undefined || value === undefined) continue;
+        optionPairs.push(
+          `${key} ${quoteLiteral(redactOptionValue(key, value))}`,
+        );
       }
       if (optionPairs.length > 0) {
         parts.push(`OPTIONS (${optionPairs.join(", ")})`);

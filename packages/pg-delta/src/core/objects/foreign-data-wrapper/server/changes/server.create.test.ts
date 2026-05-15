@@ -167,6 +167,8 @@ describe("server", () => {
       server,
     });
 
+    await assertValidSql(change.serialize());
+
     const sql = change.serialize();
     expect(sql).not.toContain("server-shared-secret");
     expect(sql).not.toContain("/etc/secrets/passfile");

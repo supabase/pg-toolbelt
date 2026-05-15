@@ -22,11 +22,11 @@ import {
 } from "./objects/extension/extension.model.ts";
 import {
   extractForeignDataWrappers,
-  type ForeignDataWrapper,
+  ForeignDataWrapper,
 } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
 import {
   extractForeignTables,
-  type ForeignTable,
+  ForeignTable,
 } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
 import { redactSensitiveOptionPairs } from "./objects/foreign-data-wrapper/sensitive-options.ts";
 import {
@@ -422,6 +422,20 @@ function listToRecord<T extends BasePgModel>(list: T[]) {
 }
 
 function normalizeCatalog(catalog: Catalog): Catalog {
+  const foreignDataWrappers = mapRecord(
+    catalog.foreignDataWrappers,
+    (fdw) =>
+      new ForeignDataWrapper({
+        name: fdw.name,
+        owner: fdw.owner,
+        handler: fdw.handler,
+        validator: fdw.validator,
+        options: redactSensitiveOptionPairs(fdw.options),
+        comment: fdw.comment,
+        privileges: fdw.privileges,
+      }),
+  );
+
   const servers = mapRecord(catalog.servers, (server) => {
     return new Server({
       name: server.name,
@@ -442,6 +456,21 @@ function normalizeCatalog(catalog: Catalog): Catalog {
       options: redactSensitiveOptionPairs(mapping.options),
     });
   });
+
+  const foreignTables = mapRecord(
+    catalog.foreignTables,
+    (foreignTable) =>
+      new ForeignTable({
+        schema: foreignTable.schema,
+        name: foreignTable.name,
+        owner: foreignTable.owner,
+        server: foreignTable.server,
+        columns: foreignTable.columns,
+        options: redactSensitiveOptionPairs(foreignTable.options),
+        comment: foreignTable.comment,
+        privileges: foreignTable.privileges,
+      }),
+  );
 
   const subscriptions = mapRecord(catalog.subscriptions, (subscription) => {
     return new Subscription({
@@ -489,10 +518,10 @@ function normalizeCatalog(catalog: Catalog): Catalog {
     rules: catalog.rules,
     ranges: catalog.ranges,
     views: catalog.views,
-    foreignDataWrappers: catalog.foreignDataWrappers,
+    foreignDataWrappers,
     servers,
     userMappings,
-    foreignTables: catalog.foreignTables,
+    foreignTables,
     depends: catalog.depends,
     indexableObjects: catalog.indexableObjects,
     version: catalog.version,

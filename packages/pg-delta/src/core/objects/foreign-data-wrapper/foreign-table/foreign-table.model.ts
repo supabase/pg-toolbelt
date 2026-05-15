@@ -119,6 +119,17 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
   }
 }
 
+/**
+ * Extract `pg_foreign_table` rows into `ForeignTable` models.
+ *
+ * The returned models carry option values **verbatim** from
+ * `pg_foreign_table.ftoptions`, which means a wrapper that puts
+ * credentials at the table level (uncommon but possible) would expose
+ * them cleartext in memory. Always route through `extractCatalog`
+ * (which calls `normalizeCatalog`) before emitting options to any
+ * output channel — see CLI-1467 and
+ * `packages/pg-delta/src/core/objects/foreign-data-wrapper/sensitive-options.ts`.
+ */
 export async function extractForeignTables(
   pool: Pool,
 ): Promise<ForeignTable[]> {

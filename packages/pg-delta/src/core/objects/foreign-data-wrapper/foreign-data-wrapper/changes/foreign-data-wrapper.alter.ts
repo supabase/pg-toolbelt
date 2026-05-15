@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { AlterForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
 
@@ -87,7 +88,10 @@ export class AlterForeignDataWrapperSetOptions extends AlterForeignDataWrapperCh
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
+        const value =
+          opt.value !== undefined
+            ? quoteLiteral(redactOptionValue(opt.option, opt.value))
+            : "''";
         optionParts.push(`${opt.action} ${opt.option} ${value}`);
       }
     }

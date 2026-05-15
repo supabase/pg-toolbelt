@@ -1,8 +1,8 @@
 /**
- * CLI-1467 regression: pg-delta must never emit foreign-server or
- * user-mapping option secrets (password, passfile, passcode, sslpassword)
- * in any of its output channels — plan SQL, catalog export, declarative
- * export, fingerprints.
+ * CLI-1467 regression: pg-delta must never emit foreign-data-wrapper,
+ * foreign-server, user-mapping, or foreign-table option secrets in any of
+ * its output channels — plan SQL, catalog export, declarative export,
+ * fingerprints.
  *
  * If this test ever fails, an output path is leaking credentials in
  * cleartext. Treat as critical and revert the regression.
@@ -24,19 +24,26 @@ const SECRET_VALUES = [
   "/etc/secrets/passfile",
   "krb-passcode",
   "ssl-secret",
+  "fdw-shared-secret",
+  "fdw-api-key",
+  "table-shared-secret",
 ];
 
 for (const pgVersion of POSTGRES_VERSIONS) {
-  describe(`user-mapping / server option secret redaction (pg${pgVersion})`, () => {
+  describe(`FDW option secret redaction (pg${pgVersion})`, () => {
     test(
-      "plan SQL, catalog snapshot, and declarative export never leak password / passfile / passcode / sslpassword",
+      "plan SQL, catalog snapshot, and declarative export never leak option secrets across FDW / server / user-mapping / foreign-table",
       withDbIsolated(pgVersion, async (db) => {
-        // Setup: create a foreign server + user mapping with credentials in
-        // BOTH the server options and the user mapping options. We use a
-        // custom FDW so the server can carry arbitrary keys (postgres_fdw
-        // restricts what is accepted at CREATE SERVER time).
+        // Setup: plant secrets at EVERY object layer that carries OPTIONS.
+        // The custom FDW (no handler/validator) lets us drop arbitrary keys
+        // into FDW-, server-, user-mapping-, and foreign-table-level
+        // OPTIONS without postgres_fdw's restrictions.
         const setupSql = `
-          CREATE FOREIGN DATA WRAPPER cli1467_fdw;
+          CREATE FOREIGN DATA WRAPPER cli1467_fdw OPTIONS (
+            use_remote_estimate 'true',
+            password 'fdw-shared-secret',
+            api_key 'fdw-api-key'
+          );
           CREATE SERVER cli1467_server FOREIGN DATA WRAPPER cli1467_fdw OPTIONS (
             host 'remote.example.com',
             port '5432',
@@ -48,6 +55,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             password 'real-user-password',
             passcode 'krb-passcode',
             sslpassword 'ssl-secret'
+          );
+          CREATE FOREIGN TABLE cli1467_table (id integer) SERVER cli1467_server OPTIONS (
+            schema_name 'remote_schema',
+            password 'table-shared-secret'
           );
         `;
         await db.branch.query(setupSql);
@@ -64,11 +75,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(planSql).toContain("host 'remote.example.com'");
         expect(planSql).toContain("port '5432'");
         expect(planSql).toContain("user 'fdw_reader'");
+        expect(planSql).toContain("use_remote_estimate 'true'");
+        expect(planSql).toContain("schema_name 'remote_schema'");
         // Sensitive keys must be replaced with the redaction placeholder.
         expect(planSql).toContain("password '__OPTION_PASSWORD__'");
         expect(planSql).toContain("passfile '__OPTION_PASSFILE__'");
         expect(planSql).toContain("passcode '__OPTION_PASSCODE__'");
         expect(planSql).toContain("sslpassword '__OPTION_SSLPASSWORD__'");
+        expect(planSql).toContain("api_key '__OPTION_API_KEY__'");
 
         // ----- Catalog export (snapshot) -----
         const branchCatalog = await extractCatalog(db.branch);

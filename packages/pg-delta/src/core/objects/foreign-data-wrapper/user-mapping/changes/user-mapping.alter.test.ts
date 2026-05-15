@@ -48,6 +48,8 @@ describe.concurrent("user-mapping", () => {
         ],
       });
 
+      await assertValidSql(change.serialize());
+
       const sql = change.serialize();
       expect(sql).not.toContain("real-user-password");
       expect(sql).not.toContain("/etc/secrets/passfile");

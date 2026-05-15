@@ -111,15 +111,17 @@ export function redactOptionValue(key: string, value: string): string {
 
 /**
  * Redact non-allowlisted values in a flat `[key, value, key, value, ...]`
- * options array — the shape used by the {@link Server} and
- * {@link UserMapping} models.
+ * options array — the shape used by the {@link Server},
+ * {@link UserMapping}, {@link ForeignDataWrapper}, and {@link ForeignTable}
+ * models.
+ *
+ * Returns `null` for `null` input, and otherwise returns an array of the
+ * same length as the input with sensitive values replaced.
  */
 export function redactSensitiveOptionPairs(
   options: readonly string[] | null,
 ): string[] | null {
-  if (!options || options.length === 0) {
-    return options ? [...options] : options;
-  }
+  if (options === null) return null;
   const result: string[] = [];
   for (let i = 0; i < options.length; i += 2) {
     const key = options[i];
@@ -127,5 +129,5 @@ export function redactSensitiveOptionPairs(
     if (key === undefined || value === undefined) continue;
     result.push(key, redactOptionValue(key, value));
   }
-  return result.length > 0 ? result : null;
+  return result;
 }

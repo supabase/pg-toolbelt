@@ -908,7 +908,7 @@ describe("sql formatting snapshots", () => {
       CREATE FOREIGN DATA WRAPPER postgres_fdw
          HANDLER postgres_fdw_handler
          VALIDATOR postgres_fdw_validator
-         OPTIONS (debug 'true');
+         OPTIONS (debug '__OPTION_DEBUG__');
 
       -- fdw.drop
       DROP FOREIGN DATA WRAPPER postgres_fdw;
@@ -920,7 +920,7 @@ describe("sql formatting snapshots", () => {
       -- fdw.alter.set_options
       ALTER FOREIGN DATA WRAPPER postgres_fdw
          OPTIONS (
-            SET debug 'false',
+            SET debug '__OPTION_DEBUG__',
             ADD use_remote_estimate ''
          );
 
