@@ -3,6 +3,11 @@ import type { Change } from "../change.types.ts";
 import { evaluatePattern } from "./filter/dsl.ts";
 import { supabase } from "./supabase.ts";
 
+if (!supabase.filter) {
+  throw new Error("supabase integration is missing a filter");
+}
+const filter = supabase.filter;
+
 /**
  * Build a synthetic FDW change shaped like what `flattenChange` consumes.
  * The change carries a `foreignDataWrapper` model whose `handler`/`validator`
@@ -29,12 +34,44 @@ function fdwChange(
   } as unknown as Change;
 }
 
-describe("supabase integration filter — foreign data wrappers", () => {
-  if (!supabase.filter) {
-    throw new Error("supabase integration is missing a filter");
-  }
-  const filter = supabase.filter;
+/**
+ * Synthetic FDW privilege change. The three concrete privilege classes
+ * (`GrantForeignDataWrapperPrivileges`, `RevokeForeignDataWrapperPrivileges`,
+ * `RevokeGrantOptionForeignDataWrapperPrivileges`) all extend
+ * `AlterForeignDataWrapperChange`, so their `operation` is `"alter"` in
+ * production. The filter rule we exercise here keys off `scope` only,
+ * but pinning `operation: "alter"` keeps the synthetic shape honest.
+ */
+function fdwPrivilegeChange(fdw: { name: string; owner: string }): Change {
+  return {
+    objectType: "foreign_data_wrapper",
+    operation: "alter",
+    scope: "privilege",
+    foreignDataWrapper: { ...fdw, handler: null, validator: null },
+    grantee: "postgres",
+    requires: [],
+    creates: [],
+    drops: [],
+  } as unknown as Change;
+}
 
+function serverPrivilegeChange(server: {
+  name: string;
+  owner: string;
+}): Change {
+  return {
+    objectType: "server",
+    operation: "alter",
+    scope: "privilege",
+    server,
+    grantee: "postgres",
+    requires: [],
+    creates: [],
+    drops: [],
+  } as unknown as Change;
+}
+
+describe("supabase integration filter — foreign data wrappers", () => {
   // Regression for CLI-1470. Wasm-based foreign data wrappers on Supabase
   // (e.g. `clerk`, `clerk_oauth`) are provisioned at project creation by
   // `supabase_admin` and their handler/validator live in `extensions.*`.
@@ -102,44 +139,7 @@ describe("supabase integration filter — foreign data wrappers", () => {
   });
 });
 
-function fdwPrivilegeChange(
-  operation: "create" | "drop",
-  fdw: { name: string; owner: string },
-): Change {
-  return {
-    objectType: "foreign_data_wrapper",
-    operation,
-    scope: "privilege",
-    foreignDataWrapper: { ...fdw, handler: null, validator: null },
-    grantee: "postgres",
-    requires: [],
-    creates: [],
-    drops: [],
-  } as unknown as Change;
-}
-
-function serverPrivilegeChange(
-  operation: "create" | "drop",
-  server: { name: string; owner: string },
-): Change {
-  return {
-    objectType: "server",
-    operation,
-    scope: "privilege",
-    server,
-    grantee: "postgres",
-    requires: [],
-    creates: [],
-    drops: [],
-  } as unknown as Change;
-}
-
 describe("supabase integration filter — foreign data wrapper / server ACLs", () => {
-  if (!supabase.filter) {
-    throw new Error("supabase integration is missing a filter");
-  }
-  const filter = supabase.filter;
-
   // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
   // require superuser. On Supabase Cloud `postgres` has the elevated
   // rights to make them work; the local Docker image does not, so
@@ -147,17 +147,17 @@ describe("supabase integration filter — foreign data wrapper / server ACLs", (
   // wrapper`. FDW ACL is platform-managed, not user-declarative state —
   // suppress regardless of owner because `pg_dump` rewrites OWNER TO
   // away from `supabase_admin`.
-  test("suppresses GRANT on FOREIGN DATA WRAPPER owned by postgres (post-restore)", () => {
-    const change = fdwPrivilegeChange("create", {
+  test("suppresses FDW ACL when owner=supabase_admin (existing */owner rule)", () => {
+    const change = fdwPrivilegeChange({
       name: "dblink_fdw",
-      owner: "postgres",
+      owner: "supabase_admin",
     });
     expect(evaluatePattern(filter, change)).toBe(false);
   });
 
-  test("suppresses REVOKE on FOREIGN DATA WRAPPER owned by postgres (post-restore)", () => {
-    const change = fdwPrivilegeChange("drop", {
-      name: "postgres_fdw",
+  test("suppresses FDW ACL when owner=postgres (post-restore)", () => {
+    const change = fdwPrivilegeChange({
+      name: "dblink_fdw",
       owner: "postgres",
     });
     expect(evaluatePattern(filter, change)).toBe(false);
@@ -167,24 +167,16 @@ describe("supabase integration filter — foreign data wrapper / server ACLs", (
   // server GRANT/REVOKE does not require superuser, so a user-owned
   // server's ACL must roundtrip. The pre-existing `*/owner` rule
   // already drops platform-managed servers (owner ∈ system roles).
-  test("suppresses GRANT on FOREIGN SERVER owned by supabase_admin (existing */owner rule)", () => {
-    const change = serverPrivilegeChange("create", {
+  test("suppresses server ACL when owner=supabase_admin (existing */owner rule)", () => {
+    const change = serverPrivilegeChange({
       name: "platform_server",
       owner: "supabase_admin",
     });
     expect(evaluatePattern(filter, change)).toBe(false);
   });
 
-  test("preserves GRANT on FOREIGN SERVER owned by user role", () => {
-    const change = serverPrivilegeChange("create", {
-      name: "user_dblink_server",
-      owner: "postgres",
-    });
-    expect(evaluatePattern(filter, change)).toBe(true);
-  });
-
-  test("preserves REVOKE on FOREIGN SERVER owned by user role", () => {
-    const change = serverPrivilegeChange("drop", {
+  test("preserves server ACL when owner=postgres", () => {
+    const change = serverPrivilegeChange({
       name: "user_dblink_server",
       owner: "postgres",
     });

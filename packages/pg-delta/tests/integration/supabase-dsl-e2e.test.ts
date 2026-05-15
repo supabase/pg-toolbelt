@@ -251,13 +251,11 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
 
       const statements = planResult?.plan.statements ?? [];
       // pg-delta serializes server ACL with the `ON SERVER` shorthand
-      // rather than `ON FOREIGN SERVER`; both are equivalent in PG.
-      const serverGrant = statements.find((stmt) =>
-        /\bGRANT\b[^;]*\bON\b[^;]*\bSERVER\b[^;]*\buser_server\b[^;]*\bserver_user\b/.test(
-          stmt,
-        ),
+      // rather than `ON FOREIGN SERVER` (both are equivalent in PG) and
+      // collapses a complete privilege set to `ALL`.
+      expect(statements).toContain(
+        "GRANT ALL ON SERVER user_server TO server_user",
       );
-      expect(serverGrant).toBeDefined();
     }),
     120_000,
   );

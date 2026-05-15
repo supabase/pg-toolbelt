@@ -147,6 +147,30 @@ describe("aggregate.privilege", () => {
     );
   });
 
+  test("revoke grant option on ordered-set aggregate emits proargtypes signature", async () => {
+    const aggregate = new Aggregate({
+      ...base,
+      name: "os_last",
+      aggkind: "o",
+      identity_arguments: "anyelement ORDER BY anyelement",
+      argument_types: ["anyelement", "anyelement"],
+      return_type: "anyelement",
+      transition_function: "public.os_last_sfunc(anyelement,anyelement)",
+      state_data_type: "anyelement",
+      argument_count: 2,
+    });
+    const change = new RevokeGrantOptionAggregatePrivileges({
+      aggregate,
+      grantee: "role_with_option",
+      privilegeNames: ["EXECUTE"],
+      version: 170000,
+    });
+    await assertValidSql(change.serialize());
+    expect(change.serialize()).toBe(
+      "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.os_last(anyelement, anyelement) FROM role_with_option",
+    );
+  });
+
   test("revoke privileges and grant option", async () => {
     const aggregate = new Aggregate(base);
     const revoke = new RevokeAggregatePrivileges({
