@@ -53,7 +53,14 @@ export class GrantAggregatePrivileges extends AlterAggregateChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const signature = this.aggregate.identityArguments;
+    // GRANT/REVOKE ... ON FUNCTION expects a positional argument-type list
+    // (the `proargtypes` shape), not an aggregate's full identity. The
+    // identity form embeds `ORDER BY` for ordered-set / hypothetical-set
+    // aggregates (`aggkind` of `o`/`h`) and `VARIADIC` for variadic
+    // aggregates — both of which the GRANT parser rejects with a syntax
+    // error. PostgreSQL resolves the aggregate from the argument types
+    // alone, so use `argument_types` here regardless of `aggkind`.
+    const signature = (this.aggregate.argument_types ?? []).join(", ");
     const qualified = `${aggregateName}(${signature})`;
     return `GRANT ${privSql} ${kindPrefix} ${qualified} TO ${this.grantee}${withGrant}`;
   }
@@ -98,7 +105,14 @@ export class RevokeAggregatePrivileges extends AlterAggregateChange {
     const list = this.privileges.map((p) => p.privilege);
     const privSql = formatObjectPrivilegeList("FUNCTION", list, this.version);
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const signature = this.aggregate.identityArguments;
+    // GRANT/REVOKE ... ON FUNCTION expects a positional argument-type list
+    // (the `proargtypes` shape), not an aggregate's full identity. The
+    // identity form embeds `ORDER BY` for ordered-set / hypothetical-set
+    // aggregates (`aggkind` of `o`/`h`) and `VARIADIC` for variadic
+    // aggregates — both of which the GRANT parser rejects with a syntax
+    // error. PostgreSQL resolves the aggregate from the argument types
+    // alone, so use `argument_types` here regardless of `aggkind`.
+    const signature = (this.aggregate.argument_types ?? []).join(", ");
     const qualified = `${aggregateName}(${signature})`;
     return `REVOKE ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
   }
@@ -140,7 +154,14 @@ export class RevokeGrantOptionAggregatePrivileges extends AlterAggregateChange {
       this.version,
     );
     const aggregateName = `${this.aggregate.schema}.${this.aggregate.name}`;
-    const signature = this.aggregate.identityArguments;
+    // GRANT/REVOKE ... ON FUNCTION expects a positional argument-type list
+    // (the `proargtypes` shape), not an aggregate's full identity. The
+    // identity form embeds `ORDER BY` for ordered-set / hypothetical-set
+    // aggregates (`aggkind` of `o`/`h`) and `VARIADIC` for variadic
+    // aggregates — both of which the GRANT parser rejects with a syntax
+    // error. PostgreSQL resolves the aggregate from the argument types
+    // alone, so use `argument_types` here regardless of `aggkind`.
+    const signature = (this.aggregate.argument_types ?? []).join(", ");
     const qualified = `${aggregateName}(${signature})`;
     return `REVOKE GRANT OPTION FOR ${privSql} ${kindPrefix} ${qualified} FROM ${this.grantee}`;
   }

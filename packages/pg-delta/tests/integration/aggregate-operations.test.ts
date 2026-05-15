@@ -209,5 +209,63 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    // Regression for CLI-1471: when an aggregate exists in branch but not
+    // main, pg-delta must emit `CREATE AGGREGATE` alongside any GRANT on
+    // the aggregate. Emitting the GRANT alone produced
+    // `WARNING (01007): no privileges were granted for ...` at apply time
+    // because the GRANT referenced an aggregate the planner had not
+    // enumerated. The roundtripFidelityTest re-applies the generated
+    // migration against main, which fails immediately if pg-delta produces
+    // an orphan GRANT without the matching CREATE AGGREGATE.
+    test(
+      "aggregate create + grant roundtrips without orphan grant",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE ROLE aggregate_executor;",
+          testSql: dedent`
+          CREATE FUNCTION public.last_sfunc(state anyelement, value anyelement)
+            RETURNS anyelement LANGUAGE sql IMMUTABLE AS $$ SELECT value $$;
+          CREATE AGGREGATE public.last(anyelement)
+          (
+            SFUNC = public.last_sfunc,
+            STYPE = anyelement
+          );
+          GRANT ALL ON FUNCTION public.last(anyelement) TO aggregate_executor;
+        `,
+        });
+      }),
+    );
+
+    // The wild report on CLI-1471 cited a GRANT with signature
+    // `public.last(anyelement, any)`, which is the shape an
+    // ordered-set / hypothetical-set aggregate produces in `proargtypes`
+    // (the procedure path would emit that exact format). Aggregates with
+    // `aggkind = 'o' | 'h'` go through the same enumeration code path as
+    // plain aggregates (`prokind = 'a'`), and the procedure extractor's
+    // `lanname not in ('c', 'internal')` filter excludes them, so the
+    // ACL must be carried by the aggregate path. Lock that in.
+    test(
+      "ordered-set aggregate create + grant roundtrips without orphan grant",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: "CREATE ROLE aggregate_executor;",
+          testSql: dedent`
+          CREATE FUNCTION public.os_last_sfunc(state anyelement, value anyelement)
+            RETURNS anyelement LANGUAGE sql IMMUTABLE AS $$ SELECT value $$;
+          CREATE AGGREGATE public.os_last(anyelement ORDER BY anyelement)
+          (
+            SFUNC = public.os_last_sfunc,
+            STYPE = anyelement
+          );
+          GRANT ALL ON FUNCTION public.os_last(anyelement, anyelement) TO aggregate_executor;
+        `,
+        });
+      }),
+    );
   });
 }
