@@ -144,8 +144,10 @@ describe("supabase integration filter — foreign data wrapper / server ACLs", (
   // require superuser. On Supabase Cloud `postgres` has the elevated
   // rights to make them work; the local Docker image does not, so
   // `supabase db reset` aborts with `permission denied for foreign-data
-  // wrapper`. FDW ACL is platform-managed, not user-declarative state.
-  test("suppresses GRANT on FOREIGN DATA WRAPPER", () => {
+  // wrapper`. FDW ACL is platform-managed, not user-declarative state —
+  // suppress regardless of owner because `pg_dump` rewrites OWNER TO
+  // away from `supabase_admin`.
+  test("suppresses GRANT on FOREIGN DATA WRAPPER owned by postgres (post-restore)", () => {
     const change = fdwPrivilegeChange("create", {
       name: "dblink_fdw",
       owner: "postgres",
@@ -153,7 +155,7 @@ describe("supabase integration filter — foreign data wrapper / server ACLs", (
     expect(evaluatePattern(filter, change)).toBe(false);
   });
 
-  test("suppresses REVOKE on FOREIGN DATA WRAPPER", () => {
+  test("suppresses REVOKE on FOREIGN DATA WRAPPER owned by postgres (post-restore)", () => {
     const change = fdwPrivilegeChange("drop", {
       name: "postgres_fdw",
       owner: "postgres",
@@ -161,23 +163,32 @@ describe("supabase integration filter — foreign data wrapper / server ACLs", (
     expect(evaluatePattern(filter, change)).toBe(false);
   });
 
-  // Defense-in-depth: foreign-server ACL is owned by `supabase_admin` on
-  // Supabase Cloud for the same reason, and the local image can't replay
-  // those grants either.
-  test("suppresses GRANT on FOREIGN SERVER", () => {
+  // FOREIGN SERVER ACL is owner-scoped, not blanket-suppressed:
+  // server GRANT/REVOKE does not require superuser, so a user-owned
+  // server's ACL must roundtrip. The pre-existing `*/owner` rule
+  // already drops platform-managed servers (owner ∈ system roles).
+  test("suppresses GRANT on FOREIGN SERVER owned by supabase_admin (existing */owner rule)", () => {
     const change = serverPrivilegeChange("create", {
-      name: "my_server",
-      owner: "postgres",
+      name: "platform_server",
+      owner: "supabase_admin",
     });
     expect(evaluatePattern(filter, change)).toBe(false);
   });
 
-  test("suppresses REVOKE on FOREIGN SERVER", () => {
-    const change = serverPrivilegeChange("drop", {
-      name: "my_server",
+  test("preserves GRANT on FOREIGN SERVER owned by user role", () => {
+    const change = serverPrivilegeChange("create", {
+      name: "user_dblink_server",
       owner: "postgres",
     });
-    expect(evaluatePattern(filter, change)).toBe(false);
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
+  test("preserves REVOKE on FOREIGN SERVER owned by user role", () => {
+    const change = serverPrivilegeChange("drop", {
+      name: "user_dblink_server",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
   });
 
   // Non-privilege FDW changes whose handler/validator aren't in

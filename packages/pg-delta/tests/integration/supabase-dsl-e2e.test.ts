@@ -179,25 +179,21 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
   // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
   // requires superuser. On Supabase Cloud `postgres` has the elevated
   // rights; the local Docker image does not, so `supabase db reset`
-  // aborts. FDW ACL is platform-managed, so the supabase integration
-  // must drop those changes from the plan regardless of owner.
+  // aborts with `permission denied for foreign-data wrapper`. The
+  // existing `*/owner` rule drops FDW ACL owned by `supabase_admin`;
+  // this test pins the post-restore case where `pg_dump` rewrites
+  // OWNER TO `postgres` and the owner gate no longer matches.
   test(
-    "suppresses GRANT/REVOKE on FOREIGN DATA WRAPPER and FOREIGN SERVER",
+    "suppresses GRANT/REVOKE on FOREIGN DATA WRAPPER even when owned by postgres",
     withDbSupabaseIsolated(pgVersion, async (db) => {
-      // Install the same FDW in both, then diverge their ACLs so the
-      // diff exercises both GRANT (branch-only) and REVOKE (main-only).
-      // postgres_fdw is on the Supabase image's allow-list and creates
-      // its own FDW + handler/validator in the `extensions` schema.
       await db.main.query(dedent`
-        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
-        GRANT ALL ON FOREIGN DATA WRAPPER postgres_fdw TO postgres;
-        CREATE SERVER main_only_server FOREIGN DATA WRAPPER postgres_fdw;
-        GRANT ALL ON FOREIGN SERVER main_only_server TO postgres;
+        CREATE ROLE fdw_user;
+        CREATE FOREIGN DATA WRAPPER user_fdw;
+        GRANT ALL ON FOREIGN DATA WRAPPER user_fdw TO fdw_user;
       `);
       await db.branch.query(dedent`
-        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
-        CREATE SERVER branch_only_server FOREIGN DATA WRAPPER postgres_fdw;
-        GRANT ALL ON FOREIGN SERVER branch_only_server TO postgres;
+        CREATE ROLE fdw_user;
+        CREATE FOREIGN DATA WRAPPER user_fdw;
       `);
 
       if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
@@ -210,10 +206,58 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
       });
 
       const statements = planResult?.plan.statements ?? [];
-      const aclStatements = statements.filter((stmt) =>
-        /\b(?:GRANT|REVOKE)\b.*\bON\b.*\bFOREIGN\b/.test(stmt),
+      const fdwAclStatements = statements.filter((stmt) =>
+        /\b(?:GRANT|REVOKE)\b[^;]*\bON\b[^;]*\bFOREIGN\s+DATA\s+WRAPPER\b/.test(
+          stmt,
+        ),
       );
-      expect(aclStatements).toStrictEqual([]);
+      expect(fdwAclStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
+
+  // Companion to the rule above: user-owned FOREIGN SERVER ACL must
+  // still roundtrip. Server GRANT/REVOKE doesn't require superuser, so
+  // a user-created server (e.g. a `dblink`/`postgres_fdw` server
+  // pointing to a peer DB) is genuinely user-declarative state and
+  // should not be swept up by the FDW ACL suppression.
+  test(
+    "preserves GRANT on user-owned FOREIGN SERVER",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.main.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE ROLE server_user;
+        SET ROLE postgres;
+        CREATE SERVER user_server FOREIGN DATA WRAPPER postgres_fdw;
+        RESET ROLE;
+      `);
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE ROLE server_user;
+        SET ROLE postgres;
+        CREATE SERVER user_server FOREIGN DATA WRAPPER postgres_fdw;
+        GRANT USAGE ON FOREIGN SERVER user_server TO server_user;
+        RESET ROLE;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      // pg-delta serializes server ACL with the `ON SERVER` shorthand
+      // rather than `ON FOREIGN SERVER`; both are equivalent in PG.
+      const serverGrant = statements.find((stmt) =>
+        /\bGRANT\b[^;]*\bON\b[^;]*\bSERVER\b[^;]*\buser_server\b[^;]*\bserver_user\b/.test(
+          stmt,
+        ),
+      );
+      expect(serverGrant).toBeDefined();
     }),
     120_000,
   );
