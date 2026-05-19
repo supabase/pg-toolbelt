@@ -1,0 +1,5 @@
+---
+"@supabase/pg-delta": patch
+---
+
+Redact foreign-data-wrapper option values that are not on the allowlist of known-safe keys (libpq connection params, postgres_fdw behavior knobs, generic table-FDW shape, Supabase Wrappers non-credential keys). The policy applies to `CREATE / ALTER FOREIGN DATA WRAPPER`, `CREATE / ALTER SERVER`, `CREATE / ALTER USER MAPPING`, and `CREATE / ALTER FOREIGN TABLE` — every value is replaced with `__OPTION_<KEY>__` unless the key is recognised as safe. Previously credentials such as `password`, `passfile`, `passcode`, `sslpassword`, `api_key`, `private_key`, `aws_secret_access_key`, etc. were emitted in cleartext into plan SQL, catalog snapshots, declarative export, and fingerprints, ending up on disk and in CI logs (CLI-1467). Safe-listed options (`host`, `port`, `user`, `dbname`, `sslmode`, `fetch_size`, `region`, `endpoint`, …) continue to roundtrip with their real values. The emitted DDL is not directly re-appliable for redacted options — operators must re-supply credentials out of band.

@@ -80,6 +80,16 @@ export class Server extends BasePgModel {
   }
 }
 
+/**
+ * Extract `pg_foreign_server` rows into `Server` models.
+ *
+ * The returned models carry option values **verbatim** from
+ * `pg_foreign_server.srvoptions`, which means cleartext secrets like
+ * `password` are present in memory. Always route through
+ * `extractCatalog` (which calls `normalizeCatalog`) before emitting
+ * options to any output channel — see CLI-1467 and
+ * `packages/pg-delta/src/core/objects/foreign-data-wrapper/sensitive-options.ts`.
+ */
 export async function extractServers(pool: Pool): Promise<Server[]> {
   const { rows: serverRows } = await pool.query<ServerProps>(sql`
       select

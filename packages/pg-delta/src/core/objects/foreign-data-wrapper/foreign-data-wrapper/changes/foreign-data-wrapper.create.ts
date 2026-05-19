@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 import { CreateForeignDataWrapperChange } from "./foreign-data-wrapper.base.ts";
 
@@ -80,11 +81,12 @@ export class CreateForeignDataWrapper extends CreateForeignDataWrapperChange {
     ) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.foreignDataWrapper.options.length; i += 2) {
-        if (i + 1 < this.foreignDataWrapper.options.length) {
-          optionPairs.push(
-            `${this.foreignDataWrapper.options[i]} ${quoteLiteral(this.foreignDataWrapper.options[i + 1])}`,
-          );
-        }
+        const key = this.foreignDataWrapper.options[i];
+        const value = this.foreignDataWrapper.options[i + 1];
+        if (key === undefined || value === undefined) continue;
+        optionPairs.push(
+          `${key} ${quoteLiteral(redactOptionValue(key, value))}`,
+        );
       }
       if (optionPairs.length > 0) {
         parts.push(`OPTIONS (${optionPairs.join(", ")})`);

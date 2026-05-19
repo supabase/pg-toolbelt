@@ -157,4 +157,38 @@ describe("foreign-data-wrapper", () => {
       "CREATE FOREIGN DATA WRAPPER test_fdw HANDLER extensions.iceberg_fdw_handler VALIDATOR extensions.iceberg_fdw_validator",
     );
   });
+
+  test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+    // FDW-level OPTIONS set defaults that flow down to every server using
+    // the wrapper, so a shared `password` or `api_key` here must redact.
+    const fdw = new ForeignDataWrapper({
+      name: "leaky_fdw",
+      owner: "postgres",
+      handler: null,
+      validator: null,
+      options: [
+        "use_remote_estimate",
+        "true",
+        "password",
+        "shared-fdw-secret",
+        "api_key",
+        "leaked-api-key",
+      ],
+      comment: null,
+      privileges: [],
+    });
+
+    const change = new CreateForeignDataWrapper({
+      foreignDataWrapper: fdw,
+    });
+
+    await assertValidSql(change.serialize());
+
+    const sql = change.serialize();
+    expect(sql).not.toContain("shared-fdw-secret");
+    expect(sql).not.toContain("leaked-api-key");
+    expect(sql).toContain("use_remote_estimate 'true'");
+    expect(sql).toContain("password '__OPTION_PASSWORD__'");
+    expect(sql).toContain("api_key '__OPTION_API_KEY__'");
+  });
 });

@@ -22,12 +22,13 @@ import {
 } from "./objects/extension/extension.model.ts";
 import {
   extractForeignDataWrappers,
-  type ForeignDataWrapper,
+  ForeignDataWrapper,
 } from "./objects/foreign-data-wrapper/foreign-data-wrapper/foreign-data-wrapper.model.ts";
 import {
   extractForeignTables,
-  type ForeignTable,
+  ForeignTable,
 } from "./objects/foreign-data-wrapper/foreign-table/foreign-table.model.ts";
+import { redactSensitiveOptionPairs } from "./objects/foreign-data-wrapper/sensitive-options.ts";
 import {
   extractServers,
   Server,
@@ -421,28 +422,55 @@ function listToRecord<T extends BasePgModel>(list: T[]) {
 }
 
 function normalizeCatalog(catalog: Catalog): Catalog {
+  const foreignDataWrappers = mapRecord(
+    catalog.foreignDataWrappers,
+    (fdw) =>
+      new ForeignDataWrapper({
+        name: fdw.name,
+        owner: fdw.owner,
+        handler: fdw.handler,
+        validator: fdw.validator,
+        options: redactSensitiveOptionPairs(fdw.options),
+        comment: fdw.comment,
+        privileges: fdw.privileges,
+      }),
+  );
+
   const servers = mapRecord(catalog.servers, (server) => {
-    const maskedOptions = maskOptions(server.options);
     return new Server({
       name: server.name,
       owner: server.owner,
       foreign_data_wrapper: server.foreign_data_wrapper,
       type: server.type,
       version: server.version,
-      options: maskedOptions,
+      options: redactSensitiveOptionPairs(server.options),
       comment: server.comment,
       privileges: server.privileges,
     });
   });
 
   const userMappings = mapRecord(catalog.userMappings, (mapping) => {
-    const maskedOptions = maskOptions(mapping.options);
     return new UserMapping({
       user: mapping.user,
       server: mapping.server,
-      options: maskedOptions,
+      options: redactSensitiveOptionPairs(mapping.options),
     });
   });
+
+  const foreignTables = mapRecord(
+    catalog.foreignTables,
+    (foreignTable) =>
+      new ForeignTable({
+        schema: foreignTable.schema,
+        name: foreignTable.name,
+        owner: foreignTable.owner,
+        server: foreignTable.server,
+        columns: foreignTable.columns,
+        options: redactSensitiveOptionPairs(foreignTable.options),
+        comment: foreignTable.comment,
+        privileges: foreignTable.privileges,
+      }),
+  );
 
   const subscriptions = mapRecord(catalog.subscriptions, (subscription) => {
     return new Subscription({
@@ -490,27 +518,15 @@ function normalizeCatalog(catalog: Catalog): Catalog {
     rules: catalog.rules,
     ranges: catalog.ranges,
     views: catalog.views,
-    foreignDataWrappers: catalog.foreignDataWrappers,
+    foreignDataWrappers,
     servers,
     userMappings,
-    foreignTables: catalog.foreignTables,
+    foreignTables,
     depends: catalog.depends,
     indexableObjects: catalog.indexableObjects,
     version: catalog.version,
     currentUser: catalog.currentUser,
   });
-}
-
-function maskOptions(options: string[] | null): string[] | null {
-  if (!options || options.length === 0) return options;
-  const masked: string[] = [];
-  for (let i = 0; i < options.length; i += 2) {
-    const key = options[i];
-    const value = options[i + 1];
-    if (key === undefined || value === undefined) continue;
-    masked.push(key, `__OPTION_${key.toUpperCase()}__`);
-  }
-  return masked.length > 0 ? masked : null;
 }
 
 function mapRecord<TValue, TResult>(

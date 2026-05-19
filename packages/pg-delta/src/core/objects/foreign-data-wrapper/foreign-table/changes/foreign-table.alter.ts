@@ -2,6 +2,7 @@ import type { SerializeOptions } from "../../../../integrations/serialize/serial
 import { quoteLiteral } from "../../../base.change.ts";
 import type { ColumnProps } from "../../../base.model.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { ForeignTable } from "../foreign-table.model.ts";
 import { AlterForeignTableChange } from "./foreign-table.base.ts";
 
@@ -327,7 +328,10 @@ export class AlterForeignTableSetOptions extends AlterForeignTableChange {
       if (opt.action === "DROP") {
         optionParts.push(`DROP ${opt.option}`);
       } else {
-        const value = opt.value !== undefined ? quoteLiteral(opt.value) : "''";
+        const value =
+          opt.value !== undefined
+            ? quoteLiteral(redactOptionValue(opt.option, opt.value))
+            : "''";
         optionParts.push(`${opt.action} ${opt.option} ${value}`);
       }
     }

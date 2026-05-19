@@ -908,7 +908,7 @@ describe("sql formatting snapshots", () => {
       CREATE FOREIGN DATA WRAPPER postgres_fdw
          HANDLER postgres_fdw_handler
          VALIDATOR postgres_fdw_validator
-         OPTIONS (debug 'true');
+         OPTIONS (debug '__OPTION_DEBUG__');
 
       -- fdw.drop
       DROP FOREIGN DATA WRAPPER postgres_fdw;
@@ -920,7 +920,7 @@ describe("sql formatting snapshots", () => {
       -- fdw.alter.set_options
       ALTER FOREIGN DATA WRAPPER postgres_fdw
          OPTIONS (
-            SET debug 'false',
+            SET debug '__OPTION_DEBUG__',
             ADD use_remote_estimate ''
          );
 
@@ -1045,13 +1045,13 @@ describe("sql formatting snapshots", () => {
 
       -- user_mapping.create
       CREATE USER MAPPING FOR app_user SERVER remote_server
-         OPTIONS (user 'remote_app', password 'secret123');
+         OPTIONS (user 'remote_app', password '__OPTION_PASSWORD__');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER remote_server;
 
       -- user_mapping.alter.set_options
-      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password 'new_secret');"
+      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password '__OPTION_PASSWORD__');"
     `);
   });
 });

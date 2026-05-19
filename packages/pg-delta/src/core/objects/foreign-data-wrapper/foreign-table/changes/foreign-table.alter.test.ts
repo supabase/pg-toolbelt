@@ -324,17 +324,38 @@ describe.concurrent("foreign-table", () => {
       const change = new AlterForeignTableSetOptions({
         foreignTable,
         options: [
-          { action: "ADD", option: "new_option", value: "new_value" },
-          { action: "SET", option: "existing_option", value: "updated_value" },
-          { action: "DROP", option: "old_option" },
+          { action: "ADD", option: "schema_name", value: "remote_schema" },
+          { action: "SET", option: "table_name", value: "updated_table" },
+          { action: "DROP", option: "column_name" },
         ],
       });
 
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "ALTER FOREIGN TABLE public.test_table OPTIONS (ADD schema_name 'remote_schema', SET table_name 'updated_table', DROP column_name)",
       );
+    });
+
+    test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+      const foreignTable = new ForeignTable(baseTableProps);
+      const change = new AlterForeignTableSetOptions({
+        foreignTable,
+        options: [
+          { action: "ADD", option: "password", value: "table-shared-secret" },
+          { action: "SET", option: "schema_name", value: "remote_schema" },
+          { action: "ADD", option: "api_key", value: "leaked-api-key" },
+        ],
+      });
+
+      await assertValidSql(change.serialize());
+
+      const sql = change.serialize();
+      expect(sql).not.toContain("table-shared-secret");
+      expect(sql).not.toContain("leaked-api-key");
+      expect(sql).toContain("SET schema_name 'remote_schema'");
+      expect(sql).toContain("ADD password '__OPTION_PASSWORD__'");
+      expect(sql).toContain("ADD api_key '__OPTION_API_KEY__'");
     });
   });
 });
