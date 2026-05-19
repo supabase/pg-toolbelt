@@ -1,5 +1,39 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.25
+
+### Patch Changes
+
+- f1704bd: fix(pg-delta): keep user-defined triggers on auth/storage tables through the supabase filter
+
+  User-attached triggers on `auth.users`, `storage.objects`, etc. were being dropped from `supabase` integration diffs because triggers live in their parent table's schema and inherit its owner — both signals the Supabase managed-schema filter uses to skip Supabase's own objects. The filter now keeps any trigger whose function lives outside the managed schemas, which is the reliable user-defined marker.
+
+- 62f39d4: fix(pg-delta): emit valid GRANT/REVOKE syntax for ordered-set, hypothetical-set, and variadic aggregates
+
+  `GrantAggregatePrivileges` / `RevokeAggregatePrivileges` /
+  `RevokeGrantOptionAggregatePrivileges` previously serialized the
+  aggregate signature using `pg_get_function_identity_arguments`, which
+  embeds `ORDER BY` for ordered-set / hypothetical-set aggregates
+  (`aggkind` of `o` / `h`) and `VARIADIC` for variadic aggregates. The
+  PostgreSQL `GRANT ... ON FUNCTION` parser rejects both keywords inside
+  the argument list, so the generated `GRANT`/`REVOKE` failed with a
+  syntax error for any aggregate that wasn't a plain `aggkind = 'n'`.
+  The serializer now uses the `proargtypes`-derived `argument_types`
+  list, matching the signature shape PostgreSQL expects for `GRANT`/`REVOKE`.
+
+- ae4c499: fix(pg-delta): skip redundant `ALTER TABLE … ADD CONSTRAINT` for CHECK constraints inherited by partition children
+
+  Previously the inheritance signal used `pg_constraint.conparentid <> 0`, but PostgreSQL only populates `conparentid` for PK / UNIQUE / FK constraints on partitions — CHECK constraints on partitions always have `conparentid = 0`. As a result, pg-delta re-emitted every inherited CHECK constraint against each partition, and apply failed with SQLSTATE 42710 ("constraint already exists") because the constraint had already been auto-created on the partition by Postgres when the parent's constraint or the partition itself was created. The extractor now uses `coninhcount > 0`, the canonical inheritance flag, which covers CHECK and all other constraint kinds uniformly.
+
+- 0d52b68: Redact foreign-data-wrapper option values that are not on the allowlist of known-safe keys (libpq connection params, postgres*fdw behavior knobs, generic table-FDW shape, Supabase Wrappers non-credential keys). The policy applies to `CREATE / ALTER FOREIGN DATA WRAPPER`, `CREATE / ALTER SERVER`, `CREATE / ALTER USER MAPPING`, and `CREATE / ALTER FOREIGN TABLE` — every value is replaced with `\_\_OPTION*<KEY>\_\_`unless the key is recognised as safe. Previously credentials such as`password`, `passfile`, `passcode`, `sslpassword`, `api_key`, `private_key`, `aws_secret_access_key`, etc. were emitted in cleartext into plan SQL, catalog snapshots, declarative export, and fingerprints, ending up on disk and in CI logs (CLI-1467). Safe-listed options (`host`, `port`, `user`, `dbname`, `sslmode`, `fetch_size`, `region`, `endpoint`, …) continue to roundtrip with their real values. The emitted DDL is not directly re-appliable for redacted options — operators must re-supply credentials out of band.
+- 62f39d4: fix(pg-delta): suppress GRANT/REVOKE on FOREIGN DATA WRAPPER in the supabase integration
+
+  `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER` requires superuser. On Supabase Cloud the `postgres` role has the elevated rights to apply these grants, but the local Docker image does not — so the previous diff output broke `supabase db reset` with `permission denied for foreign-data wrapper dblink_fdw`. The existing system-role rule already covers wrappers owned by `supabase_admin`, but `pg_dump` rewrites OWNER TO clauses to whoever the dump runs under, so after a restore the FDW ends up owned by `postgres` and slips past the owner gate. The supabase integration filter now drops privilege-scope changes on `foreign_data_wrapper` regardless of owner, since the FDW ACL is never user-replayable in the local image. `FOREIGN SERVER` ACL is intentionally left alone — server GRANT/REVOKE doesn't require superuser, and user-created servers (e.g. a `dblink` server pointing to a peer DB) carry legitimate user ACL that should still roundtrip.
+
+- 62f39d4: fix(pg-delta): suppress CREATE/DROP/ALTER FOREIGN DATA WRAPPER for platform-managed Wasm wrappers in the supabase integration
+
+  The `supabase` integration now skips any FDW whose `HANDLER` or `VALIDATOR` references a function in the `extensions` schema. This covers the Wasm-based wrappers (`clerk`, `clerk_oauth`, etc.) that Supabase Cloud provisions as `supabase_admin` at project creation. `CREATE FOREIGN DATA WRAPPER` requires superuser, and the local Docker image has no equivalent pre-step, so the previous diff output broke `supabase db reset`. Owner-based filtering wasn't enough because the wrapper owner is often rewritten away from `supabase_admin` after a dump/restore.
+
 ## 1.0.0-alpha.24
 
 ### Patch Changes
