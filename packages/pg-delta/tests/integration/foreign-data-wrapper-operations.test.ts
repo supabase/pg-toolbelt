@@ -258,7 +258,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     test(
       "alter user mapping options",
       withDbIsolated(pgVersion, async (db) => {
-        // SET actions are filtered out, but ADD actions are not.
+        // Non-secret options diff normally (SET user 'new_user'); sensitive
+        // options like password are redacted in the emitted ALTER.
         // Since postgres_fdw only supports user/password options, we test with a custom FDW.
         await roundtripFidelityTest({
           mainSession: db.main,
@@ -271,10 +272,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER USER MAPPING FOR CURRENT_USER SERVER test_server OPTIONS (ADD password 'secret', SET user 'new_user');
         `,
-          // SET actions are filtered out, but ADD actions generate ALTER
-          // Note: SET user is filtered out, but ADD password remains and is masked
           expectedSqlTerms: [
-            "ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (ADD password '__OPTION_PASSWORD__')",
+            "ALTER USER MAPPING FOR postgres SERVER test_server OPTIONS (SET user 'new_user', ADD password '__OPTION_PASSWORD__')",
           ],
         });
       }),

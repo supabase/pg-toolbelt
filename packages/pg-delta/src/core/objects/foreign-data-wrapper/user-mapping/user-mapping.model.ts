@@ -56,6 +56,16 @@ export class UserMapping extends BasePgModel {
   }
 }
 
+/**
+ * Extract `pg_user_mapping` rows into `UserMapping` models.
+ *
+ * The returned models carry option values **verbatim** from
+ * `pg_user_mapping.umoptions`, which means cleartext secrets like
+ * `password` are present in memory. Always route through
+ * `extractCatalog` (which calls `normalizeCatalog`) before emitting
+ * options to any output channel — see CLI-1467 and
+ * `packages/pg-delta/src/core/objects/foreign-data-wrapper/sensitive-options.ts`.
+ */
 export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
   const { rows: mappingRows } = await pool.query<UserMappingProps>(sql`
       select

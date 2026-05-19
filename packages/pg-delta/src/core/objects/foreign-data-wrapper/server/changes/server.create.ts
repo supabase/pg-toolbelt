@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../../base.change.ts";
 import { stableId } from "../../../utils.ts";
+import { redactOptionValue } from "../../sensitive-options.ts";
 import type { Server } from "../server.model.ts";
 import { CreateServerChange } from "./server.base.ts";
 
@@ -66,11 +67,12 @@ export class CreateServer extends CreateServerChange {
     if (this.server.options && this.server.options.length > 0) {
       const optionPairs: string[] = [];
       for (let i = 0; i < this.server.options.length; i += 2) {
-        if (i + 1 < this.server.options.length) {
-          optionPairs.push(
-            `${this.server.options[i]} ${quoteLiteral(this.server.options[i + 1])}`,
-          );
-        }
+        const key = this.server.options[i];
+        const value = this.server.options[i + 1];
+        if (key === undefined || value === undefined) continue;
+        optionPairs.push(
+          `${key} ${quoteLiteral(redactOptionValue(key, value))}`,
+        );
       }
       if (optionPairs.length > 0) {
         parts.push(`OPTIONS (${optionPairs.join(", ")})`);

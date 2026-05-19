@@ -23,8 +23,41 @@ describe.concurrent("user-mapping", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password 'secret')",
+        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (ADD user 'remote_user', ADD password '__OPTION_PASSWORD__')",
       );
+    });
+
+    test("redacts sensitive option values to prevent secret leakage (CLI-1467)", async () => {
+      const props: UserMappingProps = {
+        user: "postgres",
+        server: "live_risk_server",
+        options: null,
+      };
+      const userMapping = new UserMapping(props);
+      const change = new AlterUserMappingSetOptions({
+        userMapping,
+        options: [
+          { action: "ADD", option: "password", value: "real-user-password" },
+          { action: "SET", option: "user", value: "fdw_reader" },
+          {
+            action: "ADD",
+            option: "passfile",
+            value: "/etc/secrets/passfile",
+          },
+          { action: "SET", option: "sslpassword", value: "ssl-secret" },
+        ],
+      });
+
+      await assertValidSql(change.serialize());
+
+      const sql = change.serialize();
+      expect(sql).not.toContain("real-user-password");
+      expect(sql).not.toContain("/etc/secrets/passfile");
+      expect(sql).not.toContain("ssl-secret");
+      expect(sql).toContain("SET user 'fdw_reader'");
+      expect(sql).toContain("ADD password '__OPTION_PASSWORD__'");
+      expect(sql).toContain("ADD passfile '__OPTION_PASSFILE__'");
+      expect(sql).toContain("SET sslpassword '__OPTION_SSLPASSWORD__'");
     });
 
     test("set options SET", async () => {
@@ -42,7 +75,7 @@ describe.concurrent("user-mapping", () => {
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password 'new_secret')",
+        "ALTER USER MAPPING FOR test_user SERVER test_server OPTIONS (SET password '__OPTION_PASSWORD__')",
       );
     });
 
@@ -75,16 +108,16 @@ describe.concurrent("user-mapping", () => {
       const change = new AlterUserMappingSetOptions({
         userMapping,
         options: [
-          { action: "ADD", option: "new_option", value: "new_value" },
-          { action: "SET", option: "existing_option", value: "updated_value" },
-          { action: "DROP", option: "old_option" },
+          { action: "ADD", option: "user", value: "remote_user" },
+          { action: "SET", option: "sslmode", value: "require" },
+          { action: "DROP", option: "application_name" },
         ],
       });
 
       await assertValidSql(change.serialize());
 
       expect(change.serialize()).toBe(
-        "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD new_option 'new_value', SET existing_option 'updated_value', DROP old_option)",
+        "ALTER USER MAPPING FOR PUBLIC SERVER test_server OPTIONS (ADD user 'remote_user', SET sslmode 'require', DROP application_name)",
       );
     });
   });

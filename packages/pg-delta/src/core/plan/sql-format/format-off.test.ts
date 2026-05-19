@@ -689,7 +689,7 @@ describe("sql formatting snapshots", () => {
       COMMENT ON SUBSCRIPTION sub_replica IS NULL;
 
       -- fdw.create
-      CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug 'true');
+      CREATE FOREIGN DATA WRAPPER postgres_fdw HANDLER postgres_fdw_handler VALIDATOR postgres_fdw_validator OPTIONS (debug '__OPTION_DEBUG__');
 
       -- fdw.drop
       DROP FOREIGN DATA WRAPPER postgres_fdw;
@@ -698,7 +698,7 @@ describe("sql formatting snapshots", () => {
       ALTER FOREIGN DATA WRAPPER postgres_fdw OWNER TO new_owner;
 
       -- fdw.alter.set_options
-      ALTER FOREIGN DATA WRAPPER postgres_fdw OPTIONS (SET debug 'false', ADD use_remote_estimate '');
+      ALTER FOREIGN DATA WRAPPER postgres_fdw OPTIONS (SET debug '__OPTION_DEBUG__', ADD use_remote_estimate '');
 
       -- fdw.comment
       COMMENT ON FOREIGN DATA WRAPPER postgres_fdw IS 'PostgreSQL foreign data wrapper';
@@ -794,13 +794,13 @@ describe("sql formatting snapshots", () => {
       REVOKE GRANT OPTION FOR ALL ON SERVER remote_server FROM app_user;
 
       -- user_mapping.create
-      CREATE USER MAPPING FOR app_user SERVER remote_server OPTIONS (user 'remote_app', password 'secret123');
+      CREATE USER MAPPING FOR app_user SERVER remote_server OPTIONS (user 'remote_app', password '__OPTION_PASSWORD__');
 
       -- user_mapping.drop
       DROP USER MAPPING FOR app_user SERVER remote_server;
 
       -- user_mapping.alter.set_options
-      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password 'new_secret');"
+      ALTER USER MAPPING FOR app_user SERVER remote_server OPTIONS (SET password '__OPTION_PASSWORD__');"
     `);
   });
 });
