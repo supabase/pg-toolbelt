@@ -92,6 +92,85 @@ describe("aggregate.privilege", () => {
     );
   });
 
+  // Regression for CLI-1471: ordered-set / hypothetical-set / variadic
+  // aggregates have `identity_arguments` that include `ORDER BY` or
+  // `VARIADIC` keywords. Those keywords are rejected by
+  // `GRANT ... ON FUNCTION (...)` (only positional argument types are
+  // accepted there), so the serializer must drop back to the
+  // `proargtypes`-derived `argument_types` list.
+  test("grant on ordered-set aggregate emits proargtypes signature", async () => {
+    const aggregate = new Aggregate({
+      ...base,
+      name: "os_last",
+      aggkind: "o",
+      identity_arguments: "anyelement ORDER BY anyelement",
+      argument_types: ["anyelement", "anyelement"],
+      return_type: "anyelement",
+      transition_function: "public.os_last_sfunc(anyelement,anyelement)",
+      state_data_type: "anyelement",
+      argument_count: 2,
+    });
+    const change = new GrantAggregatePrivileges({
+      aggregate,
+      grantee: "role_exec",
+      privileges: [{ privilege: "EXECUTE", grantable: false }],
+      version: 170000,
+    });
+    await assertValidSql(change.serialize());
+    expect(change.serialize()).toBe(
+      "GRANT ALL ON FUNCTION public.os_last(anyelement, anyelement) TO role_exec",
+    );
+  });
+
+  test("revoke on hypothetical-set aggregate emits proargtypes signature", async () => {
+    const aggregate = new Aggregate({
+      ...base,
+      name: "hyp_rank",
+      aggkind: "h",
+      identity_arguments: 'VARIADIC "any" ORDER BY VARIADIC "any"',
+      argument_types: ['"any"'],
+      return_type: "bigint",
+      transition_function:
+        'pg_catalog.ordered_set_transition_multi(internal,"any")',
+      state_data_type: "internal",
+      argument_count: 1,
+    });
+    const change = new RevokeAggregatePrivileges({
+      aggregate,
+      grantee: "role_old",
+      privileges: [{ privilege: "EXECUTE", grantable: false }],
+      version: 170000,
+    });
+    await assertValidSql(change.serialize());
+    expect(change.serialize()).toBe(
+      'REVOKE ALL ON FUNCTION public.hyp_rank("any") FROM role_old',
+    );
+  });
+
+  test("revoke grant option on ordered-set aggregate emits proargtypes signature", async () => {
+    const aggregate = new Aggregate({
+      ...base,
+      name: "os_last",
+      aggkind: "o",
+      identity_arguments: "anyelement ORDER BY anyelement",
+      argument_types: ["anyelement", "anyelement"],
+      return_type: "anyelement",
+      transition_function: "public.os_last_sfunc(anyelement,anyelement)",
+      state_data_type: "anyelement",
+      argument_count: 2,
+    });
+    const change = new RevokeGrantOptionAggregatePrivileges({
+      aggregate,
+      grantee: "role_with_option",
+      privilegeNames: ["EXECUTE"],
+      version: 170000,
+    });
+    await assertValidSql(change.serialize());
+    expect(change.serialize()).toBe(
+      "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.os_last(anyelement, anyelement) FROM role_with_option",
+    );
+  });
+
   test("revoke privileges and grant option", async () => {
     const aggregate = new Aggregate(base);
     const revoke = new RevokeAggregatePrivileges({

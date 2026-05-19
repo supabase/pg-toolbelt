@@ -134,4 +134,129 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
     }),
     120_000,
   );
+
+  // Regression for CLI-1470: Wasm-based foreign data wrappers (e.g.
+  // `clerk`, `clerk_oauth`) wire their handler/validator through the
+  // `extensions.*` schema. Supabase Cloud provisions them as
+  // `supabase_admin`, but local Docker images do not have an equivalent
+  // pre-step, so `supabase db reset` cannot replay
+  // `CREATE FOREIGN DATA WRAPPER`. The Supabase integration filter must
+  // suppress these FDW changes regardless of who owns the wrapper at
+  // diff time.
+  test(
+    "suppresses CREATE FOREIGN DATA WRAPPER backed by extensions.* handler",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE FOREIGN DATA WRAPPER wasm_lookalike
+          HANDLER extensions.postgres_fdw_handler
+          VALIDATOR extensions.postgres_fdw_validator;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      // postgres_fdw is allow-listed for CREATE EXTENSION; the only
+      // expected output is the extension itself. No
+      // `CREATE FOREIGN DATA WRAPPER` for the Wasm-lookalike wrapper
+      // should appear, since it depends on a handler that lives in the
+      // managed `extensions` schema.
+      const statements = planResult?.plan.statements ?? [];
+      const fdwStatements = statements.filter((stmt) =>
+        stmt.includes("FOREIGN DATA WRAPPER"),
+      );
+      expect(fdwStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
+
+  // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
+  // requires superuser. On Supabase Cloud `postgres` has the elevated
+  // rights; the local Docker image does not, so `supabase db reset`
+  // aborts with `permission denied for foreign-data wrapper`. The
+  // existing `*/owner` rule drops FDW ACL owned by `supabase_admin`;
+  // this test pins the post-restore case where `pg_dump` rewrites
+  // OWNER TO `postgres` and the owner gate no longer matches.
+  test(
+    "suppresses GRANT/REVOKE on FOREIGN DATA WRAPPER even when owned by postgres",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.main.query(dedent`
+        CREATE ROLE fdw_user;
+        CREATE FOREIGN DATA WRAPPER user_fdw;
+        GRANT ALL ON FOREIGN DATA WRAPPER user_fdw TO fdw_user;
+      `);
+      await db.branch.query(dedent`
+        CREATE ROLE fdw_user;
+        CREATE FOREIGN DATA WRAPPER user_fdw;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const fdwAclStatements = statements.filter((stmt) =>
+        /\b(?:GRANT|REVOKE)\b[^;]*\bON\b[^;]*\bFOREIGN\s+DATA\s+WRAPPER\b/.test(
+          stmt,
+        ),
+      );
+      expect(fdwAclStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
+
+  // Companion to the rule above: user-owned FOREIGN SERVER ACL must
+  // still roundtrip. Server GRANT/REVOKE doesn't require superuser, so
+  // a user-created server (e.g. a `dblink`/`postgres_fdw` server
+  // pointing to a peer DB) is genuinely user-declarative state and
+  // should not be swept up by the FDW ACL suppression.
+  test(
+    "preserves GRANT on user-owned FOREIGN SERVER",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.main.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE ROLE server_user;
+        SET ROLE postgres;
+        CREATE SERVER user_server FOREIGN DATA WRAPPER postgres_fdw;
+        RESET ROLE;
+      `);
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE ROLE server_user;
+        SET ROLE postgres;
+        CREATE SERVER user_server FOREIGN DATA WRAPPER postgres_fdw;
+        GRANT USAGE ON FOREIGN SERVER user_server TO server_user;
+        RESET ROLE;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      // pg-delta serializes server ACL with the `ON SERVER` shorthand
+      // rather than `ON FOREIGN SERVER` (both are equivalent in PG) and
+      // collapses a complete privilege set to `ALL`.
+      expect(statements).toContain(
+        "GRANT ALL ON SERVER user_server TO server_user",
+      );
+    }),
+    120_000,
+  );
 });

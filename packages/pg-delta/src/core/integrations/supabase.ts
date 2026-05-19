@@ -159,6 +159,62 @@ export const supabase: IntegrationDSL = {
                 },
               ],
             },
+            // Platform-managed foreign data wrapper ACL.
+            // `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER` requires
+            // superuser. On Supabase Cloud `postgres` has the elevated
+            // rights to make this work, but the local Docker image does
+            // not, so `supabase db reset` aborts with
+            // `permission denied for foreign-data wrapper`. The
+            // `*/owner` rule above already covers wrappers owned by
+            // `supabase_admin`, but `pg_dump` rewrites OWNER TO clauses
+            // to whoever the dump runs under, so after a restore the
+            // FDW typically ends up owned by `postgres` and slips past
+            // the owner gate. A non-superuser `postgres` still can't
+            // grant on a FDW (this is true regardless of who owns the
+            // wrapper locally), so the ACL diff is not user-replayable.
+            // We don't apply the same blanket rule to `FOREIGN SERVER`:
+            // server GRANT/REVOKE doesn't require superuser, and
+            // user-created servers (e.g. a `dblink` server pointing to
+            // a peer DB) carry legitimate user ACL that should
+            // roundtrip — the existing `*/owner` rule already drops
+            // platform-managed servers.
+            {
+              and: [
+                { objectType: "foreign_data_wrapper" },
+                { scope: "privilege" },
+              ],
+            },
+            // Platform-managed foreign data wrappers — Wasm-based FDWs
+            // (e.g. `clerk`, `clerk_oauth`) whose handler/validator live in
+            // the `extensions` schema. `CREATE FOREIGN DATA WRAPPER`
+            // requires superuser, and Supabase Cloud provisions these via
+            // `supabase_admin` at project creation; replaying the DDL
+            // against a local image fails because the local environment
+            // has no equivalent pre-step. We can't rely on the FDW owner
+            // alone — after a dump/restore the owner is often rewritten
+            // away from `supabase_admin` — so match on the function
+            // reference instead.
+            {
+              and: [
+                { objectType: "foreign_data_wrapper" },
+                {
+                  or: [
+                    {
+                      "foreign_data_wrapper/handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "foreign_data_wrapper/validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       },
