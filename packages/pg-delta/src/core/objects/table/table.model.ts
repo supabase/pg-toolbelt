@@ -341,8 +341,13 @@ select
           'no_inherit', c.connoinherit,
           'is_temporal', coalesce((to_jsonb(c)->>'conperiod')::boolean, false),
 
-          -- NEW: propagated-to-partition tagging (PG15+)
-          'is_partition_clone', (c.conparentid <> 0::oid),
+          -- Inherited from a parent (partition or classical inheritance).
+          -- coninhcount > 0 is the canonical signal across every constraint
+          -- kind. We previously used conparentid <> 0, but PostgreSQL only
+          -- populates conparentid for PK / UNIQUE / FK on partitions; CHECK
+          -- constraints on partitions always have conparentid = 0 and were
+          -- being re-emitted on every child, failing apply with 42710.
+          'is_partition_clone', (c.coninhcount > 0),
           'parent_constraint_schema', case when c.conparentid <> 0::oid then pc.connamespace::regnamespace::text end,
           'parent_constraint_name',   case when c.conparentid <> 0::oid then quote_ident(pc.conname) end,
           'parent_table_schema',      case when c.conparentid <> 0::oid then pc_rel.relnamespace::regnamespace::text end,
