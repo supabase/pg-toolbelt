@@ -151,6 +151,33 @@ function serverPrivilegeChange(server: {
   } as unknown as Change;
 }
 
+/**
+ * Build a synthetic trigger change shaped like what `flattenChange` consumes.
+ * The flattener emits keys `trigger/schema`, `trigger/table_name`,
+ * `trigger/function_schema`, etc. by walking the nested `trigger` model.
+ */
+function triggerChange(
+  operation: "create" | "alter" | "drop",
+  trigger: {
+    schema: string;
+    name: string;
+    table_name: string;
+    function_schema: string;
+    function_name: string;
+    owner: string;
+  },
+): Change {
+  return {
+    objectType: "trigger",
+    operation,
+    scope: "object",
+    trigger,
+    requires: [],
+    creates: [],
+    drops: [],
+  } as unknown as Change;
+}
+
 describe("supabase integration filter — foreign data wrappers", () => {
   // Regression for CLI-1470. Wasm-based foreign data wrappers on Supabase
   // (e.g. `clerk`, `clerk_oauth`) are provisioned at project creation by
@@ -370,6 +397,54 @@ describe("supabase integration filter — Wasm FDW dependents", () => {
       owner: "postgres",
       server: "live_risk_server",
       ...userWrapper,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+});
+
+describe("supabase integration filter — pgmq queue triggers", () => {
+  // Regression for the pgmq-1.4.4 cloud projects. `pgmq.create('<name>')`
+  // materializes `pgmq.q_<name>` and `pgmq.a_<name>` at runtime — they are
+  // NOT created by `CREATE EXTENSION pgmq`. On a healthy install the trigger
+  // extractor's `extension_table_oids` join already drops these via the
+  // `pg_depend deptype='e'` row that newer pgmq versions record, but on
+  // pgmq 1.4.4 that row is never recorded, so user triggers on the queue
+  // tables leak into the diff and break `supabase db reset` with
+  // `relation "pgmq.q_<name>" does not exist`. The filter must drop them
+  // at the supabase-integration level too, regardless of pg_depend state.
+
+  test("suppresses CREATE trigger on pgmq.q_<name> calling a public function", () => {
+    const change = triggerChange("create", {
+      schema: "pgmq",
+      name: "after_insert_processed_milestones_queue",
+      table_name: "q_processed_milestones_queue",
+      function_schema: "public",
+      function_name: "move_data_from_queue",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  test("suppresses DROP trigger on pgmq.a_<name> calling a public function", () => {
+    const change = triggerChange("drop", {
+      schema: "pgmq",
+      name: "after_insert_archive",
+      table_name: "a_processed_milestones_queue",
+      function_schema: "public",
+      function_name: "archive_handler",
+      owner: "postgres",
+    });
+    expect(evaluatePattern(filter, change)).toBe(false);
+  });
+
+  test("preserves CREATE trigger on auth.users calling a public function", () => {
+    const change = triggerChange("create", {
+      schema: "auth",
+      name: "on_auth_user_created",
+      table_name: "users",
+      function_schema: "public",
+      function_name: "handle_new_user",
+      owner: "supabase_auth_admin",
     });
     expect(evaluatePattern(filter, change)).toBe(true);
   });

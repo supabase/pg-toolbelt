@@ -306,4 +306,58 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
     }),
     120_000,
   );
+
+  // Regression for the pgmq-1.4.4 cloud projects (real-world: this
+  // bug fired during `supabase db pull --diff-engine pg-delta` against
+  // a project with several pgmq queues, where every `pgmq.q_*` /
+  // `pgmq.a_*` table was missing the `pg_depend deptype='e'` link to
+  // the pgmq extension). The trigger extractor's principled filter
+  // (`extension_table_oids` in trigger.model.ts) drops user triggers
+  // on tables that carry that link, so on a healthy pgmq install the
+  // bug never surfaces; we simulate the stale-cloud state by deleting
+  // the link directly, which forces the same code path the cloud
+  // project exercises and pins the supabase-filter-level fallback.
+  test(
+    "suppresses user triggers on pgmq queue tables when pg_depend link is missing",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.branch.query(dedent`
+        CREATE EXTENSION pgmq;
+        SELECT pgmq.create('processed_milestones_queue');
+
+        DELETE FROM pg_depend
+         WHERE objid = 'pgmq.q_processed_milestones_queue'::regclass
+           AND refclassid = 'pg_extension'::regclass
+           AND deptype = 'e';
+        DELETE FROM pg_depend
+         WHERE objid = 'pgmq.a_processed_milestones_queue'::regclass
+           AND refclassid = 'pg_extension'::regclass
+           AND deptype = 'e';
+
+        CREATE FUNCTION public.move_data_from_queue() RETURNS trigger
+          LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+
+        CREATE TRIGGER after_insert_processed_milestones_queue
+          AFTER INSERT ON pgmq.q_processed_milestones_queue
+          FOR EACH ROW EXECUTE FUNCTION public.move_data_from_queue();
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const queueTriggerStatements = statements.filter((stmt) =>
+        /\bCREATE\s+TRIGGER\b[^;]*\bON\s+pgmq\.q_processed_milestones_queue\b/i.test(
+          stmt,
+        ),
+      );
+      expect(queueTriggerStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
 });
