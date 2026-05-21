@@ -16,6 +16,8 @@
     "docs:pg-delta": "bun run --filter '@supabase/pg-delta' docs",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
+    "verdaccio:start": "verdaccio --config ./verdaccio/config.yaml",
+    "pg-delta:publish-local": "bun scripts/verdaccio-publish-pg-delta.ts",
     "version": "changeset version"
   },
   "devDependencies": {
@@ -23,6 +25,7 @@
     "@changesets/cli": "^2.29.8",
     "@types/bun": "^1.3.9",
     "bun": "^1.3.9",
-    "nyc": "^18.0.0"
+    "nyc": "^18.0.0",
+    "verdaccio": "^6.0.5"
   }
 }

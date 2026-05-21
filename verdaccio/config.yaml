@@ -1,0 +1,78 @@
+# Verdaccio config for local pg-delta development.
+#
+# Usage:
+#   bun run verdaccio:start       # starts Verdaccio at http://localhost:4873
+#   bun run pg-delta:publish-local # builds + publishes pg-delta with a fresh
+#                                    0.0.0-local.<timestamp> version
+#
+# The Supabase CLI side reads PGDELTA_NPM_REGISTRY and injects an .npmrc into
+# the edge-runtime container that maps `@supabase:registry` to this URL.
+
+storage: ./.verdaccio/storage
+plugins: ./.verdaccio/plugins
+
+listen: 0.0.0.0:4873
+
+web:
+  enable: true
+  title: pg-toolbelt local registry
+
+# Empty htpasswd file is fine; we set max_users to -1 so anonymous publishes
+# (which is what `npm publish --registry http://localhost:4873 --no-git-checks`
+# does without `npm login`) are accepted for local development.
+auth:
+  htpasswd:
+    file: ./.verdaccio/htpasswd
+    max_users: -1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+    cache: true
+
+packages:
+  # `@supabase/*` packages are publishable locally (so
+  # `verdaccio-publish-pg-delta.ts` can push fresh `0.0.0-local.*` builds)
+  # AND proxied to npmjs as a fallback.
+  #
+  # The fallback matters because `@supabase/pg-delta`'s own dependency tree
+  # includes other `@supabase/*` packages (e.g. `@supabase/pg-topo`) that
+  # only exist on npmjs. Without `proxy: npmjs` here, Deno would 404 on
+  # them when resolving the pg-delta module graph and the local override
+  # would never come up.
+  #
+  # Local `0.0.0-local.<timestamp>` versions are never shadowed by the
+  # proxy: those exact versions only exist in local storage, and Verdaccio
+  # merges local + upstream version lists before resolving, so a request
+  # for `0.0.0-local.<timestamp>` always picks the local copy.
+  #
+  # `$all` (not `$anonymous`) so requests with the dummy auth token that
+  # `verdaccio-publish-pg-delta.ts` injects are accepted — npm refuses to
+  # POST a publish without any token configured, even when Verdaccio would
+  # otherwise accept anonymous.
+  '@supabase/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+    proxy: npmjs
+
+  '@*/*':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+
+  '**':
+    access: $all
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: npmjs
+
+log:
+  type: stdout
+  format: pretty
+  level: http
+
+# Disable telemetry chatter in local dev.
+publish:
+  allow_offline: true

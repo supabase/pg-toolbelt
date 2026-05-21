@@ -176,3 +176,8 @@ docs/api-reference/
 # tldr ignore patterns
 # ===================
 .tldr/
+
+# Verdaccio local registry state (created by `bun run verdaccio:start`)
+.verdaccio/storage/
+.verdaccio/htpasswd
+.verdaccio/plugins/
