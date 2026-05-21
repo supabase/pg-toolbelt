@@ -215,6 +215,58 @@ export const supabase: IntegrationDSL = {
                 },
               ],
             },
+            // Platform-managed Wasm FDW dependents (CLI-1470 follow-up).
+            // Suppressing the wrapper DDL alone leaves `CREATE SERVER` /
+            // `CREATE FOREIGN TABLE` / `CREATE USER MAPPING` that reference
+            // a wrapper local Docker never provisions (`clerk_oauth`, etc.).
+            // Match on the parent wrapper's handler/validator (joined at
+            // extract time). `postgres_fdw` often installs into `extensions`,
+            // so server privilege changes are excluded here — server
+            // GRANT/REVOKE does not require superuser and remains
+            // user-declarative state (see CLI-1469 companion test).
+            {
+              and: [
+                { objectType: "server" },
+                { not: { scope: "privilege" } },
+                {
+                  or: [
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              and: [
+                { objectType: ["foreign_table", "user_mapping"] },
+                {
+                  or: [
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       },

@@ -36,6 +36,9 @@ const foreignTablePropsSchema = z.object({
   columns: z.array(columnPropsSchema),
   privileges: z.array(privilegePropsSchema),
   security_labels: z.array(securityLabelPropsSchema).default([]).optional(),
+  // Parent FDW handler/validator — filter metadata only, not in dataFields.
+  wrapper_handler: z.string().nullable().optional(),
+  wrapper_validator: z.string().nullable().optional(),
 });
 
 type ForeignTablePrivilegeProps = PrivilegeProps;
@@ -51,6 +54,8 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
   public readonly columns: ForeignTableProps["columns"];
   public readonly privileges: ForeignTablePrivilegeProps[];
   public readonly security_labels: SecurityLabelProps[];
+  public readonly wrapper_handler: ForeignTableProps["wrapper_handler"];
+  public readonly wrapper_validator: ForeignTableProps["wrapper_validator"];
 
   constructor(props: ForeignTableProps) {
     super();
@@ -67,6 +72,8 @@ export class ForeignTable extends BasePgModel implements TableLikeObject {
     this.columns = props.columns;
     this.privileges = props.privileges;
     this.security_labels = props.security_labels ?? [];
+    this.wrapper_handler = props.wrapper_handler ?? null;
+    this.wrapper_validator = props.wrapper_validator ?? null;
   }
 
   get stableId(): `foreignTable:${string}` {
@@ -146,12 +153,22 @@ export async function extractForeignTables(
           c.relowner::regrole::text as owner,
           quote_ident(srv.srvname) as server,
           coalesce(ft.ftoptions, array[]::text[]) as options,
-          c.oid as oid
+          c.oid as oid,
+          case
+            when fdw.fdwhandler = 0 then null
+            else p_handler.pronamespace::regnamespace::text || '.' || quote_ident(p_handler.proname)
+          end as wrapper_handler,
+          case
+            when fdw.fdwvalidator = 0 then null
+            else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname)
+          end as wrapper_validator
         from
           pg_class c
           inner join pg_foreign_table ft on ft.ftrelid = c.oid
           inner join pg_foreign_server srv on srv.oid = ft.ftserver
           inner join pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
+          left join pg_catalog.pg_proc p_handler on p_handler.oid = fdw.fdwhandler
+          left join pg_catalog.pg_proc p_validator on p_validator.oid = fdw.fdwvalidator
           left outer join extension_oids e1 on c.oid = e1.objid
         where
           c.relkind = 'f'
@@ -165,6 +182,8 @@ export async function extractForeignTables(
         ft.owner,
         ft.server,
         ft.options,
+        ft.wrapper_handler,
+        ft.wrapper_validator,
         obj_description(ft.oid, 'pg_class') as comment,
         coalesce(json_agg(
           case when a.attname is not null then
@@ -250,7 +269,14 @@ export async function extractForeignTables(
         left join pg_attrdef ad on a.attrelid = ad.adrelid and a.attnum = ad.adnum
         left join pg_type ty on ty.oid = a.atttypid
       group by
-        ft.oid, ft.schema, ft.name, ft.owner, ft.server, ft.options
+        ft.oid,
+        ft.schema,
+        ft.name,
+        ft.owner,
+        ft.server,
+        ft.options,
+        ft.wrapper_handler,
+        ft.wrapper_validator
       order by
         ft.schema, ft.name
   `);
