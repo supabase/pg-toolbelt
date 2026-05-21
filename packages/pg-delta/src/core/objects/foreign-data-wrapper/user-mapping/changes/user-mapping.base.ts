@@ -4,7 +4,7 @@ import type { UserMapping } from "../user-mapping.model.ts";
 abstract class BaseUserMappingChange extends BaseChange {
   abstract readonly userMapping: UserMapping;
   abstract readonly scope: "object";
-  readonly objectType: "user_mapping" = "user_mapping";
+  readonly objectType = "user_mapping" as const;
 }
 
 export abstract class CreateUserMappingChange extends BaseUserMappingChange {

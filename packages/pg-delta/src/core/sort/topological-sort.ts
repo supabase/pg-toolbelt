@@ -14,7 +14,7 @@ export function performStableTopologicalSort(
     { length: nodeCount },
     () => new Set<number>(),
   );
-  const inDegreeCounts = new Array<number>(nodeCount).fill(0);
+  const inDegreeCounts: number[] = Array.from({ length: nodeCount }, () => 0);
 
   for (const [sourceIndex, targetIndex] of edges) {
     if (!adjacencyList[sourceIndex].has(targetIndex)) {
@@ -73,7 +73,7 @@ export function findCycle(
   }
 
   // 0 = unvisited, 1 = visiting, 2 = completed
-  const visitState = new Array<number>(nodeCount).fill(0);
+  const visitState: number[] = Array.from({ length: nodeCount }, () => 0);
   const pathStack: number[] = [];
   let cycleNodeIndexes: number[] | null = null;
 

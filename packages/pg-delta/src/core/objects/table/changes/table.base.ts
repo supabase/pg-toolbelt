@@ -8,7 +8,7 @@ abstract class BaseTableChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "table" = "table";
+  readonly objectType = "table" as const;
 }
 
 export abstract class CreateTableChange extends BaseTableChange {

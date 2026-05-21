@@ -43,7 +43,8 @@ runs:
           root:
             - 'package.json'
             - 'bunfig.toml'
-            - 'biome.json'
+            - '.oxlintrc.json'
+            - '.oxfmtrc.json'
             - '.changeset/**'
 
     # Detect any file outside the release-PR whitelist. Uses

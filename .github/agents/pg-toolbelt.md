@@ -61,7 +61,7 @@ PGDELTA_TEST_POSTGRES_VERSIONS=17 bun run test tests/
 - `pg-delta` uses the `pg` npm library for database connections (works in Bun via Node.js compat)
 - `pg-topo` is pure static analysis — no runtime database dependency in the library itself
 - Integration tests use `testcontainers` to spin up PostgreSQL Docker containers
-- Biome handles formatting and linting (config at root `biome.json`)
+- Oxc handles formatting and linting: `oxfmt` (config at `.oxfmtrc.json`) and `oxlint` (config at `.oxlintrc.json`)
 - Changesets manage versioning across both packages
 
 ### pg-delta core is self-contained
@@ -148,7 +148,7 @@ All PR titles and commit messages **must** follow the [Conventional Commits](htt
 # Examples
 feat(pg-delta): add support for materialized views
 fix(pg-topo): correct cycle detection in dependency graph
-chore: update biome config
+chore: update oxlint config
 docs(pg-delta): improve README examples
 ```
 
@@ -231,7 +231,7 @@ Every bug fix and every feature with a well-defined acceptance criterion follows
 1. **RED first.** Author the regression test(s) against the current (broken) code. Run the focused test and confirm it **fails for the right reason** — an assertion mismatch, a missing symbol, or a runtime error that matches the bug. A test that fails because of a typo or wrong import does not count.
 2. **Capture the failure.** Save the assertion excerpt or test-runner summary (just the relevant lines). This goes into the follow-up commit message and/or PR description so reviewers can see the regression was real.
 3. **GREEN.** Apply the production change. Re-run the same focused test and confirm it passes.
-4. **No regressions.** Run the broader focused suites for the package(s) you touched (unit tests, and integration tests for the affected area when iterating locally) plus `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`.
+4. **No regressions.** Run the broader focused suites for the package(s) you touched (unit tests, and integration tests for the affected area when iterating locally) plus `bun run format-and-lint:fix && bun run check-types && bun run knip --fix`.
 
 **Commit shape.** Prefer splitting the work into two commits on the working branch:
 
@@ -418,4 +418,4 @@ Whenever you are told you made a mistake — whether in commands, coding style, 
 
 ### Common Issues
 
-- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint --write --unsafe && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.
+- Lint errors can usually be detected and auto-fixed by running `bun run format-and-lint:fix && bun run check-types && bun run knip --fix`. Run this after you finish code changes to ensure you don't introduce lint errors into the project.

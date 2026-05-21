@@ -8,7 +8,7 @@ abstract class BaseSequenceChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "sequence" = "sequence";
+  readonly objectType = "sequence" as const;
 }
 
 export abstract class CreateSequenceChange extends BaseSequenceChange {

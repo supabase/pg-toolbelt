@@ -8,7 +8,7 @@ abstract class BaseSchemaChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "schema" = "schema";
+  readonly objectType = "schema" as const;
 }
 
 export abstract class CreateSchemaChange extends BaseSchemaChange {

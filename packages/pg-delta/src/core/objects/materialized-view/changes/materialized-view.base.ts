@@ -8,7 +8,7 @@ abstract class BaseMaterializedViewChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "materialized_view" = "materialized_view";
+  readonly objectType = "materialized_view" as const;
 }
 
 export abstract class CreateMaterializedViewChange extends BaseMaterializedViewChange {

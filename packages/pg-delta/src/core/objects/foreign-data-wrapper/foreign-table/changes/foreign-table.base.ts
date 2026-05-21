@@ -8,7 +8,7 @@ abstract class BaseForeignTableChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "foreign_table" = "foreign_table";
+  readonly objectType = "foreign_table" as const;
 }
 
 export abstract class CreateForeignTableChange extends BaseForeignTableChange {

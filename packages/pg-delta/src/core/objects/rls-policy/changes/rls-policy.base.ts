@@ -4,7 +4,7 @@ import type { RlsPolicy } from "../rls-policy.model.ts";
 abstract class BaseRlsPolicyChange extends BaseChange {
   abstract readonly policy: RlsPolicy;
   abstract readonly scope: "object" | "comment";
-  readonly objectType: "rls_policy" = "rls_policy";
+  readonly objectType = "rls_policy" as const;
 }
 
 export abstract class CreateRlsPolicyChange extends BaseRlsPolicyChange {

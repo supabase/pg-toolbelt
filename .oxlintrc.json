@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ]
+  },
+  "env": {
+    "builtin": true
+  },
+  "ignorePatterns": [
+    "packages/pg-delta/src/core/fixtures/empty-catalogs",
+    "**/dist/**",
+    "**/node_modules/**"
+  ]
+}

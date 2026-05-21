@@ -8,7 +8,7 @@ abstract class BaseRangeChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "range" = "range";
+  readonly objectType = "range" as const;
 }
 
 export abstract class CreateRangeChange extends BaseRangeChange {

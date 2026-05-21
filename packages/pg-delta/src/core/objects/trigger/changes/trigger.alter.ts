@@ -28,10 +28,7 @@ export class ReplaceTrigger extends AlterTriggerChange {
   public readonly indexableObject?: TableLikeObject;
   public readonly scope = "object" as const;
 
-  constructor(props: {
-    trigger: Trigger;
-    indexableObject?: TableLikeObject;
-  }) {
+  constructor(props: { trigger: Trigger; indexableObject?: TableLikeObject }) {
     super();
     this.trigger = props.trigger;
     this.indexableObject = props.indexableObject;

@@ -8,7 +8,7 @@ abstract class BaseViewChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "view" = "view";
+  readonly objectType = "view" as const;
 }
 
 export abstract class CreateViewChange extends BaseViewChange {

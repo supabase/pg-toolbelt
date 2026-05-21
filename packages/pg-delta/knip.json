@@ -7,7 +7,7 @@
     "src/typedoc.ts"
   ],
   "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!"],
-  "ignoreBinaries": ["biome", "changeset"],
+  "ignoreBinaries": ["oxfmt", "oxlint", "changeset"],
   "ignoreFiles": ["tests/global-setup.ts", "scripts/**/*.ts"],
   "ignoreIssues": {
     "src/core/objects/**/*.model.ts": ["types"]

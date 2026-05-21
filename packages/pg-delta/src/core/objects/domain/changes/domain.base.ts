@@ -8,7 +8,7 @@ abstract class BaseDomainChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "domain" = "domain";
+  readonly objectType = "domain" as const;
 }
 
 export abstract class CreateDomainChange extends BaseDomainChange {
