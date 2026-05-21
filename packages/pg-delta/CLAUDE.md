@@ -148,7 +148,7 @@ Storing the raw attnum array purely for debugging/introspection is fine — just
 
 ## Conventions
 
-- TypeScript strict; Biome for format/lint; kebab-case files with `.model.ts`, `.diff.ts`, `.test.ts`.
+- TypeScript strict; oxfmt + oxlint for format/lint; kebab-case files with `.model.ts`, `.diff.ts`, `.test.ts`.
 - SQL via `@ts-safeql/sql-tag`.
 
 ## Dependencies & Debug

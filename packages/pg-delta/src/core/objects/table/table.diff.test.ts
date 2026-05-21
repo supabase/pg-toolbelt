@@ -102,6 +102,7 @@ describe.concurrent("table.diff", () => {
       constraints: [],
     });
     const branch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...main,
       constraints: [
         {
@@ -480,6 +481,7 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const tBranch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...tMain,
       constraints: [
         {
@@ -559,6 +561,7 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const tBranch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...tMain,
       constraints: [
         {
@@ -686,6 +689,7 @@ describe.concurrent("table.diff", () => {
       ],
     });
     const tBranch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...tMain,
       constraints: [
         {

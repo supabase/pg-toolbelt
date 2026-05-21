@@ -265,6 +265,7 @@ export function diffTables(
       ...createAlterConstraintChange(
         // Create a dummy table with no constraints do diff constraints against
         new Table({
+          // oxlint-disable-next-line typescript/no-misused-spread
           ...branchTable,
           constraints: [],
         }),

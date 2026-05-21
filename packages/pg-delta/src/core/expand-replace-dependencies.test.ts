@@ -189,11 +189,13 @@ describe("expandReplaceDependencies", () => {
       privileges: [],
     });
     const branchView = new View({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...mainView,
       definition: " SELECT count(*) AS n FROM public.members;",
     });
 
     const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       tables: { [usersTable.stableId]: usersTable },
       views: { [mainView.stableId]: mainView },
@@ -206,6 +208,7 @@ describe("expandReplaceDependencies", () => {
       ],
     });
     const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       views: { [branchView.stableId]: branchView },
     });
@@ -253,6 +256,7 @@ describe("expandReplaceDependencies", () => {
       owner: "postgres",
     });
     const branchSequence = new Sequence({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...mainSequence,
       persistence: "p",
     });
@@ -309,6 +313,7 @@ describe("expandReplaceDependencies", () => {
       { [usersTable.stableId]: usersTable },
     );
     const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       sequences: { [mainSequence.stableId]: mainSequence },
       tables: { [usersTable.stableId]: usersTable },
@@ -326,6 +331,7 @@ describe("expandReplaceDependencies", () => {
       ],
     });
     const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       sequences: { [branchSequence.stableId]: branchSequence },
       tables: { [usersTable.stableId]: usersTable },
@@ -369,6 +375,7 @@ describe("expandReplaceDependencies", () => {
       privileges: [],
     });
     const branchEnum = new Enum({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...mainEnum,
       labels: [
         { sort_order: 1, label: "draft" },
@@ -430,6 +437,7 @@ describe("expandReplaceDependencies", () => {
       privileges: [],
     });
     const branchChildren = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...mainChildren,
       columns: [
         { ...columnTemplate, name: "id", position: 1, not_null: true },
@@ -522,6 +530,7 @@ describe("expandReplaceDependencies", () => {
     ];
 
     const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       enums: { [mainEnum.stableId]: mainEnum },
       tables: { [mainChildren.stableId]: mainChildren },
@@ -535,6 +544,7 @@ describe("expandReplaceDependencies", () => {
       ],
     });
     const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       enums: { [branchEnum.stableId]: branchEnum },
       tables: { [branchChildren.stableId]: branchChildren },
@@ -657,6 +667,7 @@ describe("expandReplaceDependencies", () => {
     ];
 
     const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       procedures: { [mainProcedure.stableId]: mainProcedure },
       views: { [mainView.stableId]: mainView },
@@ -669,6 +680,7 @@ describe("expandReplaceDependencies", () => {
       ],
     });
     const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
       ...baseline,
       procedures: { [branchProcedure.stableId]: branchProcedure },
       views: { [branchView.stableId]: branchView },

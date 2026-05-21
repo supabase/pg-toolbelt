@@ -8,7 +8,7 @@ abstract class BaseCompositeTypeChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "composite_type" = "composite_type";
+  readonly objectType = "composite_type" as const;
 }
 
 export abstract class CreateCompositeTypeChange extends BaseCompositeTypeChange {

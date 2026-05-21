@@ -3,7 +3,22 @@
   "version": "1.0.0-alpha.0",
   "private": true,
   "description": "Drop-in Bun preload plugin that replaces JSC coverage with Istanbul source instrumentation",
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "license": "MIT",
+  "author": "Supabase",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/bun-istanbul-coverage"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -18,25 +33,11 @@
       "default": "./dist/preload.js"
     }
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "src"
-  ],
-  "author": "Supabase",
-  "license": "MIT",
-  "homepage": "https://github.com/supabase/pg-toolbelt",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/supabase/pg-toolbelt.git",
-    "directory": "packages/bun-istanbul-coverage"
-  },
-  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
-    "format-and-lint": "biome check . --error-on-warnings"
+    "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
+    "format-and-lint:fix": "oxfmt . && oxlint --fix"
   },
   "dependencies": {
     "istanbul-lib-instrument": "^6.0.3"

@@ -4,7 +4,7 @@ import type { Server } from "../server.model.ts";
 abstract class BaseServerChange extends BaseChange {
   abstract readonly server: Server;
   abstract readonly scope: "object" | "comment" | "privilege";
-  readonly objectType: "server" = "server";
+  readonly objectType = "server" as const;
 }
 
 export abstract class CreateServerChange extends BaseServerChange {

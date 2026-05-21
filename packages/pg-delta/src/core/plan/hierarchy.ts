@@ -322,7 +322,7 @@ function addClusterChange(cluster: ClusterGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      throw new Error(`Unhandled object type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }
@@ -366,7 +366,7 @@ function addChildChange(schema: SchemaGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = parentType;
-      throw new Error(`Unhandled parent type: ${_exhaustive}`);
+      throw new Error(`Unhandled parent type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 
@@ -416,7 +416,7 @@ function addChildChange(schema: SchemaGroup, change: Change): void {
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      throw new Error(`Unhandled object type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }
@@ -568,7 +568,7 @@ function addSchemaLevelChange(
       break;
     default: {
       const _exhaustive: never = objectType;
-      throw new Error(`Unhandled object type: ${_exhaustive}`);
+      throw new Error(`Unhandled object type: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }

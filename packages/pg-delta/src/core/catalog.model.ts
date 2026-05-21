@@ -182,9 +182,8 @@ let _pg1516Baseline: Catalog | null = null;
 let _pg17Baseline: Catalog | null = null;
 
 async function loadBaselineJson(): Promise<Record<string, unknown>> {
-  const mod = await import(
-    "./fixtures/empty-catalogs/postgres-15-16-baseline.json"
-  );
+  const mod =
+    await import("./fixtures/empty-catalogs/postgres-15-16-baseline.json");
   return mod.default as Record<string, unknown>;
 }
 
@@ -256,10 +255,12 @@ export async function createEmptyCatalog(
 ): Promise<Catalog> {
   if (version >= 170000) {
     const baseline = await getPg17Baseline();
+    // oxlint-disable-next-line typescript/no-misused-spread
     return new Catalog({ ...baseline, version, currentUser });
   }
   if (version >= 150000) {
     const baseline = await getPg1516Baseline();
+    // oxlint-disable-next-line typescript/no-misused-spread
     return new Catalog({ ...baseline, version, currentUser });
   }
 

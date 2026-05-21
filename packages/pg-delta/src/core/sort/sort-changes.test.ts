@@ -144,6 +144,7 @@ function table(
 
 async function catalogWithDepends(depends: PgDepend[]) {
   const base = await createEmptyCatalog(170000, "postgres");
+  // oxlint-disable-next-line typescript/no-misused-spread
   return new Catalog({ ...base, depends });
 }
 

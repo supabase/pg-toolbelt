@@ -9,7 +9,7 @@ abstract class BaseRoleChange extends BaseChange {
     | "membership"
     | "default_privilege"
     | "security_label";
-  readonly objectType: "role" = "role";
+  readonly objectType = "role" as const;
 }
 
 export abstract class CreateRoleChange extends BaseRoleChange {

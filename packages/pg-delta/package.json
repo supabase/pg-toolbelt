@@ -2,6 +2,32 @@
   "name": "@supabase/pg-delta",
   "version": "1.0.0-alpha.25",
   "description": "PostgreSQL migrations made easy",
+  "keywords": [
+    "diff",
+    "migrations",
+    "pg",
+    "pg-delta",
+    "pgdelta",
+    "postgres"
+  ],
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "license": "MIT",
+  "author": "Supabase",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-delta"
+  },
+  "bin": {
+    "pgdelta": "./dist/cli/bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -36,40 +62,12 @@
       "default": "./dist/core/catalog-export/index.js"
     }
   },
-  "bin": {
-    "pgdelta": "./dist/cli/bin/cli.js"
-  },
-  "files": [
-    "dist",
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "pg",
-    "postgres",
-    "migrations",
-    "diff",
-    "pg-delta",
-    "pgdelta"
-  ],
-  "author": "Supabase",
-  "license": "MIT",
-  "homepage": "https://github.com/supabase/pg-toolbelt",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/supabase/pg-toolbelt.git",
-    "directory": "packages/pg-delta"
-  },
-  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
-  "engines": {
-    "node": ">=20.0.0"
-  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "check-types": "tsc --noEmit",
     "docs": "typedoc",
-    "format-and-lint": "biome check . --error-on-warnings",
+    "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
+    "format-and-lint:fix": "oxfmt . && oxlint --fix",
     "knip": "knip",
     "pgdelta": "bun src/cli/bin/cli.ts",
     "sync-base-images": "bun scripts/sync-supabase-base-images.ts",
@@ -77,12 +75,12 @@
     "test:unit": "bun run test src/",
     "test:integration": "bun run test tests/",
     "update-empty-baseline": "bun scripts/update-empty-catalog-baseline.ts",
-    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint --write"
+    "version": "changeset version && bun install --no-frozen-lockfile && bun run format-and-lint:fix"
   },
   "dependencies": {
     "@stricli/core": "^1.2.4",
-    "@ts-safeql/sql-tag": "^0.2.0",
     "@supabase/pg-topo": "^1.0.0-alpha.1",
+    "@ts-safeql/sql-tag": "^0.2.0",
     "chalk": "^5.6.2",
     "debug": "^4.3.7",
     "pg": "^8.17.2",
@@ -103,5 +101,8 @@
     "testcontainers": "^11.10.0",
     "typedoc": "^0.28.17",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
