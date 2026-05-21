@@ -125,6 +125,30 @@ export const supabase: IntegrationDSL = {
               "trigger/function_schema": [...SUPABASE_SYSTEM_SCHEMAS],
             },
           },
+          // Defensive fallback for dynamically-created pgmq queue /
+          // archive tables. `pgmq.q_<name>` and `pgmq.a_<name>` are
+          // materialized by `select pgmq.create('<name>')`, NOT by
+          // `CREATE EXTENSION pgmq`, so emitting a user trigger against
+          // them fails locally with
+          // `relation "pgmq.q_<name>" does not exist`. On a healthy
+          // install the trigger extractor's `extension_table_oids` join
+          // (packages/pg-delta/src/core/objects/trigger/trigger.model.ts)
+          // already drops these via the `pg_depend deptype='e'` row pgmq
+          // records during `pgmq.create()`; this rule covers projects
+          // where that row is missing (older pgmq, manual table
+          // rewrites, `pg_dump`/restore that loses extension deps, ...).
+          // pgmq 1.4.4 — the version Supabase Cloud currently ships —
+          // does not record the dependency at all.
+          {
+            not: {
+              and: [
+                { "trigger/schema": "pgmq" },
+                {
+                  "trigger/table_name": { op: "regex", value: "^[qa]_" },
+                },
+              ],
+            },
+          },
         ],
       },
       // Exclude system objects
