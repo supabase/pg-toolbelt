@@ -255,10 +255,12 @@ export async function createEmptyCatalog(
 ): Promise<Catalog> {
   if (version >= 170000) {
     const baseline = await getPg17Baseline();
+    // oxlint-disable-next-line typescript/no-misused-spread
     return new Catalog({ ...baseline, version, currentUser });
   }
   if (version >= 150000) {
     const baseline = await getPg1516Baseline();
+    // oxlint-disable-next-line typescript/no-misused-spread
     return new Catalog({ ...baseline, version, currentUser });
   }
 

@@ -34,7 +34,7 @@ export const discoverSqlFiles = async (
 
   for (const inputRoot of roots) {
     const resolvedRoot = path.resolve(inputRoot);
-    let rootStats: Awaited<ReturnType<typeof stat>> | undefined;
+    let rootStats;
     try {
       rootStats = await stat(resolvedRoot);
     } catch {

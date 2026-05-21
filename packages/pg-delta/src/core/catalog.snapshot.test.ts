@@ -294,6 +294,7 @@ describe("catalog snapshot serde", () => {
 
     const sourceCatalog = await createEmptyCatalog(160000, "postgres");
     const targetCatalog = await createEmptyCatalog(160000, "postgres");
+    // oxlint-disable-next-line typescript/no-misused-spread
     const source = { ...sourceCatalog };
 
     expect(source instanceof Catalog).toBe(false);
