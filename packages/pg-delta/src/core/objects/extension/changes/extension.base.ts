@@ -4,7 +4,7 @@ import type { Extension } from "../extension.model.ts";
 abstract class BaseExtensionChange extends BaseChange {
   abstract readonly extension: Extension;
   abstract readonly scope: "object" | "comment";
-  readonly objectType: "extension" = "extension";
+  readonly objectType = "extension" as const;
 }
 
 export abstract class CreateExtensionChange extends BaseExtensionChange {

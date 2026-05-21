@@ -1,2 +1,2 @@
 [install]
-trustedDependencies = ["@biomejs/biome", "cpu-features", "esbuild", "oxc-resolver", "protobufjs", "ssh2"]
+trustedDependencies = ["cpu-features", "esbuild", "oxc-resolver", "oxfmt", "oxlint", "protobufjs", "ssh2"]

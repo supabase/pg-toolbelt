@@ -1,7 +1,22 @@
 {
   "name": "@supabase/pg-topo",
   "version": "1.0.0-alpha.1",
+  "homepage": "https://github.com/supabase/pg-toolbelt",
+  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
+  "license": "MIT",
+  "author": "Supabase",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/supabase/pg-toolbelt.git",
+    "directory": "packages/pg-topo"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -11,26 +26,12 @@
       "default": "./dist/index.js"
     }
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "src"
-  ],
-  "author": "Supabase",
-  "license": "MIT",
-  "homepage": "https://github.com/supabase/pg-toolbelt",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/supabase/pg-toolbelt.git",
-    "directory": "packages/pg-topo"
-  },
-  "bugs": "https://github.com/supabase/pg-toolbelt/issues",
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external plpgsql-parser --external @libpg-query/parser --external @pgsql/traverse && tsc --project tsconfig.node.json --emitDeclarationOnly --outDir dist",
     "test": "bun scripts/run-tests.ts test/",
     "check-types": "tsc --noEmit",
-    "format-and-lint": "biome check . --error-on-warnings",
+    "format-and-lint": "oxfmt --check . && oxlint --deny-warnings",
+    "format-and-lint:fix": "oxfmt . && oxlint --fix",
     "knip": "knip"
   },
   "dependencies": {

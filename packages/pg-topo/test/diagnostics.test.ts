@@ -19,7 +19,7 @@ describe("diagnostics", () => {
     expect(duplicateDiagnostics.length).toBeGreaterThan(0);
     expect(ambiguousDependency).toBeDefined();
     expect(
-      `${ambiguousDependency?.details?.candidateObjectKeys ?? ""}`,
+      JSON.stringify(ambiguousDependency?.details?.candidateObjectKeys),
     ).toContain("table:app:users");
   });
 
@@ -35,7 +35,7 @@ describe("diagnostics", () => {
 
     expect(unresolved).toBeDefined();
     expect(unresolved?.details?.candidateObjectKeys).toBeDefined();
-    expect(`${unresolved?.details?.candidateObjectKeys ?? ""}`).toContain(
+    expect(JSON.stringify(unresolved?.details?.candidateObjectKeys)).toContain(
       "table:analytics:accounts",
     );
   });
@@ -51,7 +51,9 @@ describe("diagnostics", () => {
 
     expect(cycleDiagnostic).toBeDefined();
     expect(cycleDiagnostic?.details?.cycleStatements).toBeDefined();
-    const cycleStatements = `${cycleDiagnostic?.details?.cycleStatements ?? ""}`;
+    const cycleStatements = JSON.stringify(
+      cycleDiagnostic?.details?.cycleStatements,
+    );
     expect(cycleStatements).toContain("<input:");
   });
 
@@ -85,7 +87,7 @@ describe("diagnostics", () => {
     const timezoneUnresolved = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("timezone"),
+        JSON.stringify(d.details?.requiredObjectKey).includes("timezone"),
     );
     expect(timezoneUnresolved.length).toBeGreaterThan(0);
 
@@ -101,7 +103,7 @@ describe("diagnostics", () => {
     const timezoneUnresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("timezone"),
+        JSON.stringify(d.details?.requiredObjectKey).includes("timezone"),
     );
     expect(timezoneUnresolvedWith.length).toBe(0);
   });
@@ -115,7 +117,9 @@ describe("diagnostics", () => {
     const unresolvedWithout = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("function:public:max"),
+        JSON.stringify(d.details?.requiredObjectKey).includes(
+          "function:public:max",
+        ),
     );
     expect(unresolvedWithout.length).toBeGreaterThan(0);
 
@@ -132,7 +136,9 @@ describe("diagnostics", () => {
     const unresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("function:public:max"),
+        JSON.stringify(d.details?.requiredObjectKey).includes(
+          "function:public:max",
+        ),
     );
     expect(unresolvedWith.length).toBe(0);
   });
@@ -145,7 +151,9 @@ describe("diagnostics", () => {
     const unresolvedWithout = withoutProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("json_build_object"),
+        JSON.stringify(d.details?.requiredObjectKey).includes(
+          "json_build_object",
+        ),
     );
     expect(unresolvedWithout.length).toBeGreaterThan(0);
 
@@ -162,7 +170,9 @@ describe("diagnostics", () => {
     const unresolvedWith = withProviders.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes("json_build_object"),
+        JSON.stringify(d.details?.requiredObjectKey).includes(
+          "json_build_object",
+        ),
     );
     expect(unresolvedWith.length).toBe(0);
   });
@@ -184,7 +194,7 @@ describe("diagnostics", () => {
     const unresolved = withMismatchedProvider.diagnostics.filter(
       (d) =>
         d.code === "UNRESOLVED_DEPENDENCY" &&
-        `${d.details?.requiredObjectKey ?? ""}`.includes(
+        JSON.stringify(d.details?.requiredObjectKey).includes(
           "function:extensions:uuid_generate_v4",
         ),
     );
@@ -222,10 +232,10 @@ describe("diagnostics", () => {
     const unresolved = result.diagnostics.filter(
       (diagnostic) =>
         diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
-        (String(diagnostic.details?.requiredObjectKey ?? "").includes(
+        (JSON.stringify(diagnostic.details?.requiredObjectKey).includes(
           "initialise_auth_users_email",
         ) ||
-          String(diagnostic.details?.requiredObjectKey ?? "").includes(
+          JSON.stringify(diagnostic.details?.requiredObjectKey).includes(
             "users_select_policy",
           )),
     );

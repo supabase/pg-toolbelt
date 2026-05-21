@@ -8,7 +8,7 @@ abstract class BaseProcedureChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "procedure" = "procedure";
+  readonly objectType = "procedure" as const;
 }
 
 export abstract class CreateProcedureChange extends BaseProcedureChange {

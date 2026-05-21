@@ -8,7 +8,7 @@ abstract class BaseAggregateChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "aggregate" = "aggregate";
+  readonly objectType = "aggregate" as const;
 }
 
 export abstract class CreateAggregateChange extends BaseAggregateChange {

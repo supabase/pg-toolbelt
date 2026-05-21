@@ -4,7 +4,7 @@ import type { Trigger } from "../trigger.model.ts";
 abstract class BaseTriggerChange extends BaseChange {
   abstract readonly trigger: Trigger;
   abstract readonly scope: "object" | "comment";
-  readonly objectType: "trigger" = "trigger";
+  readonly objectType = "trigger" as const;
 }
 
 export abstract class CreateTriggerChange extends BaseTriggerChange {

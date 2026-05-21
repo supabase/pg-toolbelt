@@ -8,7 +8,7 @@ abstract class BaseEnumChange extends BaseChange {
     | "comment"
     | "privilege"
     | "security_label";
-  readonly objectType: "enum" = "enum";
+  readonly objectType = "enum" as const;
 }
 
 export abstract class CreateEnumChange extends BaseEnumChange {

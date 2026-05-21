@@ -4,7 +4,7 @@ import type { Language } from "../language.model.ts";
 abstract class BaseLanguageChange extends BaseChange {
   abstract readonly language: Language;
   abstract readonly scope: "object" | "comment" | "privilege";
-  readonly objectType: "language" = "language";
+  readonly objectType = "language" as const;
 }
 
 export abstract class CreateLanguageChange extends BaseLanguageChange {

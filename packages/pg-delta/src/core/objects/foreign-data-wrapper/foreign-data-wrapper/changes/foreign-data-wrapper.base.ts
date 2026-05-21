@@ -4,7 +4,7 @@ import type { ForeignDataWrapper } from "../foreign-data-wrapper.model.ts";
 abstract class BaseForeignDataWrapperChange extends BaseChange {
   abstract readonly foreignDataWrapper: ForeignDataWrapper;
   abstract readonly scope: "object" | "comment" | "privilege";
-  readonly objectType: "foreign_data_wrapper" = "foreign_data_wrapper";
+  readonly objectType = "foreign_data_wrapper" as const;
 }
 
 export abstract class CreateForeignDataWrapperChange extends BaseForeignDataWrapperChange {

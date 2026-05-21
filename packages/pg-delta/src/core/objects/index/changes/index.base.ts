@@ -4,7 +4,7 @@ import type { Index } from "../index.model.ts";
 abstract class BaseIndexChange extends BaseChange {
   abstract readonly index: Index;
   abstract readonly scope: "object" | "comment";
-  readonly objectType: "index" = "index";
+  readonly objectType = "index" as const;
 }
 
 export abstract class CreateIndexChange extends BaseIndexChange {

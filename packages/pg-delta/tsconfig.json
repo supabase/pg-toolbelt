@@ -4,7 +4,6 @@
     "@tsconfig/node-ts/tsconfig.json"
   ],
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
       "@supabase/pg-topo": ["../pg-topo/src/index.ts"]
     }

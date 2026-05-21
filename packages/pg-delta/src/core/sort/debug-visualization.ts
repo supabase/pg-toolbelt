@@ -233,7 +233,7 @@ export function printDebugGraph(
       "\n==== Mermaid (cycle detected) ====\n%s\n==== end ====",
       mermaidDiagram,
     );
-  } catch (_error) {
+  } catch {
     // ignore debug printing errors
   }
 }

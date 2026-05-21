@@ -10,7 +10,7 @@ Topological sorting for SQL DDL statements. Parses SQL strings, extracts object 
 bun test                    # All tests (Docker required for validation)
 bun run build               # Bundle with bun + emit declarations with tsc
 bun run check-types         # Type check without emitting
-bun run format-and-lint     # Biome check
+bun run format-and-lint     # oxfmt + oxlint check
 ```
 
 ## Architecture

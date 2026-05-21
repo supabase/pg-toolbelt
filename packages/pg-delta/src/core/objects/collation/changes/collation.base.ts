@@ -4,7 +4,7 @@ import type { Collation } from "../collation.model.ts";
 abstract class BaseCollationChange extends BaseChange {
   abstract readonly collation: Collation;
   abstract readonly scope: "object" | "comment";
-  readonly objectType: "collation" = "collation";
+  readonly objectType = "collation" as const;
 }
 
 export abstract class CreateCollationChange extends BaseCollationChange {

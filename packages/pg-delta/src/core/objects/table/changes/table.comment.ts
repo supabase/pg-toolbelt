@@ -179,10 +179,7 @@ export class CreateCommentOnConstraint extends CreateTableChange {
   public readonly constraint: TableConstraintProps;
   public readonly scope = "comment" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
@@ -228,10 +225,7 @@ export class DropCommentOnConstraint extends DropTableChange {
   public readonly constraint: TableConstraintProps;
   public readonly scope = "comment" as const;
 
-  constructor(props: {
-    table: Table;
-    constraint: TableConstraintProps;
-  }) {
+  constructor(props: { table: Table; constraint: TableConstraintProps }) {
     super();
     this.table = props.table;
     this.constraint = props.constraint;
