@@ -1,6 +1,6 @@
 {
   "name": "@supabase/pg-delta",
-  "version": "0.0.0-local.1779379101",
+  "version": "1.0.0-alpha.25",
   "description": "PostgreSQL migrations made easy",
   "type": "module",
   "sideEffects": false,
