@@ -125,6 +125,30 @@ export const supabase: IntegrationDSL = {
               "trigger/function_schema": [...SUPABASE_SYSTEM_SCHEMAS],
             },
           },
+          // Defensive fallback for dynamically-created pgmq queue /
+          // archive tables. `pgmq.q_<name>` and `pgmq.a_<name>` are
+          // materialized by `select pgmq.create('<name>')`, NOT by
+          // `CREATE EXTENSION pgmq`, so emitting a user trigger against
+          // them fails locally with
+          // `relation "pgmq.q_<name>" does not exist`. On a healthy
+          // install the trigger extractor's `extension_table_oids` join
+          // (packages/pg-delta/src/core/objects/trigger/trigger.model.ts)
+          // already drops these via the `pg_depend deptype='e'` row pgmq
+          // records during `pgmq.create()`; this rule covers projects
+          // where that row is missing (older pgmq, manual table
+          // rewrites, `pg_dump`/restore that loses extension deps, ...).
+          // pgmq 1.4.4 — the version Supabase Cloud currently ships —
+          // does not record the dependency at all.
+          {
+            not: {
+              and: [
+                { "trigger/schema": "pgmq" },
+                {
+                  "trigger/table_name": { op: "regex", value: "^[qa]_" },
+                },
+              ],
+            },
+          },
         ],
       },
       // Exclude system objects
@@ -207,6 +231,58 @@ export const supabase: IntegrationDSL = {
                     },
                     {
                       "foreign_data_wrapper/validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            // Platform-managed Wasm FDW dependents (CLI-1470 follow-up).
+            // Suppressing the wrapper DDL alone leaves `CREATE SERVER` /
+            // `CREATE FOREIGN TABLE` / `CREATE USER MAPPING` that reference
+            // a wrapper local Docker never provisions (`clerk_oauth`, etc.).
+            // Match on the parent wrapper's handler/validator (joined at
+            // extract time). `postgres_fdw` often installs into `extensions`,
+            // so server privilege changes are excluded here — server
+            // GRANT/REVOKE does not require superuser and remains
+            // user-declarative state (see CLI-1469 companion test).
+            {
+              and: [
+                { objectType: "server" },
+                { not: { scope: "privilege" } },
+                {
+                  or: [
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_validator": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              and: [
+                { objectType: ["foreign_table", "user_mapping"] },
+                {
+                  or: [
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_handler": {
+                        op: "regex",
+                        value: "^extensions\\.",
+                      },
+                    },
+                    {
+                      "{server,foreign_table,user_mapping}/wrapper_validator": {
                         op: "regex",
                         value: "^extensions\\.",
                       },

@@ -176,6 +176,53 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
     120_000,
   );
 
+  // Follow-up to CLI-1470: suppress SERVER / FOREIGN TABLE / USER MAPPING
+  // that depend on Wasm FDWs whose handler lives in `extensions.*`. Without
+  // this, `db pull` emits `CREATE SERVER ... FOREIGN DATA WRAPPER clerk_oauth`
+  // while the wrapper DDL is suppressed, and local `supabase db reset` fails
+  // with `foreign-data wrapper "clerk_oauth" does not exist`.
+  test(
+    "suppresses Wasm FDW server, foreign table, and user mapping dependents",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        CREATE FOREIGN DATA WRAPPER wasm_lookalike
+          HANDLER extensions.postgres_fdw_handler
+          VALIDATOR extensions.postgres_fdw_validator;
+        CREATE SERVER wasm_server FOREIGN DATA WRAPPER wasm_lookalike;
+        CREATE SCHEMA wasm_fdw_test;
+        CREATE FOREIGN TABLE wasm_fdw_test.remote_row (id integer)
+          SERVER wasm_server
+          OPTIONS (schema_name 'public', table_name 'remote_row');
+        CREATE USER MAPPING FOR postgres SERVER wasm_server
+          OPTIONS (user 'remote', password 'secret');
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const wasmDependentStatements = statements.filter(
+        (stmt) =>
+          /\bCREATE\s+SERVER\s+wasm_server\b/i.test(stmt) ||
+          /\bCREATE\s+FOREIGN\s+TABLE\b[^;]*\bwasm_fdw_test\.remote_row\b/i.test(
+            stmt,
+          ) ||
+          /\bCREATE\s+USER\s+MAPPING\b[^;]*\bSERVER\s+wasm_server\b/i.test(
+            stmt,
+          ),
+      );
+      expect(wasmDependentStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
+
   // Regression for CLI-1469. `GRANT`/`REVOKE ... ON FOREIGN DATA WRAPPER`
   // requires superuser. On Supabase Cloud `postgres` has the elevated
   // rights; the local Docker image does not, so `supabase db reset`
@@ -256,6 +303,60 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
       expect(statements).toContain(
         "GRANT ALL ON SERVER user_server TO server_user",
       );
+    }),
+    120_000,
+  );
+
+  // Regression for the pgmq-1.4.4 cloud projects (real-world: this
+  // bug fired during `supabase db pull --diff-engine pg-delta` against
+  // a project with several pgmq queues, where every `pgmq.q_*` /
+  // `pgmq.a_*` table was missing the `pg_depend deptype='e'` link to
+  // the pgmq extension). The trigger extractor's principled filter
+  // (`extension_table_oids` in trigger.model.ts) drops user triggers
+  // on tables that carry that link, so on a healthy pgmq install the
+  // bug never surfaces; we simulate the stale-cloud state by deleting
+  // the link directly, which forces the same code path the cloud
+  // project exercises and pins the supabase-filter-level fallback.
+  test(
+    "suppresses user triggers on pgmq queue tables when pg_depend link is missing",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      await db.branch.query(dedent`
+        CREATE EXTENSION pgmq;
+        SELECT pgmq.create('processed_milestones_queue');
+
+        DELETE FROM pg_depend
+         WHERE objid = 'pgmq.q_processed_milestones_queue'::regclass
+           AND refclassid = 'pg_extension'::regclass
+           AND deptype = 'e';
+        DELETE FROM pg_depend
+         WHERE objid = 'pgmq.a_processed_milestones_queue'::regclass
+           AND refclassid = 'pg_extension'::regclass
+           AND deptype = 'e';
+
+        CREATE FUNCTION public.move_data_from_queue() RETURNS trigger
+          LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+
+        CREATE TRIGGER after_insert_processed_milestones_queue
+          AFTER INSERT ON pgmq.q_processed_milestones_queue
+          FOR EACH ROW EXECUTE FUNCTION public.move_data_from_queue();
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const queueTriggerStatements = statements.filter((stmt) =>
+        /\bCREATE\s+TRIGGER\b[^;]*\bON\s+pgmq\.q_processed_milestones_queue\b/i.test(
+          stmt,
+        ),
+      );
+      expect(queueTriggerStatements).toStrictEqual([]);
     }),
     120_000,
   );

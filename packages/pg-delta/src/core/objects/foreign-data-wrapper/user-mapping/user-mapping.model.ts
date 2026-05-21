@@ -18,6 +18,9 @@ const userMappingPropsSchema = z.object({
   user: z.string(),
   server: z.string(),
   options: z.array(z.string()).nullable(),
+  // Parent FDW handler/validator — filter metadata only, not in dataFields.
+  wrapper_handler: z.string().nullable().optional(),
+  wrapper_validator: z.string().nullable().optional(),
 });
 
 export type UserMappingProps = z.infer<typeof userMappingPropsSchema>;
@@ -26,6 +29,8 @@ export class UserMapping extends BasePgModel {
   public readonly user: UserMappingProps["user"];
   public readonly server: UserMappingProps["server"];
   public readonly options: UserMappingProps["options"];
+  public readonly wrapper_handler: UserMappingProps["wrapper_handler"];
+  public readonly wrapper_validator: UserMappingProps["wrapper_validator"];
 
   constructor(props: UserMappingProps) {
     super();
@@ -36,6 +41,8 @@ export class UserMapping extends BasePgModel {
 
     // Data fields
     this.options = props.options;
+    this.wrapper_handler = props.wrapper_handler ?? null;
+    this.wrapper_validator = props.wrapper_validator ?? null;
   }
 
   get stableId(): `userMapping:${string}:${string}` {
@@ -74,11 +81,21 @@ export async function extractUserMappings(pool: Pool): Promise<UserMapping[]> {
           else um.umuser::regrole::text
         end as user,
         quote_ident(srv.srvname) as server,
-        coalesce(um.umoptions, array[]::text[]) as options
+        coalesce(um.umoptions, array[]::text[]) as options,
+        case
+          when fdw.fdwhandler = 0 then null
+          else p_handler.pronamespace::regnamespace::text || '.' || quote_ident(p_handler.proname)
+        end as wrapper_handler,
+        case
+          when fdw.fdwvalidator = 0 then null
+          else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname)
+        end as wrapper_validator
       from
         pg_catalog.pg_user_mapping um
         inner join pg_catalog.pg_foreign_server srv on srv.oid = um.umserver
         inner join pg_catalog.pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
+        left join pg_catalog.pg_proc p_handler on p_handler.oid = fdw.fdwhandler
+        left join pg_catalog.pg_proc p_validator on p_validator.oid = fdw.fdwvalidator
       where
         not fdw.fdwname like any(array['pg\\_%'])
       order by

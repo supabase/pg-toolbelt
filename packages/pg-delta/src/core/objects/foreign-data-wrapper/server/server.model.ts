@@ -26,6 +26,9 @@ const serverPropsSchema = z.object({
   options: z.array(z.string()).nullable(),
   comment: z.string().nullable(),
   privileges: z.array(privilegePropsSchema),
+  // Parent FDW handler/validator — filter metadata only, not in dataFields.
+  wrapper_handler: z.string().nullable().optional(),
+  wrapper_validator: z.string().nullable().optional(),
 });
 
 type ServerPrivilegeProps = PrivilegeProps;
@@ -40,6 +43,8 @@ export class Server extends BasePgModel {
   public readonly options: ServerProps["options"];
   public readonly comment: ServerProps["comment"];
   public readonly privileges: ServerPrivilegeProps[];
+  public readonly wrapper_handler: ServerProps["wrapper_handler"];
+  public readonly wrapper_validator: ServerProps["wrapper_validator"];
 
   constructor(props: ServerProps) {
     super();
@@ -55,6 +60,8 @@ export class Server extends BasePgModel {
     this.options = props.options;
     this.comment = props.comment;
     this.privileges = props.privileges;
+    this.wrapper_handler = props.wrapper_handler ?? null;
+    this.wrapper_validator = props.wrapper_validator ?? null;
   }
 
   get stableId(): `server:${string}` {
@@ -112,10 +119,20 @@ export async function extractServers(pool: Pool): Promise<Server[]> {
             )
             from lateral aclexplode(srv.srvacl) as x(grantor, grantee, privilege_type, is_grantable)
           ), '[]'
-        ) as privileges
+        ) as privileges,
+        case
+          when fdw.fdwhandler = 0 then null
+          else p_handler.pronamespace::regnamespace::text || '.' || quote_ident(p_handler.proname)
+        end as wrapper_handler,
+        case
+          when fdw.fdwvalidator = 0 then null
+          else p_validator.pronamespace::regnamespace::text || '.' || quote_ident(p_validator.proname)
+        end as wrapper_validator
       from
         pg_catalog.pg_foreign_server srv
         inner join pg_catalog.pg_foreign_data_wrapper fdw on fdw.oid = srv.srvfdw
+        left join pg_catalog.pg_proc p_handler on p_handler.oid = fdw.fdwhandler
+        left join pg_catalog.pg_proc p_validator on p_validator.oid = fdw.fdwvalidator
       where
         not fdw.fdwname like any(array['pg\\_%'])
       order by

@@ -14,6 +14,8 @@
     "docs:pg-delta": "bun run --filter '@supabase/pg-delta' docs",
     "test:pg-delta": "bun run --filter '@supabase/pg-delta' test",
     "test:pg-topo": "bun run --filter '@supabase/pg-topo' test",
+    "verdaccio:start": "verdaccio --config ./verdaccio/config.yaml",
+    "pg-delta:publish-local": "bun scripts/verdaccio-publish-pg-delta.ts",
     "version": "changeset version"
   },
   "devDependencies": {
@@ -23,7 +25,8 @@
     "nyc": "^18.0.0",
     "oxfmt": "0.51.0",
     "oxlint": "1.66.0",
-    "oxlint-tsgolint": "0.23.0"
+    "oxlint-tsgolint": "0.23.0",
+    "verdaccio": "^6.0.5"
   },
   "overrides": {
     "cpu-features": "file:./.stubs/cpu-features"
