@@ -181,3 +181,4 @@ docs/api-reference/
 .verdaccio/storage/
 .verdaccio/htpasswd
 .verdaccio/plugins/
+verdaccio/.verdaccio/
