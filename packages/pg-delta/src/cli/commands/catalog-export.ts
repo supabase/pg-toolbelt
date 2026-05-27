@@ -4,11 +4,13 @@
 
 import { writeFile } from "node:fs/promises";
 import { buildCommand, type CommandContext } from "@stricli/core";
+import { filterCatalog } from "../../core/catalog.filter.ts";
 import { extractCatalog } from "../../core/catalog.model.ts";
 import {
   serializeCatalog,
   stringifyCatalogSnapshot,
 } from "../../core/catalog.snapshot.ts";
+import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import { createManagedPool } from "../../core/postgres-config.ts";
 
 export const catalogExportCommand = buildCommand({
@@ -30,6 +32,21 @@ export const catalogExportCommand = buildCommand({
         parse: String,
         optional: true,
       },
+      filter: {
+        kind: "parsed",
+        brief:
+          'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
+        parse: (value: string): FilterDSL => {
+          try {
+            return JSON.parse(value) as FilterDSL;
+          } catch (error) {
+            throw new Error(
+              `Invalid filter JSON: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+        optional: true,
+      },
     },
     aliases: {
       t: "target",
@@ -48,6 +65,10 @@ Use cases:
   - Snapshot template1 for use as an empty-database baseline
   - Snapshot a production database to generate revert migrations
   - Snapshot any state for reproducible offline diffs
+
+Pass --filter to scope the snapshot to a subset of the catalog (same
+Filter DSL accepted by plan/sync). Useful when committing a baseline
+snapshot to a repo and only one schema's drift is interesting.
     `.trim(),
   },
   async func(
@@ -56,6 +77,7 @@ Use cases:
       target: string;
       output: string;
       role?: string;
+      filter?: FilterDSL;
     },
   ) {
     const { pool, close } = await createManagedPool(flags.target, {
@@ -65,7 +87,10 @@ Use cases:
 
     try {
       const catalog = await extractCatalog(pool);
-      const snapshot = serializeCatalog(catalog);
+      const scoped = flags.filter
+        ? await filterCatalog(catalog, flags.filter)
+        : catalog;
+      const snapshot = serializeCatalog(scoped);
       const json = stringifyCatalogSnapshot(snapshot);
       await writeFile(flags.output, json, "utf-8");
       this.process.stdout.write(
