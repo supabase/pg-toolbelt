@@ -75,7 +75,7 @@ describe.concurrent("table.diff", () => {
     expect(dropped[0]).toBeInstanceOf(DropTable);
   });
 
-  test("created NOT VALID CHECK emits AddConstraint + ValidateConstraint", () => {
+  test("created NOT VALID CHECK emits AddConstraint only (no Validate)", () => {
     const main = new Table({
       ...base,
       name: "t_nv",
@@ -133,7 +133,7 @@ describe.concurrent("table.diff", () => {
           match_type: null,
           check_expression: "a > 0",
           owner: "o1",
-          definition: "CHECK (a > 0)",
+          definition: "CHECK (a > 0) NOT VALID",
         },
       ],
     });
@@ -142,11 +142,11 @@ describe.concurrent("table.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
-      true,
-    );
+    const add = changes.find((c) => c instanceof AlterTableAddConstraint);
+    expect(add).toBeInstanceOf(AlterTableAddConstraint);
+    expect(add?.serialize()).toContain("NOT VALID");
     expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
-      true,
+      false,
     );
   });
 
@@ -363,7 +363,7 @@ describe.concurrent("table.diff", () => {
       true,
     );
     expect(created.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
-      true,
+      false,
     );
 
     const dropped = diffTables(
@@ -503,7 +503,7 @@ describe.concurrent("table.diff", () => {
     );
   });
 
-  test("altered foreign key properties triggers drop+add and validate when not validated", () => {
+  test("altered foreign key to NOT VALID triggers drop+add without validate", () => {
     const tMain = new Table({
       ...base,
       name: "t_fk",
@@ -568,6 +568,7 @@ describe.concurrent("table.diff", () => {
           ...(tMain.constraints[0] as (typeof tMain.constraints)[number]),
           on_delete: "c",
           validated: false,
+          definition: "FOREIGN KEY (a) REFERENCES other(a) NOT VALID",
         },
       ],
     });
@@ -609,7 +610,7 @@ describe.concurrent("table.diff", () => {
       true,
     );
     expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
-      true,
+      false,
     );
   });
 

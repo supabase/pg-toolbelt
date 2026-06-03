@@ -8,10 +8,7 @@ import { CreateMaterializedView } from "./objects/materialized-view/changes/mate
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
-import {
-  AlterTableAddConstraint,
-  AlterTableValidateConstraint,
-} from "./objects/table/changes/table.alter.ts";
+import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -455,14 +452,6 @@ function buildReplaceChanges(
                       constraint,
                     }),
                   ];
-                  if (!constraint.validated) {
-                    items.push(
-                      new AlterTableValidateConstraint({
-                        table: resolved.branch,
-                        constraint,
-                      }),
-                    );
-                  }
                   if (
                     constraint.comment !== null &&
                     constraint.comment !== undefined

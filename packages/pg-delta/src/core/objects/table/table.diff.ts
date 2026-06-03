@@ -31,7 +31,6 @@ import {
   AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
   AlterTableSetUnlogged,
-  AlterTableValidateConstraint,
 } from "./changes/table.alter.ts";
 import {
   CreateCommentOnColumn,
@@ -86,14 +85,6 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
           constraint: c,
         }),
       );
-      if (!c.validated) {
-        changes.push(
-          new AlterTableValidateConstraint({
-            table: branchTable,
-            constraint: c,
-          }),
-        );
-      }
       // Add comment for newly created constraint
       if (c.comment !== null) {
         changes.push(
@@ -161,14 +152,6 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
           constraint: branchC,
         }),
       );
-      if (!branchC.validated) {
-        changes.push(
-          new AlterTableValidateConstraint({
-            table: branchTable,
-            constraint: branchC,
-          }),
-        );
-      }
       // Ensure constraint comment is applied after re-creation
       if (branchC.comment !== null) {
         changes.push(
