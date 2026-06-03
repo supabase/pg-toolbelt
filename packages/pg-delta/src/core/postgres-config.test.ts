@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   connectWithRetry,
+  connectWithTimeout,
   isRetryableConnectError,
   poolConfigFromUrl,
 } from "./postgres-config.ts";
@@ -238,6 +239,43 @@ describe("connectWithRetry", () => {
       }),
     ).rejects.toBe(err);
     expect(attempts).toBe(1);
+  });
+});
+
+describe("connectWithTimeout", () => {
+  test("clears the timer when connect resolves before it fires", async () => {
+    const clearSpy = spyOn(globalThis, "clearTimeout");
+    try {
+      const sentinel = { client: true };
+      const result = await connectWithTimeout(
+        () => Promise.resolve(sentinel),
+        60_000,
+        "source",
+      );
+      expect(result).toBe(sentinel);
+      expect(clearSpy).toHaveBeenCalled();
+    } finally {
+      clearSpy.mockRestore();
+    }
+  });
+
+  test("rejects with a timeout error when connect is too slow", async () => {
+    await expect(
+      connectWithTimeout(() => new Promise<never>(() => {}), 5, "target"),
+    ).rejects.toThrow(/timed out after 5ms/);
+  });
+
+  test("clears the timer even when connect rejects", async () => {
+    const clearSpy = spyOn(globalThis, "clearTimeout");
+    try {
+      const boom = new Error("connect ECONNREFUSED");
+      await expect(
+        connectWithTimeout(() => Promise.reject(boom), 60_000, "target"),
+      ).rejects.toBe(boom);
+      expect(clearSpy).toHaveBeenCalled();
+    } finally {
+      clearSpy.mockRestore();
+    }
   });
 });
 

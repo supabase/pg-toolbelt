@@ -210,6 +210,37 @@ export async function connectWithRetry<T>(opts: {
 }
 
 /**
+ * Race `connect()` against a `timeoutMs` rejection and clear the timer when
+ * either side wins. If the timer is left running after a fast connect, the
+ * pending `setTimeout` keeps the event loop alive and the process hangs for
+ * the rest of `timeoutMs`.
+ */
+export function connectWithTimeout<T>(
+  connect: () => Promise<T>,
+  timeoutMs: number,
+  label: "source" | "target",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    connect(),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
+                `The server may require SSL, use an invalid certificate, or be unreachable.`,
+            ),
+          ),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+/**
  * Options for creating a Pool with event listeners.
  */
 interface CreatePoolOptions extends Partial<PoolConfig> {
@@ -412,22 +443,7 @@ export async function createManagedPool(
   const timeoutMs = DEFAULT_CONNECT_TIMEOUT_MS;
   try {
     const client = await connectWithRetry({
-      connect: () =>
-        Promise.race([
-          pool.connect(),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    `Connection to ${label} database timed out after ${timeoutMs}ms. ` +
-                      `The server may require SSL, use an invalid certificate, or be unreachable.`,
-                  ),
-                ),
-              timeoutMs,
-            ),
-          ),
-        ]),
+      connect: () => connectWithTimeout(() => pool.connect(), timeoutMs, label),
     });
     client.release();
   } catch (err) {
