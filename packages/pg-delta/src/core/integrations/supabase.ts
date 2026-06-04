@@ -209,15 +209,25 @@ export const supabase: IntegrationDSL = {
               ],
             },
             // Platform-managed foreign data wrappers — Wasm-based FDWs
-            // (e.g. `clerk`, `clerk_oauth`) whose handler/validator live in
-            // the `extensions` schema. `CREATE FOREIGN DATA WRAPPER`
-            // requires superuser, and Supabase Cloud provisions these via
-            // `supabase_admin` at project creation; replaying the DDL
-            // against a local image fails because the local environment
-            // has no equivalent pre-step. We can't rely on the FDW owner
-            // alone — after a dump/restore the owner is often rewritten
-            // away from `supabase_admin` — so match on the function
-            // reference instead.
+            // (e.g. `clerk`, `clerk_oauth`) provisioned via the `wrappers`
+            // extension. Supabase Cloud creates these as
+            // `CREATE FOREIGN DATA WRAPPER clerk_oauth HANDLER
+            // extensions.wasm_fdw_handler VALIDATOR
+            // extensions.wasm_fdw_validator` at project creation; replaying
+            // the DDL against a local image fails because the local
+            // environment has no equivalent pre-step. We can't rely on the
+            // FDW owner alone — after a dump/restore the owner is often
+            // rewritten away from `supabase_admin` — so match on the shared
+            // Wasm handler/validator (`extensions.wasm_fdw_handler` /
+            // `extensions.wasm_fdw_validator`) instead.
+            //
+            // Matching the bare `extensions.*` namespace would be too broad:
+            // contrib FDWs like `postgres_fdw` also install their
+            // handler/validator into `extensions` on Supabase, and those ARE
+            // available in the local image, so a user-created `postgres_fdw`
+            // wrapper (and its servers/foreign tables/user mappings) must
+            // still roundtrip. Keying on the `wasm_fdw_*` function names
+            // targets only the platform Wasm wrappers.
             {
               and: [
                 { objectType: "foreign_data_wrapper" },
@@ -226,13 +236,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "foreign_data_wrapper/handler": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_handler",
                       },
                     },
                     {
                       "foreign_data_wrapper/validator": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_validator",
                       },
                     },
                   ],
@@ -243,10 +253,15 @@ export const supabase: IntegrationDSL = {
             // Suppressing the wrapper DDL alone leaves `CREATE SERVER` /
             // `CREATE FOREIGN TABLE` / `CREATE USER MAPPING` that reference
             // a wrapper local Docker never provisions (`clerk_oauth`, etc.).
-            // Match on the parent wrapper's handler/validator (joined at
-            // extract time). `postgres_fdw` often installs into `extensions`,
-            // so server privilege changes are excluded here — server
-            // GRANT/REVOKE does not require superuser and remains
+            // Match on the parent wrapper's Wasm handler/validator
+            // (`extensions.wasm_fdw_handler` / `extensions.wasm_fdw_validator`,
+            // joined at extract time) — the same discriminator used for the
+            // wrapper itself above. A bare `extensions.*` match would also
+            // drop user-created `postgres_fdw` servers/foreign tables/user
+            // mappings (whose handler installs into `extensions` but which
+            // the local image CAN provision), so keep it scoped to the Wasm
+            // function names. Server _privilege_ scope is excluded here —
+            // `GRANT/REVOKE ON SERVER` does not require superuser and remains
             // user-declarative state (see CLI-1469 companion test).
             {
               and: [
@@ -257,13 +272,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "{server,foreign_table,user_mapping}/wrapper_handler": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_handler",
                       },
                     },
                     {
                       "{server,foreign_table,user_mapping}/wrapper_validator": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_validator",
                       },
                     },
                   ],
@@ -278,13 +293,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "{server,foreign_table,user_mapping}/wrapper_handler": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_handler",
                       },
                     },
                     {
                       "{server,foreign_table,user_mapping}/wrapper_validator": {
                         op: "regex",
-                        value: "^extensions\\.",
+                        value: "^extensions\\.wasm_fdw_validator",
                       },
                     },
                   ],
