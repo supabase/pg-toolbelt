@@ -31,6 +31,7 @@ import {
   AlterTableSetReplicaIdentity,
   AlterTableSetStorageParams,
   AlterTableSetUnlogged,
+  AlterTableValidateConstraint,
 } from "./changes/table.alter.ts";
 import {
   CreateCommentOnColumn,
@@ -111,7 +112,7 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
     }
   }
 
-  // Altered constraints -> drop + add
+  // Altered constraints -> drop + add (or VALIDATE-only shortcut)
   for (const [name, mainC] of mainByName) {
     const branchC = branchByName.get(name);
     if (!branchC) continue;
@@ -121,24 +122,66 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
       continue;
     }
 
+    const fieldsEqualExceptValidated =
+      mainC.constraint_type === branchC.constraint_type &&
+      mainC.deferrable === branchC.deferrable &&
+      mainC.initially_deferred === branchC.initially_deferred &&
+      mainC.is_local === branchC.is_local &&
+      mainC.no_inherit === branchC.no_inherit &&
+      mainC.is_temporal === branchC.is_temporal &&
+      JSON.stringify(mainC.key_columns) ===
+        JSON.stringify(branchC.key_columns) &&
+      JSON.stringify(mainC.foreign_key_columns) ===
+        JSON.stringify(branchC.foreign_key_columns) &&
+      mainC.foreign_key_table === branchC.foreign_key_table &&
+      mainC.foreign_key_schema === branchC.foreign_key_schema &&
+      mainC.on_update === branchC.on_update &&
+      mainC.on_delete === branchC.on_delete &&
+      mainC.match_type === branchC.match_type &&
+      mainC.check_expression === branchC.check_expression;
+
+    // Safe-migration shortcut: when the only difference is `validated`
+    // flipping from false to true, emit a single `ALTER TABLE ... VALIDATE
+    // CONSTRAINT` instead of drop+add. VALIDATE CONSTRAINT only takes
+    // SHARE UPDATE EXCLUSIVE (concurrent reads/writes proceed), whereas
+    // dropping and re-adding takes ACCESS EXCLUSIVE for the entire scan.
+    // Postgres has no reverse command, so `true -> false` must still go
+    // through drop+add below.
+    if (
+      fieldsEqualExceptValidated &&
+      mainC.validated === false &&
+      branchC.validated === true
+    ) {
+      changes.push(
+        new AlterTableValidateConstraint({
+          table: branchTable,
+          constraint: branchC,
+        }),
+      );
+      // VALIDATE preserves the constraint OID, so its comment is preserved
+      // too. Only emit a comment change if it actually differs.
+      if (mainC.comment !== branchC.comment) {
+        if (branchC.comment === null) {
+          changes.push(
+            new DropCommentOnConstraint({
+              table: mainTable,
+              constraint: mainC,
+            }),
+          );
+        } else {
+          changes.push(
+            new CreateCommentOnConstraint({
+              table: branchTable,
+              constraint: branchC,
+            }),
+          );
+        }
+      }
+      continue;
+    }
+
     const changed =
-      mainC.constraint_type !== branchC.constraint_type ||
-      mainC.deferrable !== branchC.deferrable ||
-      mainC.initially_deferred !== branchC.initially_deferred ||
-      mainC.validated !== branchC.validated ||
-      mainC.is_local !== branchC.is_local ||
-      mainC.no_inherit !== branchC.no_inherit ||
-      mainC.is_temporal !== branchC.is_temporal ||
-      JSON.stringify(mainC.key_columns) !==
-        JSON.stringify(branchC.key_columns) ||
-      JSON.stringify(mainC.foreign_key_columns) !==
-        JSON.stringify(branchC.foreign_key_columns) ||
-      mainC.foreign_key_table !== branchC.foreign_key_table ||
-      mainC.foreign_key_schema !== branchC.foreign_key_schema ||
-      mainC.on_update !== branchC.on_update ||
-      mainC.on_delete !== branchC.on_delete ||
-      mainC.match_type !== branchC.match_type ||
-      mainC.check_expression !== branchC.check_expression;
+      mainC.validated !== branchC.validated || !fieldsEqualExceptValidated;
     if (changed) {
       changes.push(
         new AlterTableDropConstraint({
