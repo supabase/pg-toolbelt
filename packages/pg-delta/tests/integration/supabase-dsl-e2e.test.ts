@@ -177,25 +177,48 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
   );
 
   // Follow-up to CLI-1470: suppress SERVER / FOREIGN TABLE / USER MAPPING
-  // that depend on Wasm FDWs whose handler lives in `extensions.*`. Without
-  // this, `db pull` emits `CREATE SERVER ... FOREIGN DATA WRAPPER clerk_oauth`
-  // while the wrapper DDL is suppressed, and local `supabase db reset` fails
-  // with `foreign-data wrapper "clerk_oauth" does not exist`.
+  // that depend on Supabase Wasm FDWs, whose handler/validator are the
+  // `extensions.wasm_fdw_handler` / `extensions.wasm_fdw_validator` functions
+  // shipped by the `wrappers` extension. Without this, `db pull` emits
+  // `CREATE SERVER ... FOREIGN DATA WRAPPER clerk_oauth` while the wrapper DDL
+  // is suppressed, and local `supabase db reset` fails with
+  // `foreign-data wrapper "clerk_oauth" does not exist`.
+  //
+  // The `wrappers` extension (and the Wasm runtime it needs) is not present
+  // in the local image, so we fabricate handler/validator functions with the
+  // exact `wasm_fdw_*` names the integration filter keys on, backed by
+  // `postgres_fdw`'s C symbols. This reproduces the catalog shape of a real
+  // Wasm wrapper without the runtime.
+  //
+  // The dependents are created under `SET ROLE postgres` so they are owned by
+  // `postgres`, not the `supabase_admin` connection role. That forces the
+  // suppression to come from the Wasm handler/validator rule rather than the
+  // `*/owner` deny list — otherwise the test would pass even if the
+  // wasm-specific rule were broken.
   test(
     "suppresses Wasm FDW server, foreign table, and user mapping dependents",
     withDbSupabaseIsolated(pgVersion, async (db) => {
       await db.branch.query(dedent`
         CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
-        CREATE FOREIGN DATA WRAPPER wasm_lookalike
-          HANDLER extensions.postgres_fdw_handler
-          VALIDATOR extensions.postgres_fdw_validator;
-        CREATE SERVER wasm_server FOREIGN DATA WRAPPER wasm_lookalike;
+        CREATE FUNCTION extensions.wasm_fdw_handler()
+          RETURNS fdw_handler
+          LANGUAGE c AS '$libdir/postgres_fdw', 'postgres_fdw_handler';
+        CREATE FUNCTION extensions.wasm_fdw_validator(text[], oid)
+          RETURNS void
+          LANGUAGE c AS '$libdir/postgres_fdw', 'postgres_fdw_validator';
+        CREATE FOREIGN DATA WRAPPER clerk_oauth
+          HANDLER extensions.wasm_fdw_handler
+          VALIDATOR extensions.wasm_fdw_validator;
+        GRANT USAGE ON FOREIGN DATA WRAPPER clerk_oauth TO postgres;
+        SET ROLE postgres;
+        CREATE SERVER wasm_server FOREIGN DATA WRAPPER clerk_oauth;
         CREATE SCHEMA wasm_fdw_test;
         CREATE FOREIGN TABLE wasm_fdw_test.remote_row (id integer)
           SERVER wasm_server
           OPTIONS (schema_name 'public', table_name 'remote_row');
         CREATE USER MAPPING FOR postgres SERVER wasm_server
           OPTIONS (user 'remote', password 'secret');
+        RESET ROLE;
       `);
 
       if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
@@ -219,6 +242,64 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
           ),
       );
       expect(wasmDependentStatements).toStrictEqual([]);
+    }),
+    120_000,
+  );
+
+  // Counterpart to the Wasm suppression above: `postgres_fdw` installs its
+  // handler/validator into `extensions` on Supabase too, but the contrib FDW
+  // IS available in the local image, so a user-created `postgres_fdw` server
+  // (plus its foreign table and user mapping) must still be emitted — keying
+  // suppression on the bare `extensions.*` namespace would wrongly drop them.
+  test(
+    "preserves user-owned postgres_fdw server, foreign table, and user mapping",
+    withDbSupabaseIsolated(pgVersion, async (db) => {
+      // Owned by `postgres` (via SET ROLE) so the `*/owner` deny list does not
+      // drop them — the only thing that could suppress these is the Wasm
+      // handler rule, which must NOT match `extensions.postgres_fdw_handler`.
+      await db.branch.query(dedent`
+        CREATE EXTENSION IF NOT EXISTS postgres_fdw SCHEMA extensions;
+        SET ROLE postgres;
+        CREATE SERVER user_pg_server
+          FOREIGN DATA WRAPPER postgres_fdw
+          OPTIONS (host 'remote', dbname 'remote_db');
+        CREATE SCHEMA user_fdw_test;
+        CREATE FOREIGN TABLE user_fdw_test.remote_row (id integer)
+          SERVER user_pg_server
+          OPTIONS (schema_name 'public', table_name 'remote_row');
+        CREATE USER MAPPING FOR postgres SERVER user_pg_server
+          OPTIONS (user 'remote', password 'secret');
+        RESET ROLE;
+      `);
+
+      if (!supabaseIntegration.filter || !supabaseIntegration.serialize) {
+        throw new Error("supabase integration missing filter or serialize");
+      }
+
+      const planResult = await createPlan(db.main, db.branch, {
+        filter: supabaseIntegration.filter,
+        serialize: supabaseIntegration.serialize,
+      });
+
+      const statements = planResult?.plan.statements ?? [];
+      const hasServer = statements.some((stmt) =>
+        /\bCREATE\s+SERVER\s+user_pg_server\b/i.test(stmt),
+      );
+      const hasForeignTable = statements.some((stmt) =>
+        /\bCREATE\s+FOREIGN\s+TABLE\b[^;]*\buser_fdw_test\.remote_row\b/i.test(
+          stmt,
+        ),
+      );
+      const hasUserMapping = statements.some((stmt) =>
+        /\bCREATE\s+USER\s+MAPPING\b[^;]*\bSERVER\s+user_pg_server\b/i.test(
+          stmt,
+        ),
+      );
+      expect({ hasServer, hasForeignTable, hasUserMapping }).toStrictEqual({
+        hasServer: true,
+        hasForeignTable: true,
+        hasUserMapping: true,
+      });
     }),
     120_000,
   );

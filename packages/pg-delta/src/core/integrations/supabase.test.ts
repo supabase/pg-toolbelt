@@ -235,6 +235,21 @@ describe("supabase integration filter — foreign data wrappers", () => {
     expect(evaluatePattern(filter, change)).toBe(true);
   });
 
+  // `postgres_fdw` (and other contrib FDWs) install their handler/validator
+  // into `extensions` on Supabase, but they ARE available in the local image,
+  // so a user-created `postgres_fdw` wrapper must roundtrip. Only the Wasm
+  // `wasm_fdw_handler` / `wasm_fdw_validator` functions identify the
+  // platform-managed wrappers that local Docker cannot provision.
+  test("preserves user FDW whose handler is extensions.postgres_fdw_handler", () => {
+    const change = fdwChange("create", {
+      name: "postgres_fdw",
+      owner: "postgres",
+      handler: "extensions.postgres_fdw_handler",
+      validator: "extensions.postgres_fdw_validator",
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
   test("preserves user FDW with no handler/validator", () => {
     const change = fdwChange("create", {
       name: "user_fdw_bare",
@@ -313,6 +328,16 @@ describe("supabase integration filter — Wasm FDW dependents", () => {
   const userWrapper = {
     wrapper_handler: "public.postgres_fdw_handler",
     wrapper_validator: "public.postgres_fdw_validator",
+  } as const;
+
+  // `postgres_fdw` installs its handler/validator into `extensions` on
+  // Supabase, but the contrib FDW IS available locally, so user-owned
+  // servers / foreign tables / user mappings built on it must roundtrip.
+  // Keying suppression on the bare `extensions.*` namespace would wrongly
+  // drop them; only the Wasm `wasm_fdw_*` functions mark platform wrappers.
+  const extensionsPgFdwWrapper = {
+    wrapper_handler: "extensions.postgres_fdw_handler",
+    wrapper_validator: "extensions.postgres_fdw_validator",
   } as const;
 
   test("suppresses CREATE SERVER bound to extensions.* Wasm FDW", () => {
@@ -397,6 +422,36 @@ describe("supabase integration filter — Wasm FDW dependents", () => {
       owner: "postgres",
       server: "live_risk_server",
       ...userWrapper,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
+  test("preserves CREATE SERVER when postgres_fdw handler lives in extensions", () => {
+    const change = serverChange("create", {
+      name: "user_pg_server",
+      owner: "postgres",
+      foreign_data_wrapper: "postgres_fdw",
+      ...extensionsPgFdwWrapper,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
+  test("preserves CREATE FOREIGN TABLE when postgres_fdw handler lives in extensions", () => {
+    const change = foreignTableChange("create", {
+      schema: "user_fdw_test",
+      name: "remote_row",
+      owner: "postgres",
+      server: "user_pg_server",
+      ...extensionsPgFdwWrapper,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
+  test("preserves CREATE USER MAPPING when postgres_fdw handler lives in extensions", () => {
+    const change = userMappingChange("create", {
+      user: "postgres",
+      server: "user_pg_server",
+      ...extensionsPgFdwWrapper,
     });
     expect(evaluatePattern(filter, change)).toBe(true);
   });
