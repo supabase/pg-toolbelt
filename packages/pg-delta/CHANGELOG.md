@@ -1,5 +1,25 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.26
+
+### Patch Changes
+
+- 82d4700: feat(pg-delta): emit `VALIDATE CONSTRAINT` shortcut when only `validated` flips from false to true
+
+  When the only difference between main and branch for an existing table constraint is `convalidated` flipping from `false` to `true` (i.e. the user wants to validate a previously `NOT VALID` constraint), pg-delta now emits a single `ALTER TABLE ... VALIDATE CONSTRAINT ...` instead of dropping and re-adding the constraint.
+
+  `VALIDATE CONSTRAINT` only takes `SHARE UPDATE EXCLUSIVE` on the table (concurrent reads and writes continue while the row scan runs), whereas drop+add takes `ACCESS EXCLUSIVE` for the duration of the scan. This matches the standard "ADD CONSTRAINT ... NOT VALID; later VALIDATE CONSTRAINT" two-phase safe-migration pattern.
+
+  The reverse direction (`validated` → `NOT VALID`) has no equivalent Postgres command, so it still goes through drop+add. Any other field change (expression, key columns, FK target, on_delete, etc.) on top of a `validated` flip also still goes through drop+add — the shortcut applies only when nothing else differs.
+
+- 6d49e04: fix(pg-delta): clear the connect-timeout timer when the race settles
+
+  `createManagedPool` raced `pool.connect()` against a `setTimeout` rejection but never cleared the timer. When the connect won (the normal, fast case), the pending `setTimeout` kept the event loop alive, so the process hung for the rest of `PGDELTA_CONNECT_TIMEOUT_MS` even though the plan was already done. Raising the timeout for far-away databases made every local run wait that long too. The race now goes through a `connectWithTimeout` helper that clears the timer in a `.finally`.
+
+- 82d4700: fix(pg-delta): stop re-validating NOT VALID constraints
+
+  A NOT VALID constraint was followed by a VALIDATE CONSTRAINT step that flipped it back to validated, so the plan never converged. ADD CONSTRAINT already carries the NOT VALID suffix, so the VALIDATE was redundant. It's now dropped from the create, alter, and table-replacement paths.
+
 ## 1.0.0-alpha.25
 
 ### Patch Changes

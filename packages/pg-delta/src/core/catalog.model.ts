@@ -182,8 +182,10 @@ let _pg1516Baseline: Catalog | null = null;
 let _pg17Baseline: Catalog | null = null;
 
 async function loadBaselineJson(): Promise<Record<string, unknown>> {
-  const mod =
-    await import("./fixtures/empty-catalogs/postgres-15-16-baseline.json");
+  const mod = await import(
+    "./fixtures/empty-catalogs/postgres-15-16-baseline.json",
+    { with: { type: "json" } }
+  );
   return mod.default as Record<string, unknown>;
 }
 
