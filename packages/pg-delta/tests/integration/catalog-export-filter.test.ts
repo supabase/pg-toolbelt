@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { extractCatalog } from "../../src/core/catalog.model.ts";
 import { filterCatalog } from "../../src/core/catalog.filter.ts";
+import { type Catalog, extractCatalog } from "../../src/core/catalog.model.ts";
 import {
   deserializeCatalog,
   serializeCatalog,
@@ -151,3 +151,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
   });
 }
+
+describe("catalog-export --filter (version-independent)", () => {
+  test("filterCatalog rejects cascade: true with an explanatory error", async () => {
+    await expect(
+      filterCatalog({} as Catalog, { "*/schema": "app", cascade: true }),
+    ).rejects.toThrow(/cascade: true` is not supported by catalog-export/);
+  });
+});

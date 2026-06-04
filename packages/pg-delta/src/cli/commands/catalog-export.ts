@@ -35,7 +35,7 @@ export const catalogExportCommand = buildCommand({
       filter: {
         kind: "parsed",
         brief:
-          'Filter DSL as inline JSON to filter changes (e.g., \'{"schema":"public"}\').',
+          'Filter DSL as inline JSON to filter changes (e.g., \'{"*/schema": "app"}\').',
         parse: (value: string): FilterDSL => {
           try {
             return JSON.parse(value) as FilterDSL;

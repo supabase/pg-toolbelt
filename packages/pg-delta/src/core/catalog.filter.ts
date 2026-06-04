@@ -21,6 +21,18 @@ export async function filterCatalog(
   catalog: Catalog,
   filter: FilterDSL,
 ): Promise<Catalog> {
+  if (
+    typeof filter === "object" &&
+    filter !== null &&
+    (filter as Record<string, unknown>).cascade === true
+  ) {
+    throw new Error(
+      "Filter DSL `cascade: true` is not supported by catalog-export: " +
+        "scoped snapshots are intentionally partial. Out-of-scope owners, " +
+        "roles, and types must exist on the target DB at apply time.",
+    );
+  }
+
   const empty = await createEmptyCatalog(catalog.version, catalog.currentUser);
   const changes = diffCatalogs(empty, catalog);
   const filterFn = compileFilterDSL(filter);
