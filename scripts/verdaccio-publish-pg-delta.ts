@@ -27,9 +27,13 @@ function log(msg: string) {
   console.log(`\n=== ${msg} ===`);
 }
 
+// Throw rather than `process.exit(1)`: `process.exit` terminates synchronously
+// without unwinding `try`/`finally`, so calling it from inside `main()`'s
+// `try` block would skip the package.json version restore and leave the
+// working copy bumped to the local version. The top-level `main().catch(...)`
+// logs the message and exits non-zero for us.
 function fail(msg: string): never {
-  console.error(`\nFAIL: ${msg}`);
-  process.exit(1);
+  throw new Error(msg);
 }
 
 interface CliArgs {
