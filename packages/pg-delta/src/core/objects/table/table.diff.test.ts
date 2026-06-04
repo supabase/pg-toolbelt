@@ -150,6 +150,194 @@ describe.concurrent("table.diff", () => {
     );
   });
 
+  test("NOT VALID -> validated emits only VALIDATE CONSTRAINT (no drop+add)", () => {
+    const sharedConstraint = {
+      name: "ck_nv",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: [],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "a > 0",
+      owner: "o1",
+      comment: null,
+    };
+
+    const main = new Table({
+      ...base,
+      name: "t_nv",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          ...sharedConstraint,
+          validated: false,
+          definition: "CHECK (a > 0) NOT VALID",
+        },
+      ],
+    });
+    const branch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...main,
+      constraints: [
+        {
+          ...sharedConstraint,
+          validated: true,
+          definition: "CHECK (a > 0)",
+        },
+      ],
+    });
+
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    const validate = changes.find(
+      (c) => c instanceof AlterTableValidateConstraint,
+    );
+    expect(validate).toBeInstanceOf(AlterTableValidateConstraint);
+    expect(validate?.serialize()).toMatchInlineSnapshot(
+      `"ALTER TABLE public.t_nv VALIDATE CONSTRAINT ck_nv"`,
+    );
+
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      false,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      false,
+    );
+  });
+
+  test("NOT VALID -> validated + other field change still drops+adds (no shortcut)", () => {
+    const sharedConstraint = {
+      name: "ck_nv",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: [],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      owner: "o1",
+      comment: null,
+    };
+
+    const main = new Table({
+      ...base,
+      name: "t_nv",
+      columns: [
+        {
+          name: "a",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      constraints: [
+        {
+          ...sharedConstraint,
+          validated: false,
+          check_expression: "a > 0",
+          definition: "CHECK (a > 0) NOT VALID",
+        },
+      ],
+    });
+    const branch = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...main,
+      constraints: [
+        {
+          ...sharedConstraint,
+          validated: true,
+          check_expression: "a > 1",
+          definition: "CHECK (a > 1)",
+        },
+      ],
+    });
+
+    const changes = diffTables(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    expect(changes.some((c) => c instanceof AlterTableDropConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableAddConstraint)).toBe(
+      true,
+    );
+    expect(changes.some((c) => c instanceof AlterTableValidateConstraint)).toBe(
+      false,
+    );
+  });
+
   test("alter owner", () => {
     const main = new Table(base);
     const branch = new Table({ ...base, owner: "o2" });
