@@ -122,6 +122,8 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
       continue;
     }
 
+    // Cheap scalar `===` checks first; only fall through to JSON.stringify
+    // on the array fields when every scalar has already matched.
     const fieldsEqualExceptValidated =
       mainC.constraint_type === branchC.constraint_type &&
       mainC.deferrable === branchC.deferrable &&
@@ -129,16 +131,16 @@ function createAlterConstraintChange(mainTable: Table, branchTable: Table) {
       mainC.is_local === branchC.is_local &&
       mainC.no_inherit === branchC.no_inherit &&
       mainC.is_temporal === branchC.is_temporal &&
-      JSON.stringify(mainC.key_columns) ===
-        JSON.stringify(branchC.key_columns) &&
-      JSON.stringify(mainC.foreign_key_columns) ===
-        JSON.stringify(branchC.foreign_key_columns) &&
       mainC.foreign_key_table === branchC.foreign_key_table &&
       mainC.foreign_key_schema === branchC.foreign_key_schema &&
       mainC.on_update === branchC.on_update &&
       mainC.on_delete === branchC.on_delete &&
       mainC.match_type === branchC.match_type &&
-      mainC.check_expression === branchC.check_expression;
+      mainC.check_expression === branchC.check_expression &&
+      JSON.stringify(mainC.key_columns) ===
+        JSON.stringify(branchC.key_columns) &&
+      JSON.stringify(mainC.foreign_key_columns) ===
+        JSON.stringify(branchC.foreign_key_columns);
 
     // Safe-migration shortcut: when the only difference is `validated`
     // flipping from false to true, emit a single `ALTER TABLE ... VALIDATE
