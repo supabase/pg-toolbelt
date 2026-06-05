@@ -115,6 +115,16 @@ async function main(): Promise<void> {
   await writeJson(pgDeltaPkgJson, pkg);
 
   try {
+    // pg-delta's tsc build resolves @supabase/pg-topo via package.json "types"
+    // (dist/index.d.ts), not Bun's workspace "bun" export condition — build
+    // pg-topo first so those declarations exist.
+    log("Building pg-topo");
+    const topoBuildExit = await run(
+      ["bun", "run", "--filter", "@supabase/pg-topo", "build"],
+      { cwd: repoRoot },
+    );
+    if (topoBuildExit !== 0) fail("pg-topo build failed");
+
     log("Building pg-delta");
     const buildExit = await run(
       ["bun", "run", "--filter", "@supabase/pg-delta", "build"],
