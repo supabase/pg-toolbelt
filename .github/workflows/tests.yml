@@ -34,30 +34,37 @@ jobs:
       pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
       root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
-      # 'true' only when this is a PR from changesets' release branch AND every
-      # changed file is in the release-PR whitelist (CHANGELOGs, package.json
-      # version bumps, .changeset state). Any extra file flips this back to
-      # 'false' so the heavy suite runs and the unexpected change is caught.
+      # 'true' only when every changed file is in the release-PR whitelist
+      # (CHANGELOGs, package.json version bumps, .changeset state). Any extra
+      # file flips this back to 'false' so the heavy suite runs and the
+      # unexpected change is caught. We honor this on both the pull_request
+      # event (gated on the changesets release branch) and the merge_group
+      # event (content-only — there is no head_ref in the queue, and a release
+      # batched with a code PR would carry a non-whitelisted file anyway).
       is-release-pr: >-
         ${{
-          github.event_name == 'pull_request'
-          && github.head_ref == 'changeset-release/main'
+          (
+            (github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main')
+            || github.event_name == 'merge_group'
+          )
           && steps.changes.outputs.is-release-pr-content == 'true'
         }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Detect changes
-        if: github.event_name != 'merge_group'
         id: changes
         uses: ./.github/actions/detect-changes
+        with:
+          # On merge_group there is no PR base for paths-filter to auto-detect,
+          # so diff against the merge group base sha (the cumulative queued
+          # diff). Empty on pull_request keeps paths-filter's PR auto-detection.
+          base: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || '' }}
 
   check-types:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        needs.detect-changes.outputs.is-release-pr != 'true'
-      )
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs: detect-changes
     name: Check types
     runs-on: ubuntu-latest
@@ -75,10 +82,8 @@ jobs:
 
   format-and-lint:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        needs.detect-changes.outputs.is-release-pr != 'true'
-      )
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs: detect-changes
     name: Format and lint
     runs-on: ubuntu-latest
@@ -92,10 +97,8 @@ jobs:
 
   knip:
     if: >-
-      github.event_name != 'pull_request' || (
-        github.event.pull_request.draft == false &&
-        needs.detect-changes.outputs.is-release-pr != 'true'
-      )
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     needs: detect-changes
     name: Knip
     runs-on: ubuntu-latest
@@ -113,12 +116,8 @@ jobs:
 
   pg-delta-unit:
     if: >-
-      (
-        github.event_name != 'pull_request' || (
-          github.event.pull_request.draft == false &&
-          needs.detect-changes.outputs.is-release-pr != 'true'
-        )
-      ) &&
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Unit tests"
@@ -146,12 +145,8 @@ jobs:
 
   pg-delta-test-image-hash:
     if: >-
-      (
-        github.event_name != 'pull_request' || (
-          github.event.pull_request.draft == false &&
-          needs.detect-changes.outputs.is-release-pr != 'true'
-        )
-      ) &&
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-delta: Compute test image hash"
@@ -265,12 +260,8 @@ jobs:
 
   pg-delta-integration:
     if: >-
-      (
-        github.event_name != 'pull_request' || (
-          github.event.pull_request.draft == false &&
-          github.event.pull_request.user.login != 'supabase-releaser[bot]'
-        )
-      ) &&
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (needs.detect-changes.outputs.pg-delta == 'true' || needs.detect-changes.outputs.root == 'true') &&
       !cancelled() &&
       (
@@ -487,12 +478,8 @@ jobs:
 
   pg-topo-tests:
     if: >-
-      (
-        github.event_name != 'pull_request' || (
-          github.event.pull_request.draft == false &&
-          needs.detect-changes.outputs.is-release-pr != 'true'
-        )
-      ) &&
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (needs.detect-changes.outputs.pg-topo == 'true' || needs.detect-changes.outputs.root == 'true')
     needs: detect-changes
     name: "pg-topo: Tests"
@@ -520,12 +507,8 @@ jobs:
 
   deno2-library-e2e:
     if: >-
-      (
-        github.event_name != 'pull_request' || (
-          github.event.pull_request.draft == false &&
-          needs.detect-changes.outputs.is-release-pr != 'true'
-        )
-      ) &&
+      needs.detect-changes.outputs.is-release-pr != 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (
         needs.detect-changes.outputs.pg-delta-package-json == 'true' ||
         needs.detect-changes.outputs.pg-topo-package-json == 'true'
@@ -548,6 +531,7 @@ jobs:
 
   release-preview:
     needs:
+      - detect-changes
       - check-types
       - format-and-lint
       - knip
@@ -556,7 +540,7 @@ jobs:
       - pg-delta-integration-pg17-compat
       - pg-topo-tests
       - deno2-library-e2e
-    if: always() && !cancelled()
+    if: always() && !cancelled() && needs.detect-changes.outputs.is-release-pr != 'true'
     name: Release preview
     runs-on: ubuntu-latest
     steps:

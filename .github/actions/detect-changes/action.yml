@@ -1,6 +1,15 @@
 name: Detect Changes
 description: Detect which packages have changed
 
+inputs:
+  base:
+    description: >-
+      Git base ref/sha to diff against. Leave empty on pull_request events so
+      dorny/paths-filter auto-detects the PR base. On merge_group events pass
+      the merge group base sha so the cumulative queued diff is detected.
+    required: false
+    default: ""
+
 outputs:
   pg-delta:
     description: Whether pg-delta changed
@@ -31,6 +40,7 @@ runs:
     - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       id: filter
       with:
+        base: ${{ inputs.base }}
         filters: |
           pg-delta:
             - 'packages/pg-delta/**'
@@ -54,6 +64,7 @@ runs:
     - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
       id: non-release-files
       with:
+        base: ${{ inputs.base }}
         predicate-quantifier: "every"
         filters: |
           non-release-files:
