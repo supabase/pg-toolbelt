@@ -28,25 +28,28 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed so the merge_group author lookup can read the queued PR's author
+      # (merge_group events carry no pull_request payload).
+      pull-requests: read
     outputs:
       pg-delta: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta }}
       pg-delta-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-delta-package-json }}
       pg-topo: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo }}
       pg-topo-package-json: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.pg-topo-package-json }}
       root: ${{ github.event_name == 'merge_group' && 'true' || steps.changes.outputs.root }}
-      # 'true' only when every changed file is in the release-PR whitelist
-      # (CHANGELOGs, package.json version bumps, .changeset state). Any extra
-      # file flips this back to 'false' so the heavy suite runs and the
-      # unexpected change is caught. We honor this on both the pull_request
-      # event (gated on the changesets release branch) and the merge_group
-      # event (content-only — there is no head_ref in the queue, and a release
-      # batched with a code PR would carry a non-whitelisted file anyway).
+      # 'true' only when the PR is authored by the changesets release bot AND
+      # every changed file is in the release-PR whitelist (CHANGELOGs,
+      # package.json version bumps, .changeset state). Both guards must hold:
+      # the author check stops anyone from bypassing CI with a whitelist-only
+      # PR, and any extra file flips the content check back to 'false' so the
+      # heavy suite runs. Enforced on both the pull_request and merge_group
+      # events (see the release-author step for how the author is resolved in
+      # the queue, which carries no pull_request payload).
       is-release-pr: >-
         ${{
-          (
-            (github.event_name == 'pull_request' && github.head_ref == 'changeset-release/main')
-            || github.event_name == 'merge_group'
-          )
+          steps.release-author.outputs.is-release-author == 'true'
           && steps.changes.outputs.is-release-pr-content == 'true'
         }}
     steps:
@@ -60,6 +63,39 @@ jobs:
           # so diff against the merge group base sha (the cumulative queued
           # diff). Empty on pull_request keeps paths-filter's PR auto-detection.
           base: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || '' }}
+      - name: Resolve release-PR author
+        id: release-author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          # Externally influenced values are passed via env (never interpolated
+          # into the script body) to avoid shell injection from branch names.
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          # merge_group head ref looks like
+          # refs/heads/gh-readonly-queue/main/pr-271-<base_sha>; the PR number
+          # is the only author signal available in the queue.
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          RELEASE_BOT="supabase-releaser[bot]"
+          AUTHOR=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Defense in depth: require both the release branch and the bot.
+            if [ "$PR_HEAD_REF" = "changeset-release/main" ]; then
+              AUTHOR="$PR_AUTHOR"
+            fi
+          elif [ "$EVENT_NAME" = "merge_group" ]; then
+            PR_NUMBER=$(printf '%s' "$MERGE_GROUP_HEAD_REF" | sed -n 's#.*/pr-\([0-9]\{1,\}\)-.*#\1#p')
+            if [ -n "$PR_NUMBER" ]; then
+              AUTHOR=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.user.login' 2>/dev/null || echo "")
+            fi
+          fi
+          if [ "$AUTHOR" = "$RELEASE_BOT" ]; then
+            echo "is-release-author=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is-release-author=false" >> "$GITHUB_OUTPUT"
+          fi
 
   check-types:
     if: >-
