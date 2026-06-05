@@ -1,5 +1,23 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.27
+
+### Minor Changes
+
+- b9b8b15: Add `--filter` option to the `catalog-export` CLI command to scope the exported catalog to matching schemas/objects.
+
+### Patch Changes
+
+- 71cce8a: fix(pg-delta): suppress user triggers on pgmq queue/archive tables in supabase integration
+
+  Follow-up to the Wasm FDW dependents fix. `pgmq.q_<name>` and `pgmq.a_<name>` are materialized lazily by `select pgmq.create('<name>')`, not by `CREATE EXTENSION pgmq`. The trigger extractor already drops these via the `pg_depend deptype='e'` row that pgmq records, but real-world cloud projects can lose that row (older pgmq versions — pgmq `1.4.4` which Supabase Cloud currently ships never records it — manual `pg_dump`/restore that strips extension deps, etc.), so `supabase db reset` aborts at the trigger statement with `relation "pgmq.q_<name>" does not exist`. Add a defensive name-match fallback in the supabase integration filter so the trigger is dropped even when the principled signal is missing.
+
+- 71cce8a: fix(pg-delta): suppress Wasm FDW servers, foreign tables, and user mappings in supabase integration
+
+  Follow-up to CLI-1470. Also suppress SERVER (object/comment/security-label scopes), FOREIGN TABLE, and USER MAPPING changes whose parent wrapper is a Supabase Wasm FDW — identified by the `extensions.wasm_fdw_handler` / `extensions.wasm_fdw_validator` functions the `wrappers` extension ships — so `db pull` no longer emits `CREATE SERVER clerk_oauth_server` for platform Wasm FDWs that local Docker cannot provision.
+
+  The discriminator is the Wasm handler/validator function names, not the bare `extensions.*` namespace: contrib FDWs like `postgres_fdw` install their handler/validator into `extensions` on Supabase too, but they ARE available in the local image, so user-created `postgres_fdw` wrappers (and their servers, foreign tables, and user mappings) must still roundtrip. Server _privilege_ scope is likewise preserved — `GRANT/REVOKE ON SERVER` does not require superuser.
+
 ## 1.0.0-alpha.26
 
 ### Patch Changes

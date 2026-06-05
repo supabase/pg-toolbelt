@@ -11,6 +11,7 @@
     "all-planes-ask",
     "auth-trigger-user-defined-passthrough",
     "brave-sails-kneel",
+    "catalog-export-filter",
     "clean-bees-fetch",
     "cold-students-vanish",
     "curvy-buckets-collect",
@@ -59,6 +60,7 @@
     "nine-candles-sleep",
     "order-rls-policies-after-referenced-tables",
     "pg-delta-partition-check-constraint-inhcount",
+    "pgmq-queue-trigger-fallback",
     "redact-fdw-option-secrets",
     "rich-regions-sneeze",
     "ripe-ravens-doubt",
@@ -71,6 +73,7 @@
     "tall-canyons-add",
     "three-turtles-visit",
     "tidy-zebras-judge",
-    "tough-boats-sink"
+    "tough-boats-sink",
+    "wasm-fdw-dependents"
   ]
 }
