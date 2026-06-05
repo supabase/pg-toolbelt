@@ -236,13 +236,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "foreign_data_wrapper/handler": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_handler",
+                        value: "^extensions\\.wasm_fdw_handler$",
                       },
                     },
                     {
                       "foreign_data_wrapper/validator": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_validator",
+                        value: "^extensions\\.wasm_fdw_validator$",
                       },
                     },
                   ],
@@ -272,13 +272,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "{server,foreign_table,user_mapping}/wrapper_handler": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_handler",
+                        value: "^extensions\\.wasm_fdw_handler$",
                       },
                     },
                     {
                       "{server,foreign_table,user_mapping}/wrapper_validator": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_validator",
+                        value: "^extensions\\.wasm_fdw_validator$",
                       },
                     },
                   ],
@@ -293,13 +293,13 @@ export const supabase: IntegrationDSL = {
                     {
                       "{server,foreign_table,user_mapping}/wrapper_handler": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_handler",
+                        value: "^extensions\\.wasm_fdw_handler$",
                       },
                     },
                     {
                       "{server,foreign_table,user_mapping}/wrapper_validator": {
                         op: "regex",
-                        value: "^extensions\\.wasm_fdw_validator",
+                        value: "^extensions\\.wasm_fdw_validator$",
                       },
                     },
                   ],

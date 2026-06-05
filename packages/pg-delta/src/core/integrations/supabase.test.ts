@@ -250,6 +250,20 @@ describe("supabase integration filter — foreign data wrappers", () => {
     expect(evaluatePattern(filter, change)).toBe(true);
   });
 
+  // The Wasm discriminator must be an exact function-name match, not a
+  // prefix: a user function whose name merely starts with `wasm_fdw_handler`
+  // (e.g. `wasm_fdw_handler_custom`) is not the platform `wrappers` handler
+  // and must roundtrip.
+  test("preserves user FDW whose handler extends the wasm_fdw_handler prefix", () => {
+    const change = fdwChange("create", {
+      name: "custom_wasm",
+      owner: "postgres",
+      handler: "extensions.wasm_fdw_handler_custom",
+      validator: "extensions.wasm_fdw_validator_custom",
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
   test("preserves user FDW with no handler/validator", () => {
     const change = fdwChange("create", {
       name: "user_fdw_bare",
@@ -452,6 +466,19 @@ describe("supabase integration filter — Wasm FDW dependents", () => {
       user: "postgres",
       server: "user_pg_server",
       ...extensionsPgFdwWrapper,
+    });
+    expect(evaluatePattern(filter, change)).toBe(true);
+  });
+
+  // Exact-match guard at the dependent level too: a server bound to a wrapper
+  // whose handler merely shares the `wasm_fdw_handler` prefix must roundtrip.
+  test("preserves CREATE SERVER when wrapper handler extends the wasm_fdw_handler prefix", () => {
+    const change = serverChange("create", {
+      name: "custom_wasm_server",
+      owner: "postgres",
+      foreign_data_wrapper: "custom_wasm",
+      wrapper_handler: "extensions.wasm_fdw_handler_custom",
+      wrapper_validator: "extensions.wasm_fdw_validator_custom",
     });
     expect(evaluatePattern(filter, change)).toBe(true);
   });
