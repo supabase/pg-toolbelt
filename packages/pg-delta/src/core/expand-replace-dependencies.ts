@@ -11,6 +11,7 @@ import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
+import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
@@ -521,7 +522,13 @@ function buildReplaceChanges(
           ? [new DropMaterializedView({ materializedView: resolved.main })]
           : []),
         ...(addCreate
-          ? [new CreateMaterializedView({ materializedView: resolved.branch })]
+          ? diffContext
+            ? buildCreateMaterializedViewChanges(diffContext, resolved.branch)
+            : [
+                new CreateMaterializedView({
+                  materializedView: resolved.branch,
+                }),
+              ]
           : []),
       ];
     case "index":
