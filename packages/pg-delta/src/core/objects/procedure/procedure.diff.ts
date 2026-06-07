@@ -32,7 +32,18 @@ import {
   DropSecurityLabelOnProcedure,
 } from "./changes/procedure.security-label.ts";
 import type { ProcedureChange } from "./changes/procedure.types.ts";
-import type { Procedure } from "./procedure.model.ts";
+import {
+  normalizeFunctionLineEndings,
+  type Procedure,
+} from "./procedure.model.ts";
+
+function normalizedFunctionTextEquals(a: unknown, b: unknown): boolean {
+  const normalize = (value: unknown) =>
+    typeof value === "string" || value === null
+      ? normalizeFunctionLineEndings(value)
+      : value;
+  return normalize(a) === normalize(b);
+}
 
 /**
  * Diff two sets of procedures from main and branch catalogs.
@@ -185,6 +196,10 @@ export function diffProcedures(
         mainProcedure,
         branchProcedure,
         OR_REPLACEABLE_NON_ALTERABLE_FIELDS,
+        {
+          source_code: normalizedFunctionTextEquals,
+          sql_body: normalizedFunctionTextEquals,
+        },
       );
 
     if (signatureChanged) {

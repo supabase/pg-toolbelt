@@ -202,6 +202,25 @@ export class Procedure extends BasePgModel {
       security_labels: this.security_labels,
     };
   }
+
+  stableSnapshot() {
+    const data = this.dataFields;
+    return {
+      identity: this.identityFields,
+      data: {
+        ...data,
+        source_code: normalizeFunctionLineEndings(data.source_code),
+        sql_body: normalizeFunctionLineEndings(data.sql_body),
+        definition: normalizeFunctionLineEndings(data.definition),
+      },
+    };
+  }
+}
+
+export function normalizeFunctionLineEndings(
+  value: string | null,
+): string | null {
+  return value?.replace(/\r\n/g, "\n") ?? null;
 }
 
 export async function extractProcedures(

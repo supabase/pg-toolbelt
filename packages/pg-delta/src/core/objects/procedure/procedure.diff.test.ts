@@ -162,6 +162,63 @@ describe.concurrent("procedure.diff", () => {
     expect((changes[0] as CreateProcedure).orReplace).toBe(true);
   });
 
+  test("does not replace a function when body line endings differ only by CRLF vs LF", () => {
+    const bodyLf = "\nbegin\n  new.updated_at = now();\n  return new;\nend;\n";
+    const bodyCrlf = bodyLf.replace(/\n/g, "\r\n");
+    const definitionLf = `CREATE FUNCTION public.fn1() RETURNS trigger LANGUAGE plpgsql AS $function$${bodyLf}$function$`;
+    const definitionCrlf = definitionLf.replace(/\n/g, "\r\n");
+    const main = new Procedure({
+      ...base,
+      return_type: "trigger",
+      language: "plpgsql",
+      source_code: bodyCrlf,
+      definition: definitionCrlf,
+    });
+    const branch = new Procedure({
+      ...base,
+      return_type: "trigger",
+      language: "plpgsql",
+      source_code: bodyLf,
+      definition: definitionLf,
+    });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toEqual([]);
+  });
+
+  test("body line ending differences do not mask an owner-only function diff", () => {
+    const bodyLf = "\nbegin\n  new.updated_at = now();\n  return new;\nend;\n";
+    const bodyCrlf = bodyLf.replace(/\n/g, "\r\n");
+    const definitionLf = `CREATE FUNCTION public.fn1() RETURNS trigger LANGUAGE plpgsql AS $function$${bodyLf}$function$`;
+    const definitionCrlf = definitionLf.replace(/\n/g, "\r\n");
+    const main = new Procedure({
+      ...base,
+      return_type: "trigger",
+      language: "plpgsql",
+      source_code: bodyCrlf,
+      definition: definitionCrlf,
+      owner: "o1",
+    });
+    const branch = new Procedure({
+      ...base,
+      return_type: "trigger",
+      language: "plpgsql",
+      source_code: bodyLf,
+      definition: definitionLf,
+      owner: "o2",
+    });
+    const changes = diffProcedures(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toBeInstanceOf(AlterProcedureChangeOwner);
+  });
+
   test("drop + create when return type changes", () => {
     // `CREATE OR REPLACE FUNCTION` cannot change the return type.
     const main = new Procedure(base);
