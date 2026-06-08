@@ -153,8 +153,16 @@ export function buildGraphData(
     (changeItem) => {
       const createdIds = new Set<string>(changeItem.creates);
       if (options.invert) {
+        // Drop phase: a change's dropped ids act as producers so each
+        // dependent's teardown is ordered before this change.
         for (const droppedId of changeItem.drops ?? []) {
           createdIds.add(droppedId);
+        }
+        // An in-place mutation (e.g. ALTER COLUMN ... TYPE) keeps the object
+        // but invalidates its dependents, so for ordering it behaves exactly
+        // like a drop of that id: dependents must be torn down first.
+        for (const invalidatedId of changeItem.invalidates) {
+          createdIds.add(invalidatedId);
         }
       }
       return createdIds;

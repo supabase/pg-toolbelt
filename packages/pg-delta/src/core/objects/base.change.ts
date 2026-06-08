@@ -61,6 +61,29 @@ export abstract class BaseChange {
   }
 
   /**
+   * Stable identifiers this change invalidates in place.
+   *
+   * Unlike `drops`, the object keeps its identity — it is neither removed nor
+   * recreated. But an in-place mutation (for example `ALTER COLUMN ... TYPE`,
+   * which forces a PostgreSQL table rewrite) invalidates everything bound to
+   * the old definition, so dependents must be dropped before this change and
+   * rebuilt after it — the same ordering a real drop-and-recreate would demand.
+   *
+   * The sorter consumes this for ordering only: in the drop phase the
+   * invalidated ids act as producers, so the catalog's existing `pg_depend`
+   * edges order each dependent's teardown ahead of this change. It deliberately
+   * does NOT feed `drops`, so phase assignment, filtering, fingerprints, and
+   * serialization are unchanged. Recreation order needs no help here — the
+   * create phase always runs after the entire drop phase.
+   *
+   * Defaults to an empty array. Override in subclasses that mutate an object in
+   * place in a way that invalidates its dependents.
+   */
+  get invalidates(): string[] {
+    return [];
+  }
+
+  /**
    * Serialize the change into a single SQL statement.
    */
   abstract serialize(options?: SerializeOptions): string;
