@@ -33,9 +33,26 @@ export type { IntegrationDSL } from "./core/integrations/integration-dsl.ts";
 export { applyPlan } from "./core/plan/apply.ts";
 export type { CatalogInput } from "./core/plan/create.ts";
 export { createPlan } from "./core/plan/create.ts";
+export {
+  flattenPlanStatements,
+  renderPlanFiles,
+  renderPlanSql,
+} from "./core/plan/render.ts";
+export type {
+  RenderedPlanFile,
+  RenderPlanSqlOptions,
+} from "./core/plan/render.ts";
 export type { SqlFormatOptions } from "./core/plan/sql-format.ts";
 export { formatSqlStatements } from "./core/plan/sql-format.ts";
-export type { CreatePlanOptions, Plan } from "./core/plan/types.ts";
+export type {
+  CreatePlanOptions,
+  ExecutionBoundaryReason,
+  ExecutionEffect,
+  MigrationUnit,
+  Plan,
+  PlannedStatement,
+  TransactionMode,
+} from "./core/plan/types.ts";
 
 // Postgres config
 export { createManagedPool } from "./core/postgres-config.ts";

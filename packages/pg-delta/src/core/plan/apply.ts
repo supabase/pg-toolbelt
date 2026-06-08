@@ -2,7 +2,7 @@
  * Plan application - execute migration plans against target databases.
  */
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import { extractCatalog } from "../catalog.model.ts";
 import type { DiffContext } from "../context.ts";
@@ -10,28 +10,33 @@ import { buildPlanScopeFingerprint, hashStableIds } from "../fingerprint.ts";
 import { compileFilterDSL } from "../integrations/filter/dsl.ts";
 import { createManagedPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
-import type { Plan } from "./types.ts";
+import { normalizePlan } from "./normalize.ts";
+import { renderPlanSql } from "./render.ts";
+import type { MigrationUnit, Plan } from "./types.ts";
 
 type ApplyPlanResult =
   | { status: "invalid_plan"; message: string }
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
-  | { status: "applied"; statements: number; warnings?: string[] }
-  | { status: "failed"; error: unknown; script: string };
+  | {
+      status: "applied";
+      statements: number;
+      units: number;
+      warnings?: string[];
+    }
+  | {
+      status: "failed";
+      error: unknown;
+      script: string;
+      failedUnitId?: string;
+      completedUnitIds?: string[];
+    };
 
 interface ApplyPlanOptions {
   verifyPostApply?: boolean;
 }
 
 type ConnectionInput = string | Pool;
-
-/**
- * Check if a statement is a session configuration statement (standalone SET statements).
- * These statements should not be counted as changes.
- */
-function isSessionStatement(statement: string): boolean {
-  return statement.trim().startsWith("SET ");
-}
 
 /**
  * Apply a plan's SQL statements to a target database with integrity checks.
@@ -44,7 +49,9 @@ export async function applyPlan(
   target: ConnectionInput,
   options: ApplyPlanOptions = {},
 ): Promise<ApplyPlanResult> {
-  if (!plan.statements || plan.statements.length === 0) {
+  const normalizedPlan = normalizePlan(plan);
+  const units = normalizedPlan.units;
+  if (units.length === 0) {
     return {
       status: "invalid_plan",
       message: "Plan contains no SQL statements to execute.",
@@ -58,7 +65,7 @@ export async function applyPlan(
 
   if (typeof source === "string") {
     const managed = await createManagedPool(source, {
-      role: plan.role,
+      role: normalizedPlan.role,
       label: "source",
     });
     currentPool = managed.pool;
@@ -69,7 +76,7 @@ export async function applyPlan(
 
   if (typeof target === "string") {
     const managed = await createManagedPool(target, {
-      role: plan.role,
+      role: normalizedPlan.role,
       label: "target",
     });
     desiredPool = managed.pool;
@@ -93,8 +100,8 @@ export async function applyPlan(
 
     // Apply the same filter that was used to create the plan (if any)
     let filteredChanges = changes;
-    if (plan.filter) {
-      const filterFn = compileFilterDSL(plan.filter);
+    if (normalizedPlan.filter) {
+      const filterFn = compileFilterDSL(normalizedPlan.filter);
       filteredChanges = filteredChanges.filter((change) => filterFn(change));
     }
 
@@ -106,31 +113,42 @@ export async function applyPlan(
     // We intentionally recompute target fingerprint only after applying.
 
     // Pre-apply fingerprint validation
-    if (fingerprintFrom === plan.target.fingerprint) {
+    if (fingerprintFrom === normalizedPlan.target.fingerprint) {
       return { status: "already_applied" };
     }
 
-    if (fingerprintFrom !== plan.source.fingerprint) {
+    if (fingerprintFrom !== normalizedPlan.source.fingerprint) {
       return {
         status: "fingerprint_mismatch",
         current: fingerprintFrom,
-        expected: plan.source.fingerprint,
+        expected: normalizedPlan.source.fingerprint,
       };
     }
 
-    // Execute the SQL script
-    // TODO: mark statements that can't be run within a transaction
-    const statements = plan.statements;
+    const script = renderPlanSql(normalizedPlan);
+    const completedUnitIds: string[] = [];
 
-    const script = (() => {
-      const joined = statements.join(";\n");
-      return joined.endsWith(";") ? joined : `${joined};`;
-    })();
-
+    const client = await currentPool.connect();
     try {
-      await currentPool.query(script);
+      await applySessionStatements(
+        client,
+        normalizedPlan.sessionStatements ?? [],
+      );
+      for (const unit of units) {
+        await applyUnit(client, unit);
+        completedUnitIds.push(unit.id);
+      }
     } catch (error) {
-      return { status: "failed", error, script };
+      return {
+        status: "failed",
+        error,
+        script,
+        failedUnitId: units.find((unit) => !completedUnitIds.includes(unit.id))
+          ?.id,
+        completedUnitIds,
+      };
+    } finally {
+      client.release();
     }
 
     const warnings: string[] = [];
@@ -139,7 +157,7 @@ export async function applyPlan(
       try {
         const updatedCatalog = await extractCatalog(currentPool);
         const updatedFingerprint = hashStableIds(updatedCatalog, stableIds);
-        if (updatedFingerprint !== plan.target.fingerprint) {
+        if (updatedFingerprint !== normalizedPlan.target.fingerprint) {
           warnings.push(
             "Post-apply fingerprint does not match the plan target fingerprint.",
           );
@@ -152,13 +170,12 @@ export async function applyPlan(
     }
 
     // Count only actual changes, excluding session configuration statements
-    const changeStatements = statements.filter(
-      (stmt) => !isSessionStatement(stmt),
-    );
+    const changeStatements = units.flatMap((unit) => unit.statements);
 
     return {
       status: "applied",
       statements: changeStatements.length,
+      units: units.length,
       warnings: warnings.length ? warnings : undefined,
     };
   } finally {
@@ -168,5 +185,37 @@ export async function applyPlan(
     if (closers.length) {
       await Promise.all(closers);
     }
+  }
+}
+
+async function applySessionStatements(
+  client: PoolClient,
+  statements: string[],
+): Promise<void> {
+  for (const statement of statements) {
+    await client.query(statement);
+  }
+}
+
+async function applyUnit(
+  client: PoolClient,
+  unit: MigrationUnit,
+): Promise<void> {
+  if (unit.transactionMode === "transactional") {
+    await client.query("BEGIN");
+    try {
+      for (const statement of unit.statements) {
+        await client.query(statement.sql);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    }
+    return;
+  }
+
+  for (const statement of unit.statements) {
+    await client.query(statement.sql);
   }
 }

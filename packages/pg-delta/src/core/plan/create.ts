@@ -3,7 +3,6 @@
  */
 
 import type { Pool } from "pg";
-import { escapeIdentifier } from "pg";
 import { diffCatalogs } from "../catalog.diff.ts";
 import type { Catalog } from "../catalog.model.ts";
 import { createEmptyCatalog, extractCatalog } from "../catalog.model.ts";
@@ -19,6 +18,7 @@ import type { SerializeDSL } from "../integrations/serialize/dsl.ts";
 import { createManagedPool, endPool } from "../postgres-config.ts";
 import { sortChanges } from "../sort/sort-changes.ts";
 import type { PgDependRow } from "../sort/types.ts";
+import { buildExecutionPlan } from "./execution.ts";
 import { classifyChangesRisk } from "./risk.ts";
 import type { CreatePlanOptions, Plan } from "./types.ts";
 
@@ -306,7 +306,7 @@ function buildPlan(
   integration?: ResolvedIntegration,
 ): Plan {
   const role = options?.role;
-  const statements = generateStatements(changes, {
+  const execution = buildExecutionPlan(ctx, changes, {
     integration,
     role,
   });
@@ -319,52 +319,15 @@ function buildPlan(
   const fingerprintTo = hashStableIds(ctx.branchCatalog, stableIds);
 
   return {
-    version: 1,
+    version: 2,
     source: { fingerprint: fingerprintFrom },
     target: { fingerprint: fingerprintTo },
-    statements,
+    units: execution.units,
+    sessionStatements: execution.sessionStatements,
+    statements: execution.statements,
     role,
     filter: filterDSL,
     serialize: serializeDSL,
     risk,
   };
-}
-
-/**
- * Generate the individual SQL statements that make up the plan.
- */
-function generateStatements(
-  changes: Change[],
-  options?: {
-    integration?: ResolvedIntegration;
-    role?: string;
-  },
-): string[] {
-  const statements: string[] = [];
-
-  if (options?.role) {
-    statements.push(`SET ROLE ${escapeIdentifier(options.role)}`);
-  }
-
-  if (hasRoutineChanges(changes)) {
-    statements.push("SET check_function_bodies = false");
-  }
-
-  for (const change of changes) {
-    const sql = options?.integration?.serialize?.(change) ?? change.serialize();
-    statements.push(sql);
-  }
-
-  return statements;
-}
-
-/**
- * Check if any changes involve routines (procedures or aggregates).
- * Used to determine if we need to disable function body checking.
- */
-function hasRoutineChanges(changes: Change[]): boolean {
-  return changes.some(
-    (change) =>
-      change.objectType === "procedure" || change.objectType === "aggregate",
-  );
 }

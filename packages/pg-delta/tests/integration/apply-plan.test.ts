@@ -16,6 +16,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
+        plan.units = [];
         plan.statements = [];
 
         const applied = await applyPlan(plan, db.main, db.branch);
@@ -69,6 +70,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
+        plan.units = [
+          {
+            id: "unit_001",
+            name: "invalid_sql",
+            transactionMode: "transactional",
+            reason: "default",
+            statements: [
+              {
+                id: "stmt_0001",
+                sql: "INVALID SQL SYNTAX",
+                requiresCommittedEffects: [],
+                producesCommittedEffects: [],
+              },
+            ],
+          },
+        ];
         plan.statements = ["INVALID SQL SYNTAX"];
 
         const applied = await applyPlan(plan, db.main, db.branch);

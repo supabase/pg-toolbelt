@@ -2,6 +2,7 @@
  * Plan I/O utilities for serializing and deserializing plans to/from JSON.
  */
 
+import { normalizePlan } from "./normalize.ts";
 import { type Plan, PlanSchema } from "./types.ts";
 
 /**
@@ -16,5 +17,5 @@ export function serializePlan(plan: Plan): string {
  */
 export function deserializePlan(json: string): Plan {
   const parsed = JSON.parse(json);
-  return PlanSchema.parse(parsed);
+  return normalizePlan(PlanSchema.parse(parsed));
 }

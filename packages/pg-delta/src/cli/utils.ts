@@ -9,9 +9,9 @@ import type { Change } from "../core/change.types.ts";
 import type { DiffContext } from "../core/context.ts";
 import { groupChangesHierarchically } from "../core/plan/hierarchy.ts";
 import { type Plan, serializePlan } from "../core/plan/index.ts";
+import { renderPlanSql } from "../core/plan/render.ts";
 import { classifyChangesRisk } from "../core/plan/risk.ts";
 import type { SqlFormatOptions } from "../core/plan/sql-format.ts";
-import { formatSqlScript } from "../core/plan/statements.ts";
 import { formatTree } from "./formatters/index.ts";
 
 // Re-export ApplyPlanResult type for convenience
@@ -19,8 +19,19 @@ type ApplyPlanResult =
   | { status: "invalid_plan"; message: string }
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
-  | { status: "applied"; statements: number; warnings?: string[] }
-  | { status: "failed"; error: unknown; script: string };
+  | {
+      status: "applied";
+      statements: number;
+      units: number;
+      warnings?: string[];
+    }
+  | {
+      status: "failed";
+      error: unknown;
+      script: string;
+      failedUnitId?: string;
+      completedUnitIds?: string[];
+    };
 
 type PlanResult = {
   plan: Plan;
@@ -50,7 +61,7 @@ export function formatPlanForDisplay(
     case "sql": {
       const content = [
         `-- Risk: ${risk.level === "data_loss" ? `data-loss (${risk.statements.length})` : "safe"}`,
-        formatSqlScript(plan.statements, options.sqlFormatOptions),
+        renderPlanSql(plan, { sqlFormatOptions: options.sqlFormatOptions }),
       ].join("\n");
       return { content, label: "Migration script" };
     }
@@ -184,12 +195,20 @@ export function handleApplyResult(
       context.process.stderr.write(
         `Failed to apply changes: ${result.error instanceof Error ? result.error.message : String(result.error)}\n`,
       );
+      if (result.failedUnitId) {
+        context.process.stderr.write(`Failed unit: ${result.failedUnitId}\n`);
+      }
+      if (result.completedUnitIds?.length) {
+        context.process.stderr.write(
+          `Completed units: ${result.completedUnitIds.join(", ")}\n`,
+        );
+      }
       context.process.stderr.write(`Migration script:\n${result.script}\n`);
       return { exitCode: 1 };
     }
     case "applied": {
       context.process.stdout.write(
-        `Applying ${result.statements} changes to database...\n`,
+        `Applied ${result.statements} changes across ${result.units} migration unit${result.units === 1 ? "" : "s"}.\n`,
       );
       context.process.stdout.write("Successfully applied all changes.\n");
       if (result.warnings?.length) {

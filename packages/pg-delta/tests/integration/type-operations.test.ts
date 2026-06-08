@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { extractCatalog } from "../../src/core/catalog.model.ts";
 import type { Change } from "../../src/core/change.types.ts";
+import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -26,6 +27,78 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "add enum value before setting default to the new value",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+            CREATE TYPE public.user_role AS ENUM ('admin', 'user');
+
+            CREATE TABLE public.profiles (
+              id integer PRIMARY KEY,
+              role public.user_role DEFAULT 'user'
+            );
+          `;
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        await db.branch.query("ALTER TYPE public.user_role ADD VALUE 'store'");
+        await db.branch.query(`
+          ALTER TABLE public.profiles
+          ALTER COLUMN role SET DEFAULT 'store';
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+        if (!result) throw new Error("expected result");
+        expect(result.plan.units).toHaveLength(2);
+        expect(result.plan.units[1].reason).toBe("enum_value_visibility");
+
+        const applied = await applyPlan(result.plan, db.main, db.branch);
+        expect(applied.status).toBe("applied");
+        if (applied.status !== "applied") throw new Error("expected applied");
+        expect(applied.warnings).toBeUndefined();
+        const after = await createPlan(db.main, db.branch);
+        expect(after).toBeNull();
+      }),
+    );
+
+    test(
+      "add enum value before adding check constraint that references it",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+            CREATE TYPE public.order_status AS ENUM ('pending', 'shipped');
+
+            CREATE TABLE public.orders (
+              id integer PRIMARY KEY,
+              status public.order_status DEFAULT 'pending'
+            );
+          `;
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        await db.branch.query(
+          "ALTER TYPE public.order_status ADD VALUE 'delivered'",
+        );
+        await db.branch.query(`
+          ALTER TABLE public.orders
+          ADD CONSTRAINT status_check
+          CHECK (status IN ('pending', 'shipped', 'delivered'));
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+        if (!result) throw new Error("expected result");
+        expect(result.plan.units).toHaveLength(2);
+        expect(result.plan.units[1].reason).toBe("enum_value_visibility");
+
+        const applied = await applyPlan(result.plan, db.main, db.branch);
+        expect(applied.status).toBe("applied");
+        if (applied.status !== "applied") throw new Error("expected applied");
+        expect(applied.warnings).toBeUndefined();
+        const after = await createPlan(db.main, db.branch);
+        expect(after).toBeNull();
+      }),
+    );
+
     test(
       "create domain type with constraint",
       withDb(pgVersion, async (db) => {

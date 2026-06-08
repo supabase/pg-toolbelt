@@ -14,6 +14,35 @@ export type PlanRisk =
   | { level: "safe" }
   | { level: "data_loss"; statements: string[] };
 
+export type TransactionMode = "transactional" | "none";
+
+export type ExecutionBoundaryReason =
+  | "default"
+  | "enum_value_visibility"
+  | "non_transactional";
+
+export type ExecutionEffect = {
+  kind: "enum_value_committed";
+  enumType: { schema: string; name: string; stableId: string };
+  label: string;
+};
+
+export interface PlannedStatement {
+  id: string;
+  sql: string;
+  changeId?: string;
+  requiresCommittedEffects: ExecutionEffect[];
+  producesCommittedEffects: ExecutionEffect[];
+}
+
+export interface MigrationUnit {
+  id: string;
+  name: string;
+  transactionMode: TransactionMode;
+  reason: ExecutionBoundaryReason;
+  statements: PlannedStatement[];
+}
+
 /**
  * All supported object types in the system.
  * Derived from the Change union type's objectType discriminant.
@@ -127,7 +156,52 @@ export const PlanSchema = z.object({
   target: z.object({
     fingerprint: z.string(),
   }),
-  statements: z.array(z.string()),
+  units: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        transactionMode: z.enum(["transactional", "none"]),
+        reason: z.enum([
+          "default",
+          "enum_value_visibility",
+          "non_transactional",
+        ]),
+        statements: z.array(
+          z.object({
+            id: z.string(),
+            sql: z.string(),
+            changeId: z.string().optional(),
+            requiresCommittedEffects: z.array(
+              z.object({
+                kind: z.literal("enum_value_committed"),
+                enumType: z.object({
+                  schema: z.string(),
+                  name: z.string(),
+                  stableId: z.string(),
+                }),
+                label: z.string(),
+              }),
+            ),
+            producesCommittedEffects: z.array(
+              z.object({
+                kind: z.literal("enum_value_committed"),
+                enumType: z.object({
+                  schema: z.string(),
+                  name: z.string(),
+                  stableId: z.string(),
+                }),
+                label: z.string(),
+              }),
+            ),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  /** @deprecated Use units and renderPlanSql/renderPlanFiles instead. */
+  statements: z.array(z.string()).optional(),
+  sessionStatements: z.array(z.string()).optional(),
   role: z.string().optional(),
   filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
   serialize: z.any().optional(), // SerializeDSL - complex recursive type, validated at compile time
@@ -144,10 +218,20 @@ export const PlanSchema = z.object({
     .optional(),
 });
 
+export type SerializedPlan = z.infer<typeof PlanSchema>;
+
 /**
  * A migration plan containing all changes to transform one database schema into another.
  */
-export type Plan = z.infer<typeof PlanSchema>;
+export type Plan = Omit<
+  SerializedPlan,
+  "sessionStatements" | "statements" | "units"
+> & {
+  units: MigrationUnit[];
+  /** @deprecated Use units and renderPlanSql/renderPlanFiles instead. */
+  statements: string[];
+  sessionStatements?: string[];
+};
 
 /**
  * Options for creating a plan.
