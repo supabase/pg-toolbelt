@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL ALTER TABLE operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -103,6 +103,48 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER TABLE test_schema.conversions ALTER COLUMN price TYPE numeric(12,4);
         `,
+        });
+      }),
+    );
+
+    test(
+      "change column type after dropping dependent view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.alter_column_type_view_dependent_users (
+            id integer PRIMARY KEY,
+            age numeric
+          );
+
+          CREATE VIEW public.alter_column_type_view_dependent_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_dependent_users
+            WHERE age > 0;
+        `,
+          testSql: `
+          DROP VIEW public.alter_column_type_view_dependent_user_ages;
+
+          ALTER TABLE public.alter_column_type_view_dependent_users
+            ALTER COLUMN age TYPE integer USING age::integer;
+
+          CREATE VIEW public.alter_column_type_view_dependent_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_dependent_users
+            WHERE age > 0;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements.join(";\n")).toMatchInlineSnapshot(`
+              "DROP VIEW public.alter_column_type_view_dependent_user_ages;
+              ALTER TABLE public.alter_column_type_view_dependent_users ALTER COLUMN age TYPE integer USING age::integer;
+              CREATE VIEW public.alter_column_type_view_dependent_user_ages AS SELECT id,
+                  age
+                 FROM alter_column_type_view_dependent_users
+                WHERE (age > 0)"
+            `);
+          },
         });
       }),
     );
