@@ -136,14 +136,34 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             WHERE age > 0;
         `,
           assertSqlStatements: (sqlStatements) => {
-            expect(sqlStatements.join(";\n")).toMatchInlineSnapshot(`
-              "DROP VIEW public.alter_column_type_view_dependent_user_ages;
-              ALTER TABLE public.alter_column_type_view_dependent_users ALTER COLUMN age TYPE integer USING age::integer;
-              CREATE VIEW public.alter_column_type_view_dependent_user_ages AS SELECT id,
-                  age
-                 FROM alter_column_type_view_dependent_users
-                WHERE (age > 0)"
-            `);
+            // pg_get_viewdef output (column qualification, whitespace) varies
+            // across PostgreSQL builds, so assert the ordering the fix
+            // guarantees rather than snapshotting the recreated view body: the
+            // dependent view must be dropped before the in-place column rewrite
+            // (and recreated after). roundtripFidelityTest already applies this
+            // SQL, so a wrong order would also fail at apply with 0A000.
+            const dropViewIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith("DROP VIEW") &&
+                statement.includes(
+                  "alter_column_type_view_dependent_user_ages",
+                ),
+            );
+            const alterTypeIndex = sqlStatements.findIndex((statement) =>
+              statement.includes("ALTER COLUMN age TYPE integer"),
+            );
+            const createViewIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE VIEW") &&
+                statement.includes(
+                  "alter_column_type_view_dependent_user_ages",
+                ),
+            );
+            expect(dropViewIndex).toBeGreaterThanOrEqual(0);
+            expect(alterTypeIndex).toBeGreaterThanOrEqual(0);
+            expect(createViewIndex).toBeGreaterThanOrEqual(0);
+            expect(dropViewIndex).toBeLessThan(alterTypeIndex);
+            expect(alterTypeIndex).toBeLessThan(createViewIndex);
           },
         });
       }),
