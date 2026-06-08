@@ -280,5 +280,82 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "policy depending on a replaced function is dropped and recreated",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.alter_function_sign_policy_dependent_profiles (
+            id uuid PRIMARY KEY,
+            role text
+          );
+
+          ALTER TABLE public.alter_function_sign_policy_dependent_profiles ENABLE ROW LEVEL SECURITY;
+
+          CREATE OR REPLACE FUNCTION public.alter_function_sign_policy_dependent_check_role(
+            _id uuid, _role text
+          ) RETURNS boolean AS $$
+          BEGIN RETURN true; END;
+          $$ LANGUAGE plpgsql;
+
+          CREATE POLICY alter_function_sign_policy_dependent_check_role_policy
+            ON public.alter_function_sign_policy_dependent_profiles
+            FOR SELECT USING (
+              public.alter_function_sign_policy_dependent_check_role(id, role)
+            );
+        `,
+          testSql: `
+          DROP POLICY alter_function_sign_policy_dependent_check_role_policy
+            ON public.alter_function_sign_policy_dependent_profiles;
+
+          DROP FUNCTION public.alter_function_sign_policy_dependent_check_role(uuid, text);
+
+          CREATE OR REPLACE FUNCTION public.alter_function_sign_policy_dependent_check_role(
+            _id uuid, _role text, _extra text DEFAULT 'default'::text
+          ) RETURNS boolean AS $$
+          BEGIN RETURN true; END;
+          $$ LANGUAGE plpgsql;
+
+          CREATE POLICY alter_function_sign_policy_dependent_check_role_policy
+            ON public.alter_function_sign_policy_dependent_profiles
+            FOR SELECT USING (
+              public.alter_function_sign_policy_dependent_check_role(id, role)
+            );
+        `,
+          assertSqlStatements: (statements) => {
+            const dropPolicyIdx = statements.findIndex((s) =>
+              s.includes(
+                "DROP POLICY alter_function_sign_policy_dependent_check_role_policy",
+              ),
+            );
+            const dropFunctionIdx = statements.findIndex((s) =>
+              s.includes(
+                "DROP FUNCTION public.alter_function_sign_policy_dependent_check_role",
+              ),
+            );
+            const createFunctionIdx = statements.findIndex((s) =>
+              s.includes(
+                "CREATE FUNCTION public.alter_function_sign_policy_dependent_check_role",
+              ),
+            );
+            const createPolicyIdx = statements.findIndex((s) =>
+              s.includes(
+                "CREATE POLICY alter_function_sign_policy_dependent_check_role_policy",
+              ),
+            );
+
+            expect(dropPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIdx).toBeGreaterThanOrEqual(0);
+            expect(createFunctionIdx).toBeGreaterThanOrEqual(0);
+            expect(createPolicyIdx).toBeGreaterThanOrEqual(0);
+            expect(dropPolicyIdx).toBeLessThan(dropFunctionIdx);
+            expect(createFunctionIdx).toBeLessThan(createPolicyIdx);
+          },
+        });
+      }),
+    );
   });
 }

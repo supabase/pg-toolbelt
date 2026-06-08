@@ -6,6 +6,10 @@ import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
+import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
+import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
+import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
+import { RlsPolicy } from "./objects/rls-policy/rls-policy.model.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
@@ -694,5 +698,126 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes.some((c) => c instanceof DropView)).toBe(true);
+  });
+
+  test("promotes dependent RLS policy when a procedure's signature changes", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedureBase = {
+      schema: "public",
+      name: "check_role",
+      kind: "f" as const,
+      return_type: "boolean",
+      return_type_schema: "pg_catalog",
+      language: "plpgsql",
+      security_definer: false,
+      volatility: "v" as const,
+      parallel_safety: "u" as const,
+      execution_cost: 100,
+      result_rows: 0,
+      is_strict: false,
+      leakproof: false,
+      returns_set: false,
+      argument_names: ["id", "role"],
+      all_argument_types: null,
+      argument_modes: null,
+      source_code: "BEGIN RETURN true; END;",
+      binary_path: null,
+      sql_body: null,
+      config: null,
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    };
+    const mainProcedure = new Procedure({
+      ...procedureBase,
+      argument_count: 2,
+      argument_default_count: 0,
+      argument_types: ["uuid", "text"],
+      argument_defaults: null,
+      definition:
+        "CREATE FUNCTION public.check_role(id uuid, role text) RETURNS boolean ...",
+    });
+    const branchProcedure = new Procedure({
+      ...procedureBase,
+      argument_count: 3,
+      argument_default_count: 1,
+      argument_names: ["id", "role", "extra"],
+      argument_types: ["uuid", "text", "text"],
+      argument_defaults: "'default'::text",
+      definition:
+        "CREATE FUNCTION public.check_role(id uuid, role text, extra text DEFAULT 'default'::text) RETURNS boolean ...",
+    });
+    const policyBase = {
+      schema: "public",
+      table_name: "profiles",
+      name: "check_role_policy",
+      command: "r" as const,
+      permissive: true,
+      roles: ["public"],
+      using_expression: "public.check_role(id, role)",
+      with_check_expression: null,
+      owner: "postgres",
+      comment: "policy comment",
+      referenced_relations: [],
+    };
+    const mainPolicy = new RlsPolicy({
+      ...policyBase,
+      referenced_procedures: [
+        {
+          schema: "public",
+          name: "check_role",
+          argument_types: ["uuid", "text"],
+        },
+      ],
+    });
+    const branchPolicy = new RlsPolicy({
+      ...policyBase,
+      referenced_procedures: [
+        {
+          schema: "public",
+          name: "check_role",
+          argument_types: ["uuid", "text", "text"],
+        },
+      ],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      rlsPolicies: { [mainPolicy.stableId]: mainPolicy },
+      depends: [
+        {
+          dependent_stable_id: mainPolicy.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      rlsPolicies: { [branchPolicy.stableId]: branchPolicy },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropRlsPolicy)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateRlsPolicy)).toBe(
+      true,
+    );
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnRlsPolicy),
+    ).toBe(true);
   });
 });

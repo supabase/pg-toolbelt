@@ -8,6 +8,9 @@ import { CreateMaterializedView } from "./objects/materialized-view/changes/mate
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
+import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
+import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
@@ -48,6 +51,11 @@ type ResolvedObject =
       kind: "procedure";
       main: Catalog["procedures"][string];
       branch: Catalog["procedures"][string];
+    }
+  | {
+      kind: "rls_policy";
+      main: Catalog["rlsPolicies"][string];
+      branch: Catalog["rlsPolicies"][string];
     }
   | {
       kind: "enum";
@@ -395,6 +403,12 @@ function resolveObjectForStableId(
     return main && branch ? { kind: "procedure", main, branch } : null;
   }
 
+  if (stableId.startsWith("rlsPolicy:")) {
+    const main = mainCatalog.rlsPolicies[stableId];
+    const branch = branchCatalog.rlsPolicies[stableId];
+    return main && branch ? { kind: "rls_policy", main, branch } : null;
+  }
+
   if (stableId.startsWith("domain:")) {
     const main = mainCatalog.domains[stableId];
     const branch = branchCatalog.domains[stableId];
@@ -517,6 +531,18 @@ function buildReplaceChanges(
         ...(addDrop ? [new DropProcedure({ procedure: resolved.main })] : []),
         ...(addCreate
           ? [new CreateProcedure({ procedure: resolved.branch })]
+          : []),
+      ];
+    case "rls_policy":
+      return [
+        ...(addDrop ? [new DropRlsPolicy({ policy: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateRlsPolicy({ policy: resolved.branch }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnRlsPolicy({ policy: resolved.branch })]
+                : []),
+            ]
           : []),
       ];
     case "enum":
