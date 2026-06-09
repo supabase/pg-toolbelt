@@ -1,9 +1,5 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
-import {
-  diffPrivileges,
-  emitColumnPrivilegeChanges,
-} from "./objects/base.privilege-diff.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
@@ -28,16 +24,9 @@ import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { CreateRange } from "./objects/type/range/changes/range.create.ts";
 import { DropRange } from "./objects/type/range/changes/range.drop.ts";
 import { stableId } from "./objects/utils.ts";
-import { AlterViewChangeOwner } from "./objects/view/changes/view.alter.ts";
-import { CreateCommentOnView } from "./objects/view/changes/view.comment.ts";
 import { CreateView } from "./objects/view/changes/view.create.ts";
 import { DropView } from "./objects/view/changes/view.drop.ts";
-import {
-  GrantViewPrivileges,
-  RevokeGrantOptionViewPrivileges,
-  RevokeViewPrivileges,
-} from "./objects/view/changes/view.privilege.ts";
-import { CreateSecurityLabelOnView } from "./objects/view/changes/view.security-label.ts";
+import { buildCreateViewChanges } from "./objects/view/view.diff.ts";
 
 type ResolvedObject =
   | {
@@ -621,54 +610,7 @@ function buildCreateViewReplacementChanges(
   // Dependency-closure replacements synthesize a create without going through
   // `diffViews`, so replay the same owner/comment/security-label/ACL metadata
   // that a normal non-alterable view replacement would emit.
-  const changes: Change[] = [new CreateView({ view })];
-  if (!diffContext) return changes;
-
-  if (view.owner !== diffContext.currentUser) {
-    changes.push(new AlterViewChangeOwner({ view, owner: view.owner }));
-  }
-
-  if (view.comment !== null) {
-    changes.push(new CreateCommentOnView({ view }));
-  }
-
-  for (const securityLabel of view.security_labels) {
-    changes.push(new CreateSecurityLabelOnView({ view, securityLabel }));
-  }
-
-  const effectiveDefaults =
-    diffContext.defaultPrivilegeState.getEffectiveDefaults(
-      diffContext.currentUser,
-      "view",
-      view.schema ?? "",
-    );
-  const creatorFilteredDefaults =
-    view.owner !== diffContext.currentUser
-      ? effectiveDefaults.filter(
-          (privilege) => privilege.grantee !== diffContext.currentUser,
-        )
-      : effectiveDefaults;
-  const privilegeResults = diffPrivileges(
-    creatorFilteredDefaults,
-    view.privileges,
-    view.owner,
-  );
-
-  changes.push(
-    ...(emitColumnPrivilegeChanges(
-      privilegeResults,
-      view,
-      view,
-      "view",
-      {
-        Grant: GrantViewPrivileges,
-        Revoke: RevokeViewPrivileges,
-        RevokeGrantOption: RevokeGrantOptionViewPrivileges,
-      },
-      effectiveDefaults,
-      diffContext.version,
-    ) as Change[]),
-  );
-
-  return changes;
+  return diffContext
+    ? buildCreateViewChanges(diffContext, view)
+    : [new CreateView({ view })];
 }
