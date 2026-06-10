@@ -235,6 +235,7 @@ export function expandReplaceDependencies({
 
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
+  const refsReachedFromInvalidation = new Set<string>(invalidatedIds);
   const queue: string[] = [...replaceRoots];
   // Tables being replaced by an expansion-added DropTable+CreateTable pair.
   // Any pre-existing targeted AlterTable*(T) object-scope change is superseded
@@ -247,6 +248,7 @@ export function expandReplaceDependencies({
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
+    const reachedFromInvalidation = refsReachedFromInvalidation.has(refId);
     const dependents = dependentsByReferenced.get(refId);
     if (!dependents) continue;
 
@@ -262,18 +264,30 @@ export function expandReplaceDependencies({
         continue;
       }
 
+      const targetId = normalizeDependentId(dependentRaw);
+      if (!targetId) continue;
+      if (
+        reachedFromInvalidation &&
+        !isRebuildableInvalidationDependent(targetId)
+      ) {
+        continue;
+      }
+
       // Continue traversing the dependency graph from the raw dependent id.
       if (!visitedRefs.has(dependentRaw)) {
         visitedRefs.add(dependentRaw);
+        if (reachedFromInvalidation) {
+          refsReachedFromInvalidation.add(dependentRaw);
+        }
         queue.push(dependentRaw);
       }
-
-      const targetId = normalizeDependentId(dependentRaw);
-      if (!targetId) continue;
 
       // Also traverse using the normalized owning object id (e.g., table for a column).
       if (!visitedRefs.has(targetId)) {
         visitedRefs.add(targetId);
+        if (reachedFromInvalidation) {
+          refsReachedFromInvalidation.add(targetId);
+        }
         queue.push(targetId);
       }
 
@@ -479,6 +493,28 @@ function parseProcedureSchemaName(stableId: string): string | null {
   const paren = stableId.indexOf("(");
   if (paren === -1) return null;
   return stableId.slice("procedure:".length, paren);
+}
+
+function isRebuildableInvalidationDependent(dependentId: string): boolean {
+  let id = dependentId;
+
+  while (id.startsWith("comment:")) {
+    id = id.slice("comment:".length);
+  }
+
+  // In-place invalidations, such as ALTER COLUMN TYPE, only need to synthesize
+  // replacements for catalog objects that are safe to drop and recreate around
+  // the rewrite. Constraints and columns are owned by the table diff path; if
+  // they were normalized to table:* here, the expander could emit destructive
+  // DropTable/CreateTable DDL for a table that should only be altered.
+  return (
+    id.startsWith("view:") ||
+    id.startsWith("materializedView:") ||
+    id.startsWith("index:") ||
+    id.startsWith("rlsPolicy:") ||
+    id.startsWith("rule:") ||
+    id.startsWith("trigger:")
+  );
 }
 
 function normalizeDependentId(dependentId: string): string | null {
