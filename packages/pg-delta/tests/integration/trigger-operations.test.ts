@@ -586,6 +586,45 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "trigger enabled state changes are applied without losing the trigger",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer PRIMARY KEY
+            );
+
+            CREATE FUNCTION test_schema.noop_trigger()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+
+            CREATE TRIGGER accounts_before_insert
+              BEFORE INSERT ON test_schema.accounts
+              FOR EACH ROW
+              EXECUTE FUNCTION test_schema.noop_trigger();
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.accounts
+              DISABLE TRIGGER accounts_before_insert;
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toContain(
+              "ALTER TABLE test_schema.accounts DISABLE TRIGGER accounts_before_insert",
+            );
+          },
+        });
+      }),
+    );
+
+    test(
       "trigger WHEN condition depending on rewritten column is recreated around ALTER COLUMN TYPE",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
