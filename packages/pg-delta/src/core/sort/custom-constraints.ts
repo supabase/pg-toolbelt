@@ -1,5 +1,8 @@
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../change-utils.ts";
+import { AlterDomainSetDefault } from "../objects/domain/changes/domain.alter.ts";
+import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
+import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
@@ -149,6 +152,71 @@ function generateDefaultPrivilegeConstraints(changes: Change[]): Constraint[] {
   return constraints;
 }
 
+function generateProcedureSignatureReplacementConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const createProcedureIndexesByName = new Map<string, number[]>();
+  const createdProcedureIds = new Set<string>();
+  const dropProcedureIndexes: Array<{
+    index: number;
+    id: string;
+    key: string;
+  }> = [];
+  const expressionUpdateIndexes: number[] = [];
+
+  for (let i = 0; i < changes.length; i++) {
+    const change = changes[i];
+
+    if (change instanceof CreateProcedure) {
+      for (const id of change.creates ?? []) {
+        createdProcedureIds.add(id);
+        const key = parseProcedureSchemaName(id);
+        if (!key) continue;
+        const entries = createProcedureIndexesByName.get(key) ?? [];
+        entries.push(i);
+        createProcedureIndexesByName.set(key, entries);
+      }
+    } else if (change instanceof DropProcedure) {
+      for (const id of change.drops ?? []) {
+        const key = parseProcedureSchemaName(id);
+        if (key) {
+          dropProcedureIndexes.push({ index: i, id, key });
+        }
+      }
+    } else if (
+      change instanceof AlterTableAlterColumnSetDefault ||
+      change instanceof AlterDomainSetDefault
+    ) {
+      expressionUpdateIndexes.push(i);
+    }
+  }
+
+  for (const drop of dropProcedureIndexes) {
+    if (createdProcedureIds.has(drop.id)) continue;
+    const createIndexes = createProcedureIndexesByName.get(drop.key) ?? [];
+    if (createIndexes.length === 0) continue;
+
+    for (const createIndex of createIndexes) {
+      constraints.push({
+        sourceChangeIndex: createIndex,
+        targetChangeIndex: drop.index,
+        source: "custom",
+      });
+    }
+
+    for (const expressionUpdateIndex of expressionUpdateIndexes) {
+      constraints.push({
+        sourceChangeIndex: expressionUpdateIndex,
+        targetChangeIndex: drop.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function generateIdentityTransitionConstraints(
   changes: Change[],
 ): Constraint[] {
@@ -221,6 +289,7 @@ function generateIdentityTransitionConstraints(
  */
 const customConstraintGenerators: ConstraintGenerator[] = [
   generateDefaultPrivilegeConstraints,
+  generateProcedureSignatureReplacementConstraints,
   generateIdentityTransitionConstraints,
 ];
 
@@ -232,4 +301,11 @@ const customConstraintGenerators: ConstraintGenerator[] = [
  */
 export function generateCustomConstraints(changes: Change[]): Constraint[] {
   return customConstraintGenerators.flatMap((generate) => generate(changes));
+}
+
+function parseProcedureSchemaName(stableId: string): string | null {
+  if (!stableId.startsWith("procedure:")) return null;
+  const paren = stableId.indexOf("(");
+  if (paren === -1) return null;
+  return stableId.slice("procedure:".length, paren);
 }

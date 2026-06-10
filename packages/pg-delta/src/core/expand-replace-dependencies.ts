@@ -1,6 +1,10 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
+import {
+  AlterDomainDropDefault,
+  AlterDomainSetDefault,
+} from "./objects/domain/changes/domain.alter.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
@@ -13,7 +17,11 @@ import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
-import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
+import {
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnSetDefault,
+} from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -117,6 +125,7 @@ export function expandReplaceDependencies({
   }
 
   const replaceRoots = new Set<string>();
+  const signatureReplacedProcedureRoots = new Set<string>();
   for (const id of createdIds) {
     if (droppedIds.has(id)) {
       replaceRoots.add(id);
@@ -149,6 +158,7 @@ export function expandReplaceDependencies({
     const key = parseProcedureSchemaName(id);
     if (key && createdProcedureNames.has(key)) {
       replaceRoots.add(id);
+      signatureReplacedProcedureRoots.add(id);
     }
   }
 
@@ -197,6 +207,8 @@ export function expandReplaceDependencies({
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
   const queue: string[] = [...replaceRoots];
+  const coveredExpressionDependents =
+    collectCoveredExpressionDependentIds(changes);
   // Tables being replaced by an expansion-added DropTable+CreateTable pair.
   // Any pre-existing targeted AlterTable*(T) object-scope change is superseded
   // by the replacement and must be removed to avoid contradictions (e.g. an
@@ -221,13 +233,25 @@ export function expandReplaceDependencies({
         continue;
       }
 
+      const targetId = normalizeDependentId(dependentRaw);
+      if (
+        targetId &&
+        shouldSuppressCoveredExpressionDependent({
+          refId,
+          dependentRaw,
+          coveredExpressionDependents,
+          signatureReplacedProcedureRoots,
+        })
+      ) {
+        continue;
+      }
+
       // Continue traversing the dependency graph from the raw dependent id.
       if (!visitedRefs.has(dependentRaw)) {
         visitedRefs.add(dependentRaw);
         queue.push(dependentRaw);
       }
 
-      const targetId = normalizeDependentId(dependentRaw);
       if (!targetId) continue;
 
       // Also traverse using the normalized owning object id (e.g., table for a column).
@@ -375,6 +399,64 @@ function removeSupersededRlsPolicyAlters(
     }
     return !promotedRlsPolicyIds.has(change.policy.stableId);
   });
+}
+
+function collectCoveredExpressionDependentIds(changes: Change[]): Set<string> {
+  const ids = new Set<string>();
+
+  for (const change of changes) {
+    for (const id of [...(change.creates ?? []), ...(change.drops ?? [])]) {
+      if (isExpressionContainerStableId(id)) {
+        ids.add(id);
+      }
+    }
+
+    if (
+      change instanceof AlterTableAlterColumnSetDefault ||
+      change instanceof AlterTableAlterColumnDropDefault ||
+      change instanceof AlterDomainSetDefault ||
+      change instanceof AlterDomainDropDefault
+    ) {
+      for (const id of change.requires ?? []) {
+        if (isExpressionContainerStableId(id)) {
+          ids.add(id);
+        }
+      }
+    }
+  }
+
+  return ids;
+}
+
+function shouldSuppressCoveredExpressionDependent({
+  refId,
+  dependentRaw,
+  coveredExpressionDependents,
+  signatureReplacedProcedureRoots,
+}: {
+  refId: string;
+  dependentRaw: string;
+  coveredExpressionDependents: ReadonlySet<string>;
+  signatureReplacedProcedureRoots: ReadonlySet<string>;
+}): boolean {
+  // A changed function signature has different stableIds on main/branch. When
+  // pg_depend points from the old signature to an expression container that
+  // already has a targeted alter in the original diff, that alter releases the
+  // old dependency. Promoting the normalized table/domain owner to DROP+CREATE
+  // would be redundant and destructive.
+  return (
+    signatureReplacedProcedureRoots.has(refId) &&
+    isExpressionContainerStableId(dependentRaw) &&
+    coveredExpressionDependents.has(dependentRaw)
+  );
+}
+
+function isExpressionContainerStableId(stableId: string): boolean {
+  return (
+    stableId.startsWith("column:") ||
+    stableId.startsWith("constraint:") ||
+    stableId.startsWith("domain:")
+  );
 }
 
 function isOwnedSequenceColumnDependency(
