@@ -578,6 +578,10 @@ function resolveObjectForStableId(
     const main = mainCatalog.triggers[stableId];
     const branch = branchCatalog.triggers[stableId];
     if (!main || !branch) return null;
+    // PostgreSQL manages partition trigger clones from the parent trigger, so
+    // dependency expansion must match diffTriggers and never emit explicit clone
+    // drop/create DDL.
+    if (main.is_partition_clone || branch.is_partition_clone) return null;
 
     const tableStableId = `table:${branch.schema}.${branch.table_name}`;
     return {

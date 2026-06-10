@@ -1262,4 +1262,69 @@ describe("expandReplaceDependencies", () => {
       false,
     );
   });
+
+  test("does not promote dependent trigger clones on partitions", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const triggerBase = {
+      schema: "public",
+      name: "validate_amount",
+      table_name: "accounts_2026",
+      table_relkind: "r" as const,
+      function_schema: "public",
+      function_name: "noop_trigger",
+      trigger_type: 23,
+      enabled: "O" as const,
+      is_internal: false,
+      deferrable: false,
+      initially_deferred: false,
+      argument_count: 0,
+      column_numbers: [],
+      arguments: [],
+      when_condition: "new.amount > 0",
+      old_table: null,
+      new_table: null,
+      is_partition_clone: true,
+      parent_trigger_name: "validate_amount",
+      parent_table_schema: "public",
+      parent_table_name: "accounts",
+      is_on_partitioned_table: false,
+      owner: "postgres",
+      definition:
+        "CREATE TRIGGER validate_amount BEFORE INSERT ON public.accounts_2026 FOR EACH ROW WHEN (new.amount > 0) EXECUTE FUNCTION public.noop_trigger()",
+      comment: null,
+    };
+    const mainTrigger = new Trigger(triggerBase);
+    const branchTrigger = new Trigger({
+      ...triggerBase,
+      when_condition: "new.amount > 0::bigint",
+      definition:
+        "CREATE TRIGGER validate_amount BEFORE INSERT ON public.accounts_2026 FOR EACH ROW WHEN (new.amount > 0::bigint) EXECUTE FUNCTION public.noop_trigger()",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts_2026.amount"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      triggers: { [mainTrigger.stableId]: mainTrigger },
+      depends: [
+        {
+          dependent_stable_id: mainTrigger.stableId,
+          referenced_stable_id: "column:public.accounts_2026.amount",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      triggers: { [branchTrigger.stableId]: branchTrigger },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toHaveLength(1);
+    expect(expanded.changes[0]).toBe(changes[0]);
+  });
 });
