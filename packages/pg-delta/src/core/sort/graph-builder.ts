@@ -143,7 +143,9 @@ export function convertExplicitRequirementsToConstraints(
  * Build graph data structures from phase changes.
  *
  * Creates change sets and reverse indexes needed for converting dependencies to Constraints.
- * In DROP phase (invert=true), dropped IDs are included in createdStableIdSets.
+ * In-place invalidations are included in createdStableIdSets so dependents can
+ * order around the mutation in both phases. In DROP phase (invert=true),
+ * dropped IDs are also included.
  */
 export function buildGraphData(
   phaseChanges: Change[],
@@ -152,15 +154,16 @@ export function buildGraphData(
   const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
     (changeItem) => {
       const createdIds = new Set<string>(changeItem.creates);
+      // In-place mutations keep the object identity but invalidate dependents.
+      // Treat them as producers of the invalidated ids in every phase: drop
+      // sorting inverts the edge so old dependents drop before the mutation,
+      // while create/alter sorting keeps new dependents after the mutation.
+      for (const invalidatedId of changeItem.invalidates) {
+        createdIds.add(invalidatedId);
+      }
       if (options.invert) {
         for (const droppedId of changeItem.drops ?? []) {
           createdIds.add(droppedId);
-        }
-        // In-place mutations keep the object identity but invalidate
-        // dependents, so for drop-phase ordering they behave like producers of
-        // the invalidated ids without changing Change.drops.
-        for (const invalidatedId of changeItem.invalidates) {
-          createdIds.add(invalidatedId);
         }
       }
       return createdIds;
