@@ -2,9 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { PgDepend } from "../depend.ts";
+import { AlterDomainDropDefault } from "../objects/domain/changes/domain.alter.ts";
+import { Domain } from "../objects/domain/domain.model.ts";
+import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
+import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
+import { Procedure } from "../objects/procedure/procedure.model.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
 import {
+  AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
   AlterTableDropConstraint,
 } from "../objects/table/changes/table.alter.ts";
@@ -171,6 +177,60 @@ function view(name: string, columns = [integerColumn("id", 1)]) {
   });
 }
 
+function domain(defaultValue: string | null) {
+  return new Domain({
+    schema: "public",
+    name: "score",
+    base_type: "int4",
+    base_type_schema: "pg_catalog",
+    base_type_str: "integer",
+    not_null: false,
+    type_modifier: null,
+    array_dimensions: null,
+    collation: null,
+    default_bin: defaultValue,
+    default_value: defaultValue,
+    owner: "postgres",
+    comment: null,
+    constraints: [],
+    privileges: [],
+  });
+}
+
+function procedure(argumentTypes: string[]) {
+  return new Procedure({
+    schema: "public",
+    name: "normalize_value",
+    kind: "f",
+    return_type: "integer",
+    return_type_schema: "pg_catalog",
+    language: "sql",
+    security_definer: false,
+    volatility: "i",
+    parallel_safety: "u",
+    execution_cost: 100,
+    result_rows: 0,
+    is_strict: false,
+    leakproof: false,
+    returns_set: false,
+    argument_count: argumentTypes.length,
+    argument_default_count: 0,
+    argument_names: argumentTypes.map((_, index) => `arg${index + 1}`),
+    argument_types: argumentTypes,
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
+    source_code: "SELECT 1",
+    binary_path: null,
+    sql_body: null,
+    config: null,
+    definition: "CREATE FUNCTION public.normalize_value(...) RETURNS integer",
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+  });
+}
+
 async function catalogWithDepends(depends: PgDepend[]) {
   const base = await createEmptyCatalog(170000, "postgres");
   // oxlint-disable-next-line typescript/no-misused-spread
@@ -183,6 +243,9 @@ function changeLabel(change: Change) {
   }
   if (change instanceof DropTable) {
     return `${change.constructor.name}:${change.table.name}`;
+  }
+  if (change instanceof DropProcedure || change instanceof CreateProcedure) {
+    return `${change.constructor.name}:${change.procedure.stableId}`;
   }
   return change.constructor.name;
 }
@@ -386,5 +449,69 @@ describe("sortChanges", () => {
     expect(sorted.map(changeLabel)).toContain(
       "AlterTableDropConstraint:posts.posts_lab_id_fkey",
     );
+  });
+
+  test("orders signature replacement around a covered column default update", async () => {
+    const mainProcedure = procedure(["integer"]);
+    const branchProcedure = procedure(["bigint"]);
+    const branchTable = table("items");
+    const branchColumn = {
+      ...integerColumn("value", 4),
+      default: "public.normalize_value(1::bigint)",
+    };
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterTableAlterColumnSetDefault({
+        table: branchTable,
+        column: branchColumn,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "column:public.items.value",
+        referenced_stable_id: mainProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "column:public.items.value",
+        referenced_stable_id: branchProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      `CreateProcedure:${branchProcedure.stableId}`,
+      "AlterTableAlterColumnSetDefault",
+      `DropProcedure:${mainProcedure.stableId}`,
+    ]);
+  });
+
+  test("orders domain default removal before dropping the referenced function", async () => {
+    const mainProcedure = procedure(["integer"]);
+    const mainDomain = domain("public.normalize_value(1)");
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new AlterDomainDropDefault({ domain: mainDomain }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: mainDomain.stableId,
+        referenced_stable_id: mainProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "AlterDomainDropDefault",
+      `DropProcedure:${mainProcedure.stableId}`,
+    ]);
   });
 });
