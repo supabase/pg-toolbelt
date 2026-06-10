@@ -627,6 +627,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               FOR EACH ROW
               WHEN (NEW.status = 'blocked'::test_schema.account_status)
               EXECUTE FUNCTION test_schema.noop_trigger();
+
+            ALTER TABLE test_schema.accounts
+              DISABLE TRIGGER block_blocked_accounts;
           `,
         });
       }),

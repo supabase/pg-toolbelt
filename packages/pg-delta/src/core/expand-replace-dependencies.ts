@@ -27,7 +27,10 @@ import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts"
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
-import { ReplaceTrigger } from "./objects/trigger/changes/trigger.alter.ts";
+import {
+  ReplaceTrigger,
+  SetTriggerEnabledState,
+} from "./objects/trigger/changes/trigger.alter.ts";
 import {
   CreateCommentOnTrigger,
   DropCommentOnTrigger,
@@ -574,15 +577,15 @@ function resolveObjectForStableId(
   if (stableId.startsWith("trigger:")) {
     const main = mainCatalog.triggers[stableId];
     const branch = branchCatalog.triggers[stableId];
+    if (!main || !branch) return null;
+
     const tableStableId = `table:${branch.schema}.${branch.table_name}`;
-    return main && branch
-      ? {
-          kind: "trigger",
-          main,
-          branch,
-          branchIndexableObject: branchCatalog.indexableObjects[tableStableId],
-        }
-      : null;
+    return {
+      kind: "trigger",
+      main,
+      branch,
+      branchIndexableObject: branchCatalog.indexableObjects[tableStableId],
+    };
   }
 
   if (stableId.startsWith("domain:")) {
@@ -763,6 +766,9 @@ function buildReplaceChanges(
               ...(resolved.branch.comment !== null
                 ? [new CreateCommentOnTrigger({ trigger: resolved.branch })]
                 : []),
+              ...(resolved.branch.enabled !== "O"
+                ? [new SetTriggerEnabledState({ trigger: resolved.branch })]
+                : []),
             ]
           : []),
       ];
@@ -815,7 +821,8 @@ function isSupersededReplaceChange(
   }
   if (
     change instanceof CreateCommentOnTrigger ||
-    change instanceof DropCommentOnTrigger
+    change instanceof DropCommentOnTrigger ||
+    change instanceof SetTriggerEnabledState
   ) {
     return triggerIds.has(change.trigger.stableId);
   }

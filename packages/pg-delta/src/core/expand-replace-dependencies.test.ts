@@ -1150,6 +1150,7 @@ describe("expandReplaceDependencies", () => {
     const mainTrigger = new Trigger(triggerBase);
     const branchTrigger = new Trigger({
       ...triggerBase,
+      enabled: "D",
       when_condition: "new.status = 'blocked'::public.account_status",
       definition:
         "CREATE TRIGGER block_blocked_accounts BEFORE INSERT ON public.accounts FOR EACH ROW WHEN (new.status = 'blocked'::public.account_status) EXECUTE FUNCTION public.noop_trigger()",
@@ -1194,5 +1195,71 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some((c) => c instanceof CreateCommentOnTrigger),
     ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c.serialize().includes("DISABLE TRIGGER")),
+    ).toBe(true);
+  });
+
+  test("keeps a drop-only dependent trigger when a column is invalidated", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const trigger = new Trigger({
+      schema: "public",
+      name: "block_blocked_accounts",
+      table_name: "accounts",
+      table_relkind: "r",
+      function_schema: "public",
+      function_name: "noop_trigger",
+      trigger_type: 23,
+      enabled: "O",
+      is_internal: false,
+      deferrable: false,
+      initially_deferred: false,
+      argument_count: 0,
+      column_numbers: [],
+      arguments: [],
+      when_condition: "new.status = 'blocked'::text",
+      old_table: null,
+      new_table: null,
+      is_partition_clone: false,
+      parent_trigger_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      is_on_partitioned_table: false,
+      owner: "postgres",
+      definition:
+        "CREATE TRIGGER block_blocked_accounts BEFORE INSERT ON public.accounts FOR EACH ROW WHEN (new.status = 'blocked'::text) EXECUTE FUNCTION public.noop_trigger()",
+      comment: null,
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+      new DropTrigger({ trigger }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      triggers: { [trigger.stableId]: trigger },
+      depends: [
+        {
+          dependent_stable_id: trigger.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      triggers: {},
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter((c) => c instanceof DropTrigger),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((c) => c instanceof CreateTrigger)).toBe(
+      false,
+    );
   });
 });
