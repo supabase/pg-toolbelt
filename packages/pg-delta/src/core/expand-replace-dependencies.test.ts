@@ -3,6 +3,10 @@ import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
+import { AlterDomainSetDefault } from "./objects/domain/changes/domain.alter.ts";
+import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
+import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
+import { Domain } from "./objects/domain/domain.model.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
@@ -29,7 +33,7 @@ import {
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
-import { Table } from "./objects/table/table.model.ts";
+import { Table, type TableProps } from "./objects/table/table.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { Enum } from "./objects/type/enum/enum.model.ts";
@@ -70,6 +74,109 @@ function mockInvalidatingChange(invalidates: string[]): Change {
     table: { schema: "public", name: "t" },
     serialize: () => "",
   } as unknown as Change;
+}
+
+function procedureWithArgs(argumentTypes: string[]): Procedure {
+  return new Procedure({
+    schema: "public",
+    name: "normalize_value",
+    kind: "f",
+    return_type: "integer",
+    return_type_schema: "pg_catalog",
+    language: "sql",
+    security_definer: false,
+    volatility: "i",
+    parallel_safety: "u",
+    execution_cost: 100,
+    result_rows: 0,
+    is_strict: false,
+    leakproof: false,
+    returns_set: false,
+    argument_count: argumentTypes.length,
+    argument_default_count: 0,
+    argument_names: argumentTypes.map((_, index) => `arg${index + 1}`),
+    argument_types: argumentTypes,
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
+    source_code: "SELECT 1",
+    binary_path: null,
+    sql_body: null,
+    config: null,
+    definition: "CREATE FUNCTION public.normalize_value(...) RETURNS integer",
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+  });
+}
+
+function tableWithDefault(
+  columnDefault: string | null,
+  columnOverrides: Partial<TableProps["columns"][number]> = {},
+): Table {
+  return new Table({
+    schema: "public",
+    name: "items",
+    persistence: "p",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    partition_by: null,
+    owner: "postgres",
+    comment: null,
+    parent_schema: null,
+    parent_name: null,
+    columns: [
+      {
+        name: "value",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: columnDefault,
+        comment: null,
+        ...columnOverrides,
+      },
+    ],
+    privileges: [],
+  });
+}
+
+function domainWithDefault(defaultValue: string): Domain {
+  return new Domain({
+    schema: "public",
+    name: "item_value",
+    base_type: "int4",
+    base_type_schema: "pg_catalog",
+    base_type_str: "integer",
+    not_null: false,
+    type_modifier: null,
+    array_dimensions: null,
+    collation: null,
+    default_bin: defaultValue,
+    default_value: defaultValue,
+    owner: "postgres",
+    comment: null,
+    constraints: [],
+    privileges: [],
+  });
 }
 
 describe("expandReplaceDependencies", () => {
@@ -976,5 +1083,137 @@ describe("expandReplaceDependencies", () => {
     );
     expect(expanded.changes).not.toContain(alterUsing);
     expect(expanded.changes).not.toContain(alterWithCheck);
+  });
+
+  test("does not replace a table when a procedure signature replacement is covered by a column default alter", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainTable = tableWithDefault("public.normalize_value(1)");
+    const branchTable = tableWithDefault("public.normalize_value((1)::bigint)");
+    const setDefault = new AlterTableAlterColumnSetDefault({
+      table: branchTable,
+      column: branchTable.columns[0],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      setDefault,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(setDefault);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
+  test("does not replace a domain or table when a procedure signature replacement is covered by a domain default alter", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDomain = domainWithDefault("public.normalize_value(1)");
+    const branchDomain = domainWithDefault(
+      "public.normalize_value((1)::bigint)",
+    );
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+    const setDomainDefault = new AlterDomainSetDefault({
+      domain: mainDomain,
+      defaultValue: branchDomain.default_value ?? "NULL",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      setDomainDefault,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: mainDomain.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(setDomainDefault);
+    expect(
+      expanded.changes.some((change) => change instanceof DropDomain),
+    ).toBe(false);
+    expect(
+      expanded.changes.some((change) => change instanceof CreateDomain),
+    ).toBe(false);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(tableUsingDomain.stableId)).toBe(
+      false,
+    );
   });
 });
