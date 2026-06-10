@@ -13,10 +13,7 @@ import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
-import {
-  AlterTableAddConstraint,
-  AlterTableAlterColumnType,
-} from "./objects/table/changes/table.alter.ts";
+import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -127,7 +124,7 @@ export function expandReplaceDependencies({
   }
 
   const promotedRlsPolicyIds = new Set<string>();
-  const additions: Change[] = collectColumnRewritePolicyReplacements({
+  const additions: Change[] = collectInvalidatedRlsPolicyReplacements({
     changes,
     mainCatalog,
     branchCatalog,
@@ -304,7 +301,7 @@ export function expandReplaceDependencies({
   };
 }
 
-function collectColumnRewritePolicyReplacements({
+function collectInvalidatedRlsPolicyReplacements({
   changes,
   mainCatalog,
   branchCatalog,
@@ -319,22 +316,22 @@ function collectColumnRewritePolicyReplacements({
   droppedIds: Set<string>;
   promotedRlsPolicyIds: Set<string>;
 }): Change[] {
-  const rewrittenColumnIds = new Set<string>();
+  // In-place rewrites report stable ids through `invalidates`: the referenced
+  // object keeps its identity, but dependents bound to the old definition must
+  // be torn down first. RLS policy expressions are tracked in pg_depend, so use
+  // those catalog edges to promote only policies that depend on an invalidated
+  // id, without coupling this expansion pass to a concrete table-change class.
+  const invalidatedIds = new Set<string>();
   for (const change of changes) {
-    if (!(change instanceof AlterTableAlterColumnType)) continue;
-    rewrittenColumnIds.add(
-      stableId.column(
-        change.table.schema,
-        change.table.name,
-        change.column.name,
-      ),
-    );
+    for (const invalidatedId of change.invalidates) {
+      invalidatedIds.add(invalidatedId);
+    }
   }
-  if (rewrittenColumnIds.size === 0) return [];
+  if (invalidatedIds.size === 0) return [];
 
   const replacements: Change[] = [];
   for (const dep of mainCatalog.depends) {
-    if (!rewrittenColumnIds.has(dep.referenced_stable_id)) continue;
+    if (!invalidatedIds.has(dep.referenced_stable_id)) continue;
 
     const targetId = normalizeDependentId(dep.dependent_stable_id);
     if (!targetId?.startsWith("rlsPolicy:")) continue;

@@ -20,7 +20,6 @@ import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAlterColumnSetDefault,
-  AlterTableAlterColumnType,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -49,12 +48,27 @@ function mockChange(overrides: {
     scope: "object",
     creates,
     drops,
+    invalidates: [],
     requires: [],
     table: { schema: "public", name: "t" },
     serialize: () => [],
     get requiresForDrop(): string[] {
       return [];
     },
+  } as unknown as Change;
+}
+
+function mockInvalidatingChange(invalidates: string[]): Change {
+  return {
+    objectType: "table",
+    operation: "alter",
+    scope: "object",
+    creates: [],
+    drops: [],
+    invalidates,
+    requires: [],
+    table: { schema: "public", name: "t" },
+    serialize: () => "",
   } as unknown as Change;
 }
 
@@ -826,7 +840,7 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
-  test("promotes dependent RLS policy when a referenced column is rewritten", async () => {
+  test("promotes dependent RLS policy when a referenced column is invalidated", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const columnTemplate = {
       position: 1,
@@ -922,11 +936,9 @@ describe("expandReplaceDependencies", () => {
       withCheckExpression: branchPolicy.with_check_expression,
     });
     const changes: Change[] = [
-      new AlterTableAlterColumnType({
-        table: branchTable,
-        column: branchRoleColumn,
-        previousColumn: mainRoleColumn,
-      }),
+      mockInvalidatingChange([
+        "column:public.solution_categories_with_policy.role",
+      ]),
       alterUsing,
       alterWithCheck,
     ];
