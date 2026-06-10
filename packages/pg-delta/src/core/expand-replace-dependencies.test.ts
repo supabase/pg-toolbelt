@@ -1200,6 +1200,80 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("does not replace tables for constraint dependents of invalidated columns", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const table = new Table({
+      schema: "public",
+      name: "accounts",
+      persistence: "p",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "postgres",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      columns: [
+        {
+          name: "status",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      privileges: [],
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id:
+            "constraint:public.accounts.accounts_status_check",
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropTable)).toBe(false);
+    expect(expanded.changes.some((c) => c instanceof CreateTable)).toBe(false);
+    expect(expanded.replacedTableIds.has(table.stableId)).toBe(false);
+  });
+
   test("keeps a drop-only dependent trigger when a column is invalidated", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const trigger = new Trigger({

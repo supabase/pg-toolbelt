@@ -108,6 +108,60 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "change column type with check constraint does not replace table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.alter_column_type_check_constraint_accounts (
+            id integer PRIMARY KEY,
+            status text NOT NULL,
+            CONSTRAINT accounts_status_non_empty CHECK (status <> '')
+          );
+
+          INSERT INTO public.alter_column_type_check_constraint_accounts
+            (id, status)
+          VALUES
+            (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE public.alter_column_type_check_constraint_accounts
+            ALTER COLUMN status TYPE character varying(32);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "DROP TABLE public.alter_column_type_check_constraint_accounts",
+                ),
+              ),
+            ).toBe(false);
+            expect(sqlStatements).toContain(
+              "ALTER TABLE public.alter_column_type_check_constraint_accounts ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+            );
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "CREATE TABLE public.alter_column_type_check_constraint_accounts",
+                ),
+              ),
+            ).toBe(false);
+          },
+        });
+
+        const { rows } = await db.main.query<{
+          status: string;
+        }>(`
+          SELECT status
+          FROM public.alter_column_type_check_constraint_accounts
+          WHERE id = 1
+        `);
+        expect(rows).toEqual([{ status: "active" }]);
+      }),
+    );
+
+    test(
       "change column type after dropping dependent view",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
