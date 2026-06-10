@@ -1,5 +1,13 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.28
+
+### Patch Changes
+
+- 9f01826: Order dependent view drops before column type rewrites, and preserve view or materialized-view metadata, including ACL adjustments, when those dependents are dropped and recreated during replacement.
+- f95e0a8: Recreate RLS policies that depend on replaced functions.
+- e396579: Recreate RLS policies that depend on rewritten columns.
+
 ## 1.0.0-alpha.27
 
 ### Minor Changes
