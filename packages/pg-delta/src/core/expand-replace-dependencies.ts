@@ -10,6 +10,16 @@ import { DropMaterializedView } from "./objects/materialized-view/changes/materi
 import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import {
+  ReplaceRule,
+  SetRuleEnabledState,
+} from "./objects/rule/changes/rule.alter.ts";
+import {
+  CreateCommentOnRule,
+  DropCommentOnRule,
+} from "./objects/rule/changes/rule.comment.ts";
+import { CreateRule } from "./objects/rule/changes/rule.create.ts";
+import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
@@ -17,6 +27,13 @@ import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts"
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { ReplaceTrigger } from "./objects/trigger/changes/trigger.alter.ts";
+import {
+  CreateCommentOnTrigger,
+  DropCommentOnTrigger,
+} from "./objects/trigger/changes/trigger.comment.ts";
+import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
+import { DropTrigger } from "./objects/trigger/changes/trigger.drop.ts";
 import { CreateCompositeType } from "./objects/type/composite-type/changes/composite-type.create.ts";
 import { DropCompositeType } from "./objects/type/composite-type/changes/composite-type.drop.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
@@ -59,6 +76,17 @@ type ResolvedObject =
       kind: "rls_policy";
       main: Catalog["rlsPolicies"][string];
       branch: Catalog["rlsPolicies"][string];
+    }
+  | {
+      kind: "rule";
+      main: Catalog["rules"][string];
+      branch: Catalog["rules"][string];
+    }
+  | {
+      kind: "trigger";
+      main: Catalog["triggers"][string];
+      branch: Catalog["triggers"][string];
+      branchIndexableObject: Catalog["indexableObjects"][string] | undefined;
     }
   | {
       kind: "enum";
@@ -110,10 +138,12 @@ export function expandReplaceDependencies({
 }): ExpandReplaceDependenciesResult {
   const createdIds = new Set<string>();
   const droppedIds = new Set<string>();
+  const invalidatedIds = new Set<string>();
 
   for (const change of changes) {
     for (const id of change.creates ?? []) createdIds.add(id);
     for (const id of change.drops ?? []) droppedIds.add(id);
+    for (const id of change.invalidates ?? []) invalidatedIds.add(id);
   }
 
   const replaceRoots = new Set<string>();
@@ -121,6 +151,12 @@ export function expandReplaceDependencies({
     if (droppedIds.has(id)) {
       replaceRoots.add(id);
     }
+  }
+  for (const id of invalidatedIds) {
+    // In-place rewrites such as ALTER COLUMN TYPE do not drop/recreate the
+    // referenced object, but PostgreSQL still requires dependent rewrite
+    // objects (rules, trigger WHEN expressions, etc.) to be removed first.
+    replaceRoots.add(id);
   }
 
   const promotedRlsPolicyIds = new Set<string>();
@@ -203,6 +239,8 @@ export function expandReplaceDependencies({
   // AlterTableDropColumn on a table that is about to be dropped) and the
   // associated drop-phase cycle with the catalog constraint→column edge.
   const tablesReplacedByExpansion = new Set<string>();
+  const rulesReplacedByExpansion = new Set<string>();
+  const triggersReplacedByExpansion = new Set<string>();
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -255,12 +293,15 @@ export function expandReplaceDependencies({
 
       const addDrop = !hasDrop;
       const addCreate = !hasCreate;
+      const replaceRewriteObject =
+        addDrop && (resolved.kind === "rule" || resolved.kind === "trigger");
+      const effectiveAddCreate = addCreate || replaceRewriteObject;
 
-      if (!addDrop && !addCreate) continue;
+      if (!addDrop && !effectiveAddCreate) continue;
 
       const replacementChanges = buildReplaceChanges(resolved, {
         addDrop,
-        addCreate,
+        addCreate: effectiveAddCreate,
         diffContext,
       });
       if (!replacementChanges) continue;
@@ -275,6 +316,12 @@ export function expandReplaceDependencies({
       // the DropTable+CreateTable pair supersedes all structural alterations.
       if (resolved.kind === "table" && addDrop) {
         tablesReplacedByExpansion.add(targetId);
+      }
+      if (resolved.kind === "rule" && addDrop && effectiveAddCreate) {
+        rulesReplacedByExpansion.add(targetId);
+      }
+      if (resolved.kind === "trigger" && addDrop && effectiveAddCreate) {
+        triggersReplacedByExpansion.add(targetId);
       }
 
       // Track new creates/drops so we don't duplicate work for downstream dependents.
@@ -292,11 +339,20 @@ export function expandReplaceDependencies({
     };
   }
 
+  const retainedChanges = removeSupersededRlsPolicyAlters(
+    changes,
+    promotedRlsPolicyIds,
+  ).filter(
+    (change) =>
+      !isSupersededReplaceChange(
+        change,
+        rulesReplacedByExpansion,
+        triggersReplacedByExpansion,
+      ),
+  );
+
   return {
-    changes: [
-      ...removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
-      ...additions,
-    ],
+    changes: [...retainedChanges, ...additions],
     replacedTableIds: tablesReplacedByExpansion,
   };
 }
@@ -509,6 +565,26 @@ function resolveObjectForStableId(
     return main && branch ? { kind: "rls_policy", main, branch } : null;
   }
 
+  if (stableId.startsWith("rule:")) {
+    const main = mainCatalog.rules[stableId];
+    const branch = branchCatalog.rules[stableId];
+    return main && branch ? { kind: "rule", main, branch } : null;
+  }
+
+  if (stableId.startsWith("trigger:")) {
+    const main = mainCatalog.triggers[stableId];
+    const branch = branchCatalog.triggers[stableId];
+    const tableStableId = `table:${branch.schema}.${branch.table_name}`;
+    return main && branch
+      ? {
+          kind: "trigger",
+          main,
+          branch,
+          branchIndexableObject: branchCatalog.indexableObjects[tableStableId],
+        }
+      : null;
+  }
+
   if (stableId.startsWith("domain:")) {
     const main = mainCatalog.domains[stableId];
     const branch = branchCatalog.domains[stableId];
@@ -660,6 +736,36 @@ function buildReplaceChanges(
             ]
           : []),
       ];
+    case "rule":
+      return [
+        ...(addDrop ? [new DropRule({ rule: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateRule({ rule: resolved.branch }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnRule({ rule: resolved.branch })]
+                : []),
+              ...(resolved.branch.enabled !== "O"
+                ? [new SetRuleEnabledState({ rule: resolved.branch })]
+                : []),
+            ]
+          : []),
+      ];
+    case "trigger":
+      return [
+        ...(addDrop ? [new DropTrigger({ trigger: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateTrigger({
+                trigger: resolved.branch,
+                indexableObject: resolved.branchIndexableObject,
+              }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnTrigger({ trigger: resolved.branch })]
+                : []),
+            ]
+          : []),
+      ];
     case "enum":
       return [
         ...(addDrop ? [new DropEnum({ enum: resolved.main })] : []),
@@ -687,6 +793,33 @@ function buildReplaceChanges(
     default:
       return null;
   }
+}
+
+function isSupersededReplaceChange(
+  change: Change,
+  ruleIds: ReadonlySet<string>,
+  triggerIds: ReadonlySet<string>,
+): boolean {
+  if (change instanceof ReplaceRule || change instanceof CreateRule) {
+    return ruleIds.has(change.rule.stableId);
+  }
+  if (
+    change instanceof CreateCommentOnRule ||
+    change instanceof DropCommentOnRule ||
+    change instanceof SetRuleEnabledState
+  ) {
+    return ruleIds.has(change.rule.stableId);
+  }
+  if (change instanceof ReplaceTrigger || change instanceof CreateTrigger) {
+    return triggerIds.has(change.trigger.stableId);
+  }
+  if (
+    change instanceof CreateCommentOnTrigger ||
+    change instanceof DropCommentOnTrigger
+  ) {
+    return triggerIds.has(change.trigger.stableId);
+  }
+  return false;
 }
 
 function buildCreateViewReplacementChanges(
