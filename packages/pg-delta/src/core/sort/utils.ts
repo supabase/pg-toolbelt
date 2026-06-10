@@ -1,4 +1,5 @@
 import type { Change } from "../change.types.ts";
+import { AlterDomainDropDefault } from "../objects/domain/changes/domain.alter.ts";
 import {
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnDropIdentity,
@@ -80,6 +81,7 @@ export function getExecutionPhase(change: Change): Phase {
     // edges (column → sequence, column → identity sequence) order them
     // before the matching DROP statement.
     if (
+      change instanceof AlterDomainDropDefault ||
       change instanceof AlterTableAlterColumnDropDefault ||
       change instanceof AlterTableAlterColumnDropIdentity
     ) {
