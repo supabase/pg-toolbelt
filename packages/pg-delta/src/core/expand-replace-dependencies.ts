@@ -511,6 +511,7 @@ function isRebuildableInvalidationDependent(dependentId: string): boolean {
     id.startsWith("view:") ||
     id.startsWith("materializedView:") ||
     id.startsWith("index:") ||
+    id.startsWith("procedure:") ||
     id.startsWith("rlsPolicy:") ||
     id.startsWith("rule:") ||
     id.startsWith("trigger:")
