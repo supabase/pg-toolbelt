@@ -14,6 +14,10 @@ import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-polic
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import { RlsPolicy } from "./objects/rls-policy/rls-policy.model.ts";
+import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
+import { CreateRule } from "./objects/rule/changes/rule.create.ts";
+import { DropRule } from "./objects/rule/changes/rule.drop.ts";
+import { Rule } from "./objects/rule/rule.model.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
@@ -30,6 +34,10 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { Table } from "./objects/table/table.model.ts";
+import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
+import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
+import { DropTrigger } from "./objects/trigger/changes/trigger.drop.ts";
+import { Trigger } from "./objects/trigger/trigger.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { Enum } from "./objects/type/enum/enum.model.ts";
@@ -40,15 +48,16 @@ import { View } from "./objects/view/view.model.ts";
 function mockChange(overrides: {
   creates?: string[];
   drops?: string[];
+  invalidates?: string[];
 }): Change {
-  const { creates = [], drops = [] } = overrides;
+  const { creates = [], drops = [], invalidates = [] } = overrides;
   return {
     objectType: "table",
     operation: "create",
     scope: "object",
     creates,
     drops,
-    invalidates: [],
+    invalidates,
     requires: [],
     table: { schema: "public", name: "t" },
     serialize: () => [],
@@ -56,6 +65,17 @@ function mockChange(overrides: {
       return [];
     },
   } as unknown as Change;
+}
+
+function catalogWith(
+  catalog: Catalog,
+  overrides: Partial<ConstructorParameters<typeof Catalog>[0]>,
+): Catalog {
+  return new Catalog(
+    Object.assign({}, catalog, overrides) as ConstructorParameters<
+      typeof Catalog
+    >[0],
+  );
 }
 
 function mockInvalidatingChange(invalidates: string[]): Change {
@@ -976,5 +996,203 @@ describe("expandReplaceDependencies", () => {
     );
     expect(expanded.changes).not.toContain(alterUsing);
     expect(expanded.changes).not.toContain(alterWithCheck);
+  });
+
+  test("promotes dependent rule when a procedure's signature changes", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedureBase = {
+      schema: "public",
+      name: "is_valid_amount",
+      kind: "f" as const,
+      return_type: "boolean",
+      return_type_schema: "pg_catalog",
+      language: "sql",
+      security_definer: false,
+      volatility: "i" as const,
+      parallel_safety: "u" as const,
+      execution_cost: 100,
+      result_rows: 0,
+      is_strict: false,
+      leakproof: false,
+      returns_set: false,
+      argument_count: 1,
+      argument_default_count: 0,
+      argument_names: ["value"],
+      all_argument_types: null,
+      argument_modes: null,
+      argument_defaults: null,
+      source_code: "SELECT value > 0",
+      binary_path: null,
+      sql_body: null,
+      config: null,
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    };
+    const mainProcedure = new Procedure({
+      ...procedureBase,
+      argument_types: ["int4"],
+      definition:
+        "CREATE FUNCTION public.is_valid_amount(value integer) RETURNS boolean ...",
+    });
+    const branchProcedure = new Procedure({
+      ...procedureBase,
+      argument_types: ["int8"],
+      definition:
+        "CREATE FUNCTION public.is_valid_amount(value bigint) RETURNS boolean ...",
+    });
+    const ruleBase = {
+      schema: "public",
+      name: "block_invalid_amount",
+      table_name: "items",
+      relation_kind: "r" as const,
+      event: "INSERT" as const,
+      enabled: "D" as const,
+      is_instead: true,
+      owner: "postgres",
+      definition:
+        "CREATE RULE block_invalid_amount AS ON INSERT TO public.items WHERE NOT public.is_valid_amount(new.amount) DO INSTEAD NOTHING",
+      comment: "rule comment",
+      columns: ["amount"],
+    };
+    const mainRule = new Rule(ruleBase);
+    const branchRule = new Rule({
+      ...ruleBase,
+      definition:
+        "CREATE RULE block_invalid_amount AS ON INSERT TO public.items WHERE NOT public.is_valid_amount(new.amount::bigint) DO INSTEAD NOTHING",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateRule({ rule: branchRule, orReplace: true }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      rules: { [mainRule.stableId]: mainRule },
+      depends: [
+        {
+          dependent_stable_id: mainRule.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      rules: { [branchRule.stableId]: branchRule },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropRule)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateRule)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateCommentOnRule)).toBe(
+      true,
+    );
+  });
+
+  test("promotes dependent rule and trigger when a column is invalidated", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const ruleBase = {
+      schema: "public",
+      name: "block_blocked_accounts",
+      table_name: "accounts",
+      relation_kind: "r" as const,
+      event: "INSERT" as const,
+      enabled: "O" as const,
+      is_instead: true,
+      owner: "postgres",
+      definition:
+        "CREATE RULE block_blocked_accounts AS ON INSERT TO public.accounts WHERE new.status = 'blocked' DO INSTEAD NOTHING",
+      comment: null,
+      columns: ["status"],
+    };
+    const mainRule = new Rule(ruleBase);
+    const branchRule = new Rule({
+      ...ruleBase,
+      definition:
+        "CREATE RULE block_blocked_accounts AS ON INSERT TO public.accounts WHERE new.status = 'blocked'::public.account_status DO INSTEAD NOTHING",
+    });
+    const triggerBase = {
+      schema: "public",
+      name: "block_blocked_accounts",
+      table_name: "accounts",
+      table_relkind: "r" as const,
+      function_schema: "public",
+      function_name: "noop_trigger",
+      trigger_type: 23,
+      enabled: "O" as const,
+      is_internal: false,
+      deferrable: false,
+      initially_deferred: false,
+      argument_count: 0,
+      column_numbers: [],
+      arguments: [],
+      when_condition: "new.status = 'blocked'::text",
+      old_table: null,
+      new_table: null,
+      is_partition_clone: false,
+      parent_trigger_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      is_on_partitioned_table: false,
+      owner: "postgres",
+      definition:
+        "CREATE TRIGGER block_blocked_accounts BEFORE INSERT ON public.accounts FOR EACH ROW WHEN (new.status = 'blocked'::text) EXECUTE FUNCTION public.noop_trigger()",
+      comment: "trigger comment",
+    };
+    const mainTrigger = new Trigger(triggerBase);
+    const branchTrigger = new Trigger({
+      ...triggerBase,
+      when_condition: "new.status = 'blocked'::public.account_status",
+      definition:
+        "CREATE TRIGGER block_blocked_accounts BEFORE INSERT ON public.accounts FOR EACH ROW WHEN (new.status = 'blocked'::public.account_status) EXECUTE FUNCTION public.noop_trigger()",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+      new CreateRule({ rule: branchRule, orReplace: true }),
+      new CreateTrigger({ trigger: branchTrigger, orReplace: true }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      rules: { [mainRule.stableId]: mainRule },
+      triggers: { [mainTrigger.stableId]: mainTrigger },
+      depends: [
+        {
+          dependent_stable_id: mainRule.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainTrigger.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      rules: { [branchRule.stableId]: branchRule },
+      triggers: { [branchTrigger.stableId]: branchTrigger },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropRule)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateRule)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof DropTrigger)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateTrigger)).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnTrigger),
+    ).toBe(true);
   });
 });

@@ -586,6 +586,108 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "trigger WHEN condition depending on rewritten column is recreated around ALTER COLUMN TYPE",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL
+            );
+
+            CREATE FUNCTION test_schema.noop_trigger()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+
+            CREATE TRIGGER block_blocked_accounts
+              BEFORE INSERT OR UPDATE ON test_schema.accounts
+              FOR EACH ROW
+              WHEN (NEW.status = 'blocked')
+              EXECUTE FUNCTION test_schema.noop_trigger();
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            DROP TRIGGER block_blocked_accounts ON test_schema.accounts;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            CREATE TRIGGER block_blocked_accounts
+              BEFORE INSERT OR UPDATE ON test_schema.accounts
+              FOR EACH ROW
+              WHEN (NEW.status = 'blocked'::test_schema.account_status)
+              EXECUTE FUNCTION test_schema.noop_trigger();
+          `,
+        });
+      }),
+    );
+
+    test(
+      "trigger WHEN condition depending on replaced function signature is recreated around the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.is_valid_amount(value integer)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT value > 0 $$;
+
+            CREATE FUNCTION test_schema.noop_trigger()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+              RETURN NEW;
+            END;
+            $$;
+
+            CREATE TABLE test_schema.items (
+              id integer PRIMARY KEY,
+              amount integer NOT NULL
+            );
+
+            CREATE TRIGGER validate_amount
+              BEFORE INSERT OR UPDATE ON test_schema.items
+              FOR EACH ROW
+              WHEN (test_schema.is_valid_amount(NEW.amount))
+              EXECUTE FUNCTION test_schema.noop_trigger();
+          `,
+          testSql: dedent`
+            DROP TRIGGER validate_amount ON test_schema.items;
+            DROP FUNCTION test_schema.is_valid_amount(integer);
+
+            CREATE FUNCTION test_schema.is_valid_amount(value bigint)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT value > 0 $$;
+
+            CREATE TRIGGER validate_amount
+              BEFORE INSERT OR UPDATE ON test_schema.items
+              FOR EACH ROW
+              WHEN (test_schema.is_valid_amount(NEW.amount::bigint))
+              EXECUTE FUNCTION test_schema.noop_trigger();
+          `,
+        });
+      }),
+    );
+
+    test(
       "trigger semantic equality",
       withDb(pgVersion, async (db) => {
         // Setup: Create a trigger in both databases

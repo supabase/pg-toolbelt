@@ -195,5 +195,85 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "rule depending on rewritten column is recreated around ALTER COLUMN TYPE",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL
+            );
+
+            CREATE RULE block_blocked_accounts AS
+              ON INSERT TO test_schema.accounts
+              WHERE NEW.status = 'blocked'
+              DO INSTEAD NOTHING;
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            DROP RULE block_blocked_accounts ON test_schema.accounts;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            CREATE RULE block_blocked_accounts AS
+              ON INSERT TO test_schema.accounts
+              WHERE NEW.status = 'blocked'::test_schema.account_status
+              DO INSTEAD NOTHING;
+          `,
+        });
+      }),
+    );
+
+    test(
+      "rule depending on replaced function signature is recreated around the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.is_valid_amount(value integer)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT value > 0 $$;
+
+            CREATE TABLE test_schema.items (
+              id integer PRIMARY KEY,
+              amount integer NOT NULL
+            );
+
+            CREATE RULE block_invalid_amount AS
+              ON INSERT TO test_schema.items
+              WHERE NOT test_schema.is_valid_amount(NEW.amount)
+              DO INSTEAD NOTHING;
+          `,
+          testSql: dedent`
+            DROP RULE block_invalid_amount ON test_schema.items;
+            DROP FUNCTION test_schema.is_valid_amount(integer);
+
+            CREATE FUNCTION test_schema.is_valid_amount(value bigint)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT value > 0 $$;
+
+            CREATE RULE block_invalid_amount AS
+              ON INSERT TO test_schema.items
+              WHERE NOT test_schema.is_valid_amount(NEW.amount::bigint)
+              DO INSTEAD NOTHING;
+          `,
+        });
+      }),
+    );
   });
 }
