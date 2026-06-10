@@ -1274,6 +1274,78 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.replacedTableIds.has(table.stableId)).toBe(false);
   });
 
+  test("promotes dependent SQL routines when a column is invalidated", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedureBase = {
+      schema: "public",
+      name: "account_status_text",
+      kind: "f" as const,
+      return_type: "text",
+      return_type_schema: "pg_catalog",
+      language: "sql",
+      security_definer: false,
+      volatility: "s" as const,
+      parallel_safety: "u" as const,
+      execution_cost: 100,
+      result_rows: 0,
+      is_strict: false,
+      leakproof: false,
+      returns_set: false,
+      argument_count: 0,
+      argument_default_count: 0,
+      argument_names: null,
+      argument_types: [],
+      all_argument_types: null,
+      argument_modes: null,
+      argument_defaults: null,
+      source_code: "",
+      binary_path: null,
+      sql_body: "SELECT status::text FROM public.accounts WHERE id = 1",
+      config: null,
+      owner: "postgres",
+      comment: null,
+      privileges: [],
+    };
+    const mainProcedure = new Procedure({
+      ...procedureBase,
+      definition:
+        "CREATE FUNCTION public.account_status_text() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT status::text FROM public.accounts WHERE id = 1; END",
+    });
+    const branchProcedure = new Procedure({
+      ...procedureBase,
+      definition:
+        "CREATE FUNCTION public.account_status_text() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT status::text FROM public.accounts WHERE id = 1; END",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      depends: [
+        {
+          dependent_stable_id: mainProcedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
+      true,
+    );
+  });
+
   test("keeps a drop-only dependent trigger when a column is invalidated", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const trigger = new Trigger({

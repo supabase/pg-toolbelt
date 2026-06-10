@@ -157,6 +157,66 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "begin atomic sql function depending on rewritten column is recreated",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.accounts (
+              user_id int PRIMARY KEY,
+              balance int NOT NULL DEFAULT 0
+            );
+
+            CREATE FUNCTION test_schema.total_balance()
+            RETURNS bigint
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT sum(balance)::bigint FROM test_schema.accounts;
+            END;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.total_balance();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN balance TYPE bigint
+              USING balance::bigint;
+
+            CREATE FUNCTION test_schema.total_balance()
+            RETURNS bigint
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT sum(balance)::bigint FROM test_schema.accounts;
+            END;
+          `,
+          assertSqlStatements: (statements) => {
+            const dropIndex = statements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.total_balance"),
+            );
+            const alterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN balance TYPE bigint",
+              ),
+            );
+            const createIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes("FUNCTION test_schema.total_balance()"),
+            );
+
+            expect(dropIndex).toBeGreaterThanOrEqual(0);
+            expect(alterIndex).toBeGreaterThan(dropIndex);
+            expect(createIndex).toBeGreaterThan(alterIndex);
+          },
+        });
+      }),
+    );
+
+    test(
       "function signature: parameter type change",
       withDb(pgVersion, async (db) => {
         // Changes the IN parameter type (text -> uuid). stableId changes
