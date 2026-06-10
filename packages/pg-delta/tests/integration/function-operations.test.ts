@@ -217,6 +217,81 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "begin atomic sql function returning rewritten custom column is recreated after the rewrite",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.accounts (
+              user_id int PRIMARY KEY,
+              status text NOT NULL DEFAULT 'active'
+            );
+
+            CREATE FUNCTION test_schema.current_account_status()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status FROM test_schema.accounts WHERE user_id = 1;
+            END;
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            DROP FUNCTION test_schema.current_account_status();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status DROP DEFAULT;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            CREATE FUNCTION test_schema.current_account_status()
+            RETURNS test_schema.account_status
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status FROM test_schema.accounts WHERE user_id = 1;
+            END;
+          `,
+          assertSqlStatements: (statements) => {
+            const createTypeIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE TYPE test_schema.account_status AS ENUM",
+              ),
+            );
+            const dropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.current_account_status",
+              ),
+            );
+            const alterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN status TYPE test_schema.account_status",
+              ),
+            );
+            const createIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes(
+                  "FUNCTION test_schema.current_account_status()",
+                ),
+            );
+
+            expect(dropIndex).toBeGreaterThanOrEqual(0);
+            expect(createTypeIndex).toBeGreaterThan(dropIndex);
+            expect(alterIndex).toBeGreaterThan(createTypeIndex);
+            expect(createIndex).toBeGreaterThan(alterIndex);
+          },
+        });
+      }),
+    );
+
+    test(
       "function signature: parameter type change",
       withDb(pgVersion, async (db) => {
         // Changes the IN parameter type (text -> uuid). stableId changes

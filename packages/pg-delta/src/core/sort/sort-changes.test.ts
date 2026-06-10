@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { PgDepend } from "../depend.ts";
+import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
+import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
+import { Procedure } from "../objects/procedure/procedure.model.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
 import {
@@ -10,6 +13,8 @@ import {
 } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
 import { Table } from "../objects/table/table.model.ts";
+import { CreateEnum } from "../objects/type/enum/changes/enum.create.ts";
+import { Enum } from "../objects/type/enum/enum.model.ts";
 import { CreateView } from "../objects/view/changes/view.create.ts";
 import { DropView } from "../objects/view/changes/view.drop.ts";
 import { View } from "../objects/view/view.model.ts";
@@ -55,6 +60,24 @@ function integerColumn(name: string, position: number) {
     collation: null,
     default: null,
     comment: null,
+  };
+}
+
+function enumColumn(
+  name: string,
+  position: number,
+  schema: string,
+  type: string,
+) {
+  return {
+    ...integerColumn(name, position),
+    data_type: "USER-DEFINED",
+    data_type_str: `${schema}.${type}`,
+    is_custom_type: true,
+    custom_type_type: "e",
+    custom_type_category: "E",
+    custom_type_schema: schema,
+    custom_type_name: type,
   };
 }
 
@@ -171,6 +194,54 @@ function view(name: string, columns = [integerColumn("id", 1)]) {
   });
 }
 
+function enumType(name: string) {
+  return new Enum({
+    schema: "public",
+    name,
+    owner: "postgres",
+    labels: [
+      { sort_order: 1, label: "active" },
+      { sort_order: 2, label: "blocked" },
+    ],
+    comment: null,
+    privileges: [],
+  });
+}
+
+function procedureReturningType(returnType: string) {
+  return new Procedure({
+    schema: "public",
+    name: "account_status",
+    kind: "f",
+    return_type: returnType,
+    return_type_schema: returnType.includes(".") ? "public" : "pg_catalog",
+    language: "sql",
+    security_definer: false,
+    volatility: "s",
+    parallel_safety: "u",
+    execution_cost: 100,
+    result_rows: 0,
+    is_strict: false,
+    leakproof: false,
+    returns_set: false,
+    argument_count: 0,
+    argument_default_count: 0,
+    argument_names: null,
+    argument_types: [],
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
+    source_code: "",
+    binary_path: null,
+    sql_body: "SELECT status FROM public.accounts WHERE id = 1",
+    config: null,
+    definition: `CREATE FUNCTION public.account_status() RETURNS ${returnType} LANGUAGE sql STABLE BEGIN ATOMIC SELECT status FROM public.accounts WHERE id = 1; END`,
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+  });
+}
+
 async function catalogWithDepends(depends: PgDepend[]) {
   const base = await createEmptyCatalog(170000, "postgres");
   // oxlint-disable-next-line typescript/no-misused-spread
@@ -178,6 +249,15 @@ async function catalogWithDepends(depends: PgDepend[]) {
 }
 
 function changeLabel(change: Change) {
+  if (change instanceof CreateEnum) {
+    return `${change.constructor.name}:${change.enum.stableId}`;
+  }
+  if (change instanceof CreateProcedure || change instanceof DropProcedure) {
+    return `${change.constructor.name}:${change.procedure.stableId}`;
+  }
+  if (change instanceof AlterTableAlterColumnType) {
+    return `${change.constructor.name}:${change.table.name}.${change.column.name}`;
+  }
   if (change instanceof AlterTableDropConstraint) {
     return `${change.constructor.name}:${change.table.name}.${change.constraint.name}`;
   }
@@ -226,8 +306,54 @@ describe("sortChanges", () => {
 
     expect(sorted.map(changeLabel)).toEqual([
       "DropView",
-      "AlterTableAlterColumnType",
+      "AlterTableAlterColumnType:users.age",
       "CreateView",
+    ]);
+  });
+
+  test("orders routine recreation after custom column type rewrite", async () => {
+    const accountStatusType = enumType("account_status");
+    const branchTable = table("accounts");
+    const mainColumn = {
+      ...integerColumn("status", 4),
+      data_type: "text",
+      data_type_str: "text",
+    };
+    const branchColumn = enumColumn("status", 4, "public", "account_status");
+    const mainProcedure = procedureReturningType("text");
+    const branchProcedure = procedureReturningType("public.account_status");
+    const changes: Change[] = [
+      new CreateEnum({ enum: accountStatusType }),
+      new AlterTableAlterColumnType({
+        table: branchTable,
+        column: branchColumn,
+        previousColumn: mainColumn,
+      }),
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: mainProcedure.stableId,
+        referenced_stable_id: "column:public.accounts.status",
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: branchProcedure.stableId,
+        referenced_stable_id: "column:public.accounts.status",
+        deptype: "n",
+      },
+    ]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      `DropProcedure:${mainProcedure.stableId}`,
+      `CreateEnum:${accountStatusType.stableId}`,
+      "AlterTableAlterColumnType:accounts.status",
+      `CreateProcedure:${branchProcedure.stableId}`,
     ]);
   });
 
