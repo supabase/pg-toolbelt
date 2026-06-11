@@ -212,9 +212,12 @@ function generateProcedureSignatureReplacementConstraints(
     }
 
     for (const expressionUpdateIndex of expressionUpdateIndexes) {
+      // Restore expressions only after the old overload is gone; otherwise
+      // PostgreSQL can bind the recreated expression back to the exact old
+      // signature and make the following DROP FUNCTION fail.
       constraints.push({
-        sourceChangeIndex: expressionUpdateIndex,
-        targetChangeIndex: drop.index,
+        sourceChangeIndex: drop.index,
+        targetChangeIndex: expressionUpdateIndex,
         source: "custom",
       });
     }

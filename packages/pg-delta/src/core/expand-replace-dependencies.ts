@@ -19,6 +19,7 @@ import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
+import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -33,6 +34,7 @@ import {
 } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import { CreateCompositeType } from "./objects/type/composite-type/changes/composite-type.create.ts";
 import { DropCompositeType } from "./objects/type/composite-type/changes/composite-type.drop.ts";
@@ -277,6 +279,7 @@ export function expandReplaceDependencies({
             branchCatalog,
             diffContext,
             createdIds,
+            existingChanges: changes,
             addRelease: !releaseCovered,
             addRestore: !restoreCovered,
           });
@@ -693,6 +696,7 @@ function buildExpressionDependentReplacementChanges({
   branchCatalog,
   diffContext,
   createdIds,
+  existingChanges,
   addRelease,
   addRestore,
 }: {
@@ -704,6 +708,7 @@ function buildExpressionDependentReplacementChanges({
     "version" | "currentUser" | "defaultPrivilegeState"
   >;
   createdIds: ReadonlySet<string>;
+  existingChanges: readonly Change[];
   addRelease: boolean;
   addRestore: boolean;
 }): Change[] | null {
@@ -714,6 +719,7 @@ function buildExpressionDependentReplacementChanges({
       branchCatalog,
       diffContext,
       createdIds,
+      existingChanges,
       addRelease,
       addRestore,
     });
@@ -795,6 +801,7 @@ function buildColumnExpressionReplacementChanges({
   branchCatalog,
   diffContext,
   createdIds,
+  existingChanges,
   addRelease,
   addRestore,
 }: {
@@ -806,6 +813,7 @@ function buildColumnExpressionReplacementChanges({
     "version" | "currentUser" | "defaultPrivilegeState"
   >;
   createdIds: ReadonlySet<string>;
+  existingChanges: readonly Change[];
   addRelease: boolean;
   addRestore: boolean;
 }): Change[] | null {
@@ -882,6 +890,14 @@ function buildColumnExpressionReplacementChanges({
                 securityLabel,
               }),
           ),
+        // Column ACLs are stored on the dropped attribute. Unchanged grants do
+        // not appear in the normal diff, so the fallback must replay them.
+        ...buildRetainedColumnGrantChanges({
+          table: branchTable,
+          columnName: branchColumn.name,
+          existingChanges,
+          diffContext,
+        }),
       ];
     }
 
@@ -964,6 +980,99 @@ function buildDomainDefaultReplacementChanges({
   }
 
   return changes;
+}
+
+function buildRetainedColumnGrantChanges({
+  table,
+  columnName,
+  existingChanges,
+  diffContext,
+}: {
+  table: Catalog["tables"][string];
+  columnName: string;
+  existingChanges: readonly Change[];
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  const grantsByKey = new Map<
+    string,
+    {
+      grantee: string;
+      grantable: boolean;
+      privileges: Set<string>;
+    }
+  >();
+
+  for (const privilege of table.privileges) {
+    if (!privilege.columns?.includes(columnName)) continue;
+    if (privilege.grantee === table.owner) continue;
+    if (
+      isColumnGrantCovered({
+        existingChanges,
+        tableStableId: table.stableId,
+        grantee: privilege.grantee,
+        columnName,
+        privilege: privilege.privilege,
+        grantable: privilege.grantable,
+      })
+    ) {
+      continue;
+    }
+
+    const key = `${privilege.grantee}\0${privilege.grantable}`;
+    const group = grantsByKey.get(key) ?? {
+      grantee: privilege.grantee,
+      grantable: privilege.grantable,
+      privileges: new Set<string>(),
+    };
+    group.privileges.add(privilege.privilege);
+    grantsByKey.set(key, group);
+  }
+
+  return [...grantsByKey.values()].map(
+    (group) =>
+      new GrantTablePrivileges({
+        table,
+        grantee: group.grantee,
+        privileges: [...group.privileges].map((privilege) => ({
+          privilege,
+          grantable: group.grantable,
+        })),
+        columns: [columnName],
+        version: diffContext?.version,
+      }),
+  );
+}
+
+function isColumnGrantCovered({
+  existingChanges,
+  tableStableId,
+  grantee,
+  columnName,
+  privilege,
+  grantable,
+}: {
+  existingChanges: readonly Change[];
+  tableStableId: string;
+  grantee: string;
+  columnName: string;
+  privilege: string;
+  grantable: boolean;
+}): boolean {
+  return existingChanges.some(
+    (change) =>
+      change instanceof GrantTablePrivileges &&
+      change.table.stableId === tableStableId &&
+      change.grantee === grantee &&
+      change.columns?.includes(columnName) === true &&
+      change.privileges.some(
+        (grantedPrivilege) =>
+          grantedPrivilege.privilege === privilege &&
+          grantedPrivilege.grantable === grantable,
+      ),
+  );
 }
 
 function buildConstraintExpressionReplacementChanges({
@@ -1418,6 +1527,9 @@ function buildReplaceChanges(
                 index: resolved.branch,
                 indexableObject: resolved.branchIndexableObject,
               }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnIndex({ index: resolved.branch })]
+                : []),
             ]
           : []),
       ];
