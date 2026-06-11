@@ -278,8 +278,31 @@ export function expandReplaceDependencies({
             for (const id of change.creates ?? []) createdIds.add(id);
             for (const id of change.drops ?? []) droppedIds.add(id);
           }
+          if (
+            shouldTraverseExpressionReplacementDependent({
+              dependentRaw,
+              expressionReplacementChanges,
+            })
+          ) {
+            queueRefForTraversal(dependentRaw, visitedRefs, queue);
+          }
           continue;
         }
+      }
+
+      if (
+        maybeAddColumnDependentConstraintReplacement({
+          refId,
+          dependentRaw,
+          mainCatalog,
+          branchCatalog,
+          additions,
+          createdIds,
+          droppedIds,
+          visitedTargets,
+        })
+      ) {
+        continue;
       }
 
       const targetId = normalizeDependentId(
@@ -376,6 +399,16 @@ export function expandReplaceDependencies({
     ],
     replacedTableIds: tablesReplacedByExpansion,
   };
+}
+
+function queueRefForTraversal(
+  refId: string,
+  visitedRefs: Set<string>,
+  queue: string[],
+) {
+  if (visitedRefs.has(refId)) return;
+  visitedRefs.add(refId);
+  queue.push(refId);
 }
 
 function collectInvalidatedRlsPolicyReplacements({
@@ -570,6 +603,21 @@ function isExpressionContainerStableId(stableId: string): boolean {
   );
 }
 
+function shouldTraverseExpressionReplacementDependent({
+  dependentRaw,
+  expressionReplacementChanges,
+}: {
+  dependentRaw: string;
+  expressionReplacementChanges: Change[];
+}): boolean {
+  // Some targeted expression fallbacks are themselves destructive. Recreating a
+  // generated column releases the procedure dependency but also removes or
+  // blocks objects that depend on that column, so keep walking from the raw id.
+  return expressionReplacementChanges.some((change) =>
+    change.drops?.some((id) => id === dependentRaw),
+  );
+}
+
 function buildExpressionDependentReplacementChanges({
   dependentRaw,
   mainCatalog,
@@ -620,6 +668,53 @@ function buildExpressionDependentReplacementChanges({
   }
 
   return null;
+}
+
+function maybeAddColumnDependentConstraintReplacement({
+  refId,
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  additions,
+  createdIds,
+  droppedIds,
+  visitedTargets,
+}: {
+  refId: string;
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  additions: Change[];
+  createdIds: Set<string>;
+  droppedIds: Set<string>;
+  visitedTargets: Set<string>;
+}): boolean {
+  if (!refId.startsWith("column:") || !dependentRaw.startsWith("constraint:")) {
+    return false;
+  }
+  if (visitedTargets.has(dependentRaw)) return true;
+
+  const addRelease = !droppedIds.has(dependentRaw);
+  const addRestore = !createdIds.has(dependentRaw);
+  if (!addRelease && !addRestore) return true;
+
+  const constraintReplacementChanges =
+    buildConstraintExpressionReplacementChanges({
+      dependentRaw,
+      mainCatalog,
+      branchCatalog,
+      addRelease,
+      addRestore,
+    });
+  if (!constraintReplacementChanges) return false;
+
+  additions.push(...constraintReplacementChanges);
+  visitedTargets.add(dependentRaw);
+  for (const change of constraintReplacementChanges) {
+    for (const id of change.creates ?? []) createdIds.add(id);
+    for (const id of change.drops ?? []) droppedIds.add(id);
+  }
+  return true;
 }
 
 function buildColumnExpressionReplacementChanges({
