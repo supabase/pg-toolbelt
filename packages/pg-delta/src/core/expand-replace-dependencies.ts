@@ -18,6 +18,11 @@ import { DropMaterializedView } from "./objects/materialized-view/changes/materi
 import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import {
+  AlterPublicationAddTables,
+  AlterPublicationDropTables,
+} from "./objects/publication/changes/publication.alter.ts";
+import type { PublicationTableProps } from "./objects/publication/publication.model.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
@@ -334,6 +339,19 @@ export function expandReplaceDependencies({
           }
           continue;
         }
+      }
+
+      if (
+        maybeAddColumnDependentPublicationReplacement({
+          refId,
+          dependentRaw,
+          mainCatalog,
+          branchCatalog,
+          additions,
+          visitedTargets,
+        })
+      ) {
+        continue;
       }
 
       if (
@@ -768,6 +786,42 @@ function buildExpressionDependentReplacementChanges({
   return null;
 }
 
+function maybeAddColumnDependentPublicationReplacement({
+  refId,
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  additions,
+  visitedTargets,
+}: {
+  refId: string;
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  additions: Change[];
+  visitedTargets: Set<string>;
+}): boolean {
+  if (
+    !refId.startsWith("column:") ||
+    !dependentRaw.startsWith("publication:")
+  ) {
+    return false;
+  }
+  if (visitedTargets.has(dependentRaw)) return true;
+
+  const replacementChanges = buildPublicationColumnListReplacementChanges({
+    columnId: refId,
+    publicationId: dependentRaw,
+    mainCatalog,
+    branchCatalog,
+  });
+  if (!replacementChanges) return false;
+
+  additions.push(...replacementChanges);
+  visitedTargets.add(dependentRaw);
+  return true;
+}
+
 function maybeAddColumnDependentConstraintReplacement({
   refId,
   dependentRaw,
@@ -970,6 +1024,60 @@ function buildColumnExpressionReplacementChanges({
   }
 
   return changes;
+}
+
+function buildPublicationColumnListReplacementChanges({
+  columnId,
+  publicationId,
+  mainCatalog,
+  branchCatalog,
+}: {
+  columnId: string;
+  publicationId: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}): Change[] | null {
+  const columnRef = parseColumnStableId(columnId);
+  if (!columnRef) return null;
+
+  const mainPublication = mainCatalog.publications[publicationId];
+  const branchPublication = branchCatalog.publications[publicationId];
+  if (!mainPublication || !branchPublication) return null;
+
+  const mainTable = findPublicationTableForColumn(
+    mainPublication.tables,
+    columnRef,
+  );
+  const branchTable = findPublicationTableForColumn(
+    branchPublication.tables,
+    columnRef,
+  );
+  if (!mainTable || !branchTable) return null;
+
+  return [
+    new AlterPublicationDropTables({
+      publication: mainPublication,
+      tables: [mainTable],
+    }),
+    new AlterPublicationAddTables({
+      publication: branchPublication,
+      tables: [branchTable],
+    }),
+  ];
+}
+
+function findPublicationTableForColumn(
+  tables: readonly PublicationTableProps[],
+  columnRef: ColumnStableIdParts,
+): PublicationTableProps | null {
+  return (
+    tables.find(
+      (table) =>
+        table.schema === columnRef.schema &&
+        table.name === columnRef.table &&
+        table.columns?.includes(columnRef.column),
+    ) ?? null
+  );
 }
 
 function buildDomainDefaultReplacementChanges({
