@@ -485,6 +485,157 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "unchanged generated column with retained dependents does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_invoice_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED,
+              CONSTRAINT invoice_totals_total_nonnegative CHECK (total >= 0)
+            );
+
+            CREATE INDEX invoice_totals_total_idx
+              ON test_schema.invoice_totals (total);
+
+            CREATE VIEW test_schema.invoice_total_values AS
+              SELECT id, total FROM test_schema.invoice_totals;
+
+            INSERT INTO test_schema.invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.invoice_total_values;
+
+            DROP INDEX test_schema.invoice_totals_total_idx;
+
+            ALTER TABLE test_schema.invoice_totals
+              DROP CONSTRAINT invoice_totals_total_nonnegative;
+
+            ALTER TABLE test_schema.invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_invoice_total(integer);
+
+            CREATE FUNCTION test_schema.compute_invoice_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD CONSTRAINT invoice_totals_total_nonnegative CHECK (total >= 0);
+
+            CREATE INDEX invoice_totals_total_idx
+              ON test_schema.invoice_totals (total);
+
+            CREATE VIEW test_schema.invoice_total_values AS
+              SELECT id, total FROM test_schema.invoice_totals;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropViewIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP VIEW test_schema.invoice_total_values",
+              ),
+            );
+            const dropIndexIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP INDEX test_schema.invoice_totals_total_idx",
+              ),
+            );
+            const dropConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP CONSTRAINT invoice_totals_total_nonnegative",
+              ),
+            );
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD COLUMN total",
+              ),
+            );
+            const addConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD CONSTRAINT invoice_totals_total_nonnegative",
+              ),
+            );
+            const createIndexIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE INDEX invoice_totals_total_idx ON test_schema.invoice_totals",
+              ),
+            );
+            const createViewIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE VIEW test_schema.invoice_total_values",
+              ),
+            );
+
+            expect(dropViewIndex).toBeGreaterThanOrEqual(0);
+            expect(dropIndexIndex).toBeGreaterThanOrEqual(0);
+            expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThan(dropViewIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropIndexIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropConstraintIndex);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
+            expect(addConstraintIndex).toBeGreaterThan(addColumnIndex);
+            expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
+            expect(createViewIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.invoice_totals",
+          1,
+        );
+        const { rows } = await db.main.query(
+          "SELECT to_regclass('test_schema.invoice_totals_total_idx')::text AS index_name",
+        );
+        expect(rows[0]?.index_name).toBe(
+          "test_schema.invoice_totals_total_idx",
+        );
+      }),
+    );
+
+    test(
       "domain default update for replaced function signature does not recreate domain or table",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

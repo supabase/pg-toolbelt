@@ -16,6 +16,9 @@ import { Domain } from "./objects/domain/domain.model.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
+import { CreateIndex } from "./objects/index/changes/index.create.ts";
+import { DropIndex } from "./objects/index/changes/index.drop.ts";
+import { Index, type IndexProps } from "./objects/index/index.model.ts";
 import {
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
@@ -270,6 +273,82 @@ function tableWithCheckConstraint(
         ...constraintOverrides,
       },
     ],
+  });
+}
+
+function indexOnItemsValue(overrides: Partial<IndexProps> = {}): Index {
+  return new Index({
+    schema: "public",
+    table_name: "items",
+    name: "items_value_idx",
+    storage_params: [],
+    statistics_target: [],
+    index_type: "btree",
+    tablespace: null,
+    is_unique: false,
+    is_primary: false,
+    is_exclusion: false,
+    nulls_not_distinct: false,
+    immediate: true,
+    is_clustered: false,
+    is_replica_identity: false,
+    key_columns: [],
+    column_collations: [],
+    operator_classes: [],
+    column_options: [],
+    index_expressions: "value",
+    partial_predicate: null,
+    is_owned_by_constraint: false,
+    table_relkind: "r",
+    is_partitioned_index: false,
+    is_index_partition: false,
+    parent_index_name: null,
+    definition: "CREATE INDEX items_value_idx ON public.items (value)",
+    comment: null,
+    owner: "postgres",
+    ...overrides,
+  });
+}
+
+function viewOnItemsValue(): View {
+  return new View({
+    schema: "public",
+    name: "items_value_view",
+    definition: " SELECT value FROM public.items;",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    partition_bound: null,
+    options: null,
+    owner: "postgres",
+    comment: null,
+    columns: [
+      {
+        name: "value",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+    ],
+    privileges: [],
   });
 }
 
@@ -1433,6 +1512,138 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter(
         (change) => change instanceof AlterTableAddColumn,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
+  test("promotes retained dependents of a recreated generated column", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint("value >= 0", {
+      name: "items_value_nonnegative",
+      definition: "CHECK (value >= 0)",
+    });
+    const branchTable = tableWithCheckConstraint("value >= 0", {
+      name: "items_value_nonnegative",
+      definition: "CHECK (value >= 0)",
+    });
+    const generatedColumn = {
+      is_generated: true,
+      default: "public.normalize_value(value)",
+    };
+    mainTable.columns[0] = {
+      ...mainTable.columns[0],
+      ...generatedColumn,
+    };
+    branchTable.columns[0] = {
+      ...branchTable.columns[0],
+      ...generatedColumn,
+    };
+    const mainIndex = indexOnItemsValue();
+    const branchIndex = indexOnItemsValue();
+    const mainView = viewOnItemsValue();
+    const branchView = viewOnItemsValue();
+    const columnId = "column:public.items.value";
+    const constraintId = "constraint:public.items.items_value_nonnegative";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      indexes: { [mainIndex.stableId]: mainIndex },
+      views: { [mainView.stableId]: mainView },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainIndex.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainView.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: constraintId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      indexes: { [branchIndex.stableId]: branchIndex },
+      views: { [branchView.stableId]: branchView },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof DropIndex),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof CreateIndex),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof DropView),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof CreateView),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddConstraint,
       ),
     ).toHaveLength(1);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
