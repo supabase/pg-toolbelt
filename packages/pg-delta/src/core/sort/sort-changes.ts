@@ -14,7 +14,6 @@
 import debug from "debug";
 import type { Catalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
-import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import { generateCustomConstraints } from "./custom-constraints.ts";
 import { tryBreakCycleByChangeInjection } from "./cycle-breakers.ts";
 import { printDebugGraph } from "./debug-visualization.ts";
@@ -92,19 +91,17 @@ function sortChangesByPhasedGraph(
   },
   changeList: Change[],
 ): Change[] {
-  const createAfterDropProcedureIds =
-    findSignatureReplacedProcedureDropIds(changeList);
   const changesByPhase: Record<Phase, Change[]> = {
     drop: [],
     create_alter_object: [],
   };
 
-  // Partition changes into execution phases
+  // Keep routine drops in the drop phase even for same-name signature
+  // replacements. Dependent expressions/views are released in this phase and
+  // restored in create/alter; moving the routine drop later breaks old
+  // dependency drops such as argument domains and defaulted overloads.
   for (const changeItem of changeList) {
-    const phase = getContextualExecutionPhase(
-      changeItem,
-      createAfterDropProcedureIds,
-    );
+    const phase = getExecutionPhase(changeItem);
     changesByPhase[phase].push(changeItem);
   }
 
@@ -123,58 +120,6 @@ function sortChangesByPhasedGraph(
   );
 
   return [...sortedDropPhase, ...sortedCreateAlterPhase];
-}
-
-function getContextualExecutionPhase(
-  change: Change,
-  createAfterDropProcedureIds: ReadonlySet<string>,
-): Phase {
-  if (
-    change instanceof DropProcedure &&
-    change.drops.some((id) => createAfterDropProcedureIds.has(id))
-  ) {
-    return "create_alter_object";
-  }
-
-  return getExecutionPhase(change);
-}
-
-function findSignatureReplacedProcedureDropIds(changes: Change[]): Set<string> {
-  const createdProcedureNames = new Set<string>();
-  const createdProcedureIds = new Set<string>();
-  for (const change of changes) {
-    if (change.objectType !== "procedure" || change.operation !== "create") {
-      continue;
-    }
-    for (const id of change.creates ?? []) {
-      createdProcedureIds.add(id);
-      const key = parseProcedureSchemaName(id);
-      if (key) createdProcedureNames.add(key);
-    }
-  }
-
-  const ids = new Set<string>();
-  for (const change of changes) {
-    if (change.objectType !== "procedure" || change.operation !== "drop") {
-      continue;
-    }
-    for (const id of change.drops ?? []) {
-      if (createdProcedureIds.has(id)) continue;
-      const key = parseProcedureSchemaName(id);
-      if (key && createdProcedureNames.has(key)) {
-        ids.add(id);
-      }
-    }
-  }
-
-  return ids;
-}
-
-function parseProcedureSchemaName(stableId: string): string | null {
-  if (!stableId.startsWith("procedure:")) return null;
-  const paren = stableId.indexOf("(");
-  if (paren === -1) return null;
-  return stableId.slice("procedure:".length, paren);
 }
 
 /**
