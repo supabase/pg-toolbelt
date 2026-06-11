@@ -163,7 +163,6 @@ const addConstraintExpressionDependencies = (
   }
   for (const expressionNode of [
     constraint.raw_expr,
-    constraint.cooked_expr,
     constraint.exclusions,
     constraint.where_clause,
   ]) {
@@ -213,11 +212,35 @@ const extractAlterTableDependencies = (
     if (columnDefinition?.raw_default) {
       addExpressionDependencies(columnDefinition.raw_default, requires);
     }
+    const typeRef = typeFromTypeNameNode(columnDefinition?.typeName);
+    if (typeRef) {
+      requires.push(typeRef);
+    }
     const columnConstraints = Array.isArray(columnDefinition?.constraints)
       ? columnDefinition.constraints
       : [];
     for (const constraintItem of columnConstraints) {
       const columnConstraint = asRecord(asRecord(constraintItem)?.Constraint);
+      if (columnConstraint?.contype === "CONSTR_FOREIGN") {
+        addForeignConstraintDependencies(columnConstraint, requires);
+      }
+      if (
+        relationTableRef &&
+        (columnConstraint?.contype === "CONSTR_PRIMARY" ||
+          columnConstraint?.contype === "CONSTR_UNIQUE")
+      ) {
+        const columnName =
+          typeof columnDefinition?.colname === "string"
+            ? columnDefinition.colname
+            : undefined;
+        const providedKey = keyRefForTableColumns(
+          relationTableRef,
+          constraintKeyColumns(columnConstraint, columnName),
+        );
+        if (providedKey) {
+          provides.push(providedKey);
+        }
+      }
       addConstraintExpressionDependencies(columnConstraint, requires);
     }
 
