@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "../catalog.model.ts";
 import type { Change } from "../change.types.ts";
 import type { PgDepend } from "../depend.ts";
-import { AlterDomainDropDefault } from "../objects/domain/changes/domain.alter.ts";
+import {
+  AlterDomainAddConstraint,
+  AlterDomainDropConstraint,
+  AlterDomainDropDefault,
+} from "../objects/domain/changes/domain.alter.ts";
 import { Domain } from "../objects/domain/domain.model.ts";
 import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
@@ -10,6 +14,7 @@ import { Procedure } from "../objects/procedure/procedure.model.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
 import {
+  AlterTableAddConstraint,
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
   AlterTableDropConstraint,
@@ -138,6 +143,40 @@ function uniqueConstraint(name: string, column: string) {
   };
 }
 
+function checkConstraint(name: string, expression: string) {
+  return {
+    name,
+    constraint_type: "c" as const,
+    deferrable: false,
+    initially_deferred: false,
+    validated: true,
+    is_local: true,
+    no_inherit: false,
+    is_temporal: false,
+    is_partition_clone: false,
+    parent_constraint_schema: null,
+    parent_constraint_name: null,
+    parent_table_schema: null,
+    parent_table_name: null,
+    key_columns: ["id"],
+    foreign_key_columns: null,
+    foreign_key_table: null,
+    foreign_key_schema: null,
+    foreign_key_table_is_partition: null,
+    foreign_key_parent_schema: null,
+    foreign_key_parent_table: null,
+    foreign_key_effective_schema: null,
+    foreign_key_effective_table: null,
+    on_update: null,
+    on_delete: null,
+    match_type: null,
+    check_expression: expression,
+    owner: "postgres",
+    definition: `CHECK (${expression})`,
+    comment: null,
+  };
+}
+
 function table(
   name: string,
   constraints: ConstructorParameters<typeof Table>[0]["constraints"] = [],
@@ -197,6 +236,34 @@ function domain(defaultValue: string | null) {
   });
 }
 
+function domainWithConstraint(name: string, expression: string) {
+  return new Domain({
+    schema: "public",
+    name: "score",
+    base_type: "int4",
+    base_type_schema: "pg_catalog",
+    base_type_str: "integer",
+    not_null: false,
+    type_modifier: null,
+    array_dimensions: null,
+    collation: null,
+    default_bin: null,
+    default_value: null,
+    owner: "postgres",
+    comment: null,
+    constraints: [
+      {
+        name,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        check_expression: expression,
+      },
+    ],
+    privileges: [],
+  });
+}
+
 function procedure(argumentTypes: string[]) {
   return new Procedure({
     schema: "public",
@@ -238,7 +305,16 @@ async function catalogWithDepends(depends: PgDepend[]) {
 }
 
 function changeLabel(change: Change) {
+  if (change instanceof AlterDomainDropConstraint) {
+    return `${change.constructor.name}:${change.domain.name}.${change.constraint.name}`;
+  }
+  if (change instanceof AlterDomainAddConstraint) {
+    return `${change.constructor.name}:${change.domain.name}.${change.constraint.name}`;
+  }
   if (change instanceof AlterTableDropConstraint) {
+    return `${change.constructor.name}:${change.table.name}.${change.constraint.name}`;
+  }
+  if (change instanceof AlterTableAddConstraint) {
     return `${change.constructor.name}:${change.table.name}.${change.constraint.name}`;
   }
   if (change instanceof DropTable) {
@@ -511,6 +587,107 @@ describe("sortChanges", () => {
 
     expect(sorted.map(changeLabel)).toEqual([
       "AlterDomainDropDefault",
+      `DropProcedure:${mainProcedure.stableId}`,
+    ]);
+  });
+
+  test("orders unchanged domain check replacement around same-signature procedure replacement", async () => {
+    const mainProcedure = procedure(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+    });
+    const mainDomain = domainWithConstraint(
+      "score_check",
+      "public.normalize_value(VALUE) > 0",
+    );
+    const branchDomain = domainWithConstraint(
+      "score_check",
+      "public.normalize_value(VALUE) > 0",
+    );
+    const changes: Change[] = [
+      new CreateProcedure({ procedure: branchProcedure }),
+      new DropProcedure({ procedure: mainProcedure }),
+      new AlterDomainAddConstraint({
+        domain: branchDomain,
+        constraint: branchDomain.constraints[0],
+      }),
+      new AlterDomainDropConstraint({
+        domain: mainDomain,
+        constraint: mainDomain.constraints[0],
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "constraint:public.score.score_check",
+        referenced_stable_id: mainProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "constraint:public.score.score_check",
+        referenced_stable_id: branchProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "AlterDomainDropConstraint:score.score_check",
+      `DropProcedure:${mainProcedure.stableId}`,
+      `CreateProcedure:${branchProcedure.stableId}`,
+      "AlterDomainAddConstraint:score.score_check",
+    ]);
+  });
+
+  test("orders unchanged table check replacement before dropping the old overloaded function", async () => {
+    const mainProcedure = procedure(["integer"]);
+    const branchProcedure = procedure(["bigint"]);
+    const mainTable = table("items", [
+      checkConstraint("items_value_check", "public.normalize_value(id) > 0"),
+    ]);
+    const branchTable = table("items", [
+      checkConstraint(
+        "items_value_check",
+        "public.normalize_value(id::bigint) > 0",
+      ),
+    ]);
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterTableAddConstraint({
+        table: branchTable,
+        constraint: branchTable.constraints[0],
+      }),
+      new AlterTableDropConstraint({
+        table: mainTable,
+        constraint: mainTable.constraints[0],
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "constraint:public.items.items_value_check",
+        referenced_stable_id: mainProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: "constraint:public.items.items_value_check",
+        referenced_stable_id: branchProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "AlterTableDropConstraint:items.items_value_check",
+      `CreateProcedure:${branchProcedure.stableId}`,
+      "AlterTableAddConstraint:items.items_value_check",
       `DropProcedure:${mainProcedure.stableId}`,
     ]);
   });

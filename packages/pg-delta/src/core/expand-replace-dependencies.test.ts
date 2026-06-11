@@ -4,8 +4,11 @@ import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import {
+  AlterDomainAddConstraint,
+  AlterDomainDropConstraint,
   AlterDomainDropDefault,
   AlterDomainSetDefault,
+  AlterDomainValidateConstraint,
 } from "./objects/domain/changes/domain.alter.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
@@ -26,12 +29,15 @@ import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
   AlterTableEnableRowLevelSecurity,
   AlterTableSetReplicaIdentity,
+  AlterTableValidateConstraint,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -79,10 +85,13 @@ function mockInvalidatingChange(invalidates: string[]): Change {
   } as unknown as Change;
 }
 
-function procedureWithArgs(argumentTypes: string[]): Procedure {
+function procedureWithArgs(
+  argumentTypes: string[],
+  name = "normalize_value",
+): Procedure {
   return new Procedure({
     schema: "public",
-    name: "normalize_value",
+    name,
     kind: "f",
     return_type: "integer",
     return_type_schema: "pg_catalog",
@@ -179,6 +188,87 @@ function domainWithDefault(defaultValue: string | null): Domain {
     comment: null,
     constraints: [],
     privileges: [],
+  });
+}
+
+function domainWithConstraint(
+  checkExpression: string,
+  constraintOverrides: Partial<Domain["constraints"][number]> = {},
+): Domain {
+  return new Domain({
+    schema: "public",
+    name: "item_value",
+    base_type: "int4",
+    base_type_schema: "pg_catalog",
+    base_type_str: "integer",
+    not_null: false,
+    type_modifier: null,
+    array_dimensions: null,
+    collation: null,
+    default_bin: null,
+    default_value: null,
+    owner: "postgres",
+    comment: null,
+    constraints: [
+      {
+        name: "item_value_check",
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        check_expression: checkExpression,
+        ...constraintOverrides,
+      },
+    ],
+    privileges: [],
+  });
+}
+
+function tableWithCheckConstraint(
+  checkExpression: string,
+  constraintOverrides: Partial<
+    NonNullable<TableProps["constraints"]>[number]
+  > = {},
+): Table {
+  const table = tableWithDefault(null);
+  return new Table({
+    // oxlint-disable-next-line typescript/no-misused-spread
+    ...table,
+    constraints: [
+      {
+        name: "items_value_check",
+        constraint_type: "c",
+        deferrable: false,
+        initially_deferred: false,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        is_temporal: false,
+        is_partition_clone: false,
+        parent_constraint_schema: null,
+        parent_constraint_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        key_columns: ["value"],
+        foreign_key_columns: null,
+        foreign_key_table: null,
+        foreign_key_schema: null,
+        foreign_key_table_is_partition: null,
+        foreign_key_parent_schema: null,
+        foreign_key_parent_table: null,
+        foreign_key_effective_schema: null,
+        foreign_key_effective_table: null,
+        on_update: null,
+        on_delete: null,
+        match_type: null,
+        check_expression: checkExpression,
+        owner: "postgres",
+        definition: `CHECK (${checkExpression})${
+          constraintOverrides.validated === false ? " NOT VALID" : ""
+        }`,
+        comment: null,
+        ...constraintOverrides,
+      },
+    ],
   });
 }
 
@@ -1132,6 +1222,11 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes).toContain(setDefault);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(true);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
       false,
     );
@@ -1139,6 +1234,676 @@ describe("expandReplaceDependencies", () => {
       expanded.changes.some((change) => change instanceof CreateTable),
     ).toBe(false);
     expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
+  test("synthesizes a column default replacement for an unchanged expression that depends on a replaced procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(1)");
+    const branchTable = tableWithDefault("public.normalize_value(1)");
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(true);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
+  test("synthesizes a generated column expression update for an unchanged expression that depends on a replaced procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const branchTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
+  test("synthesizes a table check constraint replacement for an unchanged expression that depends on a replaced procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+    );
+    const branchTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+    );
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableDropConstraint,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAddConstraint,
+      ),
+    ).toBe(true);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
+  test("preserves NOT VALID table check state when synthesizing a replacement", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+      { validated: false },
+    );
+    const branchTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+      { validated: false },
+    );
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const addConstraint = expanded.changes.find(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+
+    expect(addConstraint).toBeInstanceOf(AlterTableAddConstraint);
+    expect(addConstraint?.serialize()).toContain("NOT VALID");
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableValidateConstraint,
+      ),
+    ).toBe(false);
+  });
+
+  test("adds a missing release when a table check restore is already covered", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+    );
+    const branchTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+    );
+    const addConstraint = new AlterTableAddConstraint({
+      table: branchTable,
+      constraint: branchTable.constraints[0] as NonNullable<
+        (typeof branchTable.constraints)[number]
+      >,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      addConstraint,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(addConstraint);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+  });
+
+  test("synthesizes one table check constraint replacement when the expression depends on two replaced procedures", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainNormalize = procedureWithArgs(["integer"], "normalize_value");
+    const branchNormalize = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainNormalize,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainShift = procedureWithArgs(["integer"], "shift_value");
+    const branchShift = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainShift,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.shift_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > public.shift_value(value)",
+    );
+    const branchTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > public.shift_value(value)",
+    );
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainNormalize }),
+      new CreateProcedure({ procedure: branchNormalize }),
+      new DropProcedure({ procedure: mainShift }),
+      new CreateProcedure({ procedure: branchShift }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainNormalize.stableId]: mainNormalize,
+        [mainShift.stableId]: mainShift,
+      },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainNormalize.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainShift.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchNormalize.stableId]: branchNormalize,
+        [branchShift.stableId]: branchShift,
+      },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddConstraint,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("synthesizes a domain check constraint replacement for an unchanged expression that depends on a replaced procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+    );
+    const branchDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+    );
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.item_value.item_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterDomainDropConstraint,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterDomainAddConstraint,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((change) => change instanceof DropDomain),
+    ).toBe(false);
+    expect(
+      expanded.changes.some((change) => change instanceof CreateDomain),
+    ).toBe(false);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
+  test("does not duplicate a covered domain check constraint release", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+    );
+    const branchDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+    );
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+    const dropConstraint = new AlterDomainDropConstraint({
+      domain: mainDomain,
+      constraint: mainDomain.constraints[0] as Domain["constraints"][number],
+    });
+    const addConstraint = new AlterDomainAddConstraint({
+      domain: branchDomain,
+      constraint: branchDomain.constraints[0] as Domain["constraints"][number],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      dropConstraint,
+      addConstraint,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.item_value.item_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(dropConstraint);
+    expect(expanded.changes).toContain(addConstraint);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainAddConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((change) => change instanceof DropDomain),
+    ).toBe(false);
+  });
+
+  test("preserves NOT VALID domain check state when synthesizing a replacement", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+      { validated: false },
+    );
+    const branchDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+      { validated: false },
+    );
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.item_value.item_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const addConstraint = expanded.changes.find(
+      (change) => change instanceof AlterDomainAddConstraint,
+    );
+
+    expect(addConstraint).toBeInstanceOf(AlterDomainAddConstraint);
+    expect(addConstraint?.serialize()).toContain("NOT VALID");
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterDomainValidateConstraint,
+      ),
+    ).toBe(false);
   });
 
   test("does not replace a domain or table when a procedure signature replacement is covered by a domain default alter", async () => {
@@ -1203,6 +1968,11 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes).toContain(setDomainDefault);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterDomainDropDefault,
+      ),
+    ).toBe(true);
     expect(
       expanded.changes.some((change) => change instanceof DropDomain),
     ).toBe(false);
