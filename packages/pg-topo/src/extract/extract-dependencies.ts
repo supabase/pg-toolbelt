@@ -743,8 +743,8 @@ const isBuiltInRangeCollationName = (nameParts: string[]): boolean => {
 };
 
 const defaultMultirangeTypeName = (rangeTypeName: string): string =>
-  rangeTypeName.endsWith("range")
-    ? `${rangeTypeName.slice(0, -"range".length)}multirange`
+  rangeTypeName.includes("range")
+    ? rangeTypeName.replace("range", "multirange")
     : `${rangeTypeName}_multirange`;
 
 const baseTypeFunctionOptionNames = new Set([
