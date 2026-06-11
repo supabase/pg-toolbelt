@@ -20,9 +20,11 @@ import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-polic
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableDropColumn,
   AlterTableDropConstraint,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
@@ -670,6 +672,23 @@ function buildColumnExpressionReplacementChanges({
       return null;
     }
 
+    if (addRelease) {
+      // DROP DEFAULT is invalid for generated columns, while DROP EXPRESSION
+      // turns the column into a regular column that SET EXPRESSION cannot
+      // restore. Use the existing column fallback to release the dependency
+      // before the routine drop and recreate the generated column afterward.
+      return [
+        new AlterTableDropColumn({
+          table: mainTable,
+          column: mainColumn,
+        }),
+        new AlterTableAddColumn({
+          table: branchTable,
+          column: branchColumn,
+        }),
+      ];
+    }
+
     return addRestore
       ? [
           new AlterTableAlterColumnSetDefault({
@@ -677,7 +696,7 @@ function buildColumnExpressionReplacementChanges({
             column: branchColumn,
           }),
         ]
-      : null;
+      : [];
   }
 
   const changes: Change[] = [];
@@ -799,7 +818,7 @@ function buildDomainConstraintReplacementChanges({
   const branchConstraint = branchDomain.constraints.find(
     (constraint) => constraint.name === constraintRef.constraint,
   );
-  if (!mainConstraint || !branchConstraint) return null;
+  if (!mainConstraint) return null;
 
   const changes: Change[] = [];
   if (addRelease) {
@@ -812,6 +831,7 @@ function buildDomainConstraintReplacementChanges({
   }
 
   if (addRestore) {
+    if (!branchConstraint) return changes;
     changes.push(
       new AlterDomainAddConstraint({
         domain: branchDomain,
@@ -847,7 +867,7 @@ function buildTableConstraintReplacementChanges({
   const branchConstraint = branchTable.constraints.find(
     (constraint) => constraint.name === constraintRef.constraint,
   );
-  if (!mainConstraint || !branchConstraint) return null;
+  if (!mainConstraint) return null;
 
   const changes: Change[] = [];
   if (addRelease) {
@@ -860,6 +880,7 @@ function buildTableConstraintReplacementChanges({
   }
 
   if (addRestore) {
+    if (!branchConstraint) return changes;
     changes.push(
       new AlterTableAddConstraint({
         table: branchTable,
