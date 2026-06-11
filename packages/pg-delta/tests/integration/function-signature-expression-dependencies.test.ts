@@ -785,7 +785,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             );
 
             CREATE INDEX invoice_totals_total_idx
-              ON test_schema.invoice_totals (total);
+              ON test_schema.invoice_totals ((total + 1));
+
+            ALTER INDEX test_schema.invoice_totals_total_idx
+              ALTER COLUMN 1 SET STATISTICS 100;
 
             COMMENT ON INDEX test_schema.invoice_totals_total_idx
               IS 'generated total lookup';
@@ -839,7 +842,10 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               ADD CONSTRAINT invoice_totals_total_nonnegative CHECK (total >= 0);
 
             CREATE INDEX invoice_totals_total_idx
-              ON test_schema.invoice_totals (total);
+              ON test_schema.invoice_totals ((total + 1));
+
+            ALTER INDEX test_schema.invoice_totals_total_idx
+              ALTER COLUMN 1 SET STATISTICS 100;
 
             COMMENT ON INDEX test_schema.invoice_totals_total_idx
               IS 'generated total lookup';
@@ -903,6 +909,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "COMMENT ON INDEX test_schema.invoice_totals_total_idx",
               ),
             );
+            const alterIndexStatisticsIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER INDEX test_schema.invoice_totals_total_idx ALTER COLUMN 1 SET STATISTICS 100",
+                ),
+            );
             const createViewIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith(
                 "CREATE VIEW test_schema.invoice_total_values",
@@ -927,6 +939,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(addConstraintIndex).toBeGreaterThan(addColumnIndex);
             expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
             expect(indexCommentIndex).toBeGreaterThan(createIndexIndex);
+            expect(alterIndexStatisticsIndex).toBeGreaterThan(createIndexIndex);
             expect(createViewIndex).toBeGreaterThan(addColumnIndex);
             expect(grantColumnIndex).toBeGreaterThan(addColumnIndex);
           },
@@ -950,6 +963,13 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ) AS comment
         `);
         expect(commentRows[0]?.comment).toBe("generated total lookup");
+        const { rows: statisticsRows } = await db.main.query(dedent`
+          SELECT attstattarget
+          FROM pg_catalog.pg_attribute
+          WHERE attrelid = 'test_schema.invoice_totals_total_idx'::regclass
+            AND attnum = 1
+        `);
+        expect(statisticsRows[0]?.attstattarget).toBe(100);
         const { rows: privilegeRows } = await db.main.query(dedent`
           SELECT has_column_privilege(
             'invoice_total_reader',
@@ -959,6 +979,201 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ) AS has_privilege
         `);
         expect(privilegeRows[0]?.has_privilege).toBe(true);
+      }),
+    );
+
+    test(
+      "unchanged generated partition column for replaced function argument name does not emit child DDL",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_partition_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_invoice_totals (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_partition_total(subtotal)) STORED,
+              CONSTRAINT partitioned_invoice_totals_total_nonnegative
+                CHECK (total >= 0)
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_invoice_totals_2026
+              PARTITION OF test_schema.partitioned_invoice_totals
+              FOR VALUES FROM (2026) TO (2027);
+
+            INSERT INTO test_schema.partitioned_invoice_totals
+              (id, period, subtotal)
+            VALUES (1, 2026, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.partitioned_invoice_totals
+              DROP CONSTRAINT partitioned_invoice_totals_total_nonnegative;
+
+            ALTER TABLE test_schema.partitioned_invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_partition_total(integer);
+
+            CREATE FUNCTION test_schema.compute_partition_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.partitioned_invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_partition_total(subtotal)) STORED;
+
+            ALTER TABLE test_schema.partitioned_invoice_totals
+              ADD CONSTRAINT partitioned_invoice_totals_total_nonnegative
+              CHECK (total >= 0);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_invoice_totals_2026 DROP COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_invoice_totals_2026 DROP CONSTRAINT partitioned_invoice_totals_total_nonnegative",
+                ),
+              ),
+            ).toBe(false);
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_invoice_totals_2026 ADD CONSTRAINT partitioned_invoice_totals_total_nonnegative",
+                ),
+              ),
+            ).toBe(false);
+
+            const parentDropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_partition_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_partition_total",
+              ),
+            );
+            const parentAddColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_invoice_totals ADD COLUMN total",
+              ),
+            );
+
+            expect(parentDropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(parentDropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(parentAddColumnIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.partitioned_invoice_totals",
+          1,
+        );
+      }),
+    );
+
+    test(
+      "removed generated partition column for dropped function does not emit child DDL",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_archived_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_archive_totals (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_archived_total(subtotal)) STORED
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_archive_totals_2026
+              PARTITION OF test_schema.partitioned_archive_totals
+              FOR VALUES FROM (2026) TO (2027);
+
+            INSERT INTO test_schema.partitioned_archive_totals
+              (id, period, subtotal)
+            VALUES (1, 2026, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.partitioned_archive_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_archived_total(integer);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_archive_totals_2026 DROP COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+
+            const parentDropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_archive_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_archived_total",
+              ),
+            );
+
+            expect(parentDropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(parentDropColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.partitioned_archive_totals",
+          1,
+        );
       }),
     );
 
