@@ -575,6 +575,109 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "unchanged commented generated column for replaced function argument name does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_invoice_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED
+            );
+
+            COMMENT ON COLUMN test_schema.invoice_totals.total
+              IS 'computed invoice total';
+
+            INSERT INTO test_schema.invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_invoice_total(integer);
+
+            CREATE FUNCTION test_schema.compute_invoice_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED;
+
+            COMMENT ON COLUMN test_schema.invoice_totals.total
+              IS 'computed invoice total';
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD COLUMN total",
+              ),
+            );
+            const commentIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON COLUMN test_schema.invoice_totals.total",
+              ),
+            );
+
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
+            expect(commentIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.invoice_totals",
+          1,
+        );
+        const { rows } = await db.main.query(dedent`
+          SELECT col_description(attrelid, attnum) AS comment
+          FROM pg_catalog.pg_attribute
+          WHERE attrelid = 'test_schema.invoice_totals'::regclass
+            AND attname = 'total'
+        `);
+        expect(rows[0]?.comment).toBe("computed invoice total");
+      }),
+    );
+
+    test(
       "unchanged generated column with retained dependents does not recreate table",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
