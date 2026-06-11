@@ -14,6 +14,7 @@ const BUILTIN_TYPES = new Set([
   "cidr",
   "daterange",
   "date",
+  "cstring",
   "event_trigger",
   "float4",
   "float8",

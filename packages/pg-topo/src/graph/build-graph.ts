@@ -218,8 +218,7 @@ const findShellTypeProducerIndex = (
     const hasShellType = node.provides.some(
       (providedRef) =>
         isShellTypeRef(providedRef) &&
-        providedRef.name === requiredRef.name &&
-        providedRef.schema === requiredRef.schema,
+        hasCompatibleProvidedObject(requiredRef, [providedRef]),
     );
     if (hasShellType) {
       return producerIndex;
@@ -393,6 +392,23 @@ export const buildGraph = (
       if (compatibleProducerIndices.length === 1) {
         const producerIndex = compatibleProducerIndices[0];
         if (typeof producerIndex !== "number") {
+          continue;
+        }
+        const producer = nodes[producerIndex];
+        const shellTypeProducerIndex = findShellTypeProducerIndex(
+          requiredRef,
+          nodes,
+        );
+        if (
+          typeof shellTypeProducerIndex === "number" &&
+          shellTypeProducerIndex !== consumerIndex &&
+          producer &&
+          producerRequiresConsumer(producer, consumer)
+        ) {
+          addEdge(graphState, shellTypeProducerIndex, consumerIndex, {
+            reason: "requires_compatible",
+            objectRef: requiredRef,
+          });
           continue;
         }
         addEdge(graphState, producerIndex, consumerIndex, {

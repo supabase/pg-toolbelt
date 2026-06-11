@@ -727,6 +727,17 @@ const extractCreateCollationDependencies = (
 
 const rangeFunctionOptionNames = new Set(["canonical", "subtype_diff"]);
 
+const baseTypeFunctionOptionNames = new Set([
+  "input",
+  "output",
+  "receive",
+  "send",
+  "typmod_in",
+  "typmod_out",
+  "analyze",
+  "subscript",
+]);
+
 const extractCreateRangeDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -804,6 +815,49 @@ const extractCreateRangeDependencies = (
       if (functionRef) {
         requires.push(functionRef);
       }
+    }
+  }
+
+  return { provides, requires };
+};
+
+const extractCreateBaseTypeDependencies = (
+  statementNode: Record<string, unknown>,
+): ExtractDependenciesResult => {
+  const provides: ObjectRef[] = [];
+  const requires: ObjectRef[] = [];
+
+  const typeRef = objectFromNameParts(
+    "type",
+    extractNameParts(statementNode.defnames),
+  );
+  if (typeRef) {
+    provides.push(createObjectRefFromAst("type", typeRef.name, typeRef.schema));
+    if (typeRef.schema) {
+      requires.push(createObjectRefFromAst("schema", typeRef.schema));
+    }
+  }
+
+  const definition = Array.isArray(statementNode.definition)
+    ? statementNode.definition
+    : [];
+  for (const optionNode of definition) {
+    const defElem = asRecord(asRecord(optionNode)?.DefElem);
+    if (!defElem || typeof defElem.defname !== "string") {
+      continue;
+    }
+
+    if (!baseTypeFunctionOptionNames.has(defElem.defname.toLowerCase())) {
+      continue;
+    }
+
+    const functionTypeName = asRecord(asRecord(defElem.arg)?.TypeName);
+    const functionRef = objectFromNameParts(
+      "function",
+      extractNameParts(functionTypeName?.names),
+    );
+    if (functionRef) {
+      requires.push(functionRef);
     }
   }
 
@@ -1113,6 +1167,13 @@ const extractDependencyRefs = (
     case "CREATE_TYPE": {
       const defineStmt = asRecord(astNode.DefineStmt);
       if (defineStmt?.kind === "OBJECT_TYPE") {
+        if (
+          Array.isArray(defineStmt.definition) &&
+          defineStmt.definition.length > 0
+        ) {
+          return extractCreateBaseTypeDependencies(defineStmt);
+        }
+
         const shellTypeRef = objectFromNameParts(
           "type",
           extractNameParts(defineStmt.defnames),
