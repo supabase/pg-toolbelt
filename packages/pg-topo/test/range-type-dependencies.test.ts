@@ -236,6 +236,39 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("uses PostgreSQL default multirange names for embedded range substrings", async () => {
+    const result = await analyzeAndSort([
+      "create table app.time_buckets(id int primary key, spans app.timemultirange_bucket not null);",
+      "create type app.timerange_bucket as range (subtype = time);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const schemaIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create schema app"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.timerange_bucket"),
+    );
+    const tableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.time_buckets"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(schemaIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(schemaIndex);
+    expect(tableIndex).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
   test("orders canonical range functions through the shell type pattern", async () => {
     const result = await analyzeAndSort([
       "create table app.events(id int primary key, during app.int_range not null);",
