@@ -189,6 +189,18 @@ function tableWithDefault(
   });
 }
 
+function tableNamedWithDefault(
+  name: string,
+  columnDefault: string | null,
+  columnOverrides: Partial<TableProps["columns"][number]> = {},
+): Table {
+  return new Table({
+    // oxlint-disable-next-line typescript/no-misused-spread
+    ...tableWithDefault(columnDefault, columnOverrides),
+    name,
+  });
+}
+
 function partitionTableWithDefault(
   columnDefault: string | null,
   columnOverrides: Partial<TableProps["columns"][number]> = {},
@@ -497,6 +509,25 @@ function publicationOnItemsValue(rowFilter: string | null): Publication {
         row_filter: rowFilter,
       },
     ],
+    schemas: [],
+  });
+}
+
+function publicationOnTables(
+  tables: Publication["tables"],
+  name = "items_pub",
+): Publication {
+  return new Publication({
+    name,
+    owner: "postgres",
+    comment: null,
+    all_tables: false,
+    publish_insert: true,
+    publish_update: true,
+    publish_delete: true,
+    publish_truncate: true,
+    publish_via_partition_root: false,
+    tables,
     schemas: [],
   });
 }
@@ -2619,6 +2650,140 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
   });
 
+  test("refreshes each publication table entry when recreating generated columns", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainItems = tableNamedWithDefault(
+      "items",
+      "public.normalize_value(value)",
+      { is_generated: true },
+    );
+    const branchItems = tableNamedWithDefault(
+      "items",
+      "public.normalize_value(value)",
+      { is_generated: true },
+    );
+    const mainWidgets = tableNamedWithDefault(
+      "widgets",
+      "public.normalize_value(value)",
+      { is_generated: true },
+    );
+    const branchWidgets = tableNamedWithDefault(
+      "widgets",
+      "public.normalize_value(value)",
+      { is_generated: true },
+    );
+    const mainPublication = publicationOnTables([
+      {
+        schema: "public",
+        name: "items",
+        columns: ["value"],
+        row_filter: null,
+      },
+      {
+        schema: "public",
+        name: "widgets",
+        columns: ["value"],
+        row_filter: null,
+      },
+    ]);
+    const branchPublication = publicationOnTables([
+      {
+        schema: "public",
+        name: "items",
+        columns: ["value"],
+        row_filter: null,
+      },
+      {
+        schema: "public",
+        name: "widgets",
+        columns: ["value"],
+        row_filter: null,
+      },
+    ]);
+    const itemColumnId = "column:public.items.value";
+    const widgetColumnId = "column:public.widgets.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      publications: { [mainPublication.stableId]: mainPublication },
+      tables: {
+        [mainItems.stableId]: mainItems,
+        [mainWidgets.stableId]: mainWidgets,
+      },
+      depends: [
+        {
+          dependent_stable_id: itemColumnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: widgetColumnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: itemColumnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: widgetColumnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      publications: { [branchPublication.stableId]: branchPublication },
+      tables: {
+        [branchItems.stableId]: branchItems,
+        [branchWidgets.stableId]: branchWidgets,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationDropTables,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationAddTables,
+      ),
+    ).toHaveLength(1);
+    expect(serialized).toContain(
+      "ALTER PUBLICATION items_pub DROP TABLE public.items, public.widgets",
+    );
+    expect(serialized).toContain(
+      "ALTER PUBLICATION items_pub ADD TABLE public.items (value), TABLE public.widgets (value)",
+    );
+  });
+
   test("releases retained publication row filters before routine replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -2680,6 +2845,169 @@ describe("expandReplaceDependencies", () => {
         (change) => change instanceof AlterPublicationAddTables,
       ),
     ).toHaveLength(1);
+  });
+
+  test("does not duplicate existing publication row filter replacements", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainPublication = publicationOnItemsValue(
+      "(public.normalize_value(value) > 0)",
+    );
+    const branchPublication = publicationOnItemsValue(
+      "(public.normalize_value(value) >= 0)",
+    );
+    const table = tableWithDefault(null);
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterPublicationDropTables({
+        publication: mainPublication,
+        tables: mainPublication.tables,
+      }),
+      new AlterPublicationAddTables({
+        publication: branchPublication,
+        tables: branchPublication.tables,
+      }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      publications: { [mainPublication.stableId]: mainPublication },
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      publications: { [branchPublication.stableId]: branchPublication },
+      tables: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationDropTables,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationAddTables,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("does not duplicate publication table entries when row filter and column list both need refresh", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const branchTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const mainPublication = publicationOnTables([
+      {
+        schema: "public",
+        name: "items",
+        columns: ["value"],
+        row_filter: "(public.normalize_value(value) > 0)",
+      },
+    ]);
+    const branchPublication = publicationOnTables([
+      {
+        schema: "public",
+        name: "items",
+        columns: ["value"],
+        row_filter: "(public.normalize_value(value) > 0)",
+      },
+    ]);
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      publications: { [mainPublication.stableId]: mainPublication },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      publications: { [branchPublication.stableId]: branchPublication },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(
+      serialized.filter((statement) =>
+        statement.startsWith("ALTER PUBLICATION items_pub DROP TABLE"),
+      ),
+    ).toEqual(["ALTER PUBLICATION items_pub DROP TABLE public.items"]);
+    expect(
+      serialized.filter((statement) =>
+        statement.startsWith("ALTER PUBLICATION items_pub ADD TABLE"),
+      ),
+    ).toEqual([
+      "ALTER PUBLICATION items_pub ADD TABLE public.items (value) WHERE (public.normalize_value(value) > 0)",
+    ]);
   });
 
   test("handles aggregate replacements as expression roots", async () => {

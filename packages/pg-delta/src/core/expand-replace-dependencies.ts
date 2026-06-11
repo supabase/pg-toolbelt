@@ -296,6 +296,29 @@ export function expandReplaceDependencies({
         // walking those edges must not promote metadata into object replacement.
         continue;
       }
+      if (
+        generatedColumnsRecreatedByExpressionFallback.has(refId) &&
+        isOwnerTableDependentForColumn(refId, dependentRaw)
+      ) {
+        // A table has catalog bookkeeping dependencies on its own columns. The
+        // generated-column fallback already drops and recreates the column, so
+        // that internal table->column edge must not promote the whole table.
+        continue;
+      }
+      if (
+        generatedColumnsRecreatedByExpressionFallback.has(refId) &&
+        isGeneratedColumnNotNullConstraintDependent({
+          columnId: refId,
+          dependentId: dependentRaw,
+          mainCatalog,
+          branchCatalog,
+        })
+      ) {
+        // PostgreSQL 18 stores NOT NULL as a pg_constraint dependency, but
+        // pg-delta models it on the column. Dropping/re-adding the generated
+        // column already releases and restores this edge.
+        continue;
+      }
 
       if (
         shouldHandleRoutineExpressionDependent({
@@ -364,6 +387,7 @@ export function expandReplaceDependencies({
           mainCatalog,
           branchCatalog,
           additions,
+          existingChanges: [...changes, ...additions],
           visitedTargets,
         })
       ) {
@@ -706,6 +730,68 @@ function isMetadataDependentStableId(stableId: string): boolean {
   );
 }
 
+function isOwnerTableDependentForColumn(
+  columnId: string,
+  dependentId: string,
+): boolean {
+  const columnRef = parseColumnStableId(columnId);
+  if (!columnRef) return false;
+
+  return dependentId === stableId.table(columnRef.schema, columnRef.table);
+}
+
+function isGeneratedColumnNotNullConstraintDependent({
+  columnId,
+  dependentId,
+  mainCatalog,
+  branchCatalog,
+}: {
+  columnId: string;
+  dependentId: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}): boolean {
+  const columnRef = parseColumnStableId(columnId);
+  const constraintRef = parseConstraintStableId(dependentId);
+  if (
+    !columnRef ||
+    !constraintRef ||
+    constraintRef.schema !== columnRef.schema ||
+    constraintRef.owner !== columnRef.table
+  ) {
+    return false;
+  }
+
+  const tableId = stableId.table(columnRef.schema, columnRef.table);
+  const mainTable = mainCatalog.tables[tableId];
+  const branchTable = branchCatalog.tables[tableId];
+  const mainColumn = mainTable?.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  const branchColumn = branchTable?.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  const modeledConstraint = Boolean(
+    mainTable?.constraints.some(
+      (constraint) => constraint.name === constraintRef.constraint,
+    ) ||
+    branchTable?.constraints.some(
+      (constraint) => constraint.name === constraintRef.constraint,
+    ),
+  );
+  const generatedColumnNotNull = Boolean(
+    (mainColumn?.is_generated && mainColumn.not_null) ||
+    (branchColumn?.is_generated && branchColumn.not_null),
+  );
+
+  return (
+    !modeledConstraint &&
+    constraintRef.constraint ===
+      `${columnRef.table}_${columnRef.column}_not_null` &&
+    generatedColumnNotNull
+  );
+}
+
 function shouldTraverseExpressionReplacementDependent({
   dependentRaw,
   expressionReplacementChanges,
@@ -822,6 +908,7 @@ function maybeAddRoutineDependentPublicationReplacement({
   mainCatalog,
   branchCatalog,
   additions,
+  existingChanges,
   visitedTargets,
 }: {
   refId: string;
@@ -830,6 +917,7 @@ function maybeAddRoutineDependentPublicationReplacement({
   mainCatalog: Catalog;
   branchCatalog: Catalog;
   additions: Change[];
+  existingChanges: readonly Change[];
   visitedTargets: Set<string>;
 }): boolean {
   if (
@@ -838,17 +926,19 @@ function maybeAddRoutineDependentPublicationReplacement({
   ) {
     return false;
   }
-  if (visitedTargets.has(dependentRaw)) return true;
+  const visitKey = publicationRowFilterReplacementVisitKey(dependentRaw);
+  if (visitedTargets.has(visitKey)) return true;
 
   const replacementChanges = buildPublicationRowFilterReplacementChanges({
     publicationId: dependentRaw,
     mainCatalog,
     branchCatalog,
+    existingChanges,
   });
   if (!replacementChanges) return false;
 
   additions.push(...replacementChanges);
-  visitedTargets.add(dependentRaw);
+  visitedTargets.add(visitKey);
   return true;
 }
 
@@ -873,18 +963,19 @@ function maybeAddColumnDependentPublicationReplacement({
   ) {
     return false;
   }
-  if (visitedTargets.has(dependentRaw)) return true;
 
-  const replacementChanges = buildPublicationColumnListReplacementChanges({
+  const replacement = buildPublicationColumnListReplacement({
     columnId: refId,
     publicationId: dependentRaw,
     mainCatalog,
     branchCatalog,
   });
-  if (!replacementChanges) return false;
+  if (!replacement) return false;
 
-  additions.push(...replacementChanges);
-  visitedTargets.add(dependentRaw);
+  if (visitedTargets.has(replacement.visitKey)) return true;
+
+  appendPublicationColumnListReplacement(additions, replacement);
+  visitedTargets.add(replacement.visitKey);
   return true;
 }
 
@@ -1101,7 +1192,7 @@ function buildColumnExpressionReplacementChanges({
   return changes;
 }
 
-function buildPublicationColumnListReplacementChanges({
+function buildPublicationColumnListReplacement({
   columnId,
   publicationId,
   mainCatalog,
@@ -1111,7 +1202,7 @@ function buildPublicationColumnListReplacementChanges({
   publicationId: string;
   mainCatalog: Catalog;
   branchCatalog: Catalog;
-}): Change[] | null {
+}): PublicationColumnListReplacement | null {
   const columnRef = parseColumnStableId(columnId);
   if (!columnRef) return null;
 
@@ -1129,26 +1220,88 @@ function buildPublicationColumnListReplacementChanges({
   );
   if (!mainTable || !branchTable) return null;
 
-  return [
-    new AlterPublicationDropTables({
-      publication: mainPublication,
-      tables: [mainTable],
-    }),
-    new AlterPublicationAddTables({
-      publication: branchPublication,
-      tables: [branchTable],
-    }),
-  ];
+  return {
+    mainPublication,
+    branchPublication,
+    mainTable,
+    branchTable,
+    visitKey: publicationTableReplacementVisitKey(publicationId, mainTable),
+  };
+}
+
+type PublicationColumnListReplacement = {
+  mainPublication: Catalog["publications"][string];
+  branchPublication: Catalog["publications"][string];
+  mainTable: PublicationTableProps;
+  branchTable: PublicationTableProps;
+  visitKey: string;
+};
+
+function appendPublicationColumnListReplacement(
+  additions: Change[],
+  replacement: PublicationColumnListReplacement,
+): void {
+  const existingDrop = additions.find(
+    (change): change is AlterPublicationDropTables =>
+      change instanceof AlterPublicationDropTables &&
+      change.publication.stableId === replacement.mainPublication.stableId,
+  );
+  if (existingDrop) {
+    if (
+      !publicationTableChangeCovered({
+        changes: [existingDrop],
+        publicationId: replacement.mainPublication.stableId,
+        table: replacement.mainTable,
+        changeType: "drop",
+      })
+    ) {
+      existingDrop.tables.push(replacement.mainTable);
+    }
+  } else {
+    additions.push(
+      new AlterPublicationDropTables({
+        publication: replacement.mainPublication,
+        tables: [replacement.mainTable],
+      }),
+    );
+  }
+
+  const existingAdd = additions.find(
+    (change): change is AlterPublicationAddTables =>
+      change instanceof AlterPublicationAddTables &&
+      change.publication.stableId === replacement.branchPublication.stableId,
+  );
+  if (existingAdd) {
+    if (
+      !publicationTableChangeCovered({
+        changes: [existingAdd],
+        publicationId: replacement.branchPublication.stableId,
+        table: replacement.branchTable,
+        changeType: "add",
+      })
+    ) {
+      existingAdd.tables.push(replacement.branchTable);
+    }
+  } else {
+    additions.push(
+      new AlterPublicationAddTables({
+        publication: replacement.branchPublication,
+        tables: [replacement.branchTable],
+      }),
+    );
+  }
 }
 
 function buildPublicationRowFilterReplacementChanges({
   publicationId,
   mainCatalog,
   branchCatalog,
+  existingChanges,
 }: {
   publicationId: string;
   mainCatalog: Catalog;
   branchCatalog: Catalog;
+  existingChanges: readonly Change[];
 }): Change[] | null {
   const mainPublication = mainCatalog.publications[publicationId];
   const branchPublication = branchCatalog.publications[publicationId];
@@ -1165,25 +1318,96 @@ function buildPublicationRowFilterReplacementChanges({
   const branchTables = branchPublication.tables.filter((table) =>
     mainTableKeys.has(publicationTableKey(table)),
   );
+  const branchTablesByKey = new Map(
+    branchTables.map((table) => [publicationTableKey(table), table]),
+  );
+  const releaseTables = mainTables.filter(
+    (table) =>
+      !publicationTableChangeCovered({
+        changes: existingChanges,
+        publicationId,
+        table,
+        changeType: "drop",
+      }),
+  );
+  const restoreTables = mainTables.flatMap((table) => {
+    const tableKey = publicationTableKey(table);
+    const branchTable = branchTablesByKey.get(tableKey);
+    if (!branchTable) return [];
+    return publicationTableChangeCovered({
+      changes: existingChanges,
+      publicationId,
+      table: branchTable,
+      changeType: "add",
+    })
+      ? []
+      : [branchTable];
+  });
+
+  if (releaseTables.length === 0 && restoreTables.length === 0) return [];
 
   return [
-    new AlterPublicationDropTables({
-      publication: mainPublication,
-      tables: mainTables,
-    }),
-    ...(branchTables.length > 0
+    ...(releaseTables.length > 0
+      ? [
+          new AlterPublicationDropTables({
+            publication: mainPublication,
+            tables: releaseTables,
+          }),
+        ]
+      : []),
+    ...(restoreTables.length > 0
       ? [
           new AlterPublicationAddTables({
             publication: branchPublication,
-            tables: branchTables,
+            tables: restoreTables,
           }),
         ]
       : []),
   ];
 }
 
+function publicationRowFilterReplacementVisitKey(
+  publicationId: string,
+): string {
+  return `publicationRowFilters:${publicationId}`;
+}
+
+function publicationTableReplacementVisitKey(
+  publicationId: string,
+  table: PublicationTableProps,
+): string {
+  return `publicationTable:${publicationId}:${publicationTableKey(table)}`;
+}
+
 function publicationTableKey(table: PublicationTableProps): string {
   return `${table.schema}.${table.name}`;
+}
+
+function publicationTableChangeCovered({
+  changes,
+  publicationId,
+  table,
+  changeType,
+}: {
+  changes: readonly Change[];
+  publicationId: string;
+  table: PublicationTableProps;
+  changeType: "add" | "drop";
+}): boolean {
+  const changeClass =
+    changeType === "add"
+      ? AlterPublicationAddTables
+      : AlterPublicationDropTables;
+  const tableStableId = stableId.table(table.schema, table.name);
+
+  return changes.some((change) => {
+    if (!(change instanceof changeClass)) return false;
+    if (change.publication.stableId !== publicationId) return false;
+
+    return changeType === "add"
+      ? change.requires.includes(tableStableId)
+      : change.drops.includes(tableStableId);
+  });
 }
 
 function findPublicationTableForColumn(

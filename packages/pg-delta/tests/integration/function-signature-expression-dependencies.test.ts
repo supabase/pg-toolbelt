@@ -6,11 +6,12 @@ import { roundtripFidelityTest } from "./roundtrip.ts";
 
 function expectNoTableReplacement(sqlStatements: string[]) {
   expect(
-    sqlStatements.some((statement) => statement.startsWith("DROP TABLE ")),
-  ).toBe(false);
-  expect(
-    sqlStatements.some((statement) => statement.startsWith("CREATE TABLE ")),
-  ).toBe(false);
+    sqlStatements.filter(
+      (statement) =>
+        statement.startsWith("DROP TABLE ") ||
+        statement.startsWith("CREATE TABLE "),
+    ),
+  ).toEqual([]);
 }
 
 async function expectTableRowCount(
@@ -1372,6 +1373,127 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 	            AND c.relname = 'published_invoice_totals'
 	        `);
         expect(publicationRows[0]?.columns).toEqual(["id", "total"]);
+      }),
+    );
+
+    test.skipIf(pgVersion < 18)(
+      "multiple generated publication column lists are refreshed independently",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_shared_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.published_invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_shared_total(subtotal)) STORED
+            );
+
+            CREATE TABLE test_schema.published_order_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_shared_total(subtotal)) STORED
+            );
+
+            CREATE PUBLICATION shared_total_pub
+              FOR TABLE test_schema.published_invoice_totals (id, total),
+                        test_schema.published_order_totals (id, total);
+
+            INSERT INTO test_schema.published_invoice_totals (id, subtotal)
+            VALUES (1, 20);
+            INSERT INTO test_schema.published_order_totals (id, subtotal)
+            VALUES (1, 30);
+          `,
+          testSql: dedent`
+            ALTER PUBLICATION shared_total_pub
+              SET TABLE test_schema.published_invoice_totals (id),
+                        test_schema.published_order_totals (id);
+
+            ALTER TABLE test_schema.published_invoice_totals
+              DROP COLUMN total;
+            ALTER TABLE test_schema.published_order_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_shared_total(integer);
+
+            CREATE FUNCTION test_schema.compute_shared_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.published_invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_shared_total(subtotal)) STORED;
+            ALTER TABLE test_schema.published_order_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_shared_total(subtotal)) STORED;
+
+            ALTER PUBLICATION shared_total_pub
+              SET TABLE test_schema.published_invoice_totals (id, total),
+                        test_schema.published_order_totals (id, total);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const publicationDropStatements = sqlStatements.filter(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER PUBLICATION shared_total_pub DROP TABLE",
+                ),
+            );
+            const publicationAddStatements = sqlStatements.filter((statement) =>
+              statement.startsWith(
+                "ALTER PUBLICATION shared_total_pub ADD TABLE",
+              ),
+            );
+
+            expect(publicationDropStatements).toHaveLength(1);
+            expect(publicationAddStatements).toHaveLength(1);
+            expect(publicationDropStatements).toContain(
+              "ALTER PUBLICATION shared_total_pub DROP TABLE test_schema.published_invoice_totals, test_schema.published_order_totals",
+            );
+            expect(publicationAddStatements).toContain(
+              "ALTER PUBLICATION shared_total_pub ADD TABLE test_schema.published_invoice_totals (id, total), TABLE test_schema.published_order_totals (id, total)",
+            );
+          },
+        });
+
+        for (const tableName of [
+          "published_invoice_totals",
+          "published_order_totals",
+        ]) {
+          const { rows } = await db.main.query(dedent`
+            SELECT json_agg(att.attname ORDER BY cols.ord) AS columns
+            FROM pg_catalog.pg_publication p
+            JOIN pg_catalog.pg_publication_rel pr ON pr.prpubid = p.oid
+            JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN unnest(pr.prattrs) WITH ORDINALITY AS cols(attnum, ord)
+              ON true
+            JOIN pg_catalog.pg_attribute att
+              ON att.attrelid = c.oid
+             AND att.attnum = cols.attnum
+            WHERE p.pubname = 'shared_total_pub'
+              AND n.nspname = 'test_schema'
+              AND c.relname = '${tableName}'
+          `);
+          expect(rows[0]?.columns).toEqual(["id", "total"]);
+        }
       }),
     );
 
