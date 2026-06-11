@@ -61,6 +61,8 @@ export const objectKindFromObjType = (
       return "publication";
     case "OBJECT_ROLE":
       return "role";
+    case "OBJECT_RULE":
+      return "rule";
     case "OBJECT_SCHEMA":
       return "schema";
     case "OBJECT_SEQUENCE":
@@ -89,9 +91,13 @@ export const objectFromNameParts = (
     return null;
   }
 
-  // COMMENT ON TRIGGER/POLICY name parts are [schema?, relation, objectName]. Identity
-  // for trigger/policy is relation.objectName so dependency resolution matches CREATE.
-  if ((kind === "trigger" || kind === "policy") && parts.length >= 2) {
+  // COMMENT ON TRIGGER/POLICY/RULE name parts are [schema?, relation, objectName].
+  // Identity for these relation-scoped objects is relation.objectName so dependency
+  // resolution matches CREATE.
+  if (
+    (kind === "trigger" || kind === "policy" || kind === "rule") &&
+    parts.length >= 2
+  ) {
     const objectName = parts.at(-1);
     const relationName = parts.at(-2);
     if (!objectName || !relationName) {
