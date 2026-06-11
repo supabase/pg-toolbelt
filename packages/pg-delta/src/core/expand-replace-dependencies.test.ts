@@ -15,6 +15,11 @@ import { GrantProcedurePrivileges } from "./objects/procedure/changes/procedure.
 import { CreateSecurityLabelOnProcedure } from "./objects/procedure/changes/procedure.security-label.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
 import {
+  AlterPublicationAddTables,
+  AlterPublicationDropTables,
+} from "./objects/publication/changes/publication.alter.ts";
+import { Publication } from "./objects/publication/publication.model.ts";
+import {
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
 } from "./objects/rls-policy/changes/rls-policy.alter.ts";
@@ -203,6 +208,33 @@ function makeIndex(
       "CREATE INDEX accounts_status_expr_idx ON public.accounts USING btree (lower(status))",
     comment: null,
     owner: "postgres",
+    ...overrides,
+  });
+}
+
+function makePublication(
+  overrides: Partial<ConstructorParameters<typeof Publication>[0]> = {},
+): Publication {
+  return new Publication({
+    name: "pub_accounts",
+    owner: "postgres",
+    comment: null,
+    all_tables: false,
+    publish_insert: true,
+    publish_update: true,
+    publish_delete: true,
+    publish_truncate: true,
+    publish_via_partition_root: false,
+    tables: [
+      {
+        schema: "public",
+        name: "accounts",
+        columns: null,
+        row_filter: "status = 'active'::text",
+      },
+    ],
+    schemas: [],
+    security_labels: [],
     ...overrides,
   });
 }
@@ -512,6 +544,146 @@ describe("expandReplaceDependencies", () => {
       expanded.changes.some((change) => change instanceof CreateTable),
     ).toBe(false);
     expect(expanded.replacedTableIds.size).toBe(0);
+  });
+
+  test("rebuilds generated columns and publication table membership that depend on an invalidated column", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainAccounts = makeTable("accounts", [
+      {
+        name: "id",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: true,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+      {
+        name: "status",
+        position: 2,
+        data_type: "text",
+        data_type_str: "text",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+      {
+        name: "status_label",
+        position: 3,
+        data_type: "text",
+        data_type_str: "text",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: true,
+        collation: null,
+        default: "upper(status)",
+        comment: null,
+      },
+    ]);
+    const branchAccounts = makeTable("accounts", [
+      {
+        ...mainAccounts.columns[0],
+      },
+      {
+        ...mainAccounts.columns[1],
+        data_type: "character varying",
+        data_type_str: "character varying(32)",
+      },
+      {
+        ...mainAccounts.columns[2],
+      },
+    ]);
+    const mainPublication = makePublication();
+    const branchPublication = makePublication({
+      tables: [
+        {
+          schema: "public",
+          name: "accounts",
+          columns: null,
+          row_filter: "(status)::text = 'active'::text",
+        },
+      ],
+    });
+    const columnTypeChange = new AlterTableAlterColumnType({
+      table: branchAccounts,
+      column: branchAccounts.columns[1],
+      previousColumn: mainAccounts.columns[1],
+    });
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [mainAccounts.stableId]: mainAccounts },
+      publications: { [mainPublication.stableId]: mainPublication },
+      depends: [
+        {
+          dependent_stable_id: "column:public.accounts.status_label",
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [branchAccounts.stableId]: branchAccounts },
+      publications: { [branchPublication.stableId]: branchPublication },
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes: [columnTypeChange],
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableAlterColumnDropDefault &&
+          change.column.name === "status_label",
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableAlterColumnSetDefault &&
+          change.column.name === "status_label",
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterPublicationDropTables,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterPublicationAddTables,
+      ),
+    ).toBe(true);
   });
 
   test("reports replaced tables for downstream post-diff normalization", async () => {

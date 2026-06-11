@@ -30,6 +30,46 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "publication row filter depending on rewritten column is recreated around ALTER COLUMN TYPE",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.filtered_accounts (
+            id integer NOT NULL,
+            status text NOT NULL,
+            amount integer
+          );
+
+          CREATE PUBLICATION pub_filtered_accounts
+            FOR TABLE pub_test.filtered_accounts
+            WHERE (status = 'active');
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_filtered_accounts
+            DROP TABLE pub_test.filtered_accounts;
+          ALTER TABLE pub_test.filtered_accounts
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER PUBLICATION pub_filtered_accounts
+            ADD TABLE pub_test.filtered_accounts
+            WHERE ((status)::text = 'active'::text);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER PUBLICATION pub_filtered_accounts DROP TABLE pub_test.filtered_accounts",
+                "ALTER TABLE pub_test.filtered_accounts ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER PUBLICATION pub_filtered_accounts ADD TABLE pub_test.filtered_accounts WHERE ((status)::text = 'active'::text)",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
       "create publication for tables in schema",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
