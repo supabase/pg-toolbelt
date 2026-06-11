@@ -21,6 +21,9 @@ import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
+import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
+import { CreateRule } from "./objects/rule/changes/rule.create.ts";
+import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -28,6 +31,7 @@ import {
   AlterTableAlterColumnSetDefault,
   AlterTableDropColumn,
   AlterTableDropConstraint,
+  AlterTableSetReplicaIdentity,
 } from "./objects/table/changes/table.alter.ts";
 import {
   CreateCommentOnColumn,
@@ -37,6 +41,9 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
+import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
+import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
+import { DropTrigger } from "./objects/trigger/changes/trigger.drop.ts";
 import { CreateCompositeType } from "./objects/type/composite-type/changes/composite-type.create.ts";
 import { DropCompositeType } from "./objects/type/composite-type/changes/composite-type.drop.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
@@ -64,6 +71,18 @@ type ResolvedObject =
       main: Catalog["indexes"][string];
       branch: Catalog["indexes"][string];
       branchIndexableObject: Catalog["indexableObjects"][string] | undefined;
+      branchTable: Catalog["tables"][string] | undefined;
+    }
+  | {
+      kind: "trigger";
+      main: Catalog["triggers"][string];
+      branch: Catalog["triggers"][string];
+      branchIndexableObject: Catalog["indexableObjects"][string] | undefined;
+    }
+  | {
+      kind: "rule";
+      main: Catalog["rules"][string];
+      branch: Catalog["rules"][string];
     }
   | {
       kind: "materialized_view";
@@ -1396,8 +1415,30 @@ function resolveObjectForStableId(
           branch,
           branchIndexableObject:
             branchCatalog.indexableObjects[branch.tableStableId],
+          branchTable: branchCatalog.tables[branch.tableStableId],
         }
       : null;
+  }
+
+  if (stableId.startsWith("trigger:")) {
+    const main = mainCatalog.triggers[stableId];
+    const branch = branchCatalog.triggers[stableId];
+    if (main && branch) {
+      const branchTableId = `table:${branch.schema}.${branch.table_name}`;
+      return {
+        kind: "trigger",
+        main,
+        branch,
+        branchIndexableObject: branchCatalog.indexableObjects[branchTableId],
+      };
+    }
+    return null;
+  }
+
+  if (stableId.startsWith("rule:")) {
+    const main = mainCatalog.rules[stableId];
+    const branch = branchCatalog.rules[stableId];
+    return main && branch ? { kind: "rule", main, branch } : null;
   }
 
   if (stableId.startsWith("procedure:")) {
@@ -1547,6 +1588,42 @@ function buildReplaceChanges(
               // CREATE INDEX does not carry expression-index statistics, so
               // replay retained targets after the replacement index exists.
               ...buildRetainedIndexStatisticsChanges(resolved.branch),
+              ...(resolved.branch.is_replica_identity && resolved.branchTable
+                ? [
+                    new AlterTableSetReplicaIdentity({
+                      table: resolved.branchTable,
+                      mode: "i",
+                      indexName: resolved.branch.name,
+                    }),
+                  ]
+                : []),
+            ]
+          : []),
+      ];
+    case "trigger":
+      return [
+        ...(addDrop ? [new DropTrigger({ trigger: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateTrigger({
+                trigger: resolved.branch,
+                indexableObject: resolved.branchIndexableObject,
+              }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnTrigger({ trigger: resolved.branch })]
+                : []),
+            ]
+          : []),
+      ];
+    case "rule":
+      return [
+        ...(addDrop ? [new DropRule({ rule: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateRule({ rule: resolved.branch }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnRule({ rule: resolved.branch })]
+                : []),
             ]
           : []),
       ];
