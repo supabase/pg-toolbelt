@@ -234,22 +234,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
-      "applies CREATE SUBSCRIPTION reusing an existing replication slot",
+      "plans CREATE SUBSCRIPTION reusing an existing replication slot as a transactional unit",
       withDbIsolated(pgVersion, async (db) => {
         // A subscription whose replication slot actually exists must
         // serialize with create_slot = false so the slot is reused instead of
         // recreated. That form keeps the connect = true default and is
-        // accepted inside a transaction block (the 25001 gate is on
-        // create_slot = true), so the plan stays fully transactional and can
-        // be applied end-to-end: the publisher here is the branch database on
-        // the same cluster, which only works because no slot is created as
-        // part of the command.
+        // accepted inside a transaction block (PostgreSQL's 25001 gate is on
+        // create_slot = true, verified empirically), so the plan stays fully
+        // transactional. The apply leg is not testable: extraction redacts
+        // conninfo to the __CONN_*__ placeholder (it carries credentials), so
+        // any connect = true statement fails to reach a publisher until the
+        // user substitutes real connection values.
         const {
           rows: [{ name: branchDbName }],
         } = await db.branch.query<{ name: string }>(
           sql`select current_database() as name`,
         );
-        await db.branch.query("CREATE PUBLICATION sub_with_slot_pub FOR ALL TABLES");
         await db.branch.query(
           sql`select pg_create_logical_replication_slot('sub_existing_slot', 'pgoutput')`,
         );
@@ -264,11 +264,6 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               slot_name = 'sub_existing_slot'
             );
         `);
-        // The local-slot heuristic behind replication_slot_created must also
-        // hold on the target after apply for the re-diff to converge.
-        await db.main.query(
-          sql`select pg_create_logical_replication_slot('sub_existing_slot', 'pgoutput')`,
-        );
 
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
@@ -277,23 +272,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result.plan.units).toHaveLength(1);
         const [unit] = result.plan.units;
         expect(unit.transactionMode).toBe("transactional");
-        const createStatement = unit.statements.find((statement) =>
-          statement.startsWith("CREATE SUBSCRIPTION sub_with_slot"),
+        expect(unit.statements).toHaveLength(1);
+        const [createStatement] = unit.statements;
+        expect(createStatement).toStartWith(
+          "CREATE SUBSCRIPTION sub_with_slot",
         );
-        expect(createStatement).toBeDefined();
         expect(createStatement).toContain("create_slot = false");
         // connect must stay at its default (true) so the existing slot is
         // looked up on the publisher rather than skipped.
         expect(createStatement).not.toContain("connect = false");
         expect(createStatement).toContain("slot_name = 'sub_existing_slot'");
-
-        const applied = await applyPlan(result.plan, db.main, db.branch);
-        expect(applied.status).toBe("applied");
-        if (applied.status !== "applied") throw new Error("expected applied");
-        expect(applied.warnings).toBeUndefined();
-
-        const after = await createPlan(db.main, db.branch);
-        expect(after).toBeNull();
       }),
     );
 

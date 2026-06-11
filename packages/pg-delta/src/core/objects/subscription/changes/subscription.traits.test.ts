@@ -33,20 +33,22 @@ function makeSubscription(
 }
 
 describe("subscription transaction-block traits", () => {
-  test("CREATE SUBSCRIPTION with a created slot cannot run in a transaction block", () => {
-    // serialize() leaves the connect = true default in this case, which
-    // PostgreSQL rejects inside a transaction block (25001).
-    const change = new CreateSubscription({
+  test("CREATE SUBSCRIPTION is always transactional", () => {
+    // PostgreSQL's transaction-block gate is on create_slot = true, and
+    // serialize() always emits create_slot = false: connect stays true when
+    // the slot already exists (it is reused, never recreated), and connect
+    // is false otherwise.
+    const withSlot = new CreateSubscription({
       subscription: makeSubscription({ replication_slot_created: true }),
     });
-    expect(change.nonTransactional).toBe(true);
-  });
+    expect(withSlot.nonTransactional).toBe(false);
+    expect(withSlot.serialize()).toContain("create_slot = false");
 
-  test("CREATE SUBSCRIPTION with connect = false is transactional", () => {
-    const change = new CreateSubscription({
+    const withoutSlot = new CreateSubscription({
       subscription: makeSubscription({ replication_slot_created: false }),
     });
-    expect(change.nonTransactional).toBe(false);
+    expect(withoutSlot.nonTransactional).toBe(false);
+    expect(withoutSlot.serialize()).toContain("create_slot = false");
   });
 
   test("ALTER SUBSCRIPTION SET PUBLICATION with implicit refresh cannot run in a transaction block", () => {

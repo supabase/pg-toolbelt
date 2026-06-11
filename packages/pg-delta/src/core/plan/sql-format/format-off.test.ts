@@ -659,7 +659,7 @@ describe("sql formatting snapshots", () => {
       ALTER DEFAULT PRIVILEGES FOR ROLE app_user IN SCHEMA public REVOKE SELECT ON TABLES FROM app_reader;
 
       -- subscription.create
-      CREATE SUBSCRIPTION sub_replica CONNECTION 'host=primary.db port=5432 dbname=mydb' PUBLICATION pub_custom WITH (slot_name = 'sub_replica_slot', binary = true, streaming = 'parallel', synchronous_commit = 'remote_apply', disable_on_error = true, failover = true);
+      CREATE SUBSCRIPTION sub_replica CONNECTION 'host=primary.db port=5432 dbname=mydb' PUBLICATION pub_custom WITH (slot_name = 'sub_replica_slot', binary = true, streaming = 'parallel', synchronous_commit = 'remote_apply', disable_on_error = true, failover = true, create_slot = false);
 
       -- subscription.drop
       DROP SUBSCRIPTION sub_replica;

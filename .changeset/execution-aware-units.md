@@ -7,7 +7,8 @@ Replace the flat `plan.statements` list with execution-aware migration units.
 A plan is now an ordered list of `MigrationUnit`s (`plan.units`) plus session-level statements (`plan.sessionStatements`). Each unit carries an explicit `transactionMode` and a boundary `reason`, so plans whose statements cannot share one transaction are represented and applied correctly:
 
 - `ALTER TYPE ... ADD VALUE` and any later statement now run in separate transactions, fixing PostgreSQL error 55P04 ("unsafe use of new value of enum type") when a migration adds an enum value and uses it (#262).
-- Statements PostgreSQL rejects inside a transaction block — `CREATE SUBSCRIPTION` with `connect = true`, `ALTER SUBSCRIPTION ... SET PUBLICATION` with implicit `refresh = true`, `DROP SUBSCRIPTION` with an associated replication slot — are applied as standalone non-transactional units instead of failing inside `BEGIN`/`COMMIT`.
+- Statements PostgreSQL rejects inside a transaction block — `ALTER SUBSCRIPTION ... SET PUBLICATION` with implicit `refresh = true`, `DROP SUBSCRIPTION` with an associated replication slot — are applied as standalone non-transactional units instead of failing inside `BEGIN`/`COMMIT`.
+- `CREATE SUBSCRIPTION` for a subscription whose replication slot already exists now emits `create_slot = false` (keeping `connect = true`), so the existing slot is reused instead of failing with "replication slot already exists"; that form is transactional (PostgreSQL's transaction-block gate is on `create_slot = true`).
 
 Execution semantics are declared on the change classes (`nonTransactional`, `commitBoundary`), never inferred from rendered SQL.
 

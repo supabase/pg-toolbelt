@@ -193,7 +193,7 @@ interface MigrationUnit {
 }
 ```
 
-A plan needs more than one unit when a statement's effects only become usable after COMMIT (e.g. `ALTER TYPE ... ADD VALUE`, whose new value cannot be referenced in the same transaction — PostgreSQL error 55P04), or when a statement cannot run inside a transaction block at all (e.g. `CREATE SUBSCRIPTION` with `connect = true`).
+A plan needs more than one unit when a statement's effects only become usable after COMMIT (e.g. `ALTER TYPE ... ADD VALUE`, whose new value cannot be referenced in the same transaction — PostgreSQL error 55P04), or when a statement cannot run inside a transaction block at all (e.g. `DROP SUBSCRIPTION` with an associated replication slot).
 
 Render a plan with `renderPlanSql(plan)` (single script) or `renderPlanFiles(plan)` (one numbered file per unit, as written by `pgdelta plan --output-dir`). `flattenPlanStatements(plan)` returns the raw ordered statements (session statements included) when transaction context does not matter.
 

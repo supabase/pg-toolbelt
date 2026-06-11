@@ -864,7 +864,8 @@ describe("sql formatting snapshots", () => {
             streaming = 'parallel',
             synchronous_commit = 'remote_apply',
             disable_on_error = true,
-            failover = true
+            failover = true,
+            create_slot = false
          );
 
       -- subscription.drop
