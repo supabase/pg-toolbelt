@@ -1002,9 +1002,15 @@ const objectWithArgsTypeRefs = (
   );
 };
 
+const typeRefsSignature = (args: (ObjectRef | null)[]): string =>
+  `(${args
+    .map((argRef) => (argRef ? typeSignaturePart(argRef) : "unknown"))
+    .join(",")})`;
+
 const objectWithArgsRef = (
   kind: ObjectRef["kind"],
   objectWithArgs: unknown,
+  defaultArgs: (ObjectRef | null)[] = [],
 ): ObjectRef | null => {
   const objectWithArgsRecord = asRecord(objectWithArgs);
   if (!objectWithArgsRecord) {
@@ -1019,20 +1025,17 @@ const objectWithArgsRef = (
     return null;
   }
 
-  const args = objectWithArgsTypeRefs(objectWithArgsRecord);
+  const explicitArgs = objectWithArgsTypeRefs(objectWithArgsRecord);
+  const args = explicitArgs.length > 0 ? explicitArgs : defaultArgs;
   if (args.length === 0) {
     return baseRef;
   }
-
-  const signatureParts = args.map((argRef) =>
-    argRef ? typeSignaturePart(argRef) : "unknown",
-  );
 
   return createObjectRefFromAst(
     kind,
     baseRef.name,
     baseRef.schema,
-    `(${signatureParts.join(",")})`,
+    typeRefsSignature(args),
   );
 };
 
@@ -1436,17 +1439,40 @@ const extractCreateOperatorClassDependencies = (
     const nameParts = extractNameParts(itemName?.objname);
 
     if (item.itemtype === OPCLASS_ITEM_OPERATOR) {
+      const explicitOperatorArgs = objectWithArgsTypeRefs(itemName);
+      const operatorArgs =
+        explicitOperatorArgs.length > 0
+          ? explicitOperatorArgs
+          : dataTypeRef
+            ? [dataTypeRef, dataTypeRef]
+            : [];
+
+      const orderFamilyRef = objectFromNameParts(
+        "operator_family",
+        extractNameParts(item.order_family),
+      );
+      if (orderFamilyRef) {
+        requires.push(
+          createObjectRefFromAst(
+            "operator_family",
+            orderFamilyRef.name,
+            orderFamilyRef.schema,
+            "(btree)",
+          ),
+        );
+      }
+
       if (
         isBuiltInOperatorClassSupportOperatorName(
           nameParts,
-          objectWithArgsTypeRefs(itemName),
+          operatorArgs,
           dataTypeRef,
         )
       ) {
         continue;
       }
 
-      const operatorRef = objectWithArgsRef("operator", itemName);
+      const operatorRef = objectWithArgsRef("operator", itemName, operatorArgs);
       if (operatorRef) {
         requires.push(operatorRef);
       }
@@ -1454,6 +1480,14 @@ const extractCreateOperatorClassDependencies = (
     }
 
     if (item.itemtype === OPCLASS_ITEM_FUNCTION) {
+      const classArgs = Array.isArray(item.class_args) ? item.class_args : [];
+      for (const classArg of classArgs) {
+        const classArgRef = typeFromTypeNameNode(asRecord(classArg)?.TypeName);
+        if (classArgRef) {
+          requires.push(classArgRef);
+        }
+      }
+
       if (
         isBuiltInOperatorClassSupportFunctionName(
           nameParts,

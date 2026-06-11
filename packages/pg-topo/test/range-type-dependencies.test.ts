@@ -1046,9 +1046,7 @@ describe("range type dependencies", () => {
         diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
         diagnostic.objectRefs?.some(
           (ref) =>
-            ref.kind === "operator" &&
-            ref.schema === "app" &&
-            ref.name === "<",
+            ref.kind === "operator" && ref.schema === "app" && ref.name === "<",
         ) === true,
     );
     const operatorClassStatement = result.ordered.find((statement) =>
