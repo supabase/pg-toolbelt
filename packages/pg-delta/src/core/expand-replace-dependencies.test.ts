@@ -1372,8 +1372,8 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
   });
 
-  test("synthesizes a generated column fallback for an unchanged expression that depends on a same-signature procedure replacement", async () => {
-    const baseline = await createEmptyCatalog(170000, "postgres");
+  test("synthesizes a generated column fallback before PostgreSQL 17 for an unchanged expression that depends on a same-signature procedure replacement", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
     const branchProcedure = new Procedure({
       // oxlint-disable-next-line typescript/no-misused-spread
@@ -1419,7 +1419,7 @@ describe("expandReplaceDependencies", () => {
       mainCatalog,
       branchCatalog,
       diffContext: {
-        version: 170000,
+        version: 150000,
         currentUser: "postgres",
         defaultPrivilegeState: new DefaultPrivilegeState({}),
       },

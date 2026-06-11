@@ -400,7 +400,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test.skipIf(pgVersion < 17)(
+    test(
       "unchanged generated column for replaced function argument name does not recreate table",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
