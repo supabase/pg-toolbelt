@@ -542,8 +542,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
-    test.skipIf(pgVersion < 17)(
-      "alter referenced column type rebuilds generated expression",
+    test(
+      "alter referenced column type rebuilds constrained generated expression",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
           mainSession: db.main,
@@ -553,7 +553,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           CREATE TABLE test_schema.generated_status (
             id integer NOT NULL,
             status text NOT NULL,
-            status_label text GENERATED ALWAYS AS (upper(status)) STORED
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
           );
 
           INSERT INTO test_schema.generated_status (id, status)
@@ -565,14 +565,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER TABLE test_schema.generated_status
             ALTER COLUMN status TYPE character varying(32);
           ALTER TABLE test_schema.generated_status
-            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED;
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
         `,
           assertSqlStatements: (sqlStatements) => {
             expect(sqlStatements).toMatchInlineSnapshot(`
               [
-                "ALTER TABLE test_schema.generated_status ALTER COLUMN status_label SET EXPRESSION AS (NULL::text)",
+                "ALTER TABLE test_schema.generated_status DROP COLUMN status_label",
                 "ALTER TABLE test_schema.generated_status ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
-                "ALTER TABLE test_schema.generated_status ALTER COLUMN status_label SET EXPRESSION AS (upper((status)::text))",
+                "ALTER TABLE test_schema.generated_status ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
               ]
             `);
           },

@@ -36,6 +36,7 @@ import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
@@ -633,6 +634,10 @@ describe("expandReplaceDependencies", () => {
       column: branchAccounts.columns[1],
       previousColumn: mainAccounts.columns[1],
     });
+    const generatedExpressionChange = new AlterTableAlterColumnSetDefault({
+      table: branchAccounts,
+      column: branchAccounts.columns[2],
+    });
     const mainCatalog = catalogWith(baseline, {
       tables: { [mainAccounts.stableId]: mainAccounts },
       publications: { [mainPublication.stableId]: mainPublication },
@@ -655,7 +660,7 @@ describe("expandReplaceDependencies", () => {
     });
 
     const expanded = expandReplaceDependencies({
-      changes: [columnTypeChange],
+      changes: [columnTypeChange, generatedExpressionChange],
       mainCatalog,
       branchCatalog,
     });
@@ -663,7 +668,14 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some(
         (change) =>
-          change instanceof AlterTableAlterColumnDropDefault &&
+          change instanceof AlterTableDropColumn &&
+          change.column.name === "status_label",
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableAddColumn &&
           change.column.name === "status_label",
       ),
     ).toBe(true);
@@ -673,7 +685,7 @@ describe("expandReplaceDependencies", () => {
           change instanceof AlterTableAlterColumnSetDefault &&
           change.column.name === "status_label",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       expanded.changes.some(
         (change) => change instanceof AlterPublicationDropTables,
