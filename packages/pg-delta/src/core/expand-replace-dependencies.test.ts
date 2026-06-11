@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
+import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
+import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
+import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import {
   AlterDomainAddConstraint,
@@ -22,6 +25,11 @@ import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index, type IndexProps } from "./objects/index/index.model.ts";
 import {
+  AlterPublicationAddTables,
+  AlterPublicationDropTables,
+} from "./objects/publication/changes/publication.alter.ts";
+import { Publication } from "./objects/publication/publication.model.ts";
+import {
   AlterRlsPolicySetUsingExpression,
   AlterRlsPolicySetWithCheckExpression,
 } from "./objects/rls-policy/changes/rls-policy.alter.ts";
@@ -29,6 +37,7 @@ import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-polic
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import { RlsPolicy } from "./objects/rls-policy/rls-policy.model.ts";
+import { Rule } from "./objects/rule/rule.model.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
@@ -51,6 +60,7 @@ import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import { Table, type TableProps } from "./objects/table/table.model.ts";
+import { Trigger } from "./objects/trigger/trigger.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { Enum } from "./objects/type/enum/enum.model.ts";
@@ -369,6 +379,125 @@ function viewOnItemsValue(): View {
       },
     ],
     privileges: [],
+  });
+}
+
+function aggregateWithArgs(argumentTypes: string[]): Aggregate {
+  return new Aggregate({
+    schema: "public",
+    name: "total_value",
+    identity_arguments: argumentTypes.join(", "),
+    kind: "a",
+    aggkind: "n",
+    num_direct_args: 0,
+    return_type: "integer",
+    return_type_schema: "pg_catalog",
+    parallel_safety: "u",
+    is_strict: false,
+    transition_function: "public.sum_state",
+    state_data_type: "integer",
+    state_data_type_schema: "pg_catalog",
+    state_data_space: 0,
+    final_function: null,
+    final_function_extra_args: false,
+    final_function_modify: null,
+    combine_function: null,
+    serial_function: null,
+    deserial_function: null,
+    initial_condition: null,
+    moving_transition_function: null,
+    moving_inverse_function: null,
+    moving_state_data_type: null,
+    moving_state_data_type_schema: null,
+    moving_state_data_space: null,
+    moving_final_function: null,
+    moving_final_function_extra_args: null,
+    moving_final_function_modify: null,
+    moving_initial_condition: null,
+    sort_operator: null,
+    argument_count: argumentTypes.length,
+    argument_default_count: 0,
+    argument_names: null,
+    argument_types: argumentTypes,
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+  });
+}
+
+function triggerOnItemsValue(overrides: Partial<Trigger> = {}): Trigger {
+  return new Trigger({
+    schema: "public",
+    name: "items_value_trigger",
+    table_name: "items",
+    table_relkind: "r",
+    function_schema: "public",
+    function_name: "touch_value",
+    trigger_type: 16,
+    enabled: "O",
+    is_internal: false,
+    deferrable: false,
+    initially_deferred: false,
+    argument_count: 0,
+    column_numbers: [1],
+    arguments: [],
+    when_condition: null,
+    old_table: null,
+    new_table: null,
+    is_partition_clone: false,
+    parent_trigger_name: null,
+    parent_table_schema: null,
+    parent_table_name: null,
+    is_on_partitioned_table: false,
+    owner: "postgres",
+    definition:
+      "CREATE TRIGGER items_value_trigger AFTER UPDATE OF value ON public.items FOR EACH ROW EXECUTE FUNCTION public.touch_value()",
+    comment: null,
+    ...overrides,
+  });
+}
+
+function ruleOnItemsValue(overrides: Partial<Rule> = {}): Rule {
+  return new Rule({
+    schema: "public",
+    name: "items_value_rule",
+    table_name: "items",
+    relation_kind: "r",
+    event: "UPDATE",
+    enabled: "O",
+    is_instead: false,
+    owner: "postgres",
+    definition:
+      "CREATE RULE items_value_rule AS ON UPDATE TO public.items DO ALSO SELECT new.value",
+    comment: null,
+    columns: ["value"],
+    ...overrides,
+  });
+}
+
+function publicationOnItemsValue(rowFilter: string | null): Publication {
+  return new Publication({
+    name: "items_pub",
+    owner: "postgres",
+    comment: null,
+    all_tables: false,
+    publish_insert: true,
+    publish_update: true,
+    publish_delete: true,
+    publish_truncate: true,
+    publish_via_partition_root: false,
+    tables: [
+      {
+        schema: "public",
+        name: "items",
+        columns: null,
+        row_filter: rowFilter,
+      },
+    ],
+    schemas: [],
   });
 }
 
@@ -1692,6 +1821,66 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
   });
 
+  test("releases a local partition column default that depends on a replaced procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = partitionTableWithDefault("public.normalize_value(1)");
+    const branchTable = partitionTableWithDefault("public.normalize_value(1)");
+    const columnId = "column:public.items_2026.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+  });
+
   test("does not count generated SET EXPRESSION as release coverage for same-signature procedure replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -1767,6 +1956,92 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some((change) => change instanceof CreateTable),
     ).toBe(false);
+  });
+
+  test("traverses retained dependents when generated column recreation is already covered", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const branchTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const mainIndex = indexOnItemsValue();
+    const branchIndex = indexOnItemsValue();
+    const columnId = "column:public.items.value";
+    const preExistingDropColumn = new AlterTableDropColumn({
+      table: mainTable,
+      column: mainTable.columns[0],
+    });
+    const preExistingAddColumn = new AlterTableAddColumn({
+      table: branchTable,
+      column: branchTable.columns[0],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      preExistingDropColumn,
+      preExistingAddColumn,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      indexes: { [mainIndex.stableId]: mainIndex },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainIndex.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      indexes: { [branchIndex.stableId]: branchIndex },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes).toContain(preExistingDropColumn);
+    expect(expanded.changes).toContain(preExistingAddColumn);
+    expect(
+      expanded.changes.filter((change) => change instanceof DropIndex),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof CreateIndex),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
   });
 
   test("promotes retained dependents of a recreated generated column", async () => {
@@ -2188,6 +2463,352 @@ describe("expandReplaceDependencies", () => {
       expanded.changes.some((change) => change instanceof CreateTable),
     ).toBe(false);
     expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
+  test("replays retained index, trigger, and rule metadata after generated column fallback", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const branchTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+    });
+    const mainIndex = indexOnItemsValue({ is_clustered: true });
+    const branchIndex = indexOnItemsValue({ is_clustered: true });
+    const mainTrigger = triggerOnItemsValue({ enabled: "D" });
+    const branchTrigger = triggerOnItemsValue({ enabled: "D" });
+    const mainRule = ruleOnItemsValue({ enabled: "R" });
+    const branchRule = ruleOnItemsValue({ enabled: "R" });
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      indexes: { [mainIndex.stableId]: mainIndex },
+      triggers: { [mainTrigger.stableId]: mainTrigger },
+      rules: { [mainRule.stableId]: mainRule },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainIndex.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainTrigger.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainRule.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      indexes: { [branchIndex.stableId]: branchIndex },
+      triggers: { [branchTrigger.stableId]: branchTrigger },
+      rules: { [branchRule.stableId]: branchRule },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(serialized).toContain(
+      "ALTER TABLE public.items CLUSTER ON items_value_idx",
+    );
+    expect(serialized).toContain(
+      "ALTER TABLE public.items DISABLE TRIGGER items_value_trigger",
+    );
+    expect(serialized).toContain(
+      "ALTER TABLE public.items ENABLE REPLICA RULE items_value_rule",
+    );
+  });
+
+  test("skips partition-cloned trigger dependents during routine replacement", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const partitionClone = {
+      schema: "public",
+      table_name: "items_2026",
+      is_partition_clone: true,
+      parent_trigger_name: "items_value_trigger",
+      parent_table_schema: "public",
+      parent_table_name: "items",
+    };
+    const mainTrigger = triggerOnItemsValue(partitionClone);
+    const branchTrigger = triggerOnItemsValue(partitionClone);
+    const mainTable = partitionTableWithDefault(null);
+    const branchTable = partitionTableWithDefault(null);
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      triggers: { [mainTrigger.stableId]: mainTrigger },
+      depends: [
+        {
+          dependent_stable_id: mainTrigger.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      triggers: { [branchTrigger.stableId]: branchTrigger },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some((change) => change.objectType === "trigger"),
+    ).toBe(false);
+  });
+
+  test("releases retained publication row filters before routine replacement", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainPublication = publicationOnItemsValue(
+      "(public.normalize_value(value) > 0)",
+    );
+    const branchPublication = publicationOnItemsValue(
+      "(public.normalize_value(value) > 0)",
+    );
+    const table = tableWithDefault(null);
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      publications: { [mainPublication.stableId]: mainPublication },
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      publications: { [branchPublication.stableId]: branchPublication },
+      tables: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationDropTables,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterPublicationAddTables,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("handles aggregate replacements as expression roots", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainAggregate = aggregateWithArgs(["integer"]);
+    const branchAggregate = aggregateWithArgs(["bigint"]);
+    const mainTable = tableWithDefault("public.total_value(value)");
+    const branchTable = tableWithDefault("public.total_value(value::bigint)");
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropAggregate({ aggregate: mainAggregate }),
+      new CreateAggregate({ aggregate: branchAggregate }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      aggregates: { [mainAggregate.stableId]: mainAggregate },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainAggregate.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      aggregates: { [branchAggregate.stableId]: branchAggregate },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+  });
+
+  test("restores promoted routine metadata after dependent routine replacement", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDependent = procedureWithArgs(["integer"], "uses_normalize");
+    const branchDependent = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainDependent,
+      owner: "routine_owner",
+      comment: "dependent routine comment",
+      security_labels: [{ provider: "dummy", label: "routine label" }],
+      privileges: [
+        {
+          grantee: "routine_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainProcedure.stableId]: mainProcedure,
+        [mainDependent.stableId]: mainDependent,
+      },
+      depends: [
+        {
+          dependent_stable_id: mainDependent.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchProcedure.stableId]: branchProcedure,
+        [branchDependent.stableId]: branchDependent,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(serialized).toContain(
+      "ALTER FUNCTION public.uses_normalize(integer) OWNER TO routine_owner",
+    );
+    expect(serialized).toContain(
+      "COMMENT ON FUNCTION public.uses_normalize(integer) IS 'dependent routine comment'",
+    );
+    expect(serialized).toContain(
+      "SECURITY LABEL FOR dummy ON FUNCTION public.uses_normalize(integer) IS 'routine label'",
+    );
+    expect(serialized).toContain(
+      "GRANT EXECUTE ON FUNCTION public.uses_normalize(integer) TO routine_executor",
+    );
   });
 
   test("synthesizes a table check constraint replacement for an unchanged expression that depends on a replaced procedure", async () => {
