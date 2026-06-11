@@ -72,6 +72,7 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
+import type { TableProps } from "./objects/table/table.model.ts";
 import { SetTriggerEnabledState } from "./objects/trigger/changes/trigger.alter.ts";
 import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
 import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
@@ -1172,23 +1173,51 @@ function buildColumnExpressionReplacementChanges({
   const generatedColumnInvolved =
     mainColumn.is_generated || branchColumn.is_generated;
   // Generated partition child columns are parent-managed only when the parent
-  // column is also being recreated. Child-specific generation expressions keep
-  // their own pg_depend edge and must release it locally.
+  // column is also being recreated and the child expression matches the parent.
+  // Child-specific generation expressions need their own restore after the
+  // parent recreation propagates the parent expression.
   if (
     (mainTable.is_partition || branchTable.is_partition) &&
     generatedColumnInvolved &&
-    isPartitionGeneratedColumnCoveredByParentRecreation({
+    isPartitionGeneratedColumnInheritedFromParent({
       mainTable,
       branchTable,
       columnName: columnRef.column,
       refId,
       mainCatalog,
+      branchCatalog,
       existingChanges,
     })
   ) {
     return [];
   }
   if (generatedColumnInvolved) {
+    const parentRecreationCoverage =
+      mainTable.is_partition || branchTable.is_partition
+        ? getPartitionGeneratedColumnParentRecreationCoverage({
+            mainTable,
+            branchTable,
+            columnName: columnRef.column,
+            refId,
+            mainCatalog,
+            existingChanges,
+          })
+        : null;
+    if (parentRecreationCoverage?.release && parentRecreationCoverage.restore) {
+      if ((diffContext?.version ?? 0) >= 170000) {
+        return addRestore
+          ? [
+              new AlterTableAlterColumnSetDefault({
+                table: branchTable,
+                column: branchColumn,
+              }),
+            ]
+          : [];
+      }
+
+      return null;
+    }
+
     const canRecreateGeneratedColumn =
       mainColumn.is_generated &&
       branchColumn.is_generated &&
@@ -1529,7 +1558,48 @@ function findPublicationTableForColumn(
   );
 }
 
-function isPartitionGeneratedColumnCoveredByParentRecreation({
+function isPartitionGeneratedColumnInheritedFromParent({
+  mainTable,
+  branchTable,
+  columnName,
+  refId,
+  mainCatalog,
+  branchCatalog,
+  existingChanges,
+}: {
+  mainTable: Catalog["tables"][string];
+  branchTable: Catalog["tables"][string];
+  columnName: string;
+  refId: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  existingChanges: readonly Change[];
+}): boolean {
+  if (
+    !partitionGeneratedColumnExpressionsMatchParent({
+      mainTable,
+      branchTable,
+      columnName,
+      mainCatalog,
+      branchCatalog,
+    })
+  ) {
+    return false;
+  }
+
+  const coverage = getPartitionGeneratedColumnParentRecreationCoverage({
+    mainTable,
+    branchTable,
+    columnName,
+    refId,
+    mainCatalog,
+    existingChanges,
+  });
+
+  return Boolean(coverage?.release && coverage.restore);
+}
+
+function getPartitionGeneratedColumnParentRecreationCoverage({
   mainTable,
   branchTable,
   columnName,
@@ -1543,7 +1613,7 @@ function isPartitionGeneratedColumnCoveredByParentRecreation({
   refId: string;
   mainCatalog: Catalog;
   existingChanges: readonly Change[];
-}): boolean {
+}): { release: boolean; restore: boolean } | null {
   const mainParentColumnId =
     mainTable.parent_schema && mainTable.parent_name
       ? stableId.column(
@@ -1560,17 +1630,13 @@ function isPartitionGeneratedColumnCoveredByParentRecreation({
           columnName,
         )
       : null;
-  if (!mainParentColumnId || !branchParentColumnId) return false;
+  if (!mainParentColumnId || !branchParentColumnId) return null;
 
-  if (
-    mainCatalog.depends.some(
-      (dep) =>
-        dep.dependent_stable_id === mainParentColumnId &&
-        dep.referenced_stable_id === refId,
-    )
-  ) {
-    return true;
-  }
+  const parentHasRoutineDependency = mainCatalog.depends.some(
+    (dep) =>
+      dep.dependent_stable_id === mainParentColumnId &&
+      dep.referenced_stable_id === refId,
+  );
 
   let releaseCovered = false;
   let restoreCovered = false;
@@ -1593,7 +1659,60 @@ function isPartitionGeneratedColumnCoveredByParentRecreation({
     }
   }
 
-  return releaseCovered && restoreCovered;
+  return {
+    release: parentHasRoutineDependency || releaseCovered,
+    restore: parentHasRoutineDependency || restoreCovered,
+  };
+}
+
+function partitionGeneratedColumnExpressionsMatchParent({
+  mainTable,
+  branchTable,
+  columnName,
+  mainCatalog,
+  branchCatalog,
+}: {
+  mainTable: Catalog["tables"][string];
+  branchTable: Catalog["tables"][string];
+  columnName: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}): boolean {
+  const mainColumn = findColumn(mainTable, columnName);
+  const branchColumn = findColumn(branchTable, columnName);
+  const mainParentColumn = findParentColumn(mainTable, columnName, mainCatalog);
+  const branchParentColumn = findParentColumn(
+    branchTable,
+    columnName,
+    branchCatalog,
+  );
+
+  return (
+    Boolean(mainColumn?.is_generated) &&
+    Boolean(branchColumn?.is_generated) &&
+    Boolean(mainParentColumn?.is_generated) &&
+    Boolean(branchParentColumn?.is_generated) &&
+    mainColumn?.default === mainParentColumn?.default &&
+    branchColumn?.default === branchParentColumn?.default
+  );
+}
+
+function findParentColumn(
+  table: Catalog["tables"][string],
+  columnName: string,
+  catalog: Catalog,
+): TableProps["columns"][number] | undefined {
+  if (!table.parent_schema || !table.parent_name) return undefined;
+  const parentTable =
+    catalog.tables[stableId.table(table.parent_schema, table.parent_name)];
+  return parentTable ? findColumn(parentTable, columnName) : undefined;
+}
+
+function findColumn(
+  table: Catalog["tables"][string],
+  columnName: string,
+): TableProps["columns"][number] | undefined {
+  return table.columns.find((column) => column.name === columnName);
 }
 
 function buildDomainDefaultReplacementChanges({

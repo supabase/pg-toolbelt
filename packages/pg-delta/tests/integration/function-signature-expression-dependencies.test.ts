@@ -1963,6 +1963,129 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion < 17)(
+      "child-specific generated partition expression is restored after parent recreation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_partition_adjusted_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_adjusted_totals (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_partition_adjusted_total(subtotal)) STORED
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_adjusted_totals_2026
+              PARTITION OF test_schema.partitioned_adjusted_totals (
+                total GENERATED ALWAYS AS
+                  (test_schema.compute_partition_adjusted_total(subtotal + 1)) STORED
+              )
+              FOR VALUES FROM (2026) TO (2027);
+
+            INSERT INTO test_schema.partitioned_adjusted_totals
+              (id, period, subtotal)
+            VALUES (1, 2026, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.partitioned_adjusted_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_partition_adjusted_total(integer);
+
+            CREATE FUNCTION test_schema.compute_partition_adjusted_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.partitioned_adjusted_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_partition_adjusted_total(subtotal)) STORED;
+
+            ALTER TABLE test_schema.partitioned_adjusted_totals_2026
+              ALTER COLUMN total
+              SET EXPRESSION AS
+                (test_schema.compute_partition_adjusted_total(subtotal + 1));
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_adjusted_totals_2026 DROP COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_adjusted_totals_2026 ADD COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+
+            const parentDropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_adjusted_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_partition_adjusted_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_partition_adjusted_total",
+              ),
+            );
+            const parentAddColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_adjusted_totals ADD COLUMN total",
+              ),
+            );
+            const childSetExpressionIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_adjusted_totals_2026 ALTER COLUMN total SET EXPRESSION",
+                ),
+            );
+
+            expect(parentDropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(parentDropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(parentAddColumnIndex).toBeGreaterThan(createFunctionIndex);
+            expect(childSetExpressionIndex).toBeGreaterThan(
+              parentAddColumnIndex,
+            );
+          },
+        });
+
+        const { rows } = await db.main.query(dedent`
+          SELECT total
+          FROM test_schema.partitioned_adjusted_totals
+          WHERE id = 1
+        `);
+        expect(rows[0]?.total).toBe(22);
+      }),
+    );
+
     test(
       "local partition column default for replaced function argument name is released on the child",
       withDb(pgVersion, async (db) => {

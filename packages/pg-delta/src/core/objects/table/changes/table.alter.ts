@@ -734,9 +734,21 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
   }
 
   get requires() {
-    return [
+    const requirements = [
       stableId.column(this.table.schema, this.table.name, this.column.name),
     ];
+
+    if (this.table.parent_schema && this.table.parent_name) {
+      requirements.push(
+        stableId.column(
+          this.table.parent_schema,
+          this.table.parent_name,
+          this.column.name,
+        ),
+      );
+    }
+
+    return requirements;
   }
 
   serialize(_options?: SerializeOptions): string {
