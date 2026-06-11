@@ -1310,6 +1310,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           assertSqlStatements: (sqlStatements) => {
             expectNoTableReplacement(sqlStatements);
 
+            const publicationDropStatements = sqlStatements.filter(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER PUBLICATION invoice_total_pub DROP TABLE",
+                ),
+            );
+            const publicationAddStatements = sqlStatements.filter((statement) =>
+              statement.startsWith(
+                "ALTER PUBLICATION invoice_total_pub ADD TABLE",
+              ),
+            );
             const releasePublicationIndex = sqlStatements.findIndex(
               (statement) =>
                 statement.startsWith(
@@ -1343,6 +1354,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 ),
             );
 
+            expect(publicationDropStatements).toHaveLength(1);
+            expect(publicationAddStatements).toHaveLength(1);
             expect(releasePublicationIndex).toBeGreaterThanOrEqual(0);
             expect(dropColumnIndex).toBeGreaterThan(releasePublicationIndex);
             expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
@@ -1494,6 +1507,217 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           `);
           expect(rows[0]?.columns).toEqual(["id", "total"]);
         }
+      }),
+    );
+
+    test(
+      "clustered materialized view indexes survive dependent function replacement",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_mv_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.mv_inputs (
+              id integer NOT NULL,
+              subtotal integer NOT NULL
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.invoice_total_mv AS
+              SELECT
+                id,
+                test_schema.compute_mv_total(subtotal) AS total
+              FROM test_schema.mv_inputs;
+
+            CREATE INDEX invoice_total_mv_total_idx
+              ON test_schema.invoice_total_mv (total);
+
+            ALTER MATERIALIZED VIEW test_schema.invoice_total_mv
+              CLUSTER ON invoice_total_mv_total_idx;
+
+            INSERT INTO test_schema.mv_inputs (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            DROP INDEX test_schema.invoice_total_mv_total_idx;
+
+            DROP MATERIALIZED VIEW test_schema.invoice_total_mv;
+
+            DROP FUNCTION test_schema.compute_mv_total(integer);
+
+            CREATE FUNCTION test_schema.compute_mv_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            CREATE MATERIALIZED VIEW test_schema.invoice_total_mv AS
+              SELECT
+                id,
+                test_schema.compute_mv_total(subtotal) AS total
+              FROM test_schema.mv_inputs;
+
+            CREATE INDEX invoice_total_mv_total_idx
+              ON test_schema.invoice_total_mv (total);
+
+            ALTER MATERIALIZED VIEW test_schema.invoice_total_mv
+              CLUSTER ON invoice_total_mv_total_idx;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropIndexIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP INDEX test_schema.invoice_total_mv_total_idx",
+              ),
+            );
+            const dropMaterializedViewIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "DROP MATERIALIZED VIEW test_schema.invoice_total_mv",
+                ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_mv_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_mv_total",
+              ),
+            );
+            const createMaterializedViewIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "CREATE MATERIALIZED VIEW test_schema.invoice_total_mv",
+                ),
+            );
+            const createIndexIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE INDEX invoice_total_mv_total_idx ON test_schema.invoice_total_mv",
+              ),
+            );
+            const restoreClusterIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER MATERIALIZED VIEW test_schema.invoice_total_mv CLUSTER ON invoice_total_mv_total_idx",
+              ),
+            );
+
+            expect(dropMaterializedViewIndex).toBeGreaterThanOrEqual(0);
+            if (dropIndexIndex >= 0) {
+              expect(dropMaterializedViewIndex).toBeGreaterThan(dropIndexIndex);
+            }
+            expect(dropFunctionIndex).toBeGreaterThan(
+              dropMaterializedViewIndex,
+            );
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(createMaterializedViewIndex).toBeGreaterThan(
+              createFunctionIndex,
+            );
+            expect(createIndexIndex).toBeGreaterThan(
+              createMaterializedViewIndex,
+            );
+            expect(restoreClusterIndex).toBeGreaterThan(createIndexIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(dedent`
+          SELECT i.indisclustered
+          FROM pg_catalog.pg_index i
+          JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = idx.relnamespace
+          WHERE n.nspname = 'test_schema'
+            AND idx.relname = 'invoice_total_mv_total_idx'
+        `);
+        expect(rows[0]?.indisclustered).toBe(true);
+      }),
+    );
+
+    test(
+      "aggregate dependents are recreated before replacing support functions",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.sum_state(state integer, value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT state + value
+            $function$;
+
+            CREATE AGGREGATE test_schema.total_amount(integer) (
+              SFUNC = test_schema.sum_state,
+              STYPE = integer,
+              INITCOND = '0'
+            );
+
+            CREATE TABLE test_schema.aggregate_inputs (
+              value integer NOT NULL
+            );
+
+            INSERT INTO test_schema.aggregate_inputs (value)
+            VALUES (1), (2);
+          `,
+          testSql: dedent`
+            DROP AGGREGATE test_schema.total_amount(integer);
+
+            DROP FUNCTION test_schema.sum_state(integer, integer);
+
+            CREATE FUNCTION test_schema.sum_state(current_total integer, input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT current_total + input
+            $function$;
+
+            CREATE AGGREGATE test_schema.total_amount(integer) (
+              SFUNC = test_schema.sum_state,
+              STYPE = integer,
+              INITCOND = '0'
+            );
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropAggregateIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP AGGREGATE test_schema.total_amount"),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.sum_state"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE FUNCTION test_schema.sum_state"),
+            );
+            const createAggregateIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE AGGREGATE test_schema.total_amount"),
+            );
+
+            expect(dropAggregateIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropAggregateIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(createAggregateIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(dedent`
+          SELECT test_schema.total_amount(value) AS total
+          FROM test_schema.aggregate_inputs
+        `);
+        expect(rows[0]?.total).toBe(3);
       }),
     );
 

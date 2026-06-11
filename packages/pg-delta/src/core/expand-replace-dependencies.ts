@@ -6,6 +6,16 @@ import {
   filterPublicBuiltInDefaults,
 } from "./objects/base.privilege-diff.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
+import { AlterAggregateChangeOwner } from "./objects/aggregate/changes/aggregate.alter.ts";
+import { CreateCommentOnAggregate } from "./objects/aggregate/changes/aggregate.comment.ts";
+import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
+import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
+import {
+  GrantAggregatePrivileges,
+  RevokeAggregatePrivileges,
+  RevokeGrantOptionAggregatePrivileges,
+} from "./objects/aggregate/changes/aggregate.privilege.ts";
+import { CreateSecurityLabelOnAggregate } from "./objects/aggregate/changes/aggregate.security-label.ts";
 import {
   AlterDomainAddConstraint,
   AlterDomainDropConstraint,
@@ -18,6 +28,7 @@ import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts"
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
+import { AlterMaterializedViewClusterOn } from "./objects/materialized-view/changes/materialized-view.alter.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
@@ -92,6 +103,7 @@ type ResolvedObject =
       main: Catalog["indexes"][string];
       branch: Catalog["indexes"][string];
       branchIndexableObject: Catalog["indexableObjects"][string] | undefined;
+      branchMaterializedView: Catalog["materializedViews"][string] | undefined;
       branchTable: Catalog["tables"][string] | undefined;
     }
   | {
@@ -114,6 +126,11 @@ type ResolvedObject =
       kind: "procedure";
       main: Catalog["procedures"][string];
       branch: Catalog["procedures"][string];
+    }
+  | {
+      kind: "aggregate";
+      main: Catalog["aggregates"][string];
+      branch: Catalog["aggregates"][string];
     }
   | {
       kind: "rls_policy";
@@ -401,6 +418,7 @@ export function expandReplaceDependencies({
           mainCatalog,
           branchCatalog,
           additions,
+          existingChanges: [...changes, ...additions],
           visitedTargets,
         })
       ) {
@@ -482,7 +500,20 @@ export function expandReplaceDependencies({
       });
       if (!replacementChanges) continue;
 
-      additions.push(...replacementChanges);
+      const retainedIndexChanges =
+        resolved.kind === "table" || resolved.kind === "materialized_view"
+          ? buildRetainedIndexReplacementChanges({
+              relationStableId: targetId,
+              mainCatalog,
+              branchCatalog,
+              createdIds,
+              droppedIds,
+              visitedTargets,
+              diffContext,
+            })
+          : [];
+
+      additions.push(...replacementChanges, ...retainedIndexChanges);
       if (resolved.kind === "rls_policy") {
         promotedRlsPolicyIds.add(targetId);
       }
@@ -495,7 +526,7 @@ export function expandReplaceDependencies({
       }
 
       // Track new creates/drops so we don't duplicate work for downstream dependents.
-      for (const change of replacementChanges) {
+      for (const change of [...replacementChanges, ...retainedIndexChanges]) {
         for (const id of change.creates ?? []) createdIds.add(id);
         for (const id of change.drops ?? []) droppedIds.add(id);
       }
@@ -948,6 +979,7 @@ function maybeAddColumnDependentPublicationReplacement({
   mainCatalog,
   branchCatalog,
   additions,
+  existingChanges,
   visitedTargets,
 }: {
   refId: string;
@@ -955,6 +987,7 @@ function maybeAddColumnDependentPublicationReplacement({
   mainCatalog: Catalog;
   branchCatalog: Catalog;
   additions: Change[];
+  existingChanges: readonly Change[];
   visitedTargets: Set<string>;
 }): boolean {
   if (
@@ -974,7 +1007,25 @@ function maybeAddColumnDependentPublicationReplacement({
 
   if (visitedTargets.has(replacement.visitKey)) return true;
 
-  appendPublicationColumnListReplacement(additions, replacement);
+  const addRelease = !publicationTableChangeCovered({
+    changes: existingChanges,
+    publicationId: replacement.mainPublication.stableId,
+    table: replacement.mainTable,
+    changeType: "drop",
+  });
+  const addRestore = !publicationTableChangeCovered({
+    changes: existingChanges,
+    publicationId: replacement.branchPublication.stableId,
+    table: replacement.branchTable,
+    changeType: "add",
+  });
+
+  if (addRelease || addRestore) {
+    appendPublicationColumnListReplacement(additions, replacement, {
+      addRelease,
+      addRestore,
+    });
+  }
   visitedTargets.add(replacement.visitKey);
   return true;
 }
@@ -1240,55 +1291,60 @@ type PublicationColumnListReplacement = {
 function appendPublicationColumnListReplacement(
   additions: Change[],
   replacement: PublicationColumnListReplacement,
+  options: { addRelease: boolean; addRestore: boolean },
 ): void {
-  const existingDrop = additions.find(
-    (change): change is AlterPublicationDropTables =>
-      change instanceof AlterPublicationDropTables &&
-      change.publication.stableId === replacement.mainPublication.stableId,
-  );
-  if (existingDrop) {
-    if (
-      !publicationTableChangeCovered({
-        changes: [existingDrop],
-        publicationId: replacement.mainPublication.stableId,
-        table: replacement.mainTable,
-        changeType: "drop",
-      })
-    ) {
-      existingDrop.tables.push(replacement.mainTable);
-    }
-  } else {
-    additions.push(
-      new AlterPublicationDropTables({
-        publication: replacement.mainPublication,
-        tables: [replacement.mainTable],
-      }),
+  if (options.addRelease) {
+    const existingDrop = additions.find(
+      (change): change is AlterPublicationDropTables =>
+        change instanceof AlterPublicationDropTables &&
+        change.publication.stableId === replacement.mainPublication.stableId,
     );
+    if (existingDrop) {
+      if (
+        !publicationTableChangeCovered({
+          changes: [existingDrop],
+          publicationId: replacement.mainPublication.stableId,
+          table: replacement.mainTable,
+          changeType: "drop",
+        })
+      ) {
+        existingDrop.tables.push(replacement.mainTable);
+      }
+    } else {
+      additions.push(
+        new AlterPublicationDropTables({
+          publication: replacement.mainPublication,
+          tables: [replacement.mainTable],
+        }),
+      );
+    }
   }
 
-  const existingAdd = additions.find(
-    (change): change is AlterPublicationAddTables =>
-      change instanceof AlterPublicationAddTables &&
-      change.publication.stableId === replacement.branchPublication.stableId,
-  );
-  if (existingAdd) {
-    if (
-      !publicationTableChangeCovered({
-        changes: [existingAdd],
-        publicationId: replacement.branchPublication.stableId,
-        table: replacement.branchTable,
-        changeType: "add",
-      })
-    ) {
-      existingAdd.tables.push(replacement.branchTable);
-    }
-  } else {
-    additions.push(
-      new AlterPublicationAddTables({
-        publication: replacement.branchPublication,
-        tables: [replacement.branchTable],
-      }),
+  if (options.addRestore) {
+    const existingAdd = additions.find(
+      (change): change is AlterPublicationAddTables =>
+        change instanceof AlterPublicationAddTables &&
+        change.publication.stableId === replacement.branchPublication.stableId,
     );
+    if (existingAdd) {
+      if (
+        !publicationTableChangeCovered({
+          changes: [existingAdd],
+          publicationId: replacement.branchPublication.stableId,
+          table: replacement.branchTable,
+          changeType: "add",
+        })
+      ) {
+        existingAdd.tables.push(replacement.branchTable);
+      }
+    } else {
+      additions.push(
+        new AlterPublicationAddTables({
+          publication: replacement.branchPublication,
+          tables: [replacement.branchTable],
+        }),
+      );
+    }
   }
 }
 
@@ -1876,6 +1932,8 @@ function resolveObjectForStableId(
           branch,
           branchIndexableObject:
             branchCatalog.indexableObjects[branch.tableStableId],
+          branchMaterializedView:
+            branchCatalog.materializedViews[branch.tableStableId],
           branchTable: branchCatalog.tables[branch.tableStableId],
         }
       : null;
@@ -1906,6 +1964,12 @@ function resolveObjectForStableId(
     const main = mainCatalog.procedures[stableId];
     const branch = branchCatalog.procedures[stableId];
     return main && branch ? { kind: "procedure", main, branch } : null;
+  }
+
+  if (stableId.startsWith("aggregate:")) {
+    const main = mainCatalog.aggregates[stableId];
+    const branch = branchCatalog.aggregates[stableId];
+    return main && branch ? { kind: "aggregate", main, branch } : null;
   }
 
   if (stableId.startsWith("rlsPolicy:")) {
@@ -1945,6 +2009,89 @@ function resolveObjectForStableId(
   }
 
   return null;
+}
+
+function buildRetainedIndexReplacementChanges({
+  relationStableId,
+  mainCatalog,
+  branchCatalog,
+  createdIds,
+  droppedIds,
+  visitedTargets,
+  diffContext,
+}: {
+  relationStableId: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  createdIds: ReadonlySet<string>;
+  droppedIds: ReadonlySet<string>;
+  visitedTargets: Set<string>;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  const changes: Change[] = [];
+  // Dropping a table or materialized view also drops its indexes. A retained
+  // relation replacement therefore has to recreate retained indexes from the
+  // branch catalog, even when pg_depend does not expose a standalone
+  // index -> relation edge for the graph walk.
+  const branchIndexes = Object.values(branchCatalog.indexes)
+    .filter((index) => index.tableStableId === relationStableId)
+    .sort((a, b) => a.stableId.localeCompare(b.stableId));
+
+  for (const branchIndex of branchIndexes) {
+    const indexId = branchIndex.stableId;
+    if (visitedTargets.has(indexId)) continue;
+    if (!mainCatalog.indexes[indexId]) continue;
+    if (createdIds.has(indexId) && droppedIds.has(indexId)) continue;
+
+    const resolved = resolveObjectForStableId(
+      indexId,
+      mainCatalog,
+      branchCatalog,
+    );
+    if (!resolved || resolved.kind !== "index") continue;
+
+    const addDrop = !droppedIds.has(indexId);
+    const addCreate = !createdIds.has(indexId);
+    const replacementChanges = buildReplaceChanges(resolved, {
+      addDrop,
+      addCreate,
+      diffContext,
+    });
+    if (!replacementChanges) continue;
+
+    changes.push(...replacementChanges);
+    visitedTargets.add(indexId);
+  }
+
+  return changes;
+}
+
+function buildRetainedClusterChange(
+  resolved: Extract<ResolvedObject, { kind: "index" }>,
+): Change[] {
+  if (!resolved.branch.is_clustered) return [];
+  if (resolved.branch.table_relkind === "m") {
+    return resolved.branchMaterializedView
+      ? [
+          new AlterMaterializedViewClusterOn({
+            materializedView: resolved.branchMaterializedView,
+            indexName: resolved.branch.name,
+          }),
+        ]
+      : [];
+  }
+
+  return resolved.branchTable
+    ? [
+        new AlterTableClusterOn({
+          table: resolved.branchTable,
+          indexName: resolved.branch.name,
+        }),
+      ]
+    : [];
 }
 
 function buildReplaceChanges(
@@ -2049,14 +2196,7 @@ function buildReplaceChanges(
               // CREATE INDEX does not carry expression-index statistics, so
               // replay retained targets after the replacement index exists.
               ...buildRetainedIndexStatisticsChanges(resolved.branch),
-              ...(resolved.branch.is_clustered && resolved.branchTable
-                ? [
-                    new AlterTableClusterOn({
-                      table: resolved.branchTable,
-                      indexName: resolved.branch.name,
-                    }),
-                  ]
-                : []),
+              ...buildRetainedClusterChange(resolved),
               ...(resolved.branch.is_replica_identity && resolved.branchTable
                 ? [
                     new AlterTableSetReplicaIdentity({
@@ -2116,6 +2256,19 @@ function buildReplaceChanges(
               new CreateProcedure({ procedure: resolved.branch }),
               ...buildRetainedProcedureMetadataChanges({
                 procedure: resolved.branch,
+                diffContext,
+              }),
+            ]
+          : []),
+      ];
+    case "aggregate":
+      return [
+        ...(addDrop ? [new DropAggregate({ aggregate: resolved.main })] : []),
+        ...(addCreate
+          ? [
+              new CreateAggregate({ aggregate: resolved.branch }),
+              ...buildRetainedAggregateMetadataChanges({
+                aggregate: resolved.branch,
                 diffContext,
               }),
             ]
@@ -2243,6 +2396,80 @@ function buildRetainedProcedureMetadataChanges({
         Grant: GrantProcedurePrivileges,
         Revoke: RevokeProcedurePrivileges,
         RevokeGrantOption: RevokeGrantOptionProcedurePrivileges,
+      },
+      diffContext.version,
+    ) as Change[]),
+  );
+
+  return changes;
+}
+
+function buildRetainedAggregateMetadataChanges({
+  aggregate,
+  diffContext,
+}: {
+  aggregate: Catalog["aggregates"][string];
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  const changes: Change[] = [];
+
+  if (diffContext && aggregate.owner !== diffContext.currentUser) {
+    changes.push(
+      new AlterAggregateChangeOwner({
+        aggregate,
+        owner: aggregate.owner,
+      }),
+    );
+  }
+
+  if (aggregate.comment !== null) {
+    changes.push(new CreateCommentOnAggregate({ aggregate }));
+  }
+
+  for (const securityLabel of aggregate.security_labels) {
+    changes.push(
+      new CreateSecurityLabelOnAggregate({
+        aggregate,
+        securityLabel,
+      }),
+    );
+  }
+
+  if (!diffContext) return changes;
+
+  const effectiveDefaults =
+    diffContext.defaultPrivilegeState.getEffectiveDefaults(
+      diffContext.currentUser,
+      "aggregate",
+      aggregate.schema ?? "",
+    );
+  const creatorFilteredDefaults =
+    aggregate.owner !== diffContext.currentUser
+      ? effectiveDefaults.filter((p) => p.grantee !== diffContext.currentUser)
+      : effectiveDefaults;
+  const desiredPrivileges = filterPublicBuiltInDefaults(
+    "aggregate",
+    aggregate.privileges,
+  );
+  const privilegeResults = diffPrivileges(
+    filterPublicBuiltInDefaults("aggregate", creatorFilteredDefaults),
+    desiredPrivileges,
+    aggregate.owner,
+  );
+
+  changes.push(
+    ...(emitObjectPrivilegeChanges(
+      privilegeResults,
+      aggregate,
+      aggregate,
+      "aggregate",
+      {
+        Grant: GrantAggregatePrivileges,
+        Revoke: RevokeAggregatePrivileges,
+        RevokeGrantOption: RevokeGrantOptionAggregatePrivileges,
       },
       diffContext.version,
     ) as Change[]),
