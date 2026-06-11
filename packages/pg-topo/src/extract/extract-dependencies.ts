@@ -727,7 +727,17 @@ const extractCreateCollationDependencies = (
 
 const rangeFunctionOptionNames = new Set(["canonical", "subtype_diff"]);
 
-const builtInRangeCollationNames = new Set(["c", "posix"]);
+// PostgreSQL standard/predefined collations live in pg_catalog. User collations
+// with the same name still need a dependency when explicitly schema-qualified.
+const builtInRangeCollationNames = new Set([
+  "c",
+  "default",
+  "pg_c_utf8",
+  "pg_unicode_fast",
+  "posix",
+  "ucs_basic",
+  "unicode",
+]);
 
 const isBuiltInRangeCollationName = (nameParts: string[]): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
