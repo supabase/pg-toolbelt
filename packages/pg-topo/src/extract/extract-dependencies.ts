@@ -994,7 +994,17 @@ const extractCreateRangeDependencies = (
         operatorClassRef &&
         !isBuiltInRangeOperatorClassName(operatorClassNameParts)
       ) {
-        requires.push(operatorClassRef);
+        // PostgreSQL range subtypes resolve SUBTYPE_OPCLASS against the btree
+        // access method, even when another method has an opclass with the same
+        // schema/name.
+        requires.push(
+          createObjectRefFromAst(
+            "operator_class",
+            operatorClassRef.name,
+            operatorClassRef.schema,
+            "btree",
+          ),
+        );
       }
       continue;
     }
@@ -1049,7 +1059,11 @@ const extractCreateRangeDependencies = (
   return { provides, requires };
 };
 
-const operatorFunctionOptionNames = new Set(["function", "procedure"]);
+const operatorImplementationFunctionOptionNames = new Set([
+  "function",
+  "procedure",
+]);
+const operatorEstimatorFunctionOptionNames = new Set(["restrict", "join"]);
 
 const extractCreateOperatorDependencies = (
   statementNode: Record<string, unknown>,
@@ -1080,8 +1094,19 @@ const extractCreateOperatorDependencies = (
 
     const optionName = defElem.defname.toLowerCase();
     const typeName = asRecord(defElem.arg)?.TypeName;
-    if (operatorFunctionOptionNames.has(optionName)) {
+    if (operatorImplementationFunctionOptionNames.has(optionName)) {
       functionNameParts = extractNameParts(asRecord(typeName)?.names);
+      continue;
+    }
+
+    if (operatorEstimatorFunctionOptionNames.has(optionName)) {
+      const estimatorFunctionRef = objectFromNameParts(
+        "function",
+        extractNameParts(asRecord(typeName)?.names),
+      );
+      if (estimatorFunctionRef) {
+        requires.push(estimatorFunctionRef);
+      }
       continue;
     }
 
@@ -1145,11 +1170,14 @@ const extractCreateOperatorClassDependencies = (
     extractNameParts(statementNode.opclassname),
   );
   if (operatorClassRef) {
+    const accessMethod =
+      typeof statementNode.amname === "string" ? statementNode.amname : "";
     provides.push(
       createObjectRefFromAst(
         "operator_class",
         operatorClassRef.name,
         operatorClassRef.schema,
+        accessMethod || undefined,
       ),
     );
     if (operatorClassRef.schema) {
