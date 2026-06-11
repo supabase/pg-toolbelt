@@ -313,6 +313,44 @@ describe("statement coverage", () => {
     expect(validation.diagnostics).toHaveLength(0);
   }, 120000);
 
+  test("orders comment on a view's implicit _RETURN rule after the view", async () => {
+    const result = await analyzeAndSort([
+      "comment on rule \"_RETURN\" on app.v is 'implicit view rule';",
+      "create view app.v as select 1 as one;",
+      "create schema app;",
+    ]);
+    const unknownDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+    const unresolvedDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const viewIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create view app.v"),
+    );
+    const commentIndex = orderedSql.findIndex((sql) =>
+      sql.includes('comment on rule "_return"'),
+    );
+    const viewStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create view app.v"),
+    );
+    const validation = await validateAnalyzeResultWithPostgres(result);
+
+    expect(unknownDiagnostics).toHaveLength(0);
+    expect(unresolvedDiagnostics).toHaveLength(0);
+    expect(viewStatement?.provides).toContainEqual({
+      kind: "rule",
+      schema: "app",
+      name: "v._RETURN",
+    });
+    expect(viewIndex).toBeGreaterThan(-1);
+    expect(commentIndex).toBeGreaterThan(viewIndex);
+    expect(validation.diagnostics).toHaveLength(0);
+  }, 120000);
+
   test("resolves correct overload when multiple overloads have defaults", async () => {
     const result = await analyzeAndSort([
       "create schema auth;",

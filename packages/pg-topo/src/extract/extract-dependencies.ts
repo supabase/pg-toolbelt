@@ -332,6 +332,18 @@ const extractViewDependencies = (
   const tableRef = relationFromRangeVarNode(viewRelation, "table");
   if (tableRef) {
     provides.push(createObjectRefFromAst(kind, tableRef.name, tableRef.schema));
+    // A plain view implicitly owns an "_RETURN" ON SELECT rewrite rule. Expose it
+    // so `COMMENT ON RULE "_RETURN" ON <view>` resolves to the view instead of
+    // reporting an unresolved dependency. Materialized views have no such rule.
+    if (kind === "view") {
+      provides.push(
+        createObjectRefFromAst(
+          "rule",
+          `${tableRef.name}._RETURN`,
+          tableRef.schema ?? DEFAULT_SCHEMA,
+        ),
+      );
+    }
     if (tableRef.schema) {
       requires.push(createObjectRefFromAst("schema", tableRef.schema));
     }
