@@ -158,7 +158,7 @@ describe("diagnostics", () => {
           kind: "operator_class",
           schema: "app",
           name: "score_ops",
-          signature: "(btree)",
+          signature: "(btree,app.score)",
         },
       ],
     });
@@ -168,6 +168,34 @@ describe("diagnostics", () => {
         d.message.includes("No default btree operator class provider"),
     );
     expect(missingDefaultWith).toHaveLength(0);
+  });
+
+  test("external range operator class providers must match the omitted subtype", async () => {
+    const sql = [
+      "create schema app;",
+      "create type app.score as (value int4);",
+      "create type app.other_score as (value int4);",
+      "create type app.score_range as range (subtype = app.score);",
+    ];
+    const result = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "operator_class",
+          schema: "app",
+          name: "other_score_ops",
+          signature: "(btree,app.other_score)",
+        },
+      ],
+    });
+    const missingDefault = result.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes(
+          "No default btree operator class provider found for range subtype 'app.score'",
+        ),
+    );
+
+    expect(missingDefault).toHaveLength(1);
   });
 
   test("externalProviders with signature mismatch uses compatibility (e.g. timezone)", async () => {

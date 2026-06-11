@@ -252,4 +252,17 @@ describe("typeFromTypeNameNode", () => {
       schema: "app",
     });
   });
+
+  test("preserves schema-qualified array types that shadow built-ins", () => {
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "app" } }, { String: { sval: "int4" } }],
+        arrayBounds: [{}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "int4[]",
+      schema: "app",
+    });
+  });
 });

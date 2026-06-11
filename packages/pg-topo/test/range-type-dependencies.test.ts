@@ -2342,6 +2342,21 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("does not report missing default opclasses for omitted built-in range subtypes outside the core type list", async () => {
+    const result = await analyzeAndSort([
+      "create table app.shifts(id int primary key, during app.timetz_range not null);",
+      "create type app.timetz_range as range (subtype = timetz);",
+      "create schema app;",
+    ]);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes("No default btree operator class provider"),
+    );
+
+    expect(missingDefault).toHaveLength(0);
+  });
+
   test("does not require producer statements for built-in range collations", async () => {
     const cases = [
       {
