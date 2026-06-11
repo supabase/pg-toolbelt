@@ -316,6 +316,41 @@ const extractTriggerDependencies = (
   return { provides, requires };
 };
 
+const extractRuleDependencies = (
+  statementNode: Record<string, unknown>,
+): ExtractDependenciesResult => {
+  const provides: ObjectRef[] = [];
+  const requires: ObjectRef[] = [];
+
+  const relation = asRecord(statementNode.relation);
+  const relationRef = relationFromRangeVarNode(relation, "table");
+  if (relationRef) {
+    const ruleName =
+      typeof statementNode.rulename === "string"
+        ? statementNode.rulename
+        : "rule";
+    provides.push(
+      createObjectRefFromAst(
+        "rule",
+        `${relationRef.name}.${ruleName}`,
+        relationRef.schema ?? DEFAULT_SCHEMA,
+      ),
+    );
+    requires.push(relationRef);
+  }
+
+  addExpressionDependencies(statementNode.whereClause, requires);
+
+  const actions = Array.isArray(statementNode.actions)
+    ? statementNode.actions
+    : [];
+  for (const action of actions) {
+    addExpressionDependencies(action, requires);
+  }
+
+  return { provides, requires };
+};
+
 const extractPolicyDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -1049,6 +1084,8 @@ const extractDependencyRefs = (
       return { provides: [], requires: [] };
     case "CREATE_TRIGGER":
       return extractTriggerDependencies(asRecord(astNode.CreateTrigStmt) ?? {});
+    case "CREATE_RULE":
+      return extractRuleDependencies(asRecord(astNode.RuleStmt) ?? {});
     case "CREATE_EVENT_TRIGGER":
       return extractCreateEventTriggerDependencies(
         asRecord(astNode.CreateEventTrigStmt) ?? {},

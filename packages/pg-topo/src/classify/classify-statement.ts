@@ -24,6 +24,7 @@ export type StatementClass =
   | "CREATE_VIEW"
   | "CREATE_MATERIALIZED_VIEW"
   | "CREATE_TRIGGER"
+  | "CREATE_RULE"
   | "CREATE_EVENT_TRIGGER"
   | "CREATE_POLICY"
   | "GRANT"
@@ -65,6 +66,7 @@ const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
   DoStmt: "DO",
   GrantStmt: "GRANT",
   IndexStmt: "CREATE_INDEX",
+  RuleStmt: "CREATE_RULE",
   SelectStmt: "SELECT",
   UpdateStmt: "UPDATE",
   VariableSetStmt: "VARIABLE_SET",
@@ -150,6 +152,7 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_PUBLICATION: "post_data",
   CREATE_POLICY: "post_data",
   CREATE_PROCEDURE: "routines",
+  CREATE_RULE: "post_data",
   CREATE_ROLE: "bootstrap",
   CREATE_SCHEMA: "bootstrap",
   CREATE_SEQUENCE: "pre_data",

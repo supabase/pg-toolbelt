@@ -19,6 +19,7 @@ export const OBJECT_KINDS = [
   "view",
   "materialized_view",
   "trigger",
+  "rule",
   "event_trigger",
   "policy",
   "publication",
