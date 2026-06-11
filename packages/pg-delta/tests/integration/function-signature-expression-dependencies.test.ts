@@ -780,9 +780,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               id integer NOT NULL,
               subtotal integer NOT NULL,
               total integer GENERATED ALWAYS AS
-                (test_schema.compute_invoice_total(subtotal)) STORED,
+                (test_schema.compute_invoice_total(subtotal)) STORED NOT NULL,
               CONSTRAINT invoice_totals_total_nonnegative CHECK (total >= 0)
             );
+
+            CREATE UNIQUE INDEX invoice_totals_total_identity_idx
+              ON test_schema.invoice_totals (total);
+
+            ALTER TABLE test_schema.invoice_totals
+              REPLICA IDENTITY USING INDEX invoice_totals_total_identity_idx;
 
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals ((total + 1));
@@ -795,6 +801,39 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             CREATE VIEW test_schema.invoice_total_values AS
               SELECT id, total FROM test_schema.invoice_totals;
+
+            CREATE TABLE test_schema.invoice_total_audit (
+              invoice_id integer NOT NULL,
+              total integer NOT NULL
+            );
+
+            CREATE FUNCTION test_schema.record_invoice_total_update()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              INSERT INTO test_schema.invoice_total_audit (invoice_id, total)
+              VALUES (NEW.id, NEW.total);
+              RETURN NEW;
+            END
+            $function$;
+
+            CREATE TRIGGER invoice_totals_total_trigger
+              AFTER UPDATE OF total ON test_schema.invoice_totals
+              FOR EACH ROW
+              WHEN (OLD.total IS DISTINCT FROM NEW.total)
+              EXECUTE FUNCTION test_schema.record_invoice_total_update();
+
+            CREATE TABLE test_schema.invoice_total_rule_audit (
+              invoice_id integer NOT NULL,
+              total integer NOT NULL
+            );
+
+            CREATE RULE invoice_totals_total_rule AS
+              ON UPDATE TO test_schema.invoice_totals
+              DO ALSO INSERT INTO test_schema.invoice_total_rule_audit
+                (invoice_id, total)
+                VALUES (NEW.id, NEW.total);
 
             DO $$
             BEGIN
@@ -816,7 +855,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: dedent`
             DROP VIEW test_schema.invoice_total_values;
 
+            DROP TRIGGER invoice_totals_total_trigger
+              ON test_schema.invoice_totals;
+
+            DROP RULE invoice_totals_total_rule
+              ON test_schema.invoice_totals;
+
             DROP INDEX test_schema.invoice_totals_total_idx;
+
+            ALTER TABLE test_schema.invoice_totals
+              REPLICA IDENTITY DEFAULT;
+
+            DROP INDEX test_schema.invoice_totals_total_identity_idx;
 
             ALTER TABLE test_schema.invoice_totals
               DROP CONSTRAINT invoice_totals_total_nonnegative;
@@ -836,10 +886,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             ALTER TABLE test_schema.invoice_totals
               ADD COLUMN total integer GENERATED ALWAYS AS
-                (test_schema.compute_invoice_total(subtotal)) STORED;
+                (test_schema.compute_invoice_total(subtotal)) STORED NOT NULL;
 
             ALTER TABLE test_schema.invoice_totals
               ADD CONSTRAINT invoice_totals_total_nonnegative CHECK (total >= 0);
+
+            CREATE UNIQUE INDEX invoice_totals_total_identity_idx
+              ON test_schema.invoice_totals (total);
+
+            ALTER TABLE test_schema.invoice_totals
+              REPLICA IDENTITY USING INDEX invoice_totals_total_identity_idx;
 
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals ((total + 1));
@@ -852,6 +908,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             CREATE VIEW test_schema.invoice_total_values AS
               SELECT id, total FROM test_schema.invoice_totals;
+
+            CREATE TRIGGER invoice_totals_total_trigger
+              AFTER UPDATE OF total ON test_schema.invoice_totals
+              FOR EACH ROW
+              WHEN (OLD.total IS DISTINCT FROM NEW.total)
+              EXECUTE FUNCTION test_schema.record_invoice_total_update();
+
+            CREATE RULE invoice_totals_total_rule AS
+              ON UPDATE TO test_schema.invoice_totals
+              DO ALSO INSERT INTO test_schema.invoice_total_rule_audit
+                (invoice_id, total)
+                VALUES (NEW.id, NEW.total);
 
             GRANT SELECT (total)
               ON TABLE test_schema.invoice_totals TO invoice_total_reader;
@@ -869,9 +937,25 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "DROP INDEX test_schema.invoice_totals_total_idx",
               ),
             );
+            const dropReplicaIdentityIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "DROP INDEX test_schema.invoice_totals_total_identity_idx",
+                ),
+            );
             const dropConstraintIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith(
                 "ALTER TABLE test_schema.invoice_totals DROP CONSTRAINT invoice_totals_total_nonnegative",
+              ),
+            );
+            const dropTriggerIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP TRIGGER invoice_totals_total_trigger ON test_schema.invoice_totals",
+              ),
+            );
+            const dropRuleIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP RULE invoice_totals_total_rule ON test_schema.invoice_totals",
               ),
             );
             const dropColumnIndex = sqlStatements.findIndex((statement) =>
@@ -899,6 +983,18 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "ALTER TABLE test_schema.invoice_totals ADD CONSTRAINT invoice_totals_total_nonnegative",
               ),
             );
+            const createReplicaIdentityIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "CREATE UNIQUE INDEX invoice_totals_total_identity_idx ON test_schema.invoice_totals",
+                ),
+            );
+            const restoreReplicaIdentityIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.invoice_totals REPLICA IDENTITY USING INDEX invoice_totals_total_identity_idx",
+                ),
+            );
             const createIndexIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith(
                 "CREATE INDEX invoice_totals_total_idx ON test_schema.invoice_totals",
@@ -920,6 +1016,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "CREATE VIEW test_schema.invoice_total_values",
               ),
             );
+            const createTriggerIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE TRIGGER invoice_totals_total_trigger",
+              ),
+            );
+            const createRuleIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE RULE invoice_totals_total_rule"),
+            );
             const grantColumnIndex = sqlStatements.findIndex(
               (statement) =>
                 statement.includes("SELECT (total)") &&
@@ -929,18 +1033,30 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             expect(dropViewIndex).toBeGreaterThanOrEqual(0);
             expect(dropIndexIndex).toBeGreaterThanOrEqual(0);
+            expect(dropReplicaIdentityIndex).toBeGreaterThanOrEqual(0);
             expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(dropTriggerIndex).toBeGreaterThanOrEqual(0);
+            expect(dropRuleIndex).toBeGreaterThanOrEqual(0);
             expect(dropColumnIndex).toBeGreaterThan(dropViewIndex);
             expect(dropColumnIndex).toBeGreaterThan(dropIndexIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropReplicaIdentityIndex);
             expect(dropColumnIndex).toBeGreaterThan(dropConstraintIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropTriggerIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropRuleIndex);
             expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
             expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
             expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
             expect(addConstraintIndex).toBeGreaterThan(addColumnIndex);
+            expect(createReplicaIdentityIndex).toBeGreaterThan(addColumnIndex);
+            expect(restoreReplicaIdentityIndex).toBeGreaterThan(
+              createReplicaIdentityIndex,
+            );
             expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
             expect(indexCommentIndex).toBeGreaterThan(createIndexIndex);
             expect(alterIndexStatisticsIndex).toBeGreaterThan(createIndexIndex);
             expect(createViewIndex).toBeGreaterThan(addColumnIndex);
+            expect(createTriggerIndex).toBeGreaterThan(addColumnIndex);
+            expect(createRuleIndex).toBeGreaterThan(addColumnIndex);
             expect(grantColumnIndex).toBeGreaterThan(addColumnIndex);
           },
         });
@@ -970,9 +1086,40 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             AND attnum = 1
         `);
         expect(statisticsRows[0]?.attstattarget).toBe(100);
+        const { rows: replicaIdentityRows } = await db.main.query(dedent`
+                      SELECT c.relreplident, i.indisreplident
+                      FROM pg_catalog.pg_class c
+                      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                      JOIN pg_catalog.pg_index i ON i.indrelid = c.oid
+                      JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+                      WHERE n.nspname = 'test_schema'
+                        AND c.relname = 'invoice_totals'
+                        AND idx.relname = 'invoice_totals_total_identity_idx'
+                    `);
+        expect(replicaIdentityRows[0]).toMatchObject({
+          relreplident: "i",
+          indisreplident: true,
+        });
+        const { rows: triggerRows } = await db.main.query(dedent`
+                      SELECT pg_get_triggerdef(oid) AS definition
+                      FROM pg_catalog.pg_trigger
+                      WHERE tgname = 'invoice_totals_total_trigger'
+                        AND NOT tgisinternal
+                    `);
+        expect(triggerRows[0]?.definition).toContain("UPDATE OF total");
+        const { rows: ruleRows } = await db.main.query(dedent`
+                      SELECT pg_get_ruledef(r.oid) AS definition
+                      FROM pg_catalog.pg_rewrite r
+                      JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
+                      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                      WHERE r.rulename = 'invoice_totals_total_rule'
+                        AND n.nspname = 'test_schema'
+                        AND c.relname = 'invoice_totals'
+                    `);
+        expect(ruleRows[0]?.definition).toContain("new.total");
         const { rows: privilegeRows } = await db.main.query(dedent`
-          SELECT has_column_privilege(
-            'invoice_total_reader',
+                      SELECT has_column_privilege(
+                        'invoice_total_reader',
             'test_schema.invoice_totals',
             'total',
             'SELECT'
