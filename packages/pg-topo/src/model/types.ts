@@ -56,6 +56,8 @@ export type ObjectRef = {
   schema?: string;
   name: string;
   signature?: string;
+  exactSignature?: boolean;
+  omitIfNoLocalProducer?: boolean;
 };
 
 export type AnnotationHints = {

@@ -6,6 +6,7 @@ import {
   isBuiltInObjectRef,
   isShellTypeRef,
   objectRefKey,
+  requiresExactSignature,
 } from "../model/object-ref.ts";
 import type {
   Diagnostic,
@@ -101,6 +102,7 @@ const externalProviderSatisfies = (
     if (
       !signaturesCompatible(requiredRef.signature, provider.signature, {
         allowVariadicProviderTail: true,
+        requireExactArity: requiresExactSignature(requiredRef),
       })
     ) {
       continue;
@@ -168,7 +170,11 @@ const producerIndicesForRequirement = (
       if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
         return false;
       }
-      if (!signaturesCompatible(requiredRef.signature, providedRef.signature)) {
+      if (
+        !signaturesCompatible(requiredRef.signature, providedRef.signature, {
+          requireExactArity: requiresExactSignature(requiredRef),
+        })
+      ) {
         return false;
       }
       return true;
@@ -195,7 +201,9 @@ const hasCompatibleProvidedObject = (
     if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
       return false;
     }
-    return signaturesCompatible(requiredRef.signature, providedRef.signature);
+    return signaturesCompatible(requiredRef.signature, providedRef.signature, {
+      requireExactArity: requiresExactSignature(requiredRef),
+    });
   });
 
 const findShellTypeProducerIndex = (

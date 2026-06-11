@@ -915,6 +915,45 @@ describe("range type dependencies", () => {
     expect(operatorClassIndex).toBeGreaterThan(supportFunctionIndex);
   }, 120000);
 
+  test("requires exact opclass support function signatures", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.score_ops for type app.score using btree as operator 1 app.< (app.score, app.score), function 1 app.score_cmp(app.score, app.score);",
+      "create operator app.< (function = app.score_lt, leftarg = app.score, rightarg = app.score);",
+      "create function app.score_cmp(a app.score, b app.score, extra int4 default 0) returns int4 language sql immutable strict as $$ select (a).value - (b).value + extra $$;",
+      "create function app.score_lt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value < (b).value $$;",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const unresolvedSupportFunction = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "app" &&
+            ref.name === "score_cmp",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_ops"),
+    );
+
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "score_cmp",
+      signature: "(app.score,app.score)",
+    });
+    expect(unresolvedSupportFunction?.objectRefs).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "score_cmp",
+      signature: "(app.score,app.score)",
+    });
+  }, 120000);
+
   test("does not require producer statements for built-in opclass sortsupport functions", async () => {
     const result = await analyzeAndSort([
       "create operator class app.int4_sort_ops for type int4 using btree as operator 1 < (int4, int4), operator 2 <= (int4, int4), operator 3 = (int4, int4), operator 4 >= (int4, int4), operator 5 > (int4, int4), function 1 btint4cmp(int4, int4), function 2 btint4sortsupport(internal);",
@@ -1318,6 +1357,50 @@ describe("range type dependencies", () => {
       signature: "(btree)",
     });
   });
+
+  test("preserves unqualified custom opclass support operators", async () => {
+    const result = await analyzeAndSort([
+      "set search_path = public, pg_catalog;",
+      "create operator class app.score_ops for type int4 using btree as operator 1 < (int4, int4), function 1 btint4cmp(int4, int4);",
+      "create operator < (function = app.score_lt, leftarg = int4, rightarg = int4);",
+      "create function app.score_lt(a int4, b int4) returns boolean language sql immutable strict as $$ select a < b $$;",
+      "create schema app;",
+    ]);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_ops"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "operator",
+      schema: "public",
+      name: "<",
+      signature: "(public.int4,public.int4)",
+    });
+
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const operatorIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator <"),
+    );
+    const operatorClassIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator class app.score_ops"),
+    );
+
+    expect(executionErrors).toHaveLength(0);
+    expect(operatorIndex).toBeGreaterThanOrEqual(0);
+    expect(operatorClassIndex).toBeGreaterThan(operatorIndex);
+  }, 120000);
 
   test("provides implicit operator families from operator classes", async () => {
     const result = await analyzeAndSort([
@@ -2117,6 +2200,42 @@ describe("range type dependencies", () => {
       schema: "app",
       name: "score_out",
       signature: "(app.score)",
+    });
+  });
+
+  test("does not satisfy exact base type callbacks with shorter overloads", async () => {
+    const result = await analyzeAndSort([
+      "create type app.widget (input = app.widget_in, output = app.widget_out, internallength = 4, alignment = int4);",
+      "create function app.widget_out(value app.widget) returns cstring language internal immutable strict as 'int4out';",
+      "create function app.widget_in(value cstring, extra int4 default 0) returns app.widget language internal immutable strict as 'int4in';",
+      "create type app.widget;",
+      "create schema app;",
+    ]);
+    const unresolvedInputFunction = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "app" &&
+            ref.name === "widget_in",
+        ) === true,
+    );
+    const baseTypeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.widget ("),
+    );
+
+    expect(baseTypeStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "widget_in",
+      signature: "(cstring)",
+    });
+    expect(unresolvedInputFunction?.objectRefs).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "widget_in",
+      signature: "(cstring)",
     });
   });
 

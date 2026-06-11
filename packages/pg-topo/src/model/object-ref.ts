@@ -195,6 +195,30 @@ export const createObjectRefFromAst = (
   signature?: string,
 ): ObjectRef => createObjectRef(kind, name, schema, signature, "ast");
 
+const markObjectRefFlag = (
+  ref: ObjectRef,
+  key: "exactSignature" | "omitIfNoLocalProducer",
+): ObjectRef => {
+  Object.defineProperty(ref, key, {
+    configurable: true,
+    enumerable: false,
+    value: true,
+  });
+  return ref;
+};
+
+export const markExactSignatureRef = (ref: ObjectRef): ObjectRef =>
+  markObjectRefFlag(ref, "exactSignature");
+
+export const requiresExactSignature = (ref: ObjectRef): boolean =>
+  ref.exactSignature === true;
+
+export const markOmitIfNoLocalProducerRef = (ref: ObjectRef): ObjectRef =>
+  markObjectRefFlag(ref, "omitIfNoLocalProducer");
+
+export const shouldOmitIfNoLocalProducer = (ref: ObjectRef): boolean =>
+  ref.omitIfNoLocalProducer === true;
+
 // CREATE TYPE name; creates a shell type that support routines can reference,
 // but ordinary consumers still need the later concrete type definition.
 export const SHELL_TYPE_SIGNATURE = "(shell)";

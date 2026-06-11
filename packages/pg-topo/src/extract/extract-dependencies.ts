@@ -5,6 +5,8 @@ import {
   DEFAULT_SCHEMA,
   dedupeObjectRefs,
   isBuiltInObjectRef,
+  markExactSignatureRef,
+  markOmitIfNoLocalProducerRef,
   SHELL_TYPE_SIGNATURE,
   splitQualifiedName,
 } from "../model/object-ref.ts";
@@ -1040,7 +1042,10 @@ const isBuiltInOperatorClassSupportOperatorName = (
 ): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
   if (
-    nameParts.length !== 1 ||
+    (nameParts.length !== 1 &&
+      !(
+        nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog"
+      )) ||
     !name ||
     !builtInOperatorClassSupportOperatorNames.has(name)
   ) {
@@ -1798,6 +1803,16 @@ const extractCreateOperatorClassDependencies = (
           dataTypeRef,
         )
       ) {
+        if (nameParts.length === 1) {
+          const operatorRef = objectWithArgsRef(
+            "operator",
+            itemName,
+            operatorArgs,
+          );
+          if (operatorRef) {
+            requires.push(markOmitIfNoLocalProducerRef(operatorRef));
+          }
+        }
         continue;
       }
 
@@ -1828,7 +1843,7 @@ const extractCreateOperatorClassDependencies = (
 
       const functionRef = objectWithArgsRef("function", itemName);
       if (functionRef) {
-        requires.push(functionRef);
+        requires.push(markExactSignatureRef(functionRef));
       }
       continue;
     }
@@ -1929,11 +1944,13 @@ const extractCreateBaseTypeDependencies = (
     );
     if (functionRef) {
       requires.push(
-        createObjectRefFromAst(
-          "function",
-          functionRef.name,
-          functionRef.schema,
-          typeRefsSignature(baseTypeFunctionArgs(optionName, typeRef) ?? []),
+        markExactSignatureRef(
+          createObjectRefFromAst(
+            "function",
+            functionRef.name,
+            functionRef.schema,
+            typeRefsSignature(baseTypeFunctionArgs(optionName, typeRef) ?? []),
+          ),
         ),
       );
     }

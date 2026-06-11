@@ -156,6 +156,7 @@ const signatureArgCompatible = (
 type SignatureCompatibilityOptions = {
   allowNamedArgumentsInRequirement?: boolean;
   allowVariadicProviderTail?: boolean;
+  requireExactArity?: boolean;
 };
 
 const isVariadicProviderArg = (value: string): boolean =>
@@ -227,6 +228,13 @@ export const signaturesCompatible = (
     }
     return true;
   }
+  if (
+    options.requireExactArity &&
+    requiredArgs.length !== providedArgs.length
+  ) {
+    return false;
+  }
+
   // Allow fewer required args than provided: PostgreSQL functions with default
   // parameters can be called with fewer arguments than declared. For example,
   // auth.can(bigint,text,auth.action,json DEFAULT null,uuid DEFAULT ...) can be

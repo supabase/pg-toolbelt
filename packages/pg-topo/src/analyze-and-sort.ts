@@ -11,7 +11,10 @@ import {
 import { buildGraph, type EdgeMetadata } from "./graph/build-graph.ts";
 import { compareStatementIndices, topoSort } from "./graph/topo-sort.ts";
 import { type ParsedStatement, parseSqlContent } from "./ingest/parse.ts";
-import { objectRefKey } from "./model/object-ref.ts";
+import {
+  objectRefKey,
+  shouldOmitIfNoLocalProducer,
+} from "./model/object-ref.ts";
 import type {
   AnalyzeOptions,
   AnalyzeResult,
@@ -102,6 +105,25 @@ const addImplicitRangeOperatorClassDependencies = (
         statementNode.requires.push(providerRef);
       }
     }
+  }
+};
+
+const omitRequirementsWithoutLocalProducers = (
+  statementNodes: StatementNode[],
+): void => {
+  const providerKeys = new Set<string>();
+  for (const statementNode of statementNodes) {
+    for (const providedRef of statementNode.provides) {
+      providerKeys.add(objectRefKey(providedRef));
+    }
+  }
+
+  for (const statementNode of statementNodes) {
+    statementNode.requires = statementNode.requires.filter(
+      (requiredRef) =>
+        !shouldOmitIfNoLocalProducer(requiredRef) ||
+        providerKeys.has(objectRefKey(requiredRef)),
+    );
   }
 };
 
@@ -218,6 +240,7 @@ export const analyzeAndSort = async (
   }
 
   addImplicitRangeOperatorClassDependencies(statementNodes, parsedStatements);
+  omitRequirementsWithoutLocalProducers(statementNodes);
 
   const graphState = buildGraph(statementNodes, options?.externalProviders);
   diagnostics.push(...graphState.diagnostics);
