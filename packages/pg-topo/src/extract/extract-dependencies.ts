@@ -727,6 +727,13 @@ const extractCreateCollationDependencies = (
 
 const rangeFunctionOptionNames = new Set(["canonical", "subtype_diff"]);
 
+const builtInRangeCollationNames = new Set(["c", "posix"]);
+
+const isBuiltInRangeCollation = (ref: ObjectRef): boolean =>
+  ref.kind === "collation" &&
+  (!ref.schema || ref.schema === DEFAULT_SCHEMA) &&
+  builtInRangeCollationNames.has(ref.name.toLowerCase());
+
 const defaultMultirangeTypeName = (rangeTypeName: string): string =>
   rangeTypeName.endsWith("range")
     ? `${rangeTypeName.slice(0, -"range".length)}multirange`
@@ -788,7 +795,7 @@ const extractCreateRangeDependencies = (
         "collation",
         extractNameParts(typeName?.names),
       );
-      if (collationRef) {
+      if (collationRef && !isBuiltInRangeCollation(collationRef)) {
         requires.push(collationRef);
       }
       continue;
