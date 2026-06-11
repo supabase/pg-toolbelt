@@ -322,7 +322,7 @@ describe("range type dependencies", () => {
       kind: "operator_class",
       schema: "app",
       name: "shared_int4_ops",
-      signature: "(btree)",
+      signature: "(btree,int4)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -1220,7 +1220,7 @@ describe("range type dependencies", () => {
       kind: "operator_class",
       schema: "public",
       name: "int4_ops",
-      signature: "(btree)",
+      signature: "(btree,app.score)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -1277,7 +1277,7 @@ describe("range type dependencies", () => {
       kind: "operator_class",
       schema: "app",
       name: "score_ops",
-      signature: "(btree)",
+      signature: "(btree,app.score)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -1334,7 +1334,7 @@ describe("range type dependencies", () => {
       kind: "operator_class",
       schema: "app",
       name: "my_score_default",
-      signature: "(btree)",
+      signature: "(btree,app.score)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -2121,6 +2121,37 @@ describe("range type dependencies", () => {
     expect(executionErrors).toHaveLength(0);
   }, 120000);
 
+  test("does not require producers for pg_catalog text hash support functions", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.text_hash_ops for type text using hash as operator 1 = (text, text), function 1 hashtext(text);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolvedHashtext = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) => ref.kind === "function" && ref.name === "hashtext",
+        ) === true,
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.text_hash_ops"),
+    );
+
+    expect(unresolvedHashtext).toHaveLength(0);
+    expect(
+      operatorClassStatement?.requires.some(
+        (ref) => ref.kind === "function" && ref.name === "hashtext",
+      ),
+    ).toBe(false);
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
   test("does not require producers for pg_catalog enum and array support operators", async () => {
     const result = await analyzeAndSort([
       "create operator class app.mood_ops for type app.mood using btree as operator 1 < (app.mood, app.mood), operator 2 <= (app.mood, app.mood), operator 3 = (app.mood, app.mood), operator 4 >= (app.mood, app.mood), operator 5 > (app.mood, app.mood), function 1 enum_cmp(app.mood, app.mood);",
@@ -2252,6 +2283,39 @@ describe("range type dependencies", () => {
     expect(executionErrors).toHaveLength(0);
   }, 120000);
 
+  test("does not report missing default opclasses for domain range subtypes over built-ins", async () => {
+    const result = await analyzeAndSort([
+      "create type app.price_range as range (subtype = app.price);",
+      "create domain app.price as numeric;",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes(
+          "No default btree operator class provider found for range subtype 'app.price'",
+        ),
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const domainIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create domain app.price"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.price_range"),
+    );
+
+    expect(missingDefault).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(domainIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(domainIndex);
+  }, 120000);
+
   test("does not require producer statements for pg_lsn range operator classes", async () => {
     const result = await analyzeAndSort([
       "create type app.lsn_range as range (subtype = pg_lsn, subtype_opclass = pg_lsn_ops);",
@@ -2303,10 +2367,40 @@ describe("range type dependencies", () => {
       kind: "operator_class",
       schema: "public",
       name: "int4_ops",
-      signature: "(btree)",
+      signature: "(btree,int4)",
     });
     expect(operatorClassIndex).toBeGreaterThanOrEqual(0);
     expect(rangeIndex).toBeGreaterThan(operatorClassIndex);
+  });
+
+  test("requires explicit range opclasses for the range subtype", async () => {
+    const result = await analyzeAndSort([
+      "create type app.r as range (subtype = int4, subtype_opclass = app.shared_ops);",
+      "create operator class app.shared_ops for type text using btree as function 1 bttextcmp(text, text);",
+      "create schema app;",
+    ]);
+    const missingInt4Opclass = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_class" &&
+            ref.schema === "app" &&
+            ref.name === "shared_ops" &&
+            ref.signature === "(btree,int4)",
+        ) === true,
+    );
+    const rangeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.r"),
+    );
+
+    expect(rangeStatement?.requires).toContainEqual({
+      kind: "operator_class",
+      schema: "app",
+      name: "shared_ops",
+      signature: "(btree,int4)",
+    });
+    expect(missingInt4Opclass).toHaveLength(1);
   });
 
   test("does not require producer statements for built-in range subtypes outside the core type list", async () => {

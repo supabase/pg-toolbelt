@@ -75,10 +75,7 @@ describe("statement coverage", () => {
     );
 
     expect(unknownCount).toBe(0);
-    expect(unresolvedDiagnostics).toHaveLength(1);
-    expect(unresolvedDiagnostics[0]?.message).toContain(
-      "No default btree operator class provider found for range subtype 'app.price'.",
-    );
+    expect(unresolvedDiagnostics).toHaveLength(0);
     expect(schemaIndex).toBeGreaterThan(-1);
     expect(subtypeIndex).toBeGreaterThan(schemaIndex);
     expect(rangeIndex).toBeGreaterThan(subtypeIndex);
