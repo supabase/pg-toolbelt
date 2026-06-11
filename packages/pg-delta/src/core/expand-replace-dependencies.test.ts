@@ -47,6 +47,7 @@ import { CreateCommentOnColumn } from "./objects/table/changes/table.comment.ts"
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
+import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import { Table, type TableProps } from "./objects/table/table.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
@@ -1807,6 +1808,94 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter(
         (change) => change instanceof CreateCommentOnColumn,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
+  test("restores retained security labels without replacing the table when recreating a generated column", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const securityLabels = [{ provider: "dummy", label: "classified" }];
+    const mainTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+      security_labels: securityLabels,
+    });
+    const branchTable = tableWithDefault("public.normalize_value(value)", {
+      is_generated: true,
+      security_labels: securityLabels,
+    });
+    const columnId = "column:public.items.value";
+    const securityLabelId =
+      "securityLabel:column:public.items.value::provider:dummy";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: securityLabelId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof CreateSecurityLabelOnColumn,
       ),
     ).toHaveLength(1);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(

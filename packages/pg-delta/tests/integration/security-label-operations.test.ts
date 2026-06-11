@@ -1,4 +1,4 @@
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { shouldSkipDummySeclabelBuild } from "../postgres-alpine.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
@@ -88,6 +88,82 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             testSql: `
             SECURITY LABEL FOR dummy ON COLUMN public.t1.email IS NULL;
           `,
+          });
+        }),
+      );
+
+      test(
+        "retained label on recreated generated column",
+        withDb(pgVersion, async (db) => {
+          await roundtripFidelityTest({
+            mainSession: db.main,
+            branchSession: db.branch,
+            initialSetup: `
+            ${DUMMY_PROVIDER_SETUP}
+            CREATE FUNCTION public.compute_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE public.invoices (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (public.compute_total(subtotal)) STORED
+            );
+
+            SECURITY LABEL FOR dummy ON COLUMN public.invoices.total
+              IS 'classified';
+          `,
+            testSql: `
+            ALTER TABLE public.invoices DROP COLUMN total;
+
+            DROP FUNCTION public.compute_total(integer);
+
+            CREATE FUNCTION public.compute_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE public.invoices
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (public.compute_total(subtotal)) STORED;
+
+            SECURITY LABEL FOR dummy ON COLUMN public.invoices.total
+              IS 'classified';
+          `,
+            assertSqlStatements: (sqlStatements) => {
+              expect(
+                sqlStatements.some((statement) =>
+                  statement.startsWith("DROP TABLE "),
+                ),
+              ).toBe(false);
+              expect(
+                sqlStatements.some((statement) =>
+                  statement.startsWith("CREATE TABLE "),
+                ),
+              ).toBe(false);
+
+              const addColumnIndex = sqlStatements.findIndex((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE public.invoices ADD COLUMN total",
+                ),
+              );
+              const securityLabelIndex = sqlStatements.findIndex((statement) =>
+                statement.startsWith(
+                  "SECURITY LABEL FOR dummy ON COLUMN public.invoices.total",
+                ),
+              );
+
+              expect(addColumnIndex).toBeGreaterThanOrEqual(0);
+              expect(securityLabelIndex).toBeGreaterThan(addColumnIndex);
+            },
           });
         }),
       );
