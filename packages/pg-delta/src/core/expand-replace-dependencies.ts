@@ -27,7 +27,10 @@ import {
   AlterTableDropColumn,
   AlterTableDropConstraint,
 } from "./objects/table/changes/table.alter.ts";
-import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
+import {
+  CreateCommentOnColumn,
+  CreateCommentOnConstraint,
+} from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { CreateCompositeType } from "./objects/type/composite-type/changes/composite-type.create.ts";
@@ -241,6 +244,15 @@ export function expandReplaceDependencies({
       ) {
         continue;
       }
+      if (
+        generatedColumnsRecreatedByExpressionFallback.has(refId) &&
+        isMetadataDependentStableId(dependentRaw)
+      ) {
+        // Column comments are metadata for the recreated column itself. The
+        // drop/add fallback restores them directly, so walking the comment edge
+        // would incorrectly promote `comment:column:*` to the owning table.
+        continue;
+      }
 
       if (
         shouldHandleProcedureExpressionDependent({
@@ -263,6 +275,7 @@ export function expandReplaceDependencies({
             mainCatalog,
             branchCatalog,
             diffContext,
+            createdIds,
             addRelease: !releaseCovered,
             addRestore: !restoreCovered,
           });
@@ -616,6 +629,10 @@ function isExpressionContainerStableId(stableId: string): boolean {
   );
 }
 
+function isMetadataDependentStableId(stableId: string): boolean {
+  return stableId.startsWith("comment:");
+}
+
 function shouldTraverseExpressionReplacementDependent({
   dependentRaw,
   expressionReplacementChanges,
@@ -672,6 +689,7 @@ function buildExpressionDependentReplacementChanges({
   mainCatalog,
   branchCatalog,
   diffContext,
+  createdIds,
   addRelease,
   addRestore,
 }: {
@@ -682,6 +700,7 @@ function buildExpressionDependentReplacementChanges({
     ObjectDiffContext,
     "version" | "currentUser" | "defaultPrivilegeState"
   >;
+  createdIds: ReadonlySet<string>;
   addRelease: boolean;
   addRestore: boolean;
 }): Change[] | null {
@@ -691,6 +710,7 @@ function buildExpressionDependentReplacementChanges({
       mainCatalog,
       branchCatalog,
       diffContext,
+      createdIds,
       addRelease,
       addRestore,
     });
@@ -771,6 +791,7 @@ function buildColumnExpressionReplacementChanges({
   mainCatalog,
   branchCatalog,
   diffContext,
+  createdIds,
   addRelease,
   addRestore,
 }: {
@@ -781,6 +802,7 @@ function buildColumnExpressionReplacementChanges({
     ObjectDiffContext,
     "version" | "currentUser" | "defaultPrivilegeState"
   >;
+  createdIds: ReadonlySet<string>;
   addRelease: boolean;
   addRestore: boolean;
 }): Change[] | null {
@@ -818,6 +840,9 @@ function buildColumnExpressionReplacementChanges({
       branchColumn.default !== null;
 
     if (addRelease && canRecreateGeneratedColumn) {
+      const commentRestoreCovered = createdIds.has(
+        stableId.comment(dependentRaw),
+      );
       // DROP DEFAULT is invalid for generated columns, while DROP EXPRESSION
       // turns the column into a regular column that SET EXPRESSION cannot
       // restore. Recreating the column releases the dependency without relying
@@ -831,6 +856,14 @@ function buildColumnExpressionReplacementChanges({
           table: branchTable,
           column: branchColumn,
         }),
+        ...(branchColumn.comment !== null && !commentRestoreCovered
+          ? [
+              new CreateCommentOnColumn({
+                table: branchTable,
+                column: branchColumn,
+              }),
+            ]
+          : []),
       ];
     }
 
