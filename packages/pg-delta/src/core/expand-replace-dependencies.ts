@@ -9,6 +9,8 @@ import {
 } from "./objects/domain/changes/domain.alter.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
+import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts";
+import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
@@ -19,7 +21,6 @@ import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
-import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -824,6 +825,11 @@ function buildColumnExpressionReplacementChanges({
   const mainTable = mainCatalog.tables[tableId];
   const branchTable = branchCatalog.tables[tableId];
   if (!mainTable || !branchTable) return null;
+  // Partition child column DDL is propagated from the parent table. Treating the
+  // child pg_depend row as covered avoids emitting duplicate child ALTER TABLE.
+  if (mainTable.is_partition || branchTable.is_partition) {
+    return [];
+  }
 
   const mainColumn = mainTable.columns.find(
     (column) => column.name === columnRef.column,
@@ -1186,6 +1192,14 @@ function buildTableConstraintReplacementChanges({
     (constraint) => constraint.name === constraintRef.constraint,
   );
   if (!mainConstraint) return null;
+  // PostgreSQL clones parent CHECK constraints onto partitions. The parent
+  // constraint replacement releases/restores the dependency for all children.
+  if (
+    mainConstraint.is_partition_clone ||
+    branchConstraint?.is_partition_clone
+  ) {
+    return [];
+  }
 
   const changes: Change[] = [];
   if (addRelease) {
@@ -1530,6 +1544,9 @@ function buildReplaceChanges(
               ...(resolved.branch.comment !== null
                 ? [new CreateCommentOnIndex({ index: resolved.branch })]
                 : []),
+              // CREATE INDEX does not carry expression-index statistics, so
+              // replay retained targets after the replacement index exists.
+              ...buildRetainedIndexStatisticsChanges(resolved.branch),
             ]
           : []),
       ];
@@ -1579,6 +1596,21 @@ function buildReplaceChanges(
     default:
       return null;
   }
+}
+
+function buildRetainedIndexStatisticsChanges(
+  index: Catalog["indexes"][string],
+): Change[] {
+  const columnTargets = index.statistics_target
+    .map((statistics, index) => ({
+      columnNumber: index + 1,
+      statistics,
+    }))
+    .filter(({ statistics }) => statistics >= 0);
+
+  return columnTargets.length > 0
+    ? [new AlterIndexSetStatistics({ index, columnTargets })]
+    : [];
 }
 
 function buildCreateViewReplacementChanges(
