@@ -745,9 +745,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             );
 
             expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
-            expect(createFunctionIndex).toBeGreaterThan(dropConstraintIndex);
-            expect(dropFunctionIndex).toBeGreaterThan(createFunctionIndex);
-            expect(addConstraintIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(dropFunctionIndex).toBeGreaterThan(dropConstraintIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addConstraintIndex).toBeGreaterThan(createFunctionIndex);
           },
         });
 
@@ -1114,6 +1114,185 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "test_schema.results",
           1,
         );
+      }),
+    );
+
+    test(
+      "rebuilt view for overloaded replacement drops old function before restore",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.score_label(value integer)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT 'old:' || value::text
+            $function$;
+
+            CREATE TABLE test_schema.score_labels (
+              id integer NOT NULL,
+              value integer NOT NULL
+            );
+
+            CREATE VIEW test_schema.score_label_view AS
+              SELECT id, test_schema.score_label(value) AS label
+              FROM test_schema.score_labels;
+
+            INSERT INTO test_schema.score_labels (id, value)
+            VALUES (1, 10);
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.score_label_view;
+
+            CREATE FUNCTION test_schema.score_label(value bigint)
+            RETURNS text
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT 'new:' || value::text
+            $function$;
+
+            DROP FUNCTION test_schema.score_label(integer);
+
+            CREATE VIEW test_schema.score_label_view AS
+              SELECT id, test_schema.score_label(value) AS label
+              FROM test_schema.score_labels;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropViewIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP VIEW test_schema.score_label_view"),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.score_label"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE FUNCTION test_schema.score_label"),
+            );
+            const createViewIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes("VIEW test_schema.score_label_view"),
+            );
+
+            expect(dropViewIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropViewIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(createViewIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.score_labels",
+          1,
+        );
+      }),
+    );
+
+    test(
+      "defaulted old overload drops before shorter replacement is created",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.normalize_score(
+              value integer,
+              scale integer DEFAULT 1
+            )
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value * scale
+            $function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.normalize_score(integer, integer);
+
+            CREATE FUNCTION test_schema.normalize_score(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.normalize_score"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.normalize_score",
+              ),
+            );
+
+            expect(dropFunctionIndex).toBeGreaterThanOrEqual(0);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "old argument domain drops after the old overloaded function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE DOMAIN test_schema.old_score AS integer;
+
+            CREATE FUNCTION test_schema.normalize_score(value test_schema.old_score)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value::integer
+            $function$;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.normalize_score(test_schema.old_score);
+            DROP DOMAIN test_schema.old_score;
+
+            CREATE FUNCTION test_schema.normalize_score(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.normalize_score"),
+            );
+            const dropDomainIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP DOMAIN test_schema.old_score"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.normalize_score",
+              ),
+            );
+
+            expect(dropFunctionIndex).toBeGreaterThanOrEqual(0);
+            expect(dropDomainIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropDomainIndex);
+          },
+        });
       }),
     );
   });

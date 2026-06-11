@@ -7,6 +7,7 @@ import {
   AlterDomainDropConstraint,
   AlterDomainDropDefault,
 } from "../objects/domain/changes/domain.alter.ts";
+import { DropDomain } from "../objects/domain/changes/domain.drop.ts";
 import { Domain } from "../objects/domain/domain.model.ts";
 import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
@@ -15,6 +16,7 @@ import { AlterPublicationDropTables } from "../objects/publication/changes/publi
 import { Publication } from "../objects/publication/publication.model.ts";
 import {
   AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
   AlterTableDropConstraint,
@@ -216,10 +218,10 @@ function view(name: string, columns = [integerColumn("id", 1)]) {
   });
 }
 
-function domain(defaultValue: string | null) {
+function domain(defaultValue: string | null, name = "score") {
   return new Domain({
     schema: "public",
-    name: "score",
+    name,
     base_type: "int4",
     base_type_schema: "pg_catalog",
     base_type_str: "integer",
@@ -310,6 +312,9 @@ function changeLabel(change: Change) {
   }
   if (change instanceof AlterDomainAddConstraint) {
     return `${change.constructor.name}:${change.domain.name}.${change.constraint.name}`;
+  }
+  if (change instanceof DropDomain) {
+    return `${change.constructor.name}:${change.domain.name}`;
   }
   if (change instanceof AlterTableDropConstraint) {
     return `${change.constructor.name}:${change.table.name}.${change.constraint.name}`;
@@ -538,6 +543,10 @@ describe("sortChanges", () => {
     const changes: Change[] = [
       new DropProcedure({ procedure: mainProcedure }),
       new CreateProcedure({ procedure: branchProcedure }),
+      new AlterTableAlterColumnDropDefault({
+        table: branchTable,
+        column: branchColumn,
+      }),
       new AlterTableAlterColumnSetDefault({
         table: branchTable,
         column: branchColumn,
@@ -561,8 +570,9 @@ describe("sortChanges", () => {
     const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
 
     expect(sorted.map(changeLabel)).toEqual([
-      `CreateProcedure:${branchProcedure.stableId}`,
+      "AlterTableAlterColumnDropDefault",
       `DropProcedure:${mainProcedure.stableId}`,
+      `CreateProcedure:${branchProcedure.stableId}`,
       "AlterTableAlterColumnSetDefault",
     ]);
   });
@@ -683,9 +693,95 @@ describe("sortChanges", () => {
 
     expect(sorted.map(changeLabel)).toEqual([
       "AlterTableDropConstraint:items.items_value_check",
-      `CreateProcedure:${branchProcedure.stableId}`,
       `DropProcedure:${mainProcedure.stableId}`,
+      `CreateProcedure:${branchProcedure.stableId}`,
       "AlterTableAddConstraint:items.items_value_check",
+    ]);
+  });
+
+  test("drops the old overloaded function before restoring rebuilt views that can still resolve to it", async () => {
+    const mainProcedure = procedure(["integer"]);
+    const branchProcedure = procedure(["bigint"]);
+    const mainView = view("score_view");
+    const branchView = view("score_view");
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateView({ view: branchView, orReplace: true }),
+      new DropView({ view: mainView }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: mainView.stableId,
+        referenced_stable_id: mainProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: branchView.stableId,
+        referenced_stable_id: branchProcedure.stableId,
+        deptype: "n",
+      },
+    ]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "DropView",
+      `DropProcedure:${mainProcedure.stableId}`,
+      `CreateProcedure:${branchProcedure.stableId}`,
+      "CreateView",
+    ]);
+  });
+
+  test("drops defaulted old overloads before creating shorter replacements", async () => {
+    const mainProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...procedure(["integer", "integer"]),
+      argument_default_count: 1,
+      argument_defaults: "DEFAULT 1",
+    });
+    const branchProcedure = procedure(["integer"]);
+    const changes: Change[] = [
+      new CreateProcedure({ procedure: branchProcedure }),
+      new DropProcedure({ procedure: mainProcedure }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      `DropProcedure:${mainProcedure.stableId}`,
+      `CreateProcedure:${branchProcedure.stableId}`,
+    ]);
+  });
+
+  test("drops old routines before dropping their old argument domains", async () => {
+    const oldDomain = domain(null, "old_score");
+    const mainProcedure = procedure(["public.old_score"]);
+    const branchProcedure = procedure(["integer"]);
+    const changes: Change[] = [
+      new DropDomain({ domain: oldDomain }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new DropProcedure({ procedure: mainProcedure }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: mainProcedure.stableId,
+        referenced_stable_id: oldDomain.stableId,
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      `DropProcedure:${mainProcedure.stableId}`,
+      "DropDomain:old_score",
+      `CreateProcedure:${branchProcedure.stableId}`,
     ]);
   });
 });
