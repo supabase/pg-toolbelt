@@ -668,6 +668,28 @@ function buildColumnExpressionReplacementChanges({
   const generatedColumnInvolved =
     mainColumn.is_generated || branchColumn.is_generated;
   if (generatedColumnInvolved) {
+    const canRecreateGeneratedColumn =
+      mainColumn.is_generated &&
+      branchColumn.is_generated &&
+      branchColumn.default !== null;
+
+    if (addRelease && canRecreateGeneratedColumn) {
+      // DROP DEFAULT is invalid for generated columns, while DROP EXPRESSION
+      // turns the column into a regular column that SET EXPRESSION cannot
+      // restore. Recreating the column releases the dependency without relying
+      // on PostgreSQL 17's SET EXPRESSION support.
+      return [
+        new AlterTableDropColumn({
+          table: mainTable,
+          column: mainColumn,
+        }),
+        new AlterTableAddColumn({
+          table: branchTable,
+          column: branchColumn,
+        }),
+      ];
+    }
+
     // PostgreSQL only gained ALTER COLUMN ... SET EXPRESSION for generated
     // columns in v17. Switching generated status still needs the existing
     // destructive column/table fallback because SET EXPRESSION applies only
@@ -679,23 +701,6 @@ function buildColumnExpressionReplacementChanges({
       branchColumn.default === null
     ) {
       return null;
-    }
-
-    if (addRelease) {
-      // DROP DEFAULT is invalid for generated columns, while DROP EXPRESSION
-      // turns the column into a regular column that SET EXPRESSION cannot
-      // restore. Use the existing column fallback to release the dependency
-      // before the routine drop and recreate the generated column afterward.
-      return [
-        new AlterTableDropColumn({
-          table: mainTable,
-          column: mainColumn,
-        }),
-        new AlterTableAddColumn({
-          table: branchTable,
-          column: branchColumn,
-        }),
-      ];
     }
 
     return addRestore
