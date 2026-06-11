@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`empty catalog export (pg${pgVersion})`, () => {
@@ -26,7 +27,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result).not.toBeNull();
         if (result === null) throw new Error("unreachable");
 
-        const statementsText = result.plan.statements.join("\n");
+        const statementsText = flattenPlanStatements(result.plan).join("\n");
         expect(statementsText).toContain("CREATE SCHEMA app");
         expect(statementsText).toContain("CREATE TABLE app.users");
         expect(statementsText).toContain("CREATE TABLE app.posts");
@@ -55,8 +56,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result).not.toBeNull();
         if (result === null) throw new Error("unreachable");
 
-        const createSchemaPublic = result.plan.statements.filter((s) =>
-          /CREATE SCHEMA.*public/i.test(s),
+        const createSchemaPublic = flattenPlanStatements(result.plan).filter(
+          (s) => /CREATE SCHEMA.*public/i.test(s),
         );
         expect(createSchemaPublic).toHaveLength(0);
       }),
@@ -85,8 +86,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(singleDbResult.plan.target.fingerprint).toBe(
           twoDbResult.plan.target.fingerprint,
         );
-        expect(twoDbResult.plan.statements).toEqual(
-          singleDbResult.plan.statements,
+        expect(flattenPlanStatements(twoDbResult.plan)).toEqual(
+          flattenPlanStatements(singleDbResult.plan),
         );
       }),
     );

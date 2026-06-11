@@ -17,6 +17,7 @@ import { extractCatalog } from "../../src/core/catalog.model.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbIsolated } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 /** Join plan statements into a runnable SQL script. */
 function buildScript(statements: string[]): string {
@@ -74,7 +75,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           // Now create a plan from empty main to branch with the roles
           // The plan should contain exactly one GRANT for child_role -> parent_role
           const result = await createPlan(db.main, db.branch);
-          expect(result?.plan.statements).toMatchInlineSnapshot(`
+          expect(flattenPlanStatements(result!.plan)).toMatchInlineSnapshot(`
             [
               "CREATE ROLE admin_grantor WITH CREATEROLE",
               "CREATE ROLE child_role",
@@ -144,7 +145,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statements = result!.plan.statements;
+        const statements = flattenPlanStatements(result!.plan);
 
         // Should contain CREATE ROLE but NOT any GRANT to postgres
         expect(statements).toContain("CREATE ROLE developer");
@@ -173,7 +174,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statements = result!.plan.statements;
+        const statements = flattenPlanStatements(result!.plan);
 
         // Should contain both CREATE ROLEs and the GRANT
         expect(statements).toContain("CREATE ROLE child_role");
@@ -202,7 +203,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded by expect above
-        const statements = result!.plan.statements;
+        const statements = flattenPlanStatements(result!.plan);
 
         // Should contain GRANT WITH ADMIN OPTION
         const grantStatements = statements.filter((s) =>

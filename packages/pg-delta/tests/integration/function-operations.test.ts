@@ -8,6 +8,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   // TODO: Fix functions stable ids that must be the schema + name + argstypes because the current one is just the function name
@@ -553,7 +554,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           );
         }
 
-        expect(planResult.plan.statements[0]).toBe(
+        expect(flattenPlanStatements(planResult.plan)[0]).toBe(
           "SET check_function_bodies = false",
         );
 

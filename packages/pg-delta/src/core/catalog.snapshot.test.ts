@@ -12,6 +12,7 @@ import { Role } from "./objects/role/role.model.ts";
 import { Schema } from "./objects/schema/schema.model.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import { Table } from "./objects/table/table.model.ts";
+import { flattenPlanStatements } from "./plan/render.ts";
 
 function emptyCatalogProps() {
   return {
@@ -330,7 +331,7 @@ describe("catalog snapshot serde", () => {
 
     const result = await createPlan(null, target);
     expect(result).not.toBeNull();
-    expect(result?.plan.statements.length).toBeGreaterThan(0);
+    expect(flattenPlanStatements(result!.plan).length).toBeGreaterThan(0);
   });
 
   test("createPlan with filter DSL without cascade keeps dependents of excluded changes", async () => {

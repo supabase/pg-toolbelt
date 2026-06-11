@@ -23,6 +23,12 @@ export class CreateSubscription extends CreateSubscriptionChange {
     return [stableId.role(this.subscription.owner)];
   }
 
+  // With an existing replication slot, serialize() keeps the connect = true
+  // default, which PostgreSQL rejects inside a transaction block.
+  override get nonTransactional() {
+    return this.subscription.replication_slot_created;
+  }
+
   serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       "CREATE SUBSCRIPTION",

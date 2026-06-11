@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`applyPlan (pg${pgVersion})`, () => {
     test(
-      "returns invalid_plan when statements array is empty",
+      "returns invalid_plan when the plan has no units",
       withDb(pgVersion, async (db) => {
         await db.branch.query("CREATE TABLE public.test_table (id integer)");
 
@@ -16,7 +17,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
-        plan.statements = [];
+        plan.units = [];
 
         const applied = await applyPlan(plan, db.main, db.branch);
         expect(applied.status).toBe("invalid_plan");
@@ -69,12 +70,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         if (!result) throw new Error("expected result");
         const plan = result.plan;
 
-        plan.statements = ["INVALID SQL SYNTAX"];
+        plan.units = [
+          {
+            transactionMode: "transactional",
+            reason: "default",
+            statements: ["INVALID SQL SYNTAX"],
+          },
+        ];
 
         const applied = await applyPlan(plan, db.main, db.branch);
         expect(applied.status).toBe("failed");
+        if (applied.status !== "failed") throw new Error("expected failed");
         expect(applied).toHaveProperty("error");
         expect(applied).toHaveProperty("script");
+        expect(applied.failedUnitIndex).toBe(0);
+        expect(applied.completedUnits).toBe(0);
       }),
     );
   });
@@ -94,7 +104,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements).toMatchInlineSnapshot(`
+        expect(flattenPlanStatements(result!.plan)).toMatchInlineSnapshot(`
           [
             "CREATE TABLE public.pub_table (id integer)",
           ]
@@ -110,7 +120,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(null, db.branch);
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements).toMatchInlineSnapshot(`
+        expect(flattenPlanStatements(result!.plan)).toMatchInlineSnapshot(`
           [
             "CREATE TABLE public.from_scratch (id integer)",
           ]

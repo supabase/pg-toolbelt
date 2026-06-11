@@ -3,6 +3,17 @@ import type { SerializeOptions } from "../integrations/serialize/serialize.types
 type ChangeOperation = "create" | "alter" | "drop";
 
 /**
+ * Kinds of commit-visibility boundaries a change can force.
+ *
+ * Each kind names a PostgreSQL behavior where a statement's effects only
+ * become usable by later statements after the enclosing transaction commits.
+ * The token becomes the `reason` of the migration unit that follows the
+ * producer run, so adding a kind requires a matching arm in the renderer's
+ * `unitName` switch (the exhaustive switch enforces this at compile time).
+ */
+export type CommitBoundaryReason = "enum_value_visibility";
+
+/**
  * Abstract base class for all change objects.
  *
  * Every concrete change (e.g. `CreateTable`, `AlterView`) extends this class and
@@ -27,10 +38,40 @@ export abstract class BaseChange {
   abstract readonly scope: string;
 
   /**
-   * A unique identifier for the change.
+   * True when the serialized statement cannot run inside a transaction block
+   * (PostgreSQL rejects it with SQLSTATE 25001, e.g. `CREATE INDEX
+   * CONCURRENTLY`, `CREATE SUBSCRIPTION` with `connect = true`).
+   *
+   * The planner emits such a change as its own single-statement migration
+   * unit with `transactionMode: "none"`, and `applyPlan` executes it without
+   * a `BEGIN`/`COMMIT` wrapper. Never derive this from the rendered SQL —
+   * declare it on the change class.
+   *
+   * Defaults to false. Override in subclasses whose statement PostgreSQL
+   * forbids inside a transaction block.
    */
-  get changeId(): string {
-    return `${this.operation}:${this.scope}:${this.objectType}:${this.serialize()}`;
+  get nonTransactional(): boolean {
+    return false;
+  }
+
+  /**
+   * Non-null when this statement's effects only become usable by later
+   * statements after the enclosing transaction commits. The canonical case is
+   * `ALTER TYPE ... ADD VALUE`: using the new enum value in the same
+   * transaction fails with 55P04.
+   *
+   * This is a conservative boundary signal: the planner groups consecutive
+   * producers of the same kind into one unit, and pushes any other statement
+   * (different kind or non-producer) past a commit boundary, regardless of
+   * whether it references the produced effects. No consumer detection is
+   * attempted. Never derive this from the rendered SQL — declare it on the
+   * change class.
+   *
+   * Defaults to null. Override in subclasses whose effects PostgreSQL defers
+   * until commit.
+   */
+  get commitBoundary(): CommitBoundaryReason | null {
+    return null;
   }
 
   /**

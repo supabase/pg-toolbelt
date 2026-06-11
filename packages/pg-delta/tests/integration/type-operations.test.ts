@@ -11,6 +11,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`type operations (pg${pgVersion})`, () => {
@@ -49,6 +50,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         if (!result) throw new Error("expected result");
+        expect(result.plan.units).toHaveLength(2);
+        expect(result.plan.units[1].reason).toBe("enum_value_visibility");
 
         const applied = await applyPlan(result.plan, db.main, db.branch);
         expect(applied.status).toBe("applied");
@@ -84,6 +87,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         if (!result) throw new Error("expected result");
+        expect(result.plan.units).toHaveLength(2);
+        expect(result.plan.units[1].reason).toBe("enum_value_visibility");
 
         const applied = await applyPlan(result.plan, db.main, db.branch);
         expect(applied.status).toBe("applied");
@@ -137,7 +142,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           throw new Error("Expected planResult to be defined");
         }
 
-        const statements = planResult.plan.statements;
+        const statements = flattenPlanStatements(planResult.plan);
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );
@@ -224,7 +229,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           throw new Error("Expected planResult to be defined");
         }
 
-        const statements = planResult.plan.statements;
+        const statements = flattenPlanStatements(planResult.plan);
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );

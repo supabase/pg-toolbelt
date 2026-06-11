@@ -5,6 +5,7 @@
 import z from "zod";
 import type { Change } from "../change.types.ts";
 import type { Integration } from "../integrations/integration.types.ts";
+import type { CommitBoundaryReason } from "../objects/base.change.ts";
 
 // ============================================================================
 // Core Types
@@ -13,6 +14,34 @@ import type { Integration } from "../integrations/integration.types.ts";
 export type PlanRisk =
   | { level: "safe" }
   | { level: "data_loss"; statements: string[] };
+
+export type TransactionMode = "transactional" | "none";
+
+/**
+ * Why a migration unit starts a new execution boundary.
+ *
+ * - `"default"` — the first (or only) unit of the plan.
+ * - `"non_transactional"` — the unit's statement cannot run inside a
+ *   transaction block (see `BaseChange.nonTransactional`).
+ * - commit-visibility kinds (see `BaseChange.commitBoundary`) — the previous
+ *   unit produced effects that are only usable after COMMIT.
+ */
+export type ExecutionBoundaryReason =
+  | "default"
+  | "non_transactional"
+  | CommitBoundaryReason;
+
+/**
+ * An ordered group of SQL statements that share one execution context.
+ *
+ * Transactional units are applied inside an explicit BEGIN/COMMIT;
+ * non-transactional units run their single statement without a wrapper.
+ */
+export interface MigrationUnit {
+  transactionMode: TransactionMode;
+  reason: ExecutionBoundaryReason;
+  statements: string[];
+}
 
 /**
  * All supported object types in the system.
@@ -127,7 +156,26 @@ export const PlanSchema = z.object({
   target: z.object({
     fingerprint: z.string(),
   }),
-  statements: z.array(z.string()),
+  units: z
+    .array(
+      z.object({
+        transactionMode: z.enum(["transactional", "none"]),
+        reason: z.enum([
+          "default",
+          "non_transactional",
+          "enum_value_visibility",
+        ]),
+        statements: z.array(z.string()),
+      }),
+    )
+    .optional(),
+  /** Session-level statements (SET ROLE, ...) applied once before the units. */
+  sessionStatements: z.array(z.string()).optional(),
+  /**
+   * Legacy v1 plans only: the flat statement list. Converted to units by
+   * `normalizePlan`; never emitted by `createPlan`/`serializePlan`.
+   */
+  statements: z.array(z.string()).optional(),
   role: z.string().optional(),
   filter: z.any().optional(), // FilterDSL - complex recursive type, validated at compile time
   serialize: z.any().optional(), // SerializeDSL - complex recursive type, validated at compile time
@@ -144,10 +192,22 @@ export const PlanSchema = z.object({
     .optional(),
 });
 
+export type SerializedPlan = z.infer<typeof PlanSchema>;
+
 /**
- * A migration plan containing all changes to transform one database schema into another.
+ * A migration plan containing all changes to transform one database schema
+ * into another, as an ordered list of execution-aware migration units.
+ *
+ * `units` and `sessionStatements` are the single source of truth: render via
+ * `renderPlanSql`/`renderPlanFiles`, or flatten via `flattenPlanStatements`.
  */
-export type Plan = z.infer<typeof PlanSchema>;
+export type Plan = Omit<
+  SerializedPlan,
+  "units" | "statements" | "sessionStatements"
+> & {
+  units: MigrationUnit[];
+  sessionStatements: string[];
+};
 
 /**
  * Options for creating a plan.

@@ -34,6 +34,7 @@ import {
   type PostgresVersion,
 } from "../constants.ts";
 import { containerManager } from "../container-manager.js";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
@@ -195,7 +196,7 @@ export async function roundtripFidelityTest(
     ? ["SET check_function_bodies = false"]
     : [];
 
-  const sqlStatements = plan.statements;
+  const sqlStatements = flattenPlanStatements(plan);
   const migrationScript = `${[...migrationSessionConfig, ...sqlStatements].join(
     ";\n\n",
   )};`;

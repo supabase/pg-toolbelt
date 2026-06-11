@@ -15,6 +15,7 @@ import {
   generateSslCertificates,
   type SslCertificateOptions,
 } from "../ssl-utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 const SSL_POSTGRES_VERSIONS = POSTGRES_VERSIONS.filter(
   (pgVersion) => pgVersion !== 18,
@@ -166,7 +167,9 @@ for (const pgVersion of SSL_POSTGRES_VERSIONS) {
           // Should detect the difference
           const planResult = await createPlan(sourceUrl, targetUrl);
           expect(planResult).not.toBeNull();
-          expect(planResult?.plan.statements.length).toBeGreaterThan(0);
+          expect(
+            flattenPlanStatements(planResult!.plan).length,
+          ).toBeGreaterThan(0);
         } finally {
           await container.stop();
           await certificates.cleanup();

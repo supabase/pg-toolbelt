@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`role option (pg${pgVersion})`, () => {
@@ -22,7 +23,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements[0]).toBe('SET ROLE "test_role"');
+        expect(flattenPlanStatements(result!.plan)[0]).toBe(
+          'SET ROLE "test_role"',
+        );
         expect(result?.plan.role).toBe("test_role");
       }),
     );
@@ -58,8 +61,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
         expect(result).not.toBeNull();
         // The plan should include creating the table
-        const createTableStatement = result?.plan.statements.find((s) =>
-          s.includes("CREATE TABLE"),
+        const createTableStatement = flattenPlanStatements(result!.plan).find(
+          (s) => s.includes("CREATE TABLE"),
         );
         expect(createTableStatement).toBeDefined();
         expect(createTableStatement).toContain("test_schema");

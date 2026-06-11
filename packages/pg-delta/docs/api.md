@@ -11,7 +11,7 @@ npm install @supabase/pg-delta
 ## Quick Start
 
 ```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
+import { createPlan, applyPlan, renderPlanSql } from "@supabase/pg-delta";
 import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
 // Create a migration plan
@@ -23,7 +23,7 @@ const result = await createPlan(
 
 if (result) {
   const { plan } = result;
-  console.log(plan.statements); // SQL statements to execute
+  console.log(renderPlanSql(plan)); // executable SQL script (transaction-aware)
 
   // Apply the plan
   const applyResult = await applyPlan(
@@ -43,7 +43,11 @@ if (result) {
 import {
   createPlan,
   applyPlan,
+  renderPlanSql,
+  renderPlanFiles,
+  flattenPlanStatements,
   type Plan,
+  type MigrationUnit,
   type CreatePlanOptions,
   type IntegrationDSL,
 } from "@supabase/pg-delta";
@@ -85,8 +89,8 @@ const result = await createPlan(
 );
 
 if (result) {
-  console.log(`Found ${result.plan.statements.length} statements`);
-  console.log(result.plan.statements.join(";\n"));
+  console.log(`Found ${result.plan.units.length} migration units`);
+  console.log(renderPlanSql(result.plan));
 } else {
   console.log("No differences found");
 }
@@ -96,7 +100,9 @@ if (result) {
 
 ### `applyPlan(plan, source, target, options?)`
 
-Apply a plan's SQL statements to a database with integrity checks. Validates fingerprints before and after application to ensure plan integrity.
+Apply a plan's migration units to a database with integrity checks. Validates fingerprints before and after application to ensure plan integrity.
+
+Units are applied in order on a single session: transactional units inside an explicit `BEGIN`/`COMMIT`, non-transactional units without a wrapper. Multi-unit plans are therefore **not atomic as a whole** — a failure in a later unit does not roll back units that already committed.
 
 #### Parameters
 
@@ -117,8 +123,16 @@ type ApplyPlanResult =
   | { status: "invalid_plan"; message: string }
   | { status: "fingerprint_mismatch"; current: string; expected: string }
   | { status: "already_applied" }
-  | { status: "applied"; statements: number; warnings?: string[] }
-  | { status: "failed"; error: unknown; script: string };
+  | { status: "applied"; statements: number; units: number; warnings?: string[] }
+  | {
+      status: "failed";
+      error: unknown;
+      script: string;
+      /** 0-based index of the unit that failed; undefined if a session statement failed. */
+      failedUnitIndex?: number;
+      /** Number of units fully committed before the failure. */
+      completedUnits: number;
+    };
 ```
 
 #### Example
@@ -133,7 +147,9 @@ if (result) {
 
   switch (applyResult.status) {
     case "applied":
-      console.log(`Applied ${applyResult.statements} statements`);
+      console.log(
+        `Applied ${applyResult.statements} statements across ${applyResult.units} units`,
+      );
       break;
     case "already_applied":
       console.log("Plan already applied");
@@ -152,21 +168,34 @@ if (result) {
 
 ### `Plan`
 
-A migration plan containing all changes to transform one database schema into another.
+A migration plan containing all changes to transform one database schema into another, as an ordered list of execution-aware migration units.
 
 ```typescript
 interface Plan {
-  version: number;
+  version: number; // 2
   toolVersion?: string;
   source: { fingerprint: string };
   target: { fingerprint: string };
-  statements: string[];
+  units: MigrationUnit[];
+  sessionStatements: string[]; // SET ROLE, ... applied once per session
   role?: string;
   filter?: FilterDSL;
   serialize?: SerializeDSL;
   risk?: { level: "safe" } | { level: "data_loss"; statements: string[] };
 }
+
+interface MigrationUnit {
+  transactionMode: "transactional" | "none";
+  reason: "default" | "enum_value_visibility" | "non_transactional";
+  statements: string[];
+}
 ```
+
+A plan needs more than one unit when a statement's effects only become usable after COMMIT (e.g. `ALTER TYPE ... ADD VALUE`, whose new value cannot be referenced in the same transaction — PostgreSQL error 55P04), or when a statement cannot run inside a transaction block at all (e.g. `CREATE SUBSCRIPTION` with `connect = true`).
+
+Render a plan with `renderPlanSql(plan)` (single script) or `renderPlanFiles(plan)` (one numbered file per unit, as written by `pgdelta plan --output-dir`). `flattenPlanStatements(plan)` returns the raw ordered statements (session statements included) when transaction context does not matter.
+
+Legacy v1 plan JSON (flat `statements` array) is still accepted by `deserializePlan`/`applyPlan` and is normalized into a single transactional unit.
 
 ### `CreatePlanOptions`
 
@@ -284,7 +313,7 @@ async function migrate() {
 ### With Supabase Integration
 
 ```typescript
-import { createPlan, applyPlan } from "@supabase/pg-delta";
+import { createPlan, applyPlan, renderPlanSql } from "@supabase/pg-delta";
 import { supabase } from "@supabase/pg-delta/integrations/supabase";
 
 const result = await createPlan(sourceUrl, targetUrl, {

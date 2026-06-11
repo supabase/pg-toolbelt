@@ -15,6 +15,12 @@ export class DropSubscription extends DropSubscriptionChange {
     return [this.subscription.stableId];
   }
 
+  // PostgreSQL forbids DROP SUBSCRIPTION inside a transaction block when a
+  // replication slot is associated with the subscription.
+  override get nonTransactional() {
+    return !this.subscription.slot_is_none;
+  }
+
   serialize(_options?: SerializeOptions): string {
     return `DROP SUBSCRIPTION ${this.subscription.name}`;
   }

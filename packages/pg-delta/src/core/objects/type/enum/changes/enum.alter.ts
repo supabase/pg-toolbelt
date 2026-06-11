@@ -71,6 +71,11 @@ export class AlterEnumAddValue extends AlterEnumChange {
     return [this.enum.stableId];
   }
 
+  // New enum values are not usable until the transaction commits (55P04).
+  override get commitBoundary() {
+    return "enum_value_visibility" as const;
+  }
+
   serialize(_options?: SerializeOptions): string {
     const parts = [
       "ALTER TYPE",
