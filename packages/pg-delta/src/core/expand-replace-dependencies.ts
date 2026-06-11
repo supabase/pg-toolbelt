@@ -35,9 +35,11 @@ import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-polic
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableDropColumn,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
@@ -260,6 +262,7 @@ export function expandReplaceDependencies({
   const tablesReplacedByExpansion = new Set<string>();
   const rulesReplacedByExpansion = new Set<string>();
   const triggersReplacedByExpansion = new Set<string>();
+  const generatedColumnsReplacedByExpansion = new Set<string>();
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -280,14 +283,22 @@ export function expandReplaceDependencies({
       }
 
       if (reachedFromInvalidation && dependentRaw.startsWith("column:")) {
-        additions.push(
-          ...buildColumnDefaultReplacementChanges(
+        const replacementChanges = buildColumnDefaultReplacementChanges(
+          dependentRaw,
+          mainCatalog,
+          branchCatalog,
+          [...changes, ...additions],
+        );
+        additions.push(...replacementChanges);
+        if (
+          isGeneratedColumnReplacementTarget(
             dependentRaw,
             mainCatalog,
             branchCatalog,
-            [...changes, ...additions],
-          ),
-        );
+          )
+        ) {
+          generatedColumnsReplacedByExpansion.add(dependentRaw);
+        }
       }
       if (reachedFromInvalidation && dependentRaw.startsWith("publication:")) {
         additions.push(
@@ -395,7 +406,10 @@ export function expandReplaceDependencies({
   }
 
   const retainedChanges = removeSupersededRlsPolicyAlters(
-    changes,
+    removeSupersededGeneratedColumnDefaultAlters(
+      changes,
+      generatedColumnsReplacedByExpansion,
+    ),
     promotedRlsPolicyIds,
   ).filter(
     (change) =>
@@ -549,6 +563,30 @@ function buildColumnDefaultReplacementChanges(
   if (!mainColumn || !branchColumn) return [];
   if (mainColumn.default === null) return [];
 
+  if (mainColumn.is_generated || branchColumn.is_generated) {
+    // Generated columns cannot be safely reset through SET EXPRESSION here:
+    // older servers do not support that syntax, and constrained columns can
+    // reject the temporary NULL expression. Rebuild the column instead.
+    const replacementChanges: Change[] = [];
+    if (!hasColumnDropChange(existingChanges, columnStableId)) {
+      replacementChanges.push(
+        new AlterTableDropColumn({
+          table: mainTable,
+          column: mainColumn,
+        }),
+      );
+    }
+    if (!hasColumnAddChange(existingChanges, columnStableId)) {
+      replacementChanges.push(
+        new AlterTableAddColumn({
+          table: branchTable,
+          column: branchColumn,
+        }),
+      );
+    }
+    return replacementChanges;
+  }
+
   const replacementChanges: Change[] = [];
   if (!hasColumnDefaultDropChange(existingChanges, columnStableId)) {
     replacementChanges.push(
@@ -571,6 +609,63 @@ function buildColumnDefaultReplacementChanges(
   }
 
   return replacementChanges;
+}
+
+function isGeneratedColumnReplacementTarget(
+  columnStableId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+): boolean {
+  const parsed = parseColumnStableId(columnStableId);
+  if (!parsed) return false;
+
+  const tableStableId = stableId.table(parsed.schema, parsed.table);
+  const mainTable = mainCatalog.tables[tableStableId];
+  const branchTable = branchCatalog.tables[tableStableId];
+  if (!mainTable || !branchTable) return false;
+
+  const mainColumn = mainTable.columns.find(
+    (column) => column.name === parsed.column,
+  );
+  const branchColumn = branchTable.columns.find(
+    (column) => column.name === parsed.column,
+  );
+  if (!mainColumn || !branchColumn) return false;
+
+  return Boolean(
+    mainColumn.default !== null &&
+    (mainColumn.is_generated || branchColumn.is_generated),
+  );
+}
+
+function hasColumnDropChange(
+  changes: readonly Change[],
+  columnStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableDropColumn &&
+      stableId.column(
+        change.table.schema,
+        change.table.name,
+        change.column.name,
+      ) === columnStableId,
+  );
+}
+
+function hasColumnAddChange(
+  changes: readonly Change[],
+  columnStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableAddColumn &&
+      stableId.column(
+        change.table.schema,
+        change.table.name,
+        change.column.name,
+      ) === columnStableId,
+  );
 }
 
 function buildPublicationTableReplacementChanges(
@@ -667,6 +762,31 @@ function hasColumnDefaultSetChange(
         change.column.name,
       ) === columnStableId,
   );
+}
+
+function removeSupersededGeneratedColumnDefaultAlters(
+  changes: readonly Change[],
+  replacedGeneratedColumnIds: ReadonlySet<string>,
+): Change[] {
+  if (replacedGeneratedColumnIds.size === 0) return [...changes];
+
+  return changes.filter((change) => {
+    if (
+      !(
+        change instanceof AlterTableAlterColumnDropDefault ||
+        change instanceof AlterTableAlterColumnSetDefault
+      )
+    ) {
+      return true;
+    }
+
+    const columnStableId = stableId.column(
+      change.table.schema,
+      change.table.name,
+      change.column.name,
+    );
+    return !replacedGeneratedColumnIds.has(columnStableId);
+  });
 }
 
 function hasPublicationDropTablesChange(
