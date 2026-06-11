@@ -208,6 +208,76 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test(
+      "removed check constraint for replaced function argument name does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.is_allowed(value integer)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value > 0
+            $function$;
+
+            CREATE TABLE test_schema.measurement_inputs (
+              id integer NOT NULL,
+              value integer NOT NULL,
+              CONSTRAINT measurement_inputs_value_check
+                CHECK (test_schema.is_allowed(value))
+            );
+
+            INSERT INTO test_schema.measurement_inputs (id, value)
+            VALUES (1, 10);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.measurement_inputs
+              DROP CONSTRAINT measurement_inputs_value_check;
+
+            DROP FUNCTION test_schema.is_allowed(integer);
+
+            CREATE FUNCTION test_schema.is_allowed(input integer)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input > 0
+            $function$;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.measurement_inputs DROP CONSTRAINT measurement_inputs_value_check",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.is_allowed"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE FUNCTION test_schema.is_allowed"),
+            );
+
+            expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropConstraintIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.measurement_inputs",
+          1,
+        );
+      }),
+    );
+
     test.skipIf(pgVersion < 17)(
       "generated column update for replaced function signature does not recreate table",
       withDb(pgVersion, async (db) => {
@@ -256,6 +326,90 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         await expectTableRowCount(
           db.main.query.bind(db.main),
           "test_schema.invoices",
+          1,
+        );
+      }),
+    );
+
+    test.skipIf(pgVersion < 17)(
+      "unchanged generated column for replaced function argument name does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_invoice_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED
+            );
+
+            INSERT INTO test_schema.invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_invoice_total(integer);
+
+            CREATE FUNCTION test_schema.compute_invoice_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_invoice_total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD COLUMN total",
+              ),
+            );
+
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.invoice_totals",
           1,
         );
       }),

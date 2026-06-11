@@ -29,6 +29,7 @@ import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
@@ -1298,7 +1299,7 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
   });
 
-  test("synthesizes a generated column expression update for an unchanged expression that depends on a replaced procedure", async () => {
+  test("synthesizes a generated column fallback for an unchanged expression that depends on a same-signature procedure replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
     const branchProcedure = new Procedure({
@@ -1352,13 +1353,13 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(
-      expanded.changes.some(
-        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropColumn,
       ),
-    ).toBe(true);
+    ).toHaveLength(1);
     expect(
       expanded.changes.filter(
-        (change) => change instanceof AlterTableAlterColumnSetDefault,
+        (change) => change instanceof AlterTableAddColumn,
       ),
     ).toHaveLength(1);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
@@ -1566,6 +1567,79 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
       false,
     );
+  });
+
+  test("does not replace a table when a replaced procedure only drops a dependent table check constraint", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithCheckConstraint(
+      "public.normalize_value(value) > 0",
+    );
+    const branchTable = tableWithDefault(null);
+    const dropConstraint = new AlterTableDropConstraint({
+      table: mainTable,
+      constraint: mainTable.constraints[0] as NonNullable<
+        (typeof mainTable.constraints)[number]
+      >,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      dropConstraint,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.items.items_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(dropConstraint);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAddConstraint,
+      ),
+    ).toBe(false);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
   });
 
   test("synthesizes one table check constraint replacement when the expression depends on two replaced procedures", async () => {
