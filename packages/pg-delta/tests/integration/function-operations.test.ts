@@ -292,6 +292,142 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "begin atomic sql function used by a column default is rebuilt with metadata after a column rewrite",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            DO $$
+            BEGIN
+              CREATE ROLE routine_owner;
+            EXCEPTION WHEN duplicate_object THEN
+              NULL;
+            END $$;
+            DO $$
+            BEGIN
+              CREATE ROLE routine_executor;
+            EXCEPTION WHEN duplicate_object THEN
+              NULL;
+            END $$;
+            GRANT USAGE, CREATE ON SCHEMA test_schema TO routine_owner;
+
+            CREATE TABLE test_schema.accounts (
+              id int PRIMARY KEY,
+              status text NOT NULL DEFAULT 'active'
+            );
+
+            CREATE FUNCTION test_schema.account_status_text()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text FROM test_schema.accounts WHERE id = 1;
+            END;
+
+            ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner;
+            COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper';
+            GRANT EXECUTE ON FUNCTION test_schema.account_status_text() TO routine_executor;
+
+            CREATE TABLE test_schema.account_audit (
+              id int,
+              label text DEFAULT test_schema.account_status_text()
+            );
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            ALTER TABLE test_schema.account_audit
+              ALTER COLUMN label DROP DEFAULT;
+
+            DROP FUNCTION test_schema.account_status_text();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status DROP DEFAULT;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status SET DEFAULT 'active'::test_schema.account_status;
+
+            CREATE FUNCTION test_schema.account_status_text()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text FROM test_schema.accounts WHERE id = 1;
+            END;
+
+            ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner;
+            COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper';
+            GRANT EXECUTE ON FUNCTION test_schema.account_status_text() TO routine_executor;
+
+            ALTER TABLE test_schema.account_audit
+              ALTER COLUMN label SET DEFAULT test_schema.account_status_text();
+          `,
+          assertSqlStatements: (statements) => {
+            const auditDefaultDropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.account_audit ALTER COLUMN label DROP DEFAULT",
+              ),
+            );
+            const routineDropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.account_status_text",
+              ),
+            );
+            const accountAlterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN status TYPE test_schema.account_status",
+              ),
+            );
+            const routineCreateIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes(
+                  "FUNCTION test_schema.account_status_text()",
+                ),
+            );
+            const routineOwnerIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner",
+              ),
+            );
+            const routineCommentIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper'",
+              ),
+            );
+            const routineGrantIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("GRANT ") &&
+                statement.includes(
+                  " ON FUNCTION test_schema.account_status_text() TO routine_executor",
+                ),
+            );
+            const auditDefaultSetIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.account_audit ALTER COLUMN label SET DEFAULT test_schema.account_status_text()",
+              ),
+            );
+
+            expect(auditDefaultDropIndex).toBeGreaterThanOrEqual(0);
+            expect(routineDropIndex).toBeGreaterThan(auditDefaultDropIndex);
+            expect(accountAlterIndex).toBeGreaterThan(routineDropIndex);
+            expect(routineCreateIndex).toBeGreaterThan(accountAlterIndex);
+            expect(routineOwnerIndex).toBeGreaterThan(routineCreateIndex);
+            expect(routineCommentIndex).toBeGreaterThan(routineCreateIndex);
+            expect(routineGrantIndex).toBeGreaterThan(routineCreateIndex);
+            expect(auditDefaultSetIndex).toBeGreaterThan(routineCreateIndex);
+          },
+        });
+      }),
+    );
+
+    test(
       "function signature: parameter type change",
       withDb(pgVersion, async (db) => {
         // Changes the IN parameter type (text -> uuid). stableId changes

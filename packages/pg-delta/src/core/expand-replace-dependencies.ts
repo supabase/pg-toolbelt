@@ -3,13 +3,20 @@ import type { Change } from "./change.types.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
+import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
+import { filterPublicBuiltInDefaults } from "./objects/base.privilege-diff.ts";
+import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
+import { CreateCommentOnProcedure } from "./objects/procedure/changes/procedure.comment.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import { GrantProcedurePrivileges } from "./objects/procedure/changes/procedure.privilege.ts";
+import { CreateSecurityLabelOnProcedure } from "./objects/procedure/changes/procedure.security-label.ts";
+import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import {
   ReplaceRule,
   SetRuleEnabledState,
@@ -23,7 +30,11 @@ import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
-import { AlterTableAddConstraint } from "./objects/table/changes/table.alter.ts";
+import {
+  AlterTableAddConstraint,
+  AlterTableAlterColumnDropDefault,
+  AlterTableAlterColumnSetDefault,
+} from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
@@ -264,6 +275,17 @@ export function expandReplaceDependencies({
         continue;
       }
 
+      if (reachedFromInvalidation && dependentRaw.startsWith("column:")) {
+        additions.push(
+          ...buildColumnDefaultReplacementChanges(
+            dependentRaw,
+            mainCatalog,
+            branchCatalog,
+            [...changes, ...additions],
+          ),
+        );
+      }
+
       const targetId = normalizeDependentId(dependentRaw);
       if (!targetId) continue;
       if (
@@ -320,6 +342,7 @@ export function expandReplaceDependencies({
         addDrop,
         addCreate: effectiveAddCreate,
         diffContext,
+        existingChanges: [...changes, ...additions],
       });
       if (!replacementChanges) continue;
 
@@ -485,6 +508,94 @@ function isOwnedSequenceColumnDependency(
       sequence.owned_by_table,
       sequence.owned_by_column,
     )
+  );
+}
+
+function buildColumnDefaultReplacementChanges(
+  columnStableId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+  existingChanges: readonly Change[],
+): Change[] {
+  const parsed = parseColumnStableId(columnStableId);
+  if (!parsed) return [];
+
+  const tableStableId = stableId.table(parsed.schema, parsed.table);
+  const mainTable = mainCatalog.tables[tableStableId];
+  const branchTable = branchCatalog.tables[tableStableId];
+  if (!mainTable || !branchTable) return [];
+
+  const mainColumn = mainTable.columns.find(
+    (column) => column.name === parsed.column,
+  );
+  const branchColumn = branchTable.columns.find(
+    (column) => column.name === parsed.column,
+  );
+  if (!mainColumn || !branchColumn) return [];
+  if (mainColumn.default === null || mainColumn.is_generated) return [];
+
+  const replacementChanges: Change[] = [];
+  if (!hasColumnDefaultDropChange(existingChanges, columnStableId)) {
+    replacementChanges.push(
+      new AlterTableAlterColumnDropDefault({
+        table: branchTable,
+        column: branchColumn,
+      }),
+    );
+  }
+  if (
+    branchColumn.default !== null &&
+    !branchColumn.is_generated &&
+    !hasColumnDefaultSetChange(existingChanges, columnStableId)
+  ) {
+    replacementChanges.push(
+      new AlterTableAlterColumnSetDefault({
+        table: branchTable,
+        column: branchColumn,
+      }),
+    );
+  }
+
+  return replacementChanges;
+}
+
+function parseColumnStableId(
+  columnStableId: string,
+): { schema: string; table: string; column: string } | null {
+  if (!columnStableId.startsWith("column:")) return null;
+  const parts = columnStableId.slice("column:".length).split(".");
+  if (parts.length < 3) return null;
+  const [schema, table, ...columnParts] = parts;
+  return { schema, table, column: columnParts.join(".") };
+}
+
+function hasColumnDefaultDropChange(
+  changes: readonly Change[],
+  columnStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableAlterColumnDropDefault &&
+      stableId.column(
+        change.table.schema,
+        change.table.name,
+        change.column.name,
+      ) === columnStableId,
+  );
+}
+
+function hasColumnDefaultSetChange(
+  changes: readonly Change[],
+  columnStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableAlterColumnSetDefault &&
+      stableId.column(
+        change.table.schema,
+        change.table.name,
+        change.column.name,
+      ) === columnStableId,
   );
 }
 
@@ -667,13 +778,14 @@ function buildReplaceChanges(
   options: {
     addDrop: boolean;
     addCreate: boolean;
+    existingChanges?: readonly Change[];
     diffContext?: Pick<
       ObjectDiffContext,
       "version" | "currentUser" | "defaultPrivilegeState"
     >;
   },
 ): Change[] | null {
-  const { addDrop, addCreate, diffContext } = options;
+  const { addDrop, addCreate, existingChanges = [], diffContext } = options;
 
   if (!addDrop && !addCreate) return null;
 
@@ -758,6 +870,9 @@ function buildReplaceChanges(
                 index: resolved.branch,
                 indexableObject: resolved.branchIndexableObject,
               }),
+              ...(resolved.branch.comment !== null
+                ? [new CreateCommentOnIndex({ index: resolved.branch })]
+                : []),
             ]
           : []),
       ];
@@ -765,8 +880,18 @@ function buildReplaceChanges(
       return [
         ...(addDrop ? [new DropProcedure({ procedure: resolved.main })] : []),
         ...(addCreate
-          ? [new CreateProcedure({ procedure: resolved.branch })]
-          : []),
+          ? buildCreateProcedureReplacementChanges(
+              resolved.branch,
+              diffContext,
+              existingChanges,
+            )
+          : addDrop
+            ? buildProcedureMetadataReplacementChanges(
+                resolved.branch,
+                diffContext,
+                existingChanges,
+              )
+            : []),
       ];
     case "rls_policy":
       return [
@@ -868,6 +993,154 @@ function isSupersededReplaceChange(
     return triggerIds.has(change.trigger.stableId);
   }
   return false;
+}
+
+function buildCreateProcedureReplacementChanges(
+  procedure: Catalog["procedures"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+  existingChanges: readonly Change[] = [],
+): Change[] {
+  const changes: Change[] = diffContext
+    ? diffProcedures(diffContext, {}, { [procedure.stableId]: procedure })
+    : [new CreateProcedure({ procedure })];
+
+  appendMissingProcedureMetadataChanges(
+    changes,
+    procedure,
+    diffContext,
+    existingChanges,
+  );
+
+  return changes;
+}
+
+function buildProcedureMetadataReplacementChanges(
+  procedure: Catalog["procedures"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+  existingChanges: readonly Change[],
+): Change[] {
+  const changes: Change[] = [];
+  appendMissingProcedureMetadataChanges(
+    changes,
+    procedure,
+    diffContext,
+    existingChanges,
+  );
+  return changes;
+}
+
+function appendMissingProcedureMetadataChanges(
+  changes: Change[],
+  procedure: Catalog["procedures"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+  existingChanges: readonly Change[],
+): void {
+  const candidateChanges = buildProcedureMetadataCandidateChanges(
+    procedure,
+    diffContext,
+  );
+
+  for (const candidate of candidateChanges) {
+    if (
+      hasEquivalentProcedureChange(candidate, [...existingChanges, ...changes])
+    ) {
+      continue;
+    }
+    changes.push(candidate);
+  }
+}
+
+function buildProcedureMetadataCandidateChanges(
+  procedure: Catalog["procedures"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+): Change[] {
+  if (diffContext) {
+    return diffProcedures(
+      diffContext,
+      {},
+      { [procedure.stableId]: procedure },
+    ).filter((change) => !(change instanceof CreateProcedure));
+  }
+
+  const changes: Change[] = [
+    new AlterProcedureChangeOwner({
+      procedure,
+      owner: procedure.owner,
+    }),
+  ];
+
+  if (procedure.comment !== null) {
+    changes.push(new CreateCommentOnProcedure({ procedure }));
+  }
+  for (const securityLabel of procedure.security_labels) {
+    changes.push(
+      new CreateSecurityLabelOnProcedure({
+        procedure,
+        securityLabel,
+      }),
+    );
+  }
+
+  const grantedPrivileges = filterPublicBuiltInDefaults(
+    "procedure",
+    procedure.privileges,
+  ).filter((privilege) => privilege.grantee !== procedure.owner);
+  const grantsByGrantee = new Map<
+    string,
+    { privilege: string; grantable: boolean }[]
+  >();
+  for (const privilege of grantedPrivileges) {
+    const key = `${privilege.grantee}\0${privilege.grantable ? "1" : "0"}`;
+    const existing = grantsByGrantee.get(key);
+    const target = existing ?? [];
+    target.push({
+      privilege: privilege.privilege,
+      grantable: privilege.grantable,
+    });
+    if (!existing) grantsByGrantee.set(key, target);
+  }
+
+  for (const [key, privileges] of grantsByGrantee) {
+    const [grantee] = key.split("\0");
+    changes.push(
+      new GrantProcedurePrivileges({
+        procedure,
+        grantee,
+        privileges,
+        version: undefined,
+      }),
+    );
+  }
+
+  return changes;
+}
+
+function hasEquivalentProcedureChange(
+  candidate: Change,
+  existingChanges: readonly Change[],
+): boolean {
+  const candidateId = candidate.changeId;
+  return existingChanges.some((change) => change.changeId === candidateId);
 }
 
 function buildCreateViewReplacementChanges(

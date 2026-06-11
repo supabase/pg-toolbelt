@@ -3,8 +3,16 @@ import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
+import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
+import { CreateIndex } from "./objects/index/changes/index.create.ts";
+import { DropIndex } from "./objects/index/changes/index.drop.ts";
+import { Index } from "./objects/index/index.model.ts";
+import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
+import { CreateCommentOnProcedure } from "./objects/procedure/changes/procedure.comment.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import { GrantProcedurePrivileges } from "./objects/procedure/changes/procedure.privilege.ts";
+import { CreateSecurityLabelOnProcedure } from "./objects/procedure/changes/procedure.security-label.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
 import {
   AlterRlsPolicySetUsingExpression,
@@ -23,7 +31,9 @@ import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnType,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -90,6 +100,111 @@ function mockInvalidatingChange(invalidates: string[]): Change {
     table: { schema: "public", name: "t" },
     serialize: () => "",
   } as unknown as Change;
+}
+
+function makeTable(
+  name: string,
+  columns: ConstructorParameters<typeof Table>[0]["columns"],
+): Table {
+  return new Table({
+    schema: "public",
+    name,
+    persistence: "p",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    partition_by: null,
+    owner: "postgres",
+    comment: null,
+    parent_schema: null,
+    parent_name: null,
+    columns,
+    privileges: [],
+  });
+}
+
+function makeProcedure(
+  overrides: Partial<ConstructorParameters<typeof Procedure>[0]> = {},
+): Procedure {
+  return new Procedure({
+    schema: "public",
+    name: "account_status_text",
+    kind: "f",
+    return_type: "text",
+    return_type_schema: "pg_catalog",
+    language: "sql",
+    security_definer: false,
+    volatility: "s",
+    parallel_safety: "u",
+    execution_cost: 100,
+    result_rows: 0,
+    is_strict: false,
+    leakproof: false,
+    returns_set: false,
+    argument_count: 0,
+    argument_default_count: 0,
+    argument_names: null,
+    argument_types: [],
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
+    source_code: "",
+    binary_path: null,
+    sql_body: "SELECT status::text FROM public.accounts WHERE id = 1",
+    definition:
+      "CREATE FUNCTION public.account_status_text() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT status::text FROM public.accounts WHERE id = 1; END",
+    config: null,
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+    security_labels: [],
+    ...overrides,
+  });
+}
+
+function makeIndex(
+  overrides: Partial<ConstructorParameters<typeof Index>[0]> = {},
+): Index {
+  return new Index({
+    schema: "public",
+    table_name: "accounts",
+    name: "accounts_status_expr_idx",
+    storage_params: [],
+    statistics_target: [],
+    index_type: "btree",
+    tablespace: null,
+    is_unique: false,
+    is_primary: false,
+    is_exclusion: false,
+    nulls_not_distinct: false,
+    immediate: true,
+    is_clustered: false,
+    is_replica_identity: false,
+    key_columns: [0],
+    column_collations: [null],
+    operator_classes: ["text_ops"],
+    column_options: [0],
+    index_expressions: "lower(status)",
+    partial_predicate: null,
+    is_owned_by_constraint: false,
+    table_relkind: "r",
+    is_partitioned_index: false,
+    is_index_partition: false,
+    parent_index_name: null,
+    definition:
+      "CREATE INDEX accounts_status_expr_idx ON public.accounts USING btree (lower(status))",
+    comment: null,
+    owner: "postgres",
+    ...overrides,
+  });
 }
 
 describe("expandReplaceDependencies", () => {
@@ -1344,6 +1459,266 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
       true,
     );
+  });
+
+  test("drops and re-adds column defaults that depend on invalidated routines", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const statusTextColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const statusEnumColumn = {
+      ...statusTextColumn,
+      data_type: "account_status",
+      data_type_str: "public.account_status",
+      is_custom_type: true,
+      custom_type_type: "e" as const,
+      custom_type_category: "E",
+      custom_type_schema: "public",
+      custom_type_name: "account_status",
+    };
+    const mainAccounts = makeTable("accounts", [statusTextColumn]);
+    const branchAccounts = makeTable("accounts", [statusEnumColumn]);
+    const defaultedColumn = {
+      name: "label",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: "public.account_status_text()",
+      comment: null,
+    };
+    const mainAudit = makeTable("account_audit", [defaultedColumn]);
+    const branchAudit = makeTable("account_audit", [defaultedColumn]);
+    const procedure = makeProcedure();
+    const changes: Change[] = [
+      new AlterTableAlterColumnType({
+        table: branchAccounts,
+        column: statusEnumColumn,
+        previousColumn: statusTextColumn,
+      }),
+    ];
+
+    const mainCatalog = catalogWith(baseline, {
+      tables: {
+        [mainAccounts.stableId]: mainAccounts,
+        [mainAudit.stableId]: mainAudit,
+      },
+      procedures: { [procedure.stableId]: procedure },
+      depends: [
+        {
+          dependent_stable_id: procedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.account_audit.label",
+          referenced_stable_id: procedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: {
+        [branchAccounts.stableId]: branchAccounts,
+        [branchAudit.stableId]: branchAudit,
+      },
+      procedures: { [procedure.stableId]: procedure },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    const defaultDrops = expanded.changes.filter(
+      (change) => change instanceof AlterTableAlterColumnDropDefault,
+    );
+    const defaultSets = expanded.changes.filter(
+      (change) => change instanceof AlterTableAlterColumnSetDefault,
+    );
+    expect(defaultDrops).toHaveLength(1);
+    expect(defaultSets).toHaveLength(1);
+    expect(defaultDrops[0].column.name).toBe("label");
+    expect(defaultSets[0].column.name).toBe("label");
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
+      true,
+    );
+  });
+
+  test("replays routine metadata when a column invalidation rebuilds a procedure", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedure = makeProcedure({
+      owner: "routine_owner",
+      comment: "routine comment",
+      security_labels: [{ provider: "dummy", label: "classified" }],
+      privileges: [
+        { grantee: "routine_executor", privilege: "EXECUTE", grantable: false },
+      ],
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      depends: [
+        {
+          dependent_stable_id: procedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
+      true,
+    );
+    expect(
+      expanded.changes.some((c) => c instanceof AlterProcedureChangeOwner),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnProcedure),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateSecurityLabelOnProcedure),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof GrantProcedurePrivileges),
+    ).toBe(true);
+  });
+
+  test("replays routine metadata when a column invalidation adds a drop before an existing procedure create", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedure = makeProcedure({
+      owner: "routine_owner",
+      comment: "routine comment",
+      security_labels: [{ provider: "dummy", label: "classified" }],
+      privileges: [
+        { grantee: "routine_executor", privilege: "EXECUTE", grantable: false },
+      ],
+    });
+    const changes: Change[] = [
+      new CreateProcedure({ procedure, orReplace: true }),
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      depends: [
+        {
+          dependent_stable_id: procedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(
+      expanded.changes.filter((c) => c instanceof CreateProcedure),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterProcedureChangeOwner),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnProcedure),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateSecurityLabelOnProcedure),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof GrantProcedurePrivileges),
+    ).toBe(true);
+  });
+
+  test("replays index comments when a column invalidation rebuilds an index", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const index = makeIndex({ comment: "status expression index" });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      indexes: { [index.stableId]: index },
+      depends: [
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      indexes: { [index.stableId]: index },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropIndex)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnIndex),
+    ).toBe(true);
   });
 
   test("keeps a drop-only dependent trigger when a column is invalidated", async () => {
