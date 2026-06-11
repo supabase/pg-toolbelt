@@ -217,19 +217,39 @@ export function diffCatalogs(
     ...diffForeignTables(diffContext, main.foreignTables, branch.foreignTables),
   );
 
-  // Filter privilege REVOKEs for objects that are being dropped
-  // Avoid emitting redundant REVOKE statements for targets that will no longer exist.
+  // Filter privilege changes for objects that are only being dropped.
+  // Avoid emitting redundant ACL statements for targets that will no longer exist.
   const droppedObjectStableIds = new Set<string>();
+  const createdStableIds = new Set<string>();
   for (const change of changes) {
     if (change.operation === "drop" && change.scope === "object") {
       for (const dep of change.requires) {
         droppedObjectStableIds.add(dep);
       }
     }
+    if (change.operation === "create" && change.scope === "object") {
+      for (const dep of change.creates) {
+        createdStableIds.add(dep);
+      }
+    }
   }
+  // A pure DROP does not need ACL cleanup: the target object is going away.
+  // A replacement is different: it has both DROP and CREATE for the same stable
+  // id, and its privilege ALTERs describe the ACL state of the newly created
+  // object. Keep all of them, including REVOKE/REVOKE GRANT OPTION generated to
+  // subtract privileges inherited from ALTER DEFAULT PRIVILEGES at create time.
+  const replacementStableIds = new Set(
+    [...droppedObjectStableIds].filter((id) => createdStableIds.has(id)),
+  );
   let filteredChanges = changes.filter((change) => {
     if (change.operation === "alter" && change.scope === "privilege") {
-      return !droppedObjectStableIds.has(getPrivilegeTargetStableId(change));
+      const targetStableId = getPrivilegeTargetStableId(change);
+      // Checking only privilege creates would keep replacement GRANTs but drop
+      // replacement REVOKEs, so preserve by replacement target stable id instead.
+      if (replacementStableIds.has(targetStableId)) {
+        return true;
+      }
+      return !droppedObjectStableIds.has(targetStableId);
     }
     return true;
   });
@@ -238,6 +258,7 @@ export function diffCatalogs(
     changes: filteredChanges,
     mainCatalog: main,
     branchCatalog: branch,
+    diffContext,
   });
   filteredChanges = normalizePostDiffChanges({
     changes: expandedDependencies.changes,

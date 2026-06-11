@@ -6,6 +6,10 @@ import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
+import {
+  AlterRlsPolicySetUsingExpression,
+  AlterRlsPolicySetWithCheckExpression,
+} from "./objects/rls-policy/changes/rls-policy.alter.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
 import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
@@ -44,12 +48,27 @@ function mockChange(overrides: {
     scope: "object",
     creates,
     drops,
+    invalidates: [],
     requires: [],
     table: { schema: "public", name: "t" },
     serialize: () => [],
     get requiresForDrop(): string[] {
       return [];
     },
+  } as unknown as Change;
+}
+
+function mockInvalidatingChange(invalidates: string[]): Change {
+  return {
+    objectType: "table",
+    operation: "alter",
+    scope: "object",
+    creates: [],
+    drops: [],
+    invalidates,
+    requires: [],
+    table: { schema: "public", name: "t" },
+    serialize: () => "",
   } as unknown as Change;
 }
 
@@ -819,5 +838,143 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some((c) => c instanceof CreateCommentOnRlsPolicy),
     ).toBe(true);
+  });
+
+  test("promotes dependent RLS policy when a referenced column is invalidated", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const columnTemplate = {
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const tableBase = {
+      schema: "public",
+      name: "solution_categories_with_policy",
+      persistence: "p" as const,
+      row_security: true,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d" as const,
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      partition_by: null,
+      owner: "postgres",
+      comment: null,
+      parent_schema: null,
+      parent_name: null,
+      constraints: [],
+      privileges: [],
+    };
+    const mainRoleColumn = {
+      ...columnTemplate,
+      name: "role",
+    };
+    const branchRoleColumn = {
+      ...columnTemplate,
+      name: "role",
+      data_type: "user_role_enum",
+      data_type_str: "public.user_role_enum",
+      is_custom_type: true,
+      custom_type_type: "e",
+      custom_type_category: "E",
+      custom_type_schema: "public",
+      custom_type_name: "user_role_enum",
+    };
+    const mainTable = new Table({
+      ...tableBase,
+      columns: [mainRoleColumn],
+    });
+    const branchTable = new Table({
+      ...tableBase,
+      columns: [branchRoleColumn],
+    });
+    const policyBase = {
+      schema: "public",
+      table_name: "solution_categories_with_policy",
+      name: "categories_admin_manage",
+      command: "*" as const,
+      permissive: true,
+      roles: ["public"],
+      owner: "postgres",
+      comment: null,
+      referenced_relations: [],
+      referenced_procedures: [],
+    };
+    const mainPolicy = new RlsPolicy({
+      ...policyBase,
+      using_expression: "role = 'admin'",
+      with_check_expression: "role = 'admin'",
+    });
+    const branchPolicy = new RlsPolicy({
+      ...policyBase,
+      using_expression: "role = 'admin'::public.user_role_enum",
+      with_check_expression: "role = 'admin'::public.user_role_enum",
+    });
+    const alterUsing = new AlterRlsPolicySetUsingExpression({
+      policy: mainPolicy,
+      usingExpression: branchPolicy.using_expression,
+    });
+    const alterWithCheck = new AlterRlsPolicySetWithCheckExpression({
+      policy: mainPolicy,
+      withCheckExpression: branchPolicy.with_check_expression,
+    });
+    const changes: Change[] = [
+      mockInvalidatingChange([
+        "column:public.solution_categories_with_policy.role",
+      ]),
+      alterUsing,
+      alterWithCheck,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      tables: { [mainTable.stableId]: mainTable },
+      rlsPolicies: { [mainPolicy.stableId]: mainPolicy },
+      depends: [
+        {
+          dependent_stable_id: mainPolicy.stableId,
+          referenced_stable_id:
+            "column:public.solution_categories_with_policy.role",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      tables: { [branchTable.stableId]: branchTable },
+      rlsPolicies: { [branchPolicy.stableId]: branchPolicy },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropRlsPolicy)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateRlsPolicy)).toBe(
+      true,
+    );
+    expect(expanded.changes).not.toContain(alterUsing);
+    expect(expanded.changes).not.toContain(alterWithCheck);
   });
 });

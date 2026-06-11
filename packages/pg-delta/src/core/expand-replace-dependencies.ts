@@ -1,11 +1,13 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
+import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
@@ -24,6 +26,7 @@ import { DropRange } from "./objects/type/range/changes/range.drop.ts";
 import { stableId } from "./objects/utils.ts";
 import { CreateView } from "./objects/view/changes/view.create.ts";
 import { DropView } from "./objects/view/changes/view.drop.ts";
+import { buildCreateViewChanges } from "./objects/view/view.diff.ts";
 
 type ResolvedObject =
   | {
@@ -95,10 +98,15 @@ export function expandReplaceDependencies({
   changes,
   mainCatalog,
   branchCatalog,
+  diffContext,
 }: {
   changes: Change[];
   mainCatalog: Catalog;
   branchCatalog: Catalog;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
 }): ExpandReplaceDependenciesResult {
   const createdIds = new Set<string>();
   const droppedIds = new Set<string>();
@@ -114,6 +122,16 @@ export function expandReplaceDependencies({
       replaceRoots.add(id);
     }
   }
+
+  const promotedRlsPolicyIds = new Set<string>();
+  const additions: Change[] = collectInvalidatedRlsPolicyReplacements({
+    changes,
+    mainCatalog,
+    branchCatalog,
+    createdIds,
+    droppedIds,
+    promotedRlsPolicyIds,
+  });
 
   // Procedure stableIds are signature-qualified
   // (`procedure:schema.name(argtypes)`), so a function whose parameter types
@@ -158,7 +176,7 @@ export function expandReplaceDependencies({
     }
   }
 
-  if (replaceRoots.size === 0) {
+  if (replaceRoots.size === 0 && additions.length === 0) {
     return {
       changes,
       replacedTableIds: new Set<string>(),
@@ -176,7 +194,6 @@ export function expandReplaceDependencies({
     list.add(dep.dependent_stable_id);
   }
 
-  const additions: Change[] = [];
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
   const queue: string[] = [...replaceRoots];
@@ -244,10 +261,14 @@ export function expandReplaceDependencies({
       const replacementChanges = buildReplaceChanges(resolved, {
         addDrop,
         addCreate,
+        diffContext,
       });
       if (!replacementChanges) continue;
 
       additions.push(...replacementChanges);
+      if (resolved.kind === "rls_policy") {
+        promotedRlsPolicyIds.add(targetId);
+      }
 
       // If we added a DropTable(T) for an existing table, mark T so any
       // pre-existing object-scope AlterTable*(T) changes get dropped below —
@@ -272,9 +293,88 @@ export function expandReplaceDependencies({
   }
 
   return {
-    changes: [...changes, ...additions],
+    changes: [
+      ...removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+      ...additions,
+    ],
     replacedTableIds: tablesReplacedByExpansion,
   };
+}
+
+function collectInvalidatedRlsPolicyReplacements({
+  changes,
+  mainCatalog,
+  branchCatalog,
+  createdIds,
+  droppedIds,
+  promotedRlsPolicyIds,
+}: {
+  changes: Change[];
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  createdIds: Set<string>;
+  droppedIds: Set<string>;
+  promotedRlsPolicyIds: Set<string>;
+}): Change[] {
+  // In-place rewrites report stable ids through `invalidates`: the referenced
+  // object keeps its identity, but dependents bound to the old definition must
+  // be torn down first. RLS policy expressions are tracked in pg_depend, so use
+  // those catalog edges to promote only policies that depend on an invalidated
+  // id, without coupling this expansion pass to a concrete table-change class.
+  const invalidatedIds = new Set<string>();
+  for (const change of changes) {
+    for (const invalidatedId of change.invalidates) {
+      invalidatedIds.add(invalidatedId);
+    }
+  }
+  if (invalidatedIds.size === 0) return [];
+
+  const replacements: Change[] = [];
+  for (const dep of mainCatalog.depends) {
+    if (!invalidatedIds.has(dep.referenced_stable_id)) continue;
+
+    const targetId = normalizeDependentId(dep.dependent_stable_id);
+    if (!targetId?.startsWith("rlsPolicy:")) continue;
+    if (promotedRlsPolicyIds.has(targetId)) continue;
+    if (createdIds.has(targetId) && droppedIds.has(targetId)) continue;
+
+    const resolved = resolveObjectForStableId(
+      targetId,
+      mainCatalog,
+      branchCatalog,
+    );
+    if (!resolved || resolved.kind !== "rls_policy") continue;
+
+    const addDrop = !droppedIds.has(targetId);
+    const addCreate = !createdIds.has(targetId);
+    const replacementChanges = buildReplaceChanges(resolved, {
+      addDrop,
+      addCreate,
+    });
+    if (!replacementChanges) continue;
+
+    replacements.push(...replacementChanges);
+    promotedRlsPolicyIds.add(targetId);
+    for (const change of replacementChanges) {
+      for (const id of change.creates ?? []) createdIds.add(id);
+      for (const id of change.drops ?? []) droppedIds.add(id);
+    }
+  }
+
+  return replacements;
+}
+
+function removeSupersededRlsPolicyAlters(
+  changes: Change[],
+  promotedRlsPolicyIds: ReadonlySet<string>,
+): Change[] {
+  if (promotedRlsPolicyIds.size === 0) return changes;
+  return changes.filter((change) => {
+    if (change.objectType !== "rls_policy" || change.operation !== "alter") {
+      return true;
+    }
+    return !promotedRlsPolicyIds.has(change.policy.stableId);
+  });
 }
 
 function isOwnedSequenceColumnDependency(
@@ -444,9 +544,16 @@ function resolveObjectForStableId(
 
 function buildReplaceChanges(
   resolved: ResolvedObject,
-  options: { addDrop: boolean; addCreate: boolean },
+  options: {
+    addDrop: boolean;
+    addCreate: boolean;
+    diffContext?: Pick<
+      ObjectDiffContext,
+      "version" | "currentUser" | "defaultPrivilegeState"
+    >;
+  },
 ): Change[] | null {
-  const { addDrop, addCreate } = options;
+  const { addDrop, addCreate, diffContext } = options;
 
   if (!addDrop && !addCreate) return null;
 
@@ -485,7 +592,9 @@ function buildReplaceChanges(
     case "view":
       return [
         ...(addDrop ? [new DropView({ view: resolved.main })] : []),
-        ...(addCreate ? [new CreateView({ view: resolved.branch })] : []),
+        ...(addCreate
+          ? buildCreateViewReplacementChanges(resolved.branch, diffContext)
+          : []),
       ];
     case "materialized_view":
       return [
@@ -493,7 +602,13 @@ function buildReplaceChanges(
           ? [new DropMaterializedView({ materializedView: resolved.main })]
           : []),
         ...(addCreate
-          ? [new CreateMaterializedView({ materializedView: resolved.branch })]
+          ? diffContext
+            ? buildCreateMaterializedViewChanges(diffContext, resolved.branch)
+            : [
+                new CreateMaterializedView({
+                  materializedView: resolved.branch,
+                }),
+              ]
           : []),
       ];
     case "index":
@@ -572,4 +687,21 @@ function buildReplaceChanges(
     default:
       return null;
   }
+}
+
+function buildCreateViewReplacementChanges(
+  view: Catalog["views"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+): Change[] {
+  // Dependency-closure replacements synthesize a create without going through
+  // `diffViews`, so replay the same owner/comment/security-label/ACL metadata
+  // that a normal non-alterable view replacement would emit.
+  return diffContext
+    ? buildCreateViewChanges(diffContext, view)
+    : [new CreateView({ view })];
 }

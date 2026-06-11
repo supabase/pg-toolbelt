@@ -30,6 +30,71 @@ import {
 import type { ViewChange } from "./changes/view.types.ts";
 import type { View } from "./view.model.ts";
 
+export function buildCreateViewChanges(
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
+  view: View,
+): ViewChange[] {
+  const changes: ViewChange[] = [new CreateView({ view })];
+
+  // OWNER: If the view should be owned by someone other than the current user,
+  // emit ALTER VIEW ... OWNER TO after creation
+  if (view.owner !== ctx.currentUser) {
+    changes.push(new AlterViewChangeOwner({ view, owner: view.owner }));
+  }
+
+  if (view.comment !== null) {
+    changes.push(new CreateCommentOnView({ view }));
+  }
+
+  for (const label of view.security_labels) {
+    changes.push(new CreateSecurityLabelOnView({ view, securityLabel: label }));
+  }
+
+  // PRIVILEGES: For created objects, compare against default privileges state
+  // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+  // so objects are created with the default privileges state in effect.
+  // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+  // needed to reach the final desired state.
+  const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+    ctx.currentUser,
+    "view",
+    view.schema ?? "",
+  );
+  const creatorFilteredDefaults =
+    view.owner !== ctx.currentUser
+      ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+      : effectiveDefaults;
+  const desiredPrivileges = view.privileges;
+  // Filter out owner privileges - owner always has ALL privileges implicitly
+  // and shouldn't be compared. Use the view owner as the reference.
+  const privilegeResults = diffPrivileges(
+    creatorFilteredDefaults,
+    desiredPrivileges,
+    view.owner,
+  );
+
+  changes.push(
+    ...(emitColumnPrivilegeChanges(
+      privilegeResults,
+      view,
+      view,
+      "view",
+      {
+        Grant: GrantViewPrivileges,
+        Revoke: RevokeViewPrivileges,
+        RevokeGrantOption: RevokeGrantOptionViewPrivileges,
+      },
+      effectiveDefaults,
+      ctx.version,
+    ) as ViewChange[]),
+  );
+
+  return changes;
+}
+
 /**
  * Diff two sets of views from main and branch catalogs.
  *
@@ -49,67 +114,9 @@ export function diffViews(
   const { created, dropped, altered } = diffObjects(main, branch);
 
   const changes: ViewChange[] = [];
-  const appendCreateViewChanges = (view: View) => {
-    changes.push(new CreateView({ view }));
-
-    // OWNER: If the view should be owned by someone other than the current user,
-    // emit ALTER VIEW ... OWNER TO after creation
-    if (view.owner !== ctx.currentUser) {
-      changes.push(new AlterViewChangeOwner({ view, owner: view.owner }));
-    }
-
-    if (view.comment !== null) {
-      changes.push(new CreateCommentOnView({ view }));
-    }
-
-    for (const label of view.security_labels) {
-      changes.push(
-        new CreateSecurityLabelOnView({ view, securityLabel: label }),
-      );
-    }
-
-    // PRIVILEGES: For created objects, compare against default privileges state
-    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
-    // so objects are created with the default privileges state in effect.
-    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
-    // needed to reach the final desired state.
-    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
-      ctx.currentUser,
-      "view",
-      view.schema ?? "",
-    );
-    const creatorFilteredDefaults =
-      view.owner !== ctx.currentUser
-        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
-        : effectiveDefaults;
-    const desiredPrivileges = view.privileges;
-    // Filter out owner privileges - owner always has ALL privileges implicitly
-    // and shouldn't be compared. Use the view owner as the reference.
-    const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
-      desiredPrivileges,
-      view.owner,
-    );
-
-    changes.push(
-      ...(emitColumnPrivilegeChanges(
-        privilegeResults,
-        view,
-        view,
-        "view",
-        {
-          Grant: GrantViewPrivileges,
-          Revoke: RevokeViewPrivileges,
-          RevokeGrantOption: RevokeGrantOptionViewPrivileges,
-        },
-        effectiveDefaults,
-        ctx.version,
-      ) as ViewChange[]),
-    );
-  };
 
   for (const viewId of created) {
-    appendCreateViewChanges(branch[viewId]);
+    changes.push(...buildCreateViewChanges(ctx, branch[viewId]));
   }
 
   for (const viewId of dropped) {
@@ -153,7 +160,7 @@ export function diffViews(
       )
     ) {
       changes.push(new DropView({ view: mainView }));
-      appendCreateViewChanges(branchView);
+      changes.push(...buildCreateViewChanges(ctx, branchView));
     } else if (nonAlterablePropsChanged) {
       // Replace the entire view using CREATE OR REPLACE to avoid drop when possible
       changes.push(new CreateView({ view: branchView, orReplace: true }));

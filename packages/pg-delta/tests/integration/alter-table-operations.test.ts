@@ -2,10 +2,10 @@
  * Integration tests for PostgreSQL ALTER TABLE operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -103,6 +103,122 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER TABLE test_schema.conversions ALTER COLUMN price TYPE numeric(12,4);
         `,
+        });
+      }),
+    );
+
+    test(
+      "change column type after dropping dependent view",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.alter_column_type_view_dependent_users (
+            id integer PRIMARY KEY,
+            age numeric
+          );
+
+          CREATE VIEW public.alter_column_type_view_dependent_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_dependent_users
+            WHERE age > 0;
+        `,
+          testSql: `
+          DROP VIEW public.alter_column_type_view_dependent_user_ages;
+
+          ALTER TABLE public.alter_column_type_view_dependent_users
+            ALTER COLUMN age TYPE integer USING age::integer;
+
+          CREATE VIEW public.alter_column_type_view_dependent_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_dependent_users
+            WHERE age > 0;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toHaveLength(3);
+            expect(sqlStatements[0]).toBe(
+              "DROP VIEW public.alter_column_type_view_dependent_user_ages",
+            );
+            expect(sqlStatements[1]).toBe(
+              "ALTER TABLE public.alter_column_type_view_dependent_users ALTER COLUMN age TYPE integer USING age::integer",
+            );
+            expect(sqlStatements[2]).toMatch(
+              /^CREATE VIEW public\.alter_column_type_view_dependent_user_ages AS SELECT /,
+            );
+            expect(sqlStatements[2]).toContain(
+              "FROM alter_column_type_view_dependent_users",
+            );
+            expect(sqlStatements[2]).toContain("age > 0");
+          },
+        });
+      }),
+    );
+
+    test(
+      "change column type after dropping dependent view preserves metadata",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE ROLE alter_column_type_view_metadata_reader;
+
+          CREATE TABLE public.alter_column_type_view_metadata_users (
+            id integer PRIMARY KEY,
+            age numeric
+          );
+
+          CREATE VIEW public.alter_column_type_view_metadata_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_metadata_users
+            WHERE age > 0;
+
+          COMMENT ON VIEW public.alter_column_type_view_metadata_user_ages
+            IS 'dependent view metadata';
+
+          GRANT SELECT ON public.alter_column_type_view_metadata_user_ages
+            TO alter_column_type_view_metadata_reader;
+        `,
+          testSql: `
+          DROP VIEW public.alter_column_type_view_metadata_user_ages;
+
+          ALTER TABLE public.alter_column_type_view_metadata_users
+            ALTER COLUMN age TYPE integer USING age::integer;
+
+          CREATE VIEW public.alter_column_type_view_metadata_user_ages AS
+            SELECT id, age
+            FROM public.alter_column_type_view_metadata_users
+            WHERE age > 0;
+
+          COMMENT ON VIEW public.alter_column_type_view_metadata_user_ages
+            IS 'dependent view metadata';
+
+          GRANT SELECT ON public.alter_column_type_view_metadata_user_ages
+            TO alter_column_type_view_metadata_reader;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toHaveLength(5);
+            expect(sqlStatements[0]).toBe(
+              "DROP VIEW public.alter_column_type_view_metadata_user_ages",
+            );
+            expect(sqlStatements[1]).toBe(
+              "ALTER TABLE public.alter_column_type_view_metadata_users ALTER COLUMN age TYPE integer USING age::integer",
+            );
+            expect(sqlStatements[2]).toMatch(
+              /^CREATE VIEW public\.alter_column_type_view_metadata_user_ages AS SELECT /,
+            );
+            expect(sqlStatements[2]).toContain(
+              "FROM alter_column_type_view_metadata_users",
+            );
+            expect(sqlStatements[2]).toContain("age > 0");
+            expect(sqlStatements[3]).toBe(
+              "COMMENT ON VIEW public.alter_column_type_view_metadata_user_ages IS 'dependent view metadata'",
+            );
+            expect(sqlStatements[4]).toBe(
+              "GRANT SELECT ON public.alter_column_type_view_metadata_user_ages TO alter_column_type_view_metadata_reader",
+            );
+          },
         });
       }),
     );

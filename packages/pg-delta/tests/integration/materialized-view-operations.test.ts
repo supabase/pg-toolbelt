@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
@@ -189,6 +189,90 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(createMatviewIdx).toBeLessThan(createViewIdx);
             // The new column must be present in the recreated matview.
             expect(statements[createMatviewIdx]).toMatch(/last_order/);
+          },
+        });
+      }),
+    );
+
+    test(
+      "restore materialized view metadata when replacing for column type rewrite",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE ROLE test_matview_reader;
+
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.users (
+              id integer PRIMARY KEY,
+              age numeric
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.user_ages AS
+              SELECT id, age
+              FROM test_schema.users
+              WHERE age > 0
+              WITH NO DATA;
+
+            COMMENT ON MATERIALIZED VIEW test_schema.user_ages
+              IS 'user ages matview';
+
+            GRANT SELECT ON test_schema.user_ages TO test_matview_reader;
+          `,
+          testSql: dedent`
+            DROP MATERIALIZED VIEW test_schema.user_ages;
+
+            ALTER TABLE test_schema.users
+              ALTER COLUMN age TYPE integer USING age::integer;
+
+            CREATE MATERIALIZED VIEW test_schema.user_ages AS
+              SELECT id, age
+              FROM test_schema.users
+              WHERE age > 0
+              WITH NO DATA;
+
+            COMMENT ON MATERIALIZED VIEW test_schema.user_ages
+              IS 'user ages matview';
+
+            GRANT SELECT ON test_schema.user_ages TO test_matview_reader;
+          `,
+          assertSqlStatements: (statements) => {
+            const dropMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "DROP MATERIALIZED VIEW test_schema.user_ages",
+              ),
+            );
+            const alterColumnIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.users ALTER COLUMN age TYPE integer",
+              ),
+            );
+            const createMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "CREATE MATERIALIZED VIEW test_schema.user_ages",
+              ),
+            );
+            const commentMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "COMMENT ON MATERIALIZED VIEW test_schema.user_ages",
+              ),
+            );
+            const grantMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "GRANT SELECT ON test_schema.user_ages TO test_matview_reader",
+              ),
+            );
+
+            expect(dropMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(alterColumnIdx).toBeGreaterThanOrEqual(0);
+            expect(createMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(commentMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(grantMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(dropMatviewIdx).toBeLessThan(alterColumnIdx);
+            expect(alterColumnIdx).toBeLessThan(createMatviewIdx);
+            expect(createMatviewIdx).toBeLessThan(commentMatviewIdx);
+            expect(createMatviewIdx).toBeLessThan(grantMatviewIdx);
           },
         });
       }),

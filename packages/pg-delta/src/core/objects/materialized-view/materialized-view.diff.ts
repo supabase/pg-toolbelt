@@ -30,6 +30,103 @@ import {
 import type { MaterializedViewChange } from "./changes/materialized-view.types.ts";
 import type { MaterializedView } from "./materialized-view.model.ts";
 
+export function buildCreateMaterializedViewChanges(
+  ctx: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >,
+  mv: MaterializedView,
+): MaterializedViewChange[] {
+  const changes: MaterializedViewChange[] = [
+    new CreateMaterializedView({
+      materializedView: mv,
+    }),
+  ];
+
+  // OWNER: If the materialized view should be owned by someone other than the current user,
+  // emit ALTER MATERIALIZED VIEW ... OWNER TO after creation
+  if (mv.owner !== ctx.currentUser) {
+    changes.push(
+      new AlterMaterializedViewChangeOwner({
+        materializedView: mv,
+        owner: mv.owner,
+      }),
+    );
+  }
+
+  // Materialized view comment on creation
+  if (mv.comment !== null) {
+    changes.push(
+      new CreateCommentOnMaterializedView({
+        materializedView: mv,
+      }),
+    );
+  }
+  // Column comments on creation
+  for (const col of mv.columns) {
+    if (col.comment !== null) {
+      changes.push(
+        new CreateCommentOnMaterializedViewColumn({
+          materializedView: mv,
+          column: col,
+        }),
+      );
+    }
+  }
+
+  // Security labels on the matview itself (columns of matviews are not
+  // supported targets of SECURITY LABEL, so we only label the relation).
+  for (const label of mv.security_labels) {
+    changes.push(
+      new CreateSecurityLabelOnMaterializedView({
+        materializedView: mv,
+        securityLabel: label,
+      }),
+    );
+  }
+
+  // PRIVILEGES: For created objects, compare against default privileges state
+  // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
+  // so objects are created with the default privileges state in effect.
+  // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
+  // needed to reach the final desired state.
+  const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
+    ctx.currentUser,
+    "materialized_view",
+    mv.schema ?? "",
+  );
+  const creatorFilteredDefaults =
+    mv.owner !== ctx.currentUser
+      ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
+      : effectiveDefaults;
+  const desiredPrivileges = mv.privileges;
+  // Filter out owner privileges - owner always has ALL privileges implicitly
+  // and shouldn't be compared. Use the materialized view owner as the reference.
+  const privilegeResults = diffPrivileges(
+    creatorFilteredDefaults,
+    desiredPrivileges,
+    mv.owner,
+  );
+
+  changes.push(
+    ...(emitColumnPrivilegeChanges(
+      privilegeResults,
+      mv,
+      mv,
+      "materializedView",
+      {
+        Grant: GrantMaterializedViewPrivileges,
+        Revoke: RevokeMaterializedViewPrivileges,
+        RevokeGrantOption: RevokeGrantOptionMaterializedViewPrivileges,
+      },
+      effectiveDefaults,
+      ctx.version,
+    ) as MaterializedViewChange[]),
+  );
+
+  return changes;
+}
+
 /**
  * Diff two sets of materialized views from main and branch catalogs.
  *
@@ -51,96 +148,8 @@ export function diffMaterializedViews(
   const changes: MaterializedViewChange[] = [];
 
   for (const materializedViewId of created) {
-    const mv = branch[materializedViewId];
     changes.push(
-      new CreateMaterializedView({
-        materializedView: mv,
-      }),
-    );
-
-    // OWNER: If the materialized view should be owned by someone other than the current user,
-    // emit ALTER MATERIALIZED VIEW ... OWNER TO after creation
-    if (mv.owner !== ctx.currentUser) {
-      changes.push(
-        new AlterMaterializedViewChangeOwner({
-          materializedView: mv,
-          owner: mv.owner,
-        }),
-      );
-    }
-
-    // Note: RLS (row_security, force_row_security) is a non-alterable property for materialized views.
-    // If RLS needs to be enabled, the materialized view must be dropped and recreated, which is
-    // handled in the "altered" section when non-alterable properties change.
-
-    // Materialized view comment on creation
-    if (mv.comment !== null) {
-      changes.push(
-        new CreateCommentOnMaterializedView({
-          materializedView: mv,
-        }),
-      );
-    }
-    // Column comments on creation
-    for (const col of mv.columns) {
-      if (col.comment !== null) {
-        changes.push(
-          new CreateCommentOnMaterializedViewColumn({
-            materializedView: mv,
-            column: col,
-          }),
-        );
-      }
-    }
-
-    // Security labels on the matview itself (columns of matviews are not
-    // supported targets of SECURITY LABEL, so we only label the relation).
-    for (const label of mv.security_labels) {
-      changes.push(
-        new CreateSecurityLabelOnMaterializedView({
-          materializedView: mv,
-          securityLabel: label,
-        }),
-      );
-    }
-
-    // PRIVILEGES: For created objects, compare against default privileges state
-    // The migration script will run ALTER DEFAULT PRIVILEGES before CREATE (via constraint spec),
-    // so objects are created with the default privileges state in effect.
-    // We compare default privileges against desired privileges to generate REVOKE/GRANT statements
-    // needed to reach the final desired state.
-    const effectiveDefaults = ctx.defaultPrivilegeState.getEffectiveDefaults(
-      ctx.currentUser,
-      "materialized_view",
-      mv.schema ?? "",
-    );
-    const creatorFilteredDefaults =
-      mv.owner !== ctx.currentUser
-        ? effectiveDefaults.filter((p) => p.grantee !== ctx.currentUser)
-        : effectiveDefaults;
-    const desiredPrivileges = mv.privileges;
-    // Filter out owner privileges - owner always has ALL privileges implicitly
-    // and shouldn't be compared. Use the materialized view owner as the reference.
-    const privilegeResults = diffPrivileges(
-      creatorFilteredDefaults,
-      desiredPrivileges,
-      mv.owner,
-    );
-
-    changes.push(
-      ...(emitColumnPrivilegeChanges(
-        privilegeResults,
-        mv,
-        mv,
-        "materializedView",
-        {
-          Grant: GrantMaterializedViewPrivileges,
-          Revoke: RevokeMaterializedViewPrivileges,
-          RevokeGrantOption: RevokeGrantOptionMaterializedViewPrivileges,
-        },
-        effectiveDefaults,
-        ctx.version,
-      ) as MaterializedViewChange[]),
+      ...buildCreateMaterializedViewChanges(ctx, branch[materializedViewId]),
     );
   }
 
@@ -180,9 +189,7 @@ export function diffMaterializedViews(
       // Replace the entire materialized view (drop + create)
       changes.push(
         new DropMaterializedView({ materializedView: mainMaterializedView }),
-        new CreateMaterializedView({
-          materializedView: branchMaterializedView,
-        }),
+        ...buildCreateMaterializedViewChanges(ctx, branchMaterializedView),
       );
     } else {
       // Only alterable properties changed - check each one

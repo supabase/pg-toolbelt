@@ -4,9 +4,15 @@ import type { Change } from "../change.types.ts";
 import type { PgDepend } from "../depend.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
-import { AlterTableDropConstraint } from "../objects/table/changes/table.alter.ts";
+import {
+  AlterTableAlterColumnType,
+  AlterTableDropConstraint,
+} from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
 import { Table } from "../objects/table/table.model.ts";
+import { CreateView } from "../objects/view/changes/view.create.ts";
+import { DropView } from "../objects/view/changes/view.drop.ts";
+import { View } from "../objects/view/view.model.ts";
 import { sortChanges } from "./sort-changes.ts";
 
 const baseTableProps = {
@@ -142,6 +148,29 @@ function table(
   });
 }
 
+function view(name: string, columns = [integerColumn("id", 1)]) {
+  return new View({
+    schema: "public",
+    name,
+    definition: "SELECT id FROM users",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: true,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    owner: "postgres",
+    comment: null,
+    columns,
+    privileges: [],
+  });
+}
+
 async function catalogWithDepends(depends: PgDepend[]) {
   const base = await createEmptyCatalog(170000, "postgres");
   // oxlint-disable-next-line typescript/no-misused-spread
@@ -159,6 +188,49 @@ function changeLabel(change: Change) {
 }
 
 describe("sortChanges", () => {
+  test("orders dependent view drop before drop-phase column type rewrite", async () => {
+    const branchTable = table("users");
+    const mainColumn = {
+      ...integerColumn("age", 4),
+      data_type: "numeric",
+      data_type_str: "numeric",
+    };
+    const branchColumn = integerColumn("age", 4);
+    const dependentView = view("user_ages", [
+      integerColumn("id", 1),
+      mainColumn,
+    ]);
+    const recreatedView = view("user_ages", [
+      integerColumn("id", 1),
+      branchColumn,
+    ]);
+    const changes: Change[] = [
+      new AlterTableAlterColumnType({
+        table: branchTable,
+        column: branchColumn,
+        previousColumn: mainColumn,
+      }),
+      new DropView({ view: dependentView }),
+      new CreateView({ view: recreatedView }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: dependentView.stableId,
+        referenced_stable_id: "column:public.users.age",
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "DropView",
+      "AlterTableAlterColumnType",
+      "CreateView",
+    ]);
+  });
+
   test("breaks publication FK-chain constraint-drop cycle with one dropped table", async () => {
     const labs = table("labs", [uniqueConstraint("unique_lab_id", "id")]);
     const posts = table("posts", [

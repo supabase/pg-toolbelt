@@ -357,5 +357,50 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "policy depending on a column type rewrite is dropped and recreated",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TYPE public.user_role_enum AS ENUM ('admin', 'user', 'guest');
+
+          CREATE TABLE public.solution_categories_with_policy (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            name text NOT NULL,
+            role text NOT NULL
+          );
+
+          ALTER TABLE public.solution_categories_with_policy ENABLE ROW LEVEL SECURITY;
+
+          CREATE POLICY "categories_admin_manage" ON public.solution_categories_with_policy
+            FOR ALL
+            TO public
+            USING (role = 'admin')
+            WITH CHECK (role = 'admin');
+        `,
+          testSql: `
+          DROP POLICY "categories_admin_manage" ON public.solution_categories_with_policy;
+
+          ALTER TABLE public.solution_categories_with_policy
+            ALTER COLUMN role TYPE public.user_role_enum USING role::public.user_role_enum;
+
+          CREATE POLICY "categories_admin_manage" ON public.solution_categories_with_policy
+            FOR ALL TO public
+            USING (role = 'admin'::public.user_role_enum)
+            WITH CHECK (role = 'admin'::public.user_role_enum);
+        `,
+          assertSqlStatements: (statements) => {
+            expect(statements.join(";\n")).toMatchInlineSnapshot(`
+              "DROP POLICY categories_admin_manage ON public.solution_categories_with_policy;
+              ALTER TABLE public.solution_categories_with_policy ALTER COLUMN role TYPE user_role_enum USING role::user_role_enum;
+              CREATE POLICY categories_admin_manage ON public.solution_categories_with_policy USING ((role = 'admin'::user_role_enum)) WITH CHECK ((role = 'admin'::user_role_enum))"
+            `);
+          },
+        });
+      }),
+    );
   });
 }

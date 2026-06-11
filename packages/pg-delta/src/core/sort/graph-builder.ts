@@ -156,6 +156,12 @@ export function buildGraphData(
         for (const droppedId of changeItem.drops ?? []) {
           createdIds.add(droppedId);
         }
+        // In-place mutations keep the object identity but invalidate
+        // dependents, so for drop-phase ordering they behave like producers of
+        // the invalidated ids without changing Change.drops.
+        for (const invalidatedId of changeItem.invalidates) {
+          createdIds.add(invalidatedId);
+        }
       }
       return createdIds;
     },

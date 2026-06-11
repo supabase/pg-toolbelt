@@ -106,7 +106,7 @@ describe.concurrent("materialized-view.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterMaterializedViewChangeOwner);
   });
 
-  test("drop + create on non-alterable change", () => {
+  test("drop + create with metadata on non-alterable change", () => {
     const main = new MaterializedView(base);
     const branch = new MaterializedView({ ...base, definition: "select 2" });
     const changes = diffMaterializedViews(
@@ -114,9 +114,10 @@ describe.concurrent("materialized-view.diff", () => {
       { [main.stableId]: main },
       { [branch.stableId]: branch },
     );
-    expect(changes).toHaveLength(2);
+    expect(changes).toHaveLength(3);
     expect(changes[0]).toBeInstanceOf(DropMaterializedView);
     expect(changes[1]).toBeInstanceOf(CreateMaterializedView);
+    expect(changes[2]).toBeInstanceOf(AlterMaterializedViewChangeOwner);
   });
 
   test("alter storage parameters: set and reset", () => {

@@ -52,6 +52,21 @@ export abstract class BaseChange {
   }
 
   /**
+   * Stable identifiers this change invalidates in place.
+   *
+   * Unlike `drops`, the object keeps its identity. This is an ordering-only
+   * signal for mutations that rewrite an existing object in a way that requires
+   * dependents bound to the old definition to be dropped before the mutation
+   * and rebuilt afterward.
+   *
+   * Defaults to an empty array. Override in subclasses that invalidate
+   * dependents without dropping the object.
+   */
+  get invalidates(): string[] {
+    return [];
+  }
+
+  /**
    * Stable identifiers this change requires to exist beforehand.
    *
    * Defaults to an empty array. Override in subclasses that have prerequisites.

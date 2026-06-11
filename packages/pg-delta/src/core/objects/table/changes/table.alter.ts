@@ -651,6 +651,15 @@ export class AlterTableAlterColumnType extends AlterTableChange {
     ];
   }
 
+  get invalidates() {
+    // ALTER COLUMN ... TYPE rewrites the column in place. The column keeps its
+    // identity, but anything bound to its old type (views, rules, etc.) must be
+    // dropped before the rewrite and rebuilt after, so report it as invalidated.
+    return [
+      stableId.column(this.table.schema, this.table.name, this.column.name),
+    ];
+  }
+
   serialize(_options?: SerializeOptions): string {
     // previousColumn is optional so direct serializer tests/fixtures can keep
     // emitting canonical ALTER TYPE SQL without forcing a USING expression.
