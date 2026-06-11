@@ -651,10 +651,19 @@ function buildColumnExpressionReplacementChanges({
   const mainColumn = mainTable.columns.find(
     (column) => column.name === columnRef.column,
   );
+  if (!mainColumn || mainColumn.default === null) return null;
+
   const branchColumn = branchTable.columns.find(
     (column) => column.name === columnRef.column,
   );
-  if (!mainColumn || !branchColumn || mainColumn.default === null) return null;
+  if (!branchColumn) {
+    // The branch removed this column. When the original diff already drops it,
+    // that drop releases the pg_depend edge and there is no expression to
+    // restore, so this dependent is handled without owner table replacement.
+    return addRelease
+      ? [new AlterTableDropColumn({ table: mainTable, column: mainColumn })]
+      : [];
+  }
 
   const generatedColumnInvolved =
     mainColumn.is_generated || branchColumn.is_generated;
