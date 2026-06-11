@@ -24,7 +24,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
 
         const resultWithoutFilter = await createPlan(db.main, db.branch);
-        const stmts = flattenPlanStatements(resultWithoutFilter!.plan);
+        const stmts = resultWithoutFilter
+          ? flattenPlanStatements(resultWithoutFilter.plan)
+          : [];
         expect(stmts).toHaveLength(4);
         expect(stmts[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
         expect(stmts[1]).toBe("CREATE TABLE app.app_t (id integer)");
@@ -40,7 +42,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        const filtered = flattenPlanStatements(result!.plan);
+        const filtered = result ? flattenPlanStatements(result.plan) : [];
         expect(filtered).toHaveLength(3);
         expect(filtered[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
         expect(filtered[1]).toBe("CREATE TABLE app.app_t (id integer)");

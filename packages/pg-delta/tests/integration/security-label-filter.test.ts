@@ -32,7 +32,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             filter: { not: { scope: "security_label" } },
           });
 
-          const sql = flattenPlanStatements(result!.plan).join(";\n");
+          const sql = result
+            ? flattenPlanStatements(result.plan).join(";\n")
+            : "";
           expect(sql).not.toContain("SECURITY LABEL");
         }),
       );
@@ -56,7 +58,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             filter: { not: { scope: "security_label", provider: "dummy" } },
           });
 
-          const sql = flattenPlanStatements(result!.plan).join(";\n");
+          const sql = result
+            ? flattenPlanStatements(result.plan).join(";\n")
+            : "";
           expect(sql).not.toContain("SECURITY LABEL FOR dummy");
         }),
       );
