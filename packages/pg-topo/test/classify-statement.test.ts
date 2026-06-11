@@ -99,6 +99,20 @@ describe("classifyStatement", () => {
     ).toBe("CREATE_OPERATOR_CLASS");
   });
 
+  test("returns CREATE_OPERATOR for operator DefineStmt", () => {
+    expect(
+      classifyStatement({
+        DefineStmt: {
+          kind: "OBJECT_OPERATOR",
+          defnames: [
+            { String: { sval: "app" } },
+            { String: { sval: "<#" } },
+          ],
+        },
+      }),
+    ).toBe("CREATE_OPERATOR");
+  });
+
   test("returns REVOKE when GrantStmt has is_grant false", () => {
     expect(
       classifyStatement({
