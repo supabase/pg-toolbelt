@@ -60,6 +60,7 @@ const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
   CreatePublicationStmt: "CREATE_PUBLICATION",
   CreateRoleStmt: "CREATE_ROLE",
   CreatePolicyStmt: "CREATE_POLICY",
+  CreateRangeStmt: "CREATE_TYPE",
   CreateSchemaStmt: "CREATE_SCHEMA",
   CreateSeqStmt: "CREATE_SEQUENCE",
   CreateSubscriptionStmt: "CREATE_SUBSCRIPTION",

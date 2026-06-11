@@ -811,6 +811,60 @@ const extractCreateCollationDependencies = (
   return { provides, requires };
 };
 
+const rangeFunctionOptionNames = new Set(["canonical", "subtype_diff"]);
+
+const extractCreateRangeDependencies = (
+  statementNode: Record<string, unknown>,
+): ExtractDependenciesResult => {
+  const provides: ObjectRef[] = [];
+  const requires: ObjectRef[] = [];
+
+  const rangeRef = objectFromNameParts(
+    "type",
+    extractNameParts(statementNode.typeName),
+  );
+  if (rangeRef) {
+    provides.push(
+      createObjectRefFromAst("type", rangeRef.name, rangeRef.schema),
+    );
+    if (rangeRef.schema) {
+      requires.push(createObjectRefFromAst("schema", rangeRef.schema));
+    }
+  }
+
+  const params = Array.isArray(statementNode.params)
+    ? statementNode.params
+    : [];
+  for (const paramNode of params) {
+    const defElem = asRecord(asRecord(paramNode)?.DefElem);
+    if (!defElem || typeof defElem.defname !== "string") {
+      continue;
+    }
+    const optionName = defElem.defname.toLowerCase();
+    const typeName = asRecord(asRecord(defElem.arg)?.TypeName);
+
+    if (optionName === "subtype") {
+      const typeRef = typeFromTypeNameNode(typeName);
+      if (typeRef) {
+        requires.push(typeRef);
+      }
+      continue;
+    }
+
+    if (rangeFunctionOptionNames.has(optionName)) {
+      const functionRef = objectFromNameParts(
+        "function",
+        extractNameParts(typeName?.names),
+      );
+      if (functionRef) {
+        requires.push(functionRef);
+      }
+    }
+  }
+
+  return { provides, requires };
+};
+
 const aggregateFunctionOptionNames = new Set([
   "sfunc",
   "finalfunc",
@@ -1137,7 +1191,14 @@ const extractDependencyRefs = (
         "type",
         extractNameParts(enumStmt?.typeName),
       );
+      const rangeStmt = asRecord(astNode.CreateRangeStmt);
+      const rangeDependencies = rangeStmt
+        ? extractCreateRangeDependencies(rangeStmt)
+        : null;
       const typeRef = compositeRef ?? enumRef;
+      if (rangeDependencies) {
+        return rangeDependencies;
+      }
       return {
         provides: typeRef
           ? [createObjectRefFromAst("type", typeRef.name, typeRef.schema)]
