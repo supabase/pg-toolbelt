@@ -104,10 +104,7 @@ describe("classifyStatement", () => {
       classifyStatement({
         DefineStmt: {
           kind: "OBJECT_OPERATOR",
-          defnames: [
-            { String: { sval: "app" } },
-            { String: { sval: "<#" } },
-          ],
+          defnames: [{ String: { sval: "app" } }, { String: { sval: "<#" } }],
         },
       }),
     ).toBe("CREATE_OPERATOR");

@@ -20,6 +20,7 @@ export type StatementClass =
   | "CREATE_TABLE"
   | "ALTER_TABLE"
   | "CREATE_INDEX"
+  | "CREATE_OPERATOR"
   | "CREATE_OPERATOR_CLASS"
   | "CREATE_FUNCTION"
   | "CREATE_PROCEDURE"
@@ -125,6 +126,9 @@ export const classifyStatement = (ast: unknown): StatementClass => {
     if (defineStmt?.kind === "OBJECT_AGGREGATE") {
       return "CREATE_AGGREGATE";
     }
+    if (defineStmt?.kind === "OBJECT_OPERATOR") {
+      return "CREATE_OPERATOR";
+    }
     if (defineStmt?.kind === "OBJECT_TYPE") {
       return "CREATE_TYPE";
     }
@@ -157,6 +161,7 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_FUNCTION: "routines",
   CREATE_AGGREGATE: "routines",
   CREATE_INDEX: "post_data",
+  CREATE_OPERATOR: "routines",
   CREATE_OPERATOR_CLASS: "pre_data",
   CREATE_LANGUAGE: "bootstrap",
   CREATE_MATERIALIZED_VIEW: "post_data",

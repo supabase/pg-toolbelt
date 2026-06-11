@@ -820,6 +820,46 @@ const isBuiltInRangeOperatorClassName = (nameParts: string[]): boolean => {
   return nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog";
 };
 
+// Opclass items commonly reference pg_catalog support objects without schema
+// qualification. Keep those out of dependency resolution while still requiring
+// user-defined unqualified support items such as <# or app.cmp(...).
+const builtInOperatorClassSupportFunctionNames = new Set([
+  "btint2cmp",
+  "btint4cmp",
+  "btint8cmp",
+  "btfloat4cmp",
+  "btfloat8cmp",
+  "bttextcmp",
+]);
+
+const isBuiltInOperatorClassSupportFunctionName = (
+  nameParts: string[],
+): boolean => {
+  const name = nameParts.at(-1)?.toLowerCase();
+  return (
+    nameParts.length === 1 &&
+    Boolean(name && builtInOperatorClassSupportFunctionNames.has(name))
+  );
+};
+
+const builtInOperatorClassSupportOperatorNames = new Set([
+  "<",
+  "<=",
+  "=",
+  ">=",
+  ">",
+]);
+
+const isBuiltInOperatorClassSupportOperatorName = (
+  nameParts: string[],
+): boolean => {
+  const name = nameParts.at(-1)?.toLowerCase();
+  return (
+    nameParts.length === 1 &&
+    Boolean(name && builtInOperatorClassSupportOperatorNames.has(name))
+  );
+};
+
 const defaultMultirangeTypeName = (rangeTypeName: string): string =>
   rangeTypeName.includes("range")
     ? rangeTypeName.replace("range", "multirange")
@@ -837,6 +877,46 @@ const baseTypeFunctionOptionNames = new Set([
 ]);
 
 const baseTypeTypeOptionNames = new Set(["like"]);
+
+const typeSignaturePart = (typeRef: ObjectRef): string =>
+  typeRef.schema ? `${typeRef.schema}.${typeRef.name}` : typeRef.name;
+
+const objectWithArgsRef = (
+  kind: ObjectRef["kind"],
+  objectWithArgs: unknown,
+): ObjectRef | null => {
+  const objectWithArgsRecord = asRecord(objectWithArgs);
+  if (!objectWithArgsRecord) {
+    return null;
+  }
+
+  const baseRef = objectFromNameParts(
+    kind,
+    extractNameParts(objectWithArgsRecord.objname),
+  );
+  if (!baseRef) {
+    return null;
+  }
+
+  const args = Array.isArray(objectWithArgsRecord.objargs)
+    ? objectWithArgsRecord.objargs
+    : [];
+  if (args.length === 0) {
+    return baseRef;
+  }
+
+  const signatureParts = args.map((argNode) => {
+    const typeRef = typeFromTypeNameNode(asRecord(argNode)?.TypeName);
+    return typeRef ? typeSignaturePart(typeRef) : "unknown";
+  });
+
+  return createObjectRefFromAst(
+    kind,
+    baseRef.name,
+    baseRef.schema,
+    `(${signatureParts.join(",")})`,
+  );
+};
 
 const extractCreateRangeDependencies = (
   statementNode: Record<string, unknown>,
@@ -952,6 +1032,91 @@ const extractCreateRangeDependencies = (
   return { provides, requires };
 };
 
+const operatorFunctionOptionNames = new Set(["function", "procedure"]);
+
+const extractCreateOperatorDependencies = (
+  statementNode: Record<string, unknown>,
+): ExtractDependenciesResult => {
+  const provides: ObjectRef[] = [];
+  const requires: ObjectRef[] = [];
+
+  const operatorRef = objectFromNameParts(
+    "operator",
+    extractNameParts(statementNode.defnames),
+  );
+  if (operatorRef?.schema) {
+    requires.push(createObjectRefFromAst("schema", operatorRef.schema));
+  }
+
+  const definition = Array.isArray(statementNode.definition)
+    ? statementNode.definition
+    : [];
+  let functionNameParts: string[] = [];
+  let leftArgRef: ObjectRef | null = null;
+  let rightArgRef: ObjectRef | null = null;
+
+  for (const optionNode of definition) {
+    const defElem = asRecord(asRecord(optionNode)?.DefElem);
+    if (!defElem || typeof defElem.defname !== "string") {
+      continue;
+    }
+
+    const optionName = defElem.defname.toLowerCase();
+    const typeName = asRecord(defElem.arg)?.TypeName;
+    if (operatorFunctionOptionNames.has(optionName)) {
+      functionNameParts = extractNameParts(asRecord(typeName)?.names);
+      continue;
+    }
+
+    if (optionName === "leftarg") {
+      leftArgRef = typeFromTypeNameNode(typeName);
+      if (leftArgRef) {
+        requires.push(leftArgRef);
+      }
+      continue;
+    }
+
+    if (optionName === "rightarg") {
+      rightArgRef = typeFromTypeNameNode(typeName);
+      if (rightArgRef) {
+        requires.push(rightArgRef);
+      }
+    }
+  }
+
+  const signatureParts = [leftArgRef, rightArgRef]
+    .filter((argRef): argRef is ObjectRef => argRef !== null)
+    .map(typeSignaturePart);
+
+  if (operatorRef) {
+    provides.push(
+      createObjectRefFromAst(
+        "operator",
+        operatorRef.name,
+        operatorRef.schema,
+        signatureParts.length > 0 ? `(${signatureParts.join(",")})` : undefined,
+      ),
+    );
+  }
+
+  const functionRef = objectFromNameParts("function", functionNameParts);
+  if (functionRef) {
+    requires.push(
+      createObjectRefFromAst(
+        "function",
+        functionRef.name,
+        functionRef.schema,
+        signatureParts.length > 0 ? `(${signatureParts.join(",")})` : undefined,
+      ),
+    );
+  }
+
+  return { provides, requires };
+};
+
+const OPCLASS_ITEM_OPERATOR = 1;
+const OPCLASS_ITEM_FUNCTION = 2;
+
 const extractCreateOperatorClassDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -978,6 +1143,40 @@ const extractCreateOperatorClassDependencies = (
   const dataTypeRef = typeFromTypeNameNode(statementNode.datatype);
   if (dataTypeRef) {
     requires.push(dataTypeRef);
+  }
+
+  const items = Array.isArray(statementNode.items) ? statementNode.items : [];
+  for (const itemNode of items) {
+    const item = asRecord(asRecord(itemNode)?.CreateOpClassItem);
+    if (!item) {
+      continue;
+    }
+
+    const itemName = asRecord(item.name);
+    const nameParts = extractNameParts(itemName?.objname);
+
+    if (item.itemtype === OPCLASS_ITEM_OPERATOR) {
+      if (isBuiltInOperatorClassSupportOperatorName(nameParts)) {
+        continue;
+      }
+
+      const operatorRef = objectWithArgsRef("operator", itemName);
+      if (operatorRef) {
+        requires.push(operatorRef);
+      }
+      continue;
+    }
+
+    if (item.itemtype === OPCLASS_ITEM_FUNCTION) {
+      if (isBuiltInOperatorClassSupportFunctionName(nameParts)) {
+        continue;
+      }
+
+      const functionRef = objectWithArgsRef("function", itemName);
+      if (functionRef) {
+        requires.push(functionRef);
+      }
+    }
   }
 
   return { provides, requires };
@@ -1536,6 +1735,10 @@ const extractDependencyRefs = (
         requires: relationRef ? [relationRef] : [],
       };
     }
+    case "CREATE_OPERATOR":
+      return extractCreateOperatorDependencies(
+        asRecord(astNode.DefineStmt) ?? {},
+      );
     case "CREATE_OPERATOR_CLASS":
       return extractCreateOperatorClassDependencies(
         asRecord(astNode.CreateOpClassStmt) ?? {},
