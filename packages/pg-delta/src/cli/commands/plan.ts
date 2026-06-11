@@ -2,12 +2,14 @@
  * Plan command - compute schema diff and preview changes.
  */
 
-import { writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { buildCommand, type CommandContext } from "@stricli/core";
 import { deserializeCatalog } from "../../core/catalog.snapshot.ts";
 import type { FilterDSL } from "../../core/integrations/filter/dsl.ts";
 import type { SerializeDSL } from "../../core/integrations/serialize/dsl.ts";
 import { createPlan } from "../../core/plan/index.ts";
+import { renderPlanFiles } from "../../core/plan/render.ts";
 import type { SqlFormatOptions } from "../../core/plan/sql-format.ts";
 import { setCommandExitCode } from "../exit-code.ts";
 import { resolveIntegrationOptions } from "../utils/integrations.ts";
@@ -40,6 +42,13 @@ export const planCommand = buildCommand({
         kind: "parsed",
         brief:
           "Write output to file (stdout by default). If format is not set: .sql infers sql, .json infers json, otherwise uses human output.",
+        parse: String,
+        optional: true,
+      },
+      "output-dir": {
+        kind: "parsed",
+        brief:
+          "Write numbered SQL migration files to a directory using transaction-aware plan units.",
         parse: String,
         optional: true,
       },
@@ -129,6 +138,7 @@ json/sql outputs are available for artifacts or piping.
       target: string;
       format?: "json" | "sql";
       output?: string;
+      "output-dir"?: string;
       role?: string;
       filter?: FilterDSL;
       serialize?: SerializeDSL;
@@ -166,6 +176,32 @@ json/sql outputs are available for artifacts or piping.
     });
     if (!planResult) {
       this.process.stdout.write("No changes detected.\n");
+      return;
+    }
+
+    if (flags.output && flags["output-dir"]) {
+      throw new Error("Use either --output or --output-dir, not both.");
+    }
+
+    if (flags["output-dir"]) {
+      await prepareOutputDirectory(flags["output-dir"]);
+      const files = renderPlanFiles(planResult.plan, {
+        sqlFormatOptions:
+          flags["sql-format"] || flags["sql-format-options"]
+            ? (flags["sql-format-options"] ?? {})
+            : undefined,
+      });
+      for (const file of files) {
+        await writeFile(
+          path.join(flags["output-dir"], file.path),
+          file.sql,
+          "utf-8",
+        );
+      }
+      this.process.stdout.write(
+        `${files.length} migration file${files.length === 1 ? "" : "s"} written to ${flags["output-dir"]}\n`,
+      );
+      setCommandExitCode(2);
       return;
     }
 
@@ -208,3 +244,13 @@ json/sql outputs are available for artifacts or piping.
     setCommandExitCode(2);
   },
 });
+
+async function prepareOutputDirectory(outputDir: string): Promise<void> {
+  await mkdir(outputDir, { recursive: true });
+  const entries = await readdir(outputDir);
+  if (entries.length > 0) {
+    throw new Error(
+      `Output directory is not empty: ${outputDir}. Choose an empty directory to avoid stale migration files.`,
+    );
+  }
+}
