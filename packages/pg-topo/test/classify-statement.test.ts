@@ -62,6 +62,16 @@ describe("classifyStatement", () => {
     ).toBe("CREATE_TABLE");
   });
 
+  test("returns CREATE_TYPE for CreateRangeStmt", () => {
+    expect(
+      classifyStatement({
+        CreateRangeStmt: {
+          typeName: [{ String: { sval: "app" } }, { String: { sval: "ids" } }],
+        },
+      }),
+    ).toBe("CREATE_TYPE");
+  });
+
   test("returns REVOKE when GrantStmt has is_grant false", () => {
     expect(
       classifyStatement({
