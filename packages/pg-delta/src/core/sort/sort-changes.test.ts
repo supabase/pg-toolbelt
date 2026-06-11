@@ -562,8 +562,8 @@ describe("sortChanges", () => {
 
     expect(sorted.map(changeLabel)).toEqual([
       `CreateProcedure:${branchProcedure.stableId}`,
-      "AlterTableAlterColumnSetDefault",
       `DropProcedure:${mainProcedure.stableId}`,
+      "AlterTableAlterColumnSetDefault",
     ]);
   });
 
@@ -643,17 +643,14 @@ describe("sortChanges", () => {
     ]);
   });
 
-  test("orders unchanged table check replacement before dropping the old overloaded function", async () => {
+  test("drops the old overloaded function before restoring expressions that can still resolve to it", async () => {
     const mainProcedure = procedure(["integer"]);
     const branchProcedure = procedure(["bigint"]);
     const mainTable = table("items", [
       checkConstraint("items_value_check", "public.normalize_value(id) > 0"),
     ]);
     const branchTable = table("items", [
-      checkConstraint(
-        "items_value_check",
-        "public.normalize_value(id::bigint) > 0",
-      ),
+      checkConstraint("items_value_check", "public.normalize_value(id) > 0"),
     ]);
     const changes: Change[] = [
       new DropProcedure({ procedure: mainProcedure }),
@@ -687,8 +684,8 @@ describe("sortChanges", () => {
     expect(sorted.map(changeLabel)).toEqual([
       "AlterTableDropConstraint:items.items_value_check",
       `CreateProcedure:${branchProcedure.stableId}`,
-      "AlterTableAddConstraint:items.items_value_check",
       `DropProcedure:${mainProcedure.stableId}`,
+      "AlterTableAddConstraint:items.items_value_check",
     ]);
   });
 });

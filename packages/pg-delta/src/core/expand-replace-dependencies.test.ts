@@ -16,6 +16,7 @@ import { Domain } from "./objects/domain/domain.model.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
+import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index, type IndexProps } from "./objects/index/index.model.ts";
@@ -1631,8 +1632,10 @@ describe("expandReplaceDependencies", () => {
       ...branchTable.columns[0],
       ...generatedColumn,
     };
-    const mainIndex = indexOnItemsValue();
-    const branchIndex = indexOnItemsValue();
+    const mainIndex = indexOnItemsValue({ comment: "retained index comment" });
+    const branchIndex = indexOnItemsValue({
+      comment: "retained index comment",
+    });
     const mainView = viewOnItemsValue();
     const branchView = viewOnItemsValue();
     const columnId = "column:public.items.value";
@@ -1708,6 +1711,11 @@ describe("expandReplaceDependencies", () => {
     ).toHaveLength(1);
     expect(
       expanded.changes.filter((change) => change instanceof CreateIndex),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof CreateCommentOnIndex,
+      ),
     ).toHaveLength(1);
     expect(
       expanded.changes.filter((change) => change instanceof DropView),
@@ -1808,6 +1816,100 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter(
         (change) => change instanceof CreateCommentOnColumn,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
+  test("restores retained column grants without replacing the table when recreating a generated column", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const retainedPrivileges = [
+      {
+        grantee: "value_reader",
+        privilege: "SELECT",
+        grantable: false,
+        columns: ["value"],
+      },
+    ];
+    const mainTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithDefault("public.normalize_value(value)", {
+        is_generated: true,
+      }),
+      privileges: retainedPrivileges,
+    });
+    const branchTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithDefault("public.normalize_value(value)", {
+        is_generated: true,
+      }),
+      privileges: retainedPrivileges,
+    });
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAddColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof GrantTablePrivileges,
       ),
     ).toHaveLength(1);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(

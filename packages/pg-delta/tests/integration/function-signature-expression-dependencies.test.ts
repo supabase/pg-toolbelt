@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
-import { withDb } from "../utils.ts";
+import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
 
 function expectNoTableReplacement(sqlStatements: string[]) {
@@ -678,8 +678,90 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
-      "unchanged generated column with retained dependents does not recreate table",
+      "unchanged check constraint for overloaded replacement drops old function before restore",
       withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.is_valid_score(value integer)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value > 0
+            $function$;
+
+            CREATE TABLE test_schema.score_labels (
+              id integer NOT NULL,
+              value integer NOT NULL,
+              CONSTRAINT score_labels_value_check
+                CHECK (test_schema.is_valid_score(value))
+            );
+
+            INSERT INTO test_schema.score_labels (id, value)
+            VALUES (1, 10);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.score_labels
+              DROP CONSTRAINT score_labels_value_check;
+
+            CREATE FUNCTION test_schema.is_valid_score(value bigint)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value > 0
+            $function$;
+
+            DROP FUNCTION test_schema.is_valid_score(integer);
+
+            ALTER TABLE test_schema.score_labels
+              ADD CONSTRAINT score_labels_value_check
+              CHECK (test_schema.is_valid_score(value));
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.score_labels DROP CONSTRAINT score_labels_value_check",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.is_valid_score",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.is_valid_score"),
+            );
+            const addConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.score_labels ADD CONSTRAINT score_labels_value_check",
+              ),
+            );
+
+            expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(createFunctionIndex).toBeGreaterThan(dropConstraintIndex);
+            expect(dropFunctionIndex).toBeGreaterThan(createFunctionIndex);
+            expect(addConstraintIndex).toBeGreaterThan(dropFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.score_labels",
+          1,
+        );
+      }),
+    );
+
+    test(
+      "unchanged generated column with retained dependents does not recreate table",
+      withDbIsolated(pgVersion, async (db) => {
         await roundtripFidelityTest({
           mainSession: db.main,
           branchSession: db.branch,
@@ -705,8 +787,25 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals (total);
 
+            COMMENT ON INDEX test_schema.invoice_totals_total_idx
+              IS 'generated total lookup';
+
             CREATE VIEW test_schema.invoice_total_values AS
               SELECT id, total FROM test_schema.invoice_totals;
+
+            DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT FROM pg_catalog.pg_roles
+                WHERE rolname = 'invoice_total_reader'
+              ) THEN
+                CREATE ROLE invoice_total_reader;
+              END IF;
+            END
+            $$;
+
+            GRANT SELECT (total)
+              ON TABLE test_schema.invoice_totals TO invoice_total_reader;
 
             INSERT INTO test_schema.invoice_totals (id, subtotal)
             VALUES (1, 20);
@@ -742,8 +841,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals (total);
 
+            COMMENT ON INDEX test_schema.invoice_totals_total_idx
+              IS 'generated total lookup';
+
             CREATE VIEW test_schema.invoice_total_values AS
               SELECT id, total FROM test_schema.invoice_totals;
+
+            GRANT SELECT (total)
+              ON TABLE test_schema.invoice_totals TO invoice_total_reader;
           `,
           assertSqlStatements: (sqlStatements) => {
             expectNoTableReplacement(sqlStatements);
@@ -793,10 +898,21 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "CREATE INDEX invoice_totals_total_idx ON test_schema.invoice_totals",
               ),
             );
+            const indexCommentIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON INDEX test_schema.invoice_totals_total_idx",
+              ),
+            );
             const createViewIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith(
                 "CREATE VIEW test_schema.invoice_total_values",
               ),
+            );
+            const grantColumnIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.includes("SELECT (total)") &&
+                statement.includes("test_schema.invoice_totals") &&
+                statement.includes("invoice_total_reader"),
             );
 
             expect(dropViewIndex).toBeGreaterThanOrEqual(0);
@@ -810,7 +926,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
             expect(addConstraintIndex).toBeGreaterThan(addColumnIndex);
             expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
+            expect(indexCommentIndex).toBeGreaterThan(createIndexIndex);
             expect(createViewIndex).toBeGreaterThan(addColumnIndex);
+            expect(grantColumnIndex).toBeGreaterThan(addColumnIndex);
           },
         });
 
@@ -825,6 +943,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(rows[0]?.index_name).toBe(
           "test_schema.invoice_totals_total_idx",
         );
+        const { rows: commentRows } = await db.main.query(dedent`
+          SELECT obj_description(
+            'test_schema.invoice_totals_total_idx'::regclass,
+            'pg_class'
+          ) AS comment
+        `);
+        expect(commentRows[0]?.comment).toBe("generated total lookup");
+        const { rows: privilegeRows } = await db.main.query(dedent`
+          SELECT has_column_privilege(
+            'invoice_total_reader',
+            'test_schema.invoice_totals',
+            'total',
+            'SELECT'
+          ) AS has_privilege
+        `);
+        expect(privilegeRows[0]?.has_privilege).toBe(true);
       }),
     );
 
