@@ -223,6 +223,7 @@ export function expandReplaceDependencies({
   // AlterTableDropColumn on a table that is about to be dropped) and the
   // associated drop-phase cycle with the catalog constraint→column edge.
   const tablesReplacedByExpansion = new Set<string>();
+  const generatedColumnsRecreatedByExpressionFallback = new Set<string>();
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -268,6 +269,14 @@ export function expandReplaceDependencies({
 
         if (expressionReplacementChanges !== null) {
           additions.push(...expressionReplacementChanges);
+          if (
+            recreatesExpressionDependent({
+              dependentRaw,
+              expressionReplacementChanges,
+            })
+          ) {
+            generatedColumnsRecreatedByExpressionFallback.add(dependentRaw);
+          }
           if (!releaseCovered) {
             expressionDependentCoverage.release.add(dependentRaw);
           }
@@ -394,7 +403,10 @@ export function expandReplaceDependencies({
 
   return {
     changes: [
-      ...removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+      ...removeSupersededGeneratedColumnSetExpressions(
+        removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+        generatedColumnsRecreatedByExpressionFallback,
+      ),
       ...additions,
     ],
     replacedTableIds: tablesReplacedByExpansion,
@@ -542,10 +554,11 @@ function collectExpressionDependentCoverage(
     if (change instanceof AlterTableAlterColumnSetDefault) {
       for (const id of change.requires ?? []) {
         if (isExpressionContainerStableId(id)) {
+          // SET EXPRESSION installs the branch expression in the create/alter
+          // phase; it does not release the old pg_depend edge before DROP
+          // FUNCTION runs, so generated columns still need a drop-phase
+          // fallback when a replaced procedure keeps the same stable id.
           restore.add(id);
-          if (change.column.is_generated) {
-            release.add(id);
-          }
         }
       }
     }
@@ -616,6 +629,42 @@ function shouldTraverseExpressionReplacementDependent({
   return expressionReplacementChanges.some((change) =>
     change.drops?.some((id) => id === dependentRaw),
   );
+}
+
+function recreatesExpressionDependent({
+  dependentRaw,
+  expressionReplacementChanges,
+}: {
+  dependentRaw: string;
+  expressionReplacementChanges: Change[];
+}): boolean {
+  let dropsDependent = false;
+  let createsDependent = false;
+  for (const change of expressionReplacementChanges) {
+    dropsDependent ||= change.drops?.some((id) => id === dependentRaw) ?? false;
+    createsDependent ||=
+      change.creates?.some((id) => id === dependentRaw) ?? false;
+  }
+  return dropsDependent && createsDependent;
+}
+
+function removeSupersededGeneratedColumnSetExpressions(
+  changes: Change[],
+  recreatedColumnIds: ReadonlySet<string>,
+): Change[] {
+  if (recreatedColumnIds.size === 0) return changes;
+
+  return changes.filter((change) => {
+    if (!(change instanceof AlterTableAlterColumnSetDefault)) return true;
+    if (!change.column.is_generated) return true;
+
+    const columnId = stableId.column(
+      change.table.schema,
+      change.table.name,
+      change.column.name,
+    );
+    return !recreatedColumnIds.has(columnId);
+  });
 }
 
 function buildExpressionDependentReplacementChanges({
