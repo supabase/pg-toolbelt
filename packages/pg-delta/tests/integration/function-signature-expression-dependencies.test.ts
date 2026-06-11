@@ -209,6 +209,78 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "dependent view is recreated when aggregate signature changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.aggregate_inputs (
+              value integer NOT NULL
+            );
+
+            CREATE AGGREGATE test_schema.total_value(integer) (
+              SFUNC = int4pl,
+              STYPE = integer,
+              INITCOND = '0'
+            );
+
+            CREATE VIEW test_schema.aggregate_totals AS
+              SELECT test_schema.total_value(value) AS total
+              FROM test_schema.aggregate_inputs;
+
+            INSERT INTO test_schema.aggregate_inputs (value) VALUES (1);
+          `,
+          testSql: dedent`
+            DROP VIEW test_schema.aggregate_totals;
+
+            DROP AGGREGATE test_schema.total_value(integer);
+
+            CREATE AGGREGATE test_schema.total_value(bigint) (
+              SFUNC = int8pl,
+              STYPE = bigint,
+              INITCOND = '0'
+            );
+
+            CREATE VIEW test_schema.aggregate_totals AS
+              SELECT test_schema.total_value(value::bigint) AS total
+              FROM test_schema.aggregate_inputs;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropViewIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP VIEW test_schema.aggregate_totals"),
+            );
+            const dropAggregateIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP AGGREGATE test_schema.total_value(integer)",
+              ),
+            );
+            const createAggregateIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE AGGREGATE test_schema.total_value(bigint)",
+              ),
+            );
+            const createViewIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE VIEW test_schema.aggregate_totals"),
+            );
+
+            expect(dropViewIndex).toBeGreaterThanOrEqual(0);
+            expect(dropAggregateIndex).toBeGreaterThan(dropViewIndex);
+            expect(createAggregateIndex).toBeGreaterThan(dropAggregateIndex);
+            expect(createViewIndex).toBeGreaterThan(createAggregateIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(
+          "SELECT total FROM test_schema.aggregate_totals",
+        );
+        expect(rows[0]?.total).toBe(1n);
+      }),
+    );
+
+    test(
       "removed check constraint for replaced function argument name does not recreate table",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -793,6 +865,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals ((total + 1));
 
+            ALTER TABLE test_schema.invoice_totals
+              CLUSTER ON invoice_totals_total_idx;
+
             ALTER INDEX test_schema.invoice_totals_total_idx
               ALTER COLUMN 1 SET STATISTICS 100;
 
@@ -824,6 +899,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               WHEN (OLD.total IS DISTINCT FROM NEW.total)
               EXECUTE FUNCTION test_schema.record_invoice_total_update();
 
+            ALTER TABLE test_schema.invoice_totals
+              DISABLE TRIGGER invoice_totals_total_trigger;
+
             CREATE TABLE test_schema.invoice_total_rule_audit (
               invoice_id integer NOT NULL,
               total integer NOT NULL
@@ -834,6 +912,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               DO ALSO INSERT INTO test_schema.invoice_total_rule_audit
                 (invoice_id, total)
                 VALUES (NEW.id, NEW.total);
+
+            ALTER TABLE test_schema.invoice_totals
+              ENABLE REPLICA RULE invoice_totals_total_rule;
 
             DO $$
             BEGIN
@@ -900,6 +981,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE INDEX invoice_totals_total_idx
               ON test_schema.invoice_totals ((total + 1));
 
+            ALTER TABLE test_schema.invoice_totals
+              CLUSTER ON invoice_totals_total_idx;
+
             ALTER INDEX test_schema.invoice_totals_total_idx
               ALTER COLUMN 1 SET STATISTICS 100;
 
@@ -915,11 +999,17 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               WHEN (OLD.total IS DISTINCT FROM NEW.total)
               EXECUTE FUNCTION test_schema.record_invoice_total_update();
 
+            ALTER TABLE test_schema.invoice_totals
+              DISABLE TRIGGER invoice_totals_total_trigger;
+
             CREATE RULE invoice_totals_total_rule AS
               ON UPDATE TO test_schema.invoice_totals
               DO ALSO INSERT INTO test_schema.invoice_total_rule_audit
                 (invoice_id, total)
                 VALUES (NEW.id, NEW.total);
+
+            ALTER TABLE test_schema.invoice_totals
+              ENABLE REPLICA RULE invoice_totals_total_rule;
 
             GRANT SELECT (total)
               ON TABLE test_schema.invoice_totals TO invoice_total_reader;
@@ -1011,6 +1101,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                   "ALTER INDEX test_schema.invoice_totals_total_idx ALTER COLUMN 1 SET STATISTICS 100",
                 ),
             );
+            const restoreClusterIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals CLUSTER ON invoice_totals_total_idx",
+              ),
+            );
             const createViewIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith(
                 "CREATE VIEW test_schema.invoice_total_values",
@@ -1021,8 +1116,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "CREATE TRIGGER invoice_totals_total_trigger",
               ),
             );
+            const restoreTriggerEnabledIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.invoice_totals DISABLE TRIGGER invoice_totals_total_trigger",
+                ),
+            );
             const createRuleIndex = sqlStatements.findIndex((statement) =>
               statement.startsWith("CREATE RULE invoice_totals_total_rule"),
+            );
+            const restoreRuleEnabledIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.invoice_totals ENABLE REPLICA RULE invoice_totals_total_rule",
+                ),
             );
             const grantColumnIndex = sqlStatements.findIndex(
               (statement) =>
@@ -1054,9 +1161,14 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
             expect(indexCommentIndex).toBeGreaterThan(createIndexIndex);
             expect(alterIndexStatisticsIndex).toBeGreaterThan(createIndexIndex);
+            expect(restoreClusterIndex).toBeGreaterThan(createIndexIndex);
             expect(createViewIndex).toBeGreaterThan(addColumnIndex);
             expect(createTriggerIndex).toBeGreaterThan(addColumnIndex);
+            expect(restoreTriggerEnabledIndex).toBeGreaterThan(
+              createTriggerIndex,
+            );
             expect(createRuleIndex).toBeGreaterThan(addColumnIndex);
+            expect(restoreRuleEnabledIndex).toBeGreaterThan(createRuleIndex);
             expect(grantColumnIndex).toBeGreaterThan(addColumnIndex);
           },
         });
@@ -1086,6 +1198,15 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             AND attnum = 1
         `);
         expect(statisticsRows[0]?.attstattarget).toBe(100);
+        const { rows: clusterRows } = await db.main.query(dedent`
+          SELECT i.indisclustered
+          FROM pg_catalog.pg_index i
+          JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = idx.relnamespace
+          WHERE n.nspname = 'test_schema'
+            AND idx.relname = 'invoice_totals_total_idx'
+        `);
+        expect(clusterRows[0]?.indisclustered).toBe(true);
         const { rows: replicaIdentityRows } = await db.main.query(dedent`
                       SELECT c.relreplident, i.indisreplident
                       FROM pg_catalog.pg_class c
@@ -1101,22 +1222,24 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           indisreplident: true,
         });
         const { rows: triggerRows } = await db.main.query(dedent`
-                      SELECT pg_get_triggerdef(oid) AS definition
-                      FROM pg_catalog.pg_trigger
-                      WHERE tgname = 'invoice_totals_total_trigger'
-                        AND NOT tgisinternal
-                    `);
+	                      SELECT pg_get_triggerdef(oid) AS definition, tgenabled
+	                      FROM pg_catalog.pg_trigger
+	                      WHERE tgname = 'invoice_totals_total_trigger'
+	                        AND NOT tgisinternal
+	                    `);
         expect(triggerRows[0]?.definition).toContain("UPDATE OF total");
+        expect(triggerRows[0]?.tgenabled).toBe("D");
         const { rows: ruleRows } = await db.main.query(dedent`
-                      SELECT pg_get_ruledef(r.oid) AS definition
-                      FROM pg_catalog.pg_rewrite r
-                      JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
+	                      SELECT pg_get_ruledef(r.oid) AS definition, r.ev_enabled
+	                      FROM pg_catalog.pg_rewrite r
+	                      JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
                       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
                       WHERE r.rulename = 'invoice_totals_total_rule'
                         AND n.nspname = 'test_schema'
                         AND c.relname = 'invoice_totals'
-        `);
+	        `);
         expect(ruleRows[0]?.definition).toContain("new.total");
+        expect(ruleRows[0]?.ev_enabled).toBe("R");
         const { rows: privilegeRows } = await db.main.query(dedent`
           SELECT has_column_privilege(
             'invoice_total_reader',
@@ -1368,6 +1491,97 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         await expectTableRowCount(
           db.main.query.bind(db.main),
           "test_schema.partitioned_invoice_totals",
+          1,
+        );
+      }),
+    );
+
+    test(
+      "local partition column default for replaced function argument name is released on the child",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_partition_score(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_scores (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              score integer
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_scores_2026
+              PARTITION OF test_schema.partitioned_scores
+              FOR VALUES FROM (2026) TO (2027);
+
+            ALTER TABLE test_schema.partitioned_scores_2026
+              ALTER COLUMN score
+              SET DEFAULT test_schema.default_partition_score(1);
+
+            INSERT INTO test_schema.partitioned_scores (id, period)
+            VALUES (1, 2026);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.partitioned_scores_2026
+              ALTER COLUMN score DROP DEFAULT;
+
+            DROP FUNCTION test_schema.default_partition_score(integer);
+
+            CREATE FUNCTION test_schema.default_partition_score(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.partitioned_scores_2026
+              ALTER COLUMN score
+              SET DEFAULT test_schema.default_partition_score(1);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropDefaultIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_scores_2026 ALTER COLUMN score DROP DEFAULT",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.default_partition_score",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.default_partition_score",
+              ),
+            );
+            const restoreDefaultIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_scores_2026 ALTER COLUMN score SET DEFAULT",
+              ),
+            );
+
+            expect(dropDefaultIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropDefaultIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(restoreDefaultIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.partitioned_scores",
           1,
         );
       }),

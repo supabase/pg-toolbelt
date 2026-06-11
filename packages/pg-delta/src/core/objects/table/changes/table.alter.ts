@@ -73,6 +73,7 @@ export type AlterTable =
   | AlterTableAlterColumnType
   | AlterTableAttachPartition
   | AlterTableChangeOwner
+  | AlterTableClusterOn
   | AlterTableDetachPartition
   | AlterTableDisableRowLevelSecurity
   | AlterTableDropColumn
@@ -111,6 +112,37 @@ export class AlterTableChangeOwner extends AlterTableChange {
       `${this.table.schema}.${this.table.name}`,
       "OWNER TO",
       this.owner,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... CLUSTER ON ...
+ */
+export class AlterTableClusterOn extends AlterTableChange {
+  public readonly table: Table;
+  public readonly indexName: string;
+  public readonly scope = "object" as const;
+
+  constructor(props: { table: Table; indexName: string }) {
+    super();
+    this.table = props.table;
+    this.indexName = props.indexName;
+  }
+
+  get requires() {
+    return [
+      this.table.stableId,
+      stableId.index(this.table.schema, this.table.name, this.indexName),
+    ];
+  }
+
+  serialize(_options?: SerializeOptions): string {
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      "CLUSTER ON",
+      this.indexName,
     ].join(" ");
   }
 }

@@ -411,7 +411,7 @@ function aggregateWithArgs(argumentTypes: string[]): Aggregate {
     moving_state_data_type_schema: null,
     moving_state_data_space: null,
     moving_final_function: null,
-    moving_final_function_extra_args: null,
+    moving_final_function_extra_args: false,
     moving_final_function_modify: null,
     moving_initial_condition: null,
     sort_operator: null,
@@ -2807,7 +2807,7 @@ describe("expandReplaceDependencies", () => {
       "SECURITY LABEL FOR dummy ON FUNCTION public.uses_normalize(integer) IS 'routine label'",
     );
     expect(serialized).toContain(
-      "GRANT EXECUTE ON FUNCTION public.uses_normalize(integer) TO routine_executor",
+      "GRANT ALL ON FUNCTION public.uses_normalize(integer) TO routine_executor",
     );
   });
 

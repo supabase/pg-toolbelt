@@ -1,5 +1,10 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
+import {
+  diffPrivileges,
+  emitObjectPrivilegeChanges,
+  filterPublicBuiltInDefaults,
+} from "./objects/base.privilege-diff.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import {
   AlterDomainAddConstraint,
@@ -16,8 +21,16 @@ import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import { buildCreateMaterializedViewChanges } from "./objects/materialized-view/materialized-view.diff.ts";
+import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
+import { CreateCommentOnProcedure } from "./objects/procedure/changes/procedure.comment.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import {
+  GrantProcedurePrivileges,
+  RevokeGrantOptionProcedurePrivileges,
+  RevokeProcedurePrivileges,
+} from "./objects/procedure/changes/procedure.privilege.ts";
+import { CreateSecurityLabelOnProcedure } from "./objects/procedure/changes/procedure.security-label.ts";
 import {
   AlterPublicationAddTables,
   AlterPublicationDropTables,
@@ -29,11 +42,13 @@ import { DropRlsPolicy } from "./objects/rls-policy/changes/rls-policy.drop.ts";
 import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
 import { CreateRule } from "./objects/rule/changes/rule.create.ts";
 import { DropRule } from "./objects/rule/changes/rule.drop.ts";
+import { SetRuleEnabledState } from "./objects/rule/changes/rule.alter.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableClusterOn,
   AlterTableDropColumn,
   AlterTableDropConstraint,
   AlterTableSetReplicaIdentity,
@@ -46,6 +61,7 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
+import { SetTriggerEnabledState } from "./objects/trigger/changes/trigger.alter.ts";
 import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
 import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
 import { DropTrigger } from "./objects/trigger/changes/trigger.drop.ts";
@@ -161,12 +177,12 @@ export function expandReplaceDependencies({
   }
 
   const replaceRoots = new Set<string>();
-  const procedureReplacementRoots = new Set<string>();
+  const routineExpressionReplacementRoots = new Set<string>();
   for (const id of createdIds) {
     if (droppedIds.has(id)) {
       replaceRoots.add(id);
-      if (id.startsWith("procedure:")) {
-        procedureReplacementRoots.add(id);
+      if (isRoutineExpressionReplacementRoot(id)) {
+        routineExpressionReplacementRoots.add(id);
       }
     }
   }
@@ -181,23 +197,22 @@ export function expandReplaceDependencies({
     promotedRlsPolicyIds,
   });
 
-  // Procedure stableIds are signature-qualified
-  // (`procedure:schema.name(argtypes)`), so a function whose parameter types
-  // change has different ids in `createdIds` and `droppedIds` and would not
-  // appear in the intersection above. Treat any dropped procedure whose
-  // `(schema, name)` matches a created procedure as a replace root so
-  // dependents referencing the old signature via pg_depend get promoted to
-  // DROP+CREATE.
-  const createdProcedureNames = new Set<string>();
+  // Procedure and aggregate stableIds are signature-qualified, so a routine
+  // whose parameter types change has different ids in `createdIds` and
+  // `droppedIds` and would not appear in the intersection above. Treat any
+  // dropped routine whose `(kind, schema, name)` matches a created routine as a
+  // replace root so dependents referencing the old signature via pg_depend get
+  // promoted or temporarily released.
+  const createdRoutineNames = new Set<string>();
   for (const id of createdIds) {
-    const key = parseProcedureSchemaName(id);
-    if (key) createdProcedureNames.add(key);
+    const key = parseRoutineSchemaName(id);
+    if (key) createdRoutineNames.add(key);
   }
   for (const id of droppedIds) {
-    const key = parseProcedureSchemaName(id);
-    if (key && createdProcedureNames.has(key)) {
+    const key = parseRoutineSchemaName(id);
+    if (key && createdRoutineNames.has(key)) {
       replaceRoots.add(id);
-      procedureReplacementRoots.add(id);
+      routineExpressionReplacementRoots.add(id);
     }
   }
 
@@ -283,10 +298,10 @@ export function expandReplaceDependencies({
       }
 
       if (
-        shouldHandleProcedureExpressionDependent({
+        shouldHandleRoutineExpressionDependent({
           refId,
           dependentRaw,
-          procedureReplacementRoots,
+          routineExpressionReplacementRoots,
         })
       ) {
         const releaseCovered =
@@ -342,6 +357,20 @@ export function expandReplaceDependencies({
       }
 
       if (
+        maybeAddRoutineDependentPublicationReplacement({
+          refId,
+          dependentRaw,
+          routineExpressionReplacementRoots,
+          mainCatalog,
+          branchCatalog,
+          additions,
+          visitedTargets,
+        })
+      ) {
+        continue;
+      }
+
+      if (
         maybeAddColumnDependentPublicationReplacement({
           refId,
           dependentRaw,
@@ -380,7 +409,7 @@ export function expandReplaceDependencies({
           refId,
           dependentRaw,
           expressionDependentCoverage,
-          procedureReplacementRoots,
+          routineExpressionReplacementRoots,
         })
       ) {
         continue;
@@ -626,7 +655,7 @@ function shouldSuppressCoveredExpressionDependent({
   refId,
   dependentRaw,
   expressionDependentCoverage,
-  procedureReplacementRoots,
+  routineExpressionReplacementRoots,
 }: {
   refId: string;
   dependentRaw: string;
@@ -634,31 +663,31 @@ function shouldSuppressCoveredExpressionDependent({
     release: ReadonlySet<string>;
     restore: ReadonlySet<string>;
   };
-  procedureReplacementRoots: ReadonlySet<string>;
+  routineExpressionReplacementRoots: ReadonlySet<string>;
 }): boolean {
-  // Procedure replacement can require expression containers to release their
+  // Routine replacement can require expression containers to release their
   // pg_depend edge before the old routine is dropped. When the original diff
   // already emitted that targeted expression change, promoting the normalized
   // table/domain owner to DROP+CREATE would be redundant and destructive.
   return (
-    procedureReplacementRoots.has(refId) &&
+    routineExpressionReplacementRoots.has(refId) &&
     isExpressionContainerStableId(dependentRaw) &&
     expressionDependentCoverage.release.has(dependentRaw) &&
     expressionDependentCoverage.restore.has(dependentRaw)
   );
 }
 
-function shouldHandleProcedureExpressionDependent({
+function shouldHandleRoutineExpressionDependent({
   refId,
   dependentRaw,
-  procedureReplacementRoots,
+  routineExpressionReplacementRoots,
 }: {
   refId: string;
   dependentRaw: string;
-  procedureReplacementRoots: ReadonlySet<string>;
+  routineExpressionReplacementRoots: ReadonlySet<string>;
 }): boolean {
   return (
-    procedureReplacementRoots.has(refId) &&
+    routineExpressionReplacementRoots.has(refId) &&
     isExpressionContainerStableId(dependentRaw)
   );
 }
@@ -786,6 +815,43 @@ function buildExpressionDependentReplacementChanges({
   return null;
 }
 
+function maybeAddRoutineDependentPublicationReplacement({
+  refId,
+  dependentRaw,
+  routineExpressionReplacementRoots,
+  mainCatalog,
+  branchCatalog,
+  additions,
+  visitedTargets,
+}: {
+  refId: string;
+  dependentRaw: string;
+  routineExpressionReplacementRoots: ReadonlySet<string>;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  additions: Change[];
+  visitedTargets: Set<string>;
+}): boolean {
+  if (
+    !routineExpressionReplacementRoots.has(refId) ||
+    !dependentRaw.startsWith("publication:")
+  ) {
+    return false;
+  }
+  if (visitedTargets.has(dependentRaw)) return true;
+
+  const replacementChanges = buildPublicationRowFilterReplacementChanges({
+    publicationId: dependentRaw,
+    mainCatalog,
+    branchCatalog,
+  });
+  if (!replacementChanges) return false;
+
+  additions.push(...replacementChanges);
+  visitedTargets.add(dependentRaw);
+  return true;
+}
+
 function maybeAddColumnDependentPublicationReplacement({
   refId,
   dependentRaw,
@@ -898,11 +964,6 @@ function buildColumnExpressionReplacementChanges({
   const mainTable = mainCatalog.tables[tableId];
   const branchTable = branchCatalog.tables[tableId];
   if (!mainTable || !branchTable) return null;
-  // Partition child column DDL is propagated from the parent table. Treating the
-  // child pg_depend row as covered avoids emitting duplicate child ALTER TABLE.
-  if (mainTable.is_partition || branchTable.is_partition) {
-    return [];
-  }
 
   const mainColumn = mainTable.columns.find(
     (column) => column.name === columnRef.column,
@@ -913,6 +974,11 @@ function buildColumnExpressionReplacementChanges({
     (column) => column.name === columnRef.column,
   );
   if (!branchColumn) {
+    // Partition child column drops are propagated from the parent table.
+    // Treating the child pg_depend row as covered avoids duplicate child DDL.
+    if (mainTable.is_partition || branchTable.is_partition) {
+      return [];
+    }
     // The branch removed this column. When the original diff already drops it,
     // that drop releases the pg_depend edge and there is no expression to
     // restore, so this dependent is handled without owner table replacement.
@@ -923,6 +989,15 @@ function buildColumnExpressionReplacementChanges({
 
   const generatedColumnInvolved =
     mainColumn.is_generated || branchColumn.is_generated;
+  // Generated partition child columns are managed by the parent table DDL.
+  // Local non-generated defaults on partitions are not parent-propagated and
+  // still need explicit DROP/SET DEFAULT around routine replacement.
+  if (
+    (mainTable.is_partition || branchTable.is_partition) &&
+    generatedColumnInvolved
+  ) {
+    return [];
+  }
   if (generatedColumnInvolved) {
     const canRecreateGeneratedColumn =
       mainColumn.is_generated &&
@@ -1064,6 +1139,51 @@ function buildPublicationColumnListReplacementChanges({
       tables: [branchTable],
     }),
   ];
+}
+
+function buildPublicationRowFilterReplacementChanges({
+  publicationId,
+  mainCatalog,
+  branchCatalog,
+}: {
+  publicationId: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}): Change[] | null {
+  const mainPublication = mainCatalog.publications[publicationId];
+  const branchPublication = branchCatalog.publications[publicationId];
+  if (!mainPublication || !branchPublication) return null;
+
+  const mainTables = mainPublication.tables.filter(
+    (table) => table.row_filter !== null,
+  );
+  if (mainTables.length === 0) return null;
+
+  const mainTableKeys = new Set(
+    mainTables.map((table) => publicationTableKey(table)),
+  );
+  const branchTables = branchPublication.tables.filter((table) =>
+    mainTableKeys.has(publicationTableKey(table)),
+  );
+
+  return [
+    new AlterPublicationDropTables({
+      publication: mainPublication,
+      tables: mainTables,
+    }),
+    ...(branchTables.length > 0
+      ? [
+          new AlterPublicationAddTables({
+            publication: branchPublication,
+            tables: branchTables,
+          }),
+        ]
+      : []),
+  ];
+}
+
+function publicationTableKey(table: PublicationTableProps): string {
+  return `${table.schema}.${table.name}`;
 }
 
 function findPublicationTableForColumn(
@@ -1397,11 +1517,20 @@ function isOwnedSequenceColumnDependency(
   );
 }
 
-function parseProcedureSchemaName(stableId: string): string | null {
-  if (!stableId.startsWith("procedure:")) return null;
+function isRoutineExpressionReplacementRoot(stableId: string): boolean {
+  return stableId.startsWith("procedure:") || stableId.startsWith("aggregate:");
+}
+
+function parseRoutineSchemaName(stableId: string): string | null {
+  const prefix = stableId.startsWith("procedure:")
+    ? "procedure:"
+    : stableId.startsWith("aggregate:")
+      ? "aggregate:"
+      : null;
+  if (prefix === null) return null;
   const paren = stableId.indexOf("(");
   if (paren === -1) return null;
-  return stableId.slice("procedure:".length, paren);
+  return `${prefix}${stableId.slice(prefix.length, paren)}`;
 }
 
 function normalizeDependentId(
@@ -1696,6 +1825,14 @@ function buildReplaceChanges(
               // CREATE INDEX does not carry expression-index statistics, so
               // replay retained targets after the replacement index exists.
               ...buildRetainedIndexStatisticsChanges(resolved.branch),
+              ...(resolved.branch.is_clustered && resolved.branchTable
+                ? [
+                    new AlterTableClusterOn({
+                      table: resolved.branchTable,
+                      indexName: resolved.branch.name,
+                    }),
+                  ]
+                : []),
               ...(resolved.branch.is_replica_identity && resolved.branchTable
                 ? [
                     new AlterTableSetReplicaIdentity({
@@ -1709,6 +1846,12 @@ function buildReplaceChanges(
           : []),
       ];
     case "trigger":
+      if (
+        resolved.main.is_partition_clone ||
+        resolved.branch.is_partition_clone
+      ) {
+        return null;
+      }
       return [
         ...(addDrop ? [new DropTrigger({ trigger: resolved.main })] : []),
         ...(addCreate
@@ -1719,6 +1862,9 @@ function buildReplaceChanges(
               }),
               ...(resolved.branch.comment !== null
                 ? [new CreateCommentOnTrigger({ trigger: resolved.branch })]
+                : []),
+              ...(resolved.branch.enabled !== "O"
+                ? [new SetTriggerEnabledState({ trigger: resolved.branch })]
                 : []),
             ]
           : []),
@@ -1732,6 +1878,9 @@ function buildReplaceChanges(
               ...(resolved.branch.comment !== null
                 ? [new CreateCommentOnRule({ rule: resolved.branch })]
                 : []),
+              ...(resolved.branch.enabled !== "O"
+                ? [new SetRuleEnabledState({ rule: resolved.branch })]
+                : []),
             ]
           : []),
       ];
@@ -1739,7 +1888,13 @@ function buildReplaceChanges(
       return [
         ...(addDrop ? [new DropProcedure({ procedure: resolved.main })] : []),
         ...(addCreate
-          ? [new CreateProcedure({ procedure: resolved.branch })]
+          ? [
+              new CreateProcedure({ procedure: resolved.branch }),
+              ...buildRetainedProcedureMetadataChanges({
+                procedure: resolved.branch,
+                diffContext,
+              }),
+            ]
           : []),
       ];
     case "rls_policy":
@@ -1796,6 +1951,80 @@ function buildRetainedIndexStatisticsChanges(
   return columnTargets.length > 0
     ? [new AlterIndexSetStatistics({ index, columnTargets })]
     : [];
+}
+
+function buildRetainedProcedureMetadataChanges({
+  procedure,
+  diffContext,
+}: {
+  procedure: Catalog["procedures"][string];
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  const changes: Change[] = [];
+
+  if (diffContext && procedure.owner !== diffContext.currentUser) {
+    changes.push(
+      new AlterProcedureChangeOwner({
+        procedure,
+        owner: procedure.owner,
+      }),
+    );
+  }
+
+  if (procedure.comment !== null) {
+    changes.push(new CreateCommentOnProcedure({ procedure }));
+  }
+
+  for (const securityLabel of procedure.security_labels) {
+    changes.push(
+      new CreateSecurityLabelOnProcedure({
+        procedure,
+        securityLabel,
+      }),
+    );
+  }
+
+  if (!diffContext) return changes;
+
+  const effectiveDefaults =
+    diffContext.defaultPrivilegeState.getEffectiveDefaults(
+      diffContext.currentUser,
+      "procedure",
+      procedure.schema ?? "",
+    );
+  const creatorFilteredDefaults =
+    procedure.owner !== diffContext.currentUser
+      ? effectiveDefaults.filter((p) => p.grantee !== diffContext.currentUser)
+      : effectiveDefaults;
+  const desiredPrivileges = filterPublicBuiltInDefaults(
+    "procedure",
+    procedure.privileges,
+  );
+  const privilegeResults = diffPrivileges(
+    filterPublicBuiltInDefaults("procedure", creatorFilteredDefaults),
+    desiredPrivileges,
+    procedure.owner,
+  );
+
+  changes.push(
+    ...(emitObjectPrivilegeChanges(
+      privilegeResults,
+      procedure,
+      procedure,
+      "procedure",
+      {
+        Grant: GrantProcedurePrivileges,
+        Revoke: RevokeProcedurePrivileges,
+        RevokeGrantOption: RevokeGrantOptionProcedurePrivileges,
+      },
+      diffContext.version,
+    ) as Change[]),
+  );
+
+  return changes;
 }
 
 function buildCreateViewReplacementChanges(
