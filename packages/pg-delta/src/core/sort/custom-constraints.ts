@@ -1,6 +1,9 @@
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../change-utils.ts";
-import { AlterDomainSetDefault } from "../objects/domain/changes/domain.alter.ts";
+import {
+  AlterDomainAddConstraint,
+  AlterDomainSetDefault,
+} from "../objects/domain/changes/domain.alter.ts";
 import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import {
@@ -12,6 +15,7 @@ import {
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnSetDefault,
+  AlterTableAddConstraint,
 } from "../objects/table/changes/table.alter.ts";
 import type { Constraint } from "./types.ts";
 
@@ -186,7 +190,9 @@ function generateProcedureSignatureReplacementConstraints(
       }
     } else if (
       change instanceof AlterTableAlterColumnSetDefault ||
-      change instanceof AlterDomainSetDefault
+      change instanceof AlterDomainSetDefault ||
+      change instanceof AlterTableAddConstraint ||
+      change instanceof AlterDomainAddConstraint
     ) {
       expressionUpdateIndexes.push(i);
     }

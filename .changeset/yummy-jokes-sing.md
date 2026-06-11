@@ -2,4 +2,4 @@
 "@supabase/pg-delta": patch
 ---
 
-Avoid recreating tables and domains for covered expression updates during function signature replacement
+Recreate expression dependents directly during procedure replacement instead of replacing their owning table or domain.

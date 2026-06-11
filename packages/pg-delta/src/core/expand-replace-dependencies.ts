@@ -2,6 +2,8 @@ import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import {
+  AlterDomainAddConstraint,
+  AlterDomainDropConstraint,
   AlterDomainDropDefault,
   AlterDomainSetDefault,
 } from "./objects/domain/changes/domain.alter.ts";
@@ -21,6 +23,7 @@ import {
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableDropConstraint,
 } from "./objects/table/changes/table.alter.ts";
 import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
@@ -125,10 +128,13 @@ export function expandReplaceDependencies({
   }
 
   const replaceRoots = new Set<string>();
-  const signatureReplacedProcedureRoots = new Set<string>();
+  const procedureReplacementRoots = new Set<string>();
   for (const id of createdIds) {
     if (droppedIds.has(id)) {
       replaceRoots.add(id);
+      if (id.startsWith("procedure:")) {
+        procedureReplacementRoots.add(id);
+      }
     }
   }
 
@@ -158,7 +164,7 @@ export function expandReplaceDependencies({
     const key = parseProcedureSchemaName(id);
     if (key && createdProcedureNames.has(key)) {
       replaceRoots.add(id);
-      signatureReplacedProcedureRoots.add(id);
+      procedureReplacementRoots.add(id);
     }
   }
 
@@ -207,8 +213,8 @@ export function expandReplaceDependencies({
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
   const queue: string[] = [...replaceRoots];
-  const coveredExpressionDependents =
-    collectCoveredExpressionDependentIds(changes);
+  const expressionDependentCoverage =
+    collectExpressionDependentCoverage(changes);
   // Tables being replaced by an expansion-added DropTable+CreateTable pair.
   // Any pre-existing targeted AlterTable*(T) object-scope change is superseded
   // by the replacement and must be removed to avoid contradictions (e.g. an
@@ -233,14 +239,59 @@ export function expandReplaceDependencies({
         continue;
       }
 
-      const targetId = normalizeDependentId(dependentRaw);
+      if (
+        shouldHandleProcedureExpressionDependent({
+          refId,
+          dependentRaw,
+          procedureReplacementRoots,
+        })
+      ) {
+        const releaseCovered =
+          expressionDependentCoverage.release.has(dependentRaw);
+        const restoreCovered =
+          expressionDependentCoverage.restore.has(dependentRaw);
+        if (releaseCovered && restoreCovered) {
+          continue;
+        }
+
+        const expressionReplacementChanges =
+          buildExpressionDependentReplacementChanges({
+            dependentRaw,
+            mainCatalog,
+            branchCatalog,
+            diffContext,
+            addRelease: !releaseCovered,
+            addRestore: !restoreCovered,
+          });
+
+        if (expressionReplacementChanges !== null) {
+          additions.push(...expressionReplacementChanges);
+          if (!releaseCovered) {
+            expressionDependentCoverage.release.add(dependentRaw);
+          }
+          if (!restoreCovered) {
+            expressionDependentCoverage.restore.add(dependentRaw);
+          }
+          for (const change of expressionReplacementChanges) {
+            for (const id of change.creates ?? []) createdIds.add(id);
+            for (const id of change.drops ?? []) droppedIds.add(id);
+          }
+          continue;
+        }
+      }
+
+      const targetId = normalizeDependentId(
+        dependentRaw,
+        mainCatalog,
+        branchCatalog,
+      );
       if (
         targetId &&
         shouldSuppressCoveredExpressionDependent({
           refId,
           dependentRaw,
-          coveredExpressionDependents,
-          signatureReplacedProcedureRoots,
+          expressionDependentCoverage,
+          procedureReplacementRoots,
         })
       ) {
         continue;
@@ -357,7 +408,11 @@ function collectInvalidatedRlsPolicyReplacements({
   for (const dep of mainCatalog.depends) {
     if (!invalidatedIds.has(dep.referenced_stable_id)) continue;
 
-    const targetId = normalizeDependentId(dep.dependent_stable_id);
+    const targetId = normalizeDependentId(
+      dep.dependent_stable_id,
+      mainCatalog,
+      branchCatalog,
+    );
     if (!targetId?.startsWith("rlsPolicy:")) continue;
     if (promotedRlsPolicyIds.has(targetId)) continue;
     if (createdIds.has(targetId) && droppedIds.has(targetId)) continue;
@@ -401,53 +456,107 @@ function removeSupersededRlsPolicyAlters(
   });
 }
 
-function collectCoveredExpressionDependentIds(changes: Change[]): Set<string> {
-  const ids = new Set<string>();
+interface ExpressionDependentCoverage {
+  release: Set<string>;
+  restore: Set<string>;
+}
+
+function collectExpressionDependentCoverage(
+  changes: Change[],
+): ExpressionDependentCoverage {
+  const release = new Set<string>();
+  const restore = new Set<string>();
 
   for (const change of changes) {
-    for (const id of [...(change.creates ?? []), ...(change.drops ?? [])]) {
+    for (const id of change.creates ?? []) {
       if (isExpressionContainerStableId(id)) {
-        ids.add(id);
+        restore.add(id);
+      }
+    }
+
+    for (const id of change.drops ?? []) {
+      if (isExpressionContainerStableId(id)) {
+        release.add(id);
       }
     }
 
     if (
-      change instanceof AlterTableAlterColumnSetDefault ||
       change instanceof AlterTableAlterColumnDropDefault ||
-      change instanceof AlterDomainSetDefault ||
+      change instanceof AlterTableDropConstraint ||
       change instanceof AlterDomainDropDefault
     ) {
       for (const id of change.requires ?? []) {
         if (isExpressionContainerStableId(id)) {
-          ids.add(id);
+          release.add(id);
+        }
+      }
+    }
+
+    if (
+      change instanceof AlterTableAddConstraint ||
+      change instanceof AlterDomainSetDefault ||
+      change instanceof AlterDomainAddConstraint
+    ) {
+      for (const id of change.requires ?? []) {
+        if (isExpressionContainerStableId(id)) {
+          restore.add(id);
+        }
+      }
+    }
+
+    if (change instanceof AlterTableAlterColumnSetDefault) {
+      for (const id of change.requires ?? []) {
+        if (isExpressionContainerStableId(id)) {
+          restore.add(id);
+          if (change.column.is_generated) {
+            release.add(id);
+          }
         }
       }
     }
   }
 
-  return ids;
+  return { release, restore };
 }
 
 function shouldSuppressCoveredExpressionDependent({
   refId,
   dependentRaw,
-  coveredExpressionDependents,
-  signatureReplacedProcedureRoots,
+  expressionDependentCoverage,
+  procedureReplacementRoots,
 }: {
   refId: string;
   dependentRaw: string;
-  coveredExpressionDependents: ReadonlySet<string>;
-  signatureReplacedProcedureRoots: ReadonlySet<string>;
+  expressionDependentCoverage: {
+    release: ReadonlySet<string>;
+    restore: ReadonlySet<string>;
+  };
+  procedureReplacementRoots: ReadonlySet<string>;
 }): boolean {
-  // A changed function signature has different stableIds on main/branch. When
-  // pg_depend points from the old signature to an expression container that
-  // already has a targeted alter in the original diff, that alter releases the
-  // old dependency. Promoting the normalized table/domain owner to DROP+CREATE
-  // would be redundant and destructive.
+  // Procedure replacement can require expression containers to release their
+  // pg_depend edge before the old routine is dropped. When the original diff
+  // already emitted that targeted expression change, promoting the normalized
+  // table/domain owner to DROP+CREATE would be redundant and destructive.
   return (
-    signatureReplacedProcedureRoots.has(refId) &&
+    procedureReplacementRoots.has(refId) &&
     isExpressionContainerStableId(dependentRaw) &&
-    coveredExpressionDependents.has(dependentRaw)
+    expressionDependentCoverage.release.has(dependentRaw) &&
+    expressionDependentCoverage.restore.has(dependentRaw)
+  );
+}
+
+function shouldHandleProcedureExpressionDependent({
+  refId,
+  dependentRaw,
+  procedureReplacementRoots,
+}: {
+  refId: string;
+  dependentRaw: string;
+  procedureReplacementRoots: ReadonlySet<string>;
+}): boolean {
+  return (
+    procedureReplacementRoots.has(refId) &&
+    isExpressionContainerStableId(dependentRaw)
   );
 }
 
@@ -457,6 +566,317 @@ function isExpressionContainerStableId(stableId: string): boolean {
     stableId.startsWith("constraint:") ||
     stableId.startsWith("domain:")
   );
+}
+
+function buildExpressionDependentReplacementChanges({
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  diffContext,
+  addRelease,
+  addRestore,
+}: {
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  if (dependentRaw.startsWith("column:")) {
+    return buildColumnExpressionReplacementChanges({
+      dependentRaw,
+      mainCatalog,
+      branchCatalog,
+      diffContext,
+      addRelease,
+      addRestore,
+    });
+  }
+
+  if (dependentRaw.startsWith("domain:")) {
+    return buildDomainDefaultReplacementChanges({
+      dependentRaw,
+      mainCatalog,
+      branchCatalog,
+      addRelease,
+      addRestore,
+    });
+  }
+
+  if (dependentRaw.startsWith("constraint:")) {
+    return buildConstraintExpressionReplacementChanges({
+      dependentRaw,
+      mainCatalog,
+      branchCatalog,
+      addRelease,
+      addRestore,
+    });
+  }
+
+  return null;
+}
+
+function buildColumnExpressionReplacementChanges({
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  diffContext,
+  addRelease,
+  addRestore,
+}: {
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  const columnRef = parseColumnStableId(dependentRaw);
+  if (!columnRef) return null;
+
+  const tableId = stableId.table(columnRef.schema, columnRef.table);
+  const mainTable = mainCatalog.tables[tableId];
+  const branchTable = branchCatalog.tables[tableId];
+  if (!mainTable || !branchTable) return null;
+
+  const mainColumn = mainTable.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  const branchColumn = branchTable.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  if (!mainColumn || !branchColumn || mainColumn.default === null) return null;
+
+  const generatedColumnInvolved =
+    mainColumn.is_generated || branchColumn.is_generated;
+  if (generatedColumnInvolved) {
+    // PostgreSQL only gained ALTER COLUMN ... SET EXPRESSION for generated
+    // columns in v17. Switching generated status still needs the existing
+    // destructive column/table fallback because SET EXPRESSION applies only
+    // to an already-generated column.
+    if (
+      (diffContext?.version ?? 0) < 170000 ||
+      mainColumn.is_generated !== branchColumn.is_generated ||
+      !branchColumn.is_generated ||
+      branchColumn.default === null
+    ) {
+      return null;
+    }
+
+    return addRestore
+      ? [
+          new AlterTableAlterColumnSetDefault({
+            table: branchTable,
+            column: branchColumn,
+          }),
+        ]
+      : null;
+  }
+
+  const changes: Change[] = [];
+
+  if (addRelease) {
+    changes.push(
+      new AlterTableAlterColumnDropDefault({
+        table: mainTable,
+        column: mainColumn,
+      }),
+    );
+  }
+
+  if (addRestore && branchColumn.default !== null) {
+    changes.push(
+      new AlterTableAlterColumnSetDefault({
+        table: branchTable,
+        column: branchColumn,
+      }),
+    );
+  }
+
+  return changes;
+}
+
+function buildDomainDefaultReplacementChanges({
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  addRelease,
+  addRestore,
+}: {
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  const mainDomain = mainCatalog.domains[dependentRaw];
+  const branchDomain = branchCatalog.domains[dependentRaw];
+  if (!mainDomain || !branchDomain || mainDomain.default_value === null) {
+    return null;
+  }
+
+  const changes: Change[] = [];
+  if (addRelease) {
+    changes.push(new AlterDomainDropDefault({ domain: mainDomain }));
+  }
+  if (addRestore && branchDomain.default_value !== null) {
+    changes.push(
+      new AlterDomainSetDefault({
+        domain: branchDomain,
+        defaultValue: branchDomain.default_value,
+      }),
+    );
+  }
+
+  return changes;
+}
+
+function buildConstraintExpressionReplacementChanges({
+  dependentRaw,
+  mainCatalog,
+  branchCatalog,
+  addRelease,
+  addRestore,
+}: {
+  dependentRaw: string;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  const constraintRef = parseConstraintStableId(dependentRaw);
+  if (!constraintRef) return null;
+
+  const domainChanges = buildDomainConstraintReplacementChanges({
+    constraintRef,
+    mainCatalog,
+    branchCatalog,
+    addRelease,
+    addRestore,
+  });
+  if (domainChanges) return domainChanges;
+
+  return buildTableConstraintReplacementChanges({
+    constraintRef,
+    mainCatalog,
+    branchCatalog,
+    addRelease,
+    addRestore,
+  });
+}
+
+function buildDomainConstraintReplacementChanges({
+  constraintRef,
+  mainCatalog,
+  branchCatalog,
+  addRelease,
+  addRestore,
+}: {
+  constraintRef: ConstraintStableIdParts;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  const domainId = `domain:${constraintRef.schema}.${constraintRef.owner}`;
+  const mainDomain = mainCatalog.domains[domainId];
+  const branchDomain = branchCatalog.domains[domainId];
+
+  if (!mainDomain || !branchDomain) {
+    return null;
+  }
+
+  const mainConstraint = mainDomain.constraints.find(
+    (constraint) => constraint.name === constraintRef.constraint,
+  );
+  const branchConstraint = branchDomain.constraints.find(
+    (constraint) => constraint.name === constraintRef.constraint,
+  );
+  if (!mainConstraint || !branchConstraint) return null;
+
+  const changes: Change[] = [];
+  if (addRelease) {
+    changes.push(
+      new AlterDomainDropConstraint({
+        domain: mainDomain,
+        constraint: mainConstraint,
+      }),
+    );
+  }
+
+  if (addRestore) {
+    changes.push(
+      new AlterDomainAddConstraint({
+        domain: branchDomain,
+        constraint: branchConstraint,
+      }),
+    );
+  }
+
+  return changes;
+}
+
+function buildTableConstraintReplacementChanges({
+  constraintRef,
+  mainCatalog,
+  branchCatalog,
+  addRelease,
+  addRestore,
+}: {
+  constraintRef: ConstraintStableIdParts;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  addRelease: boolean;
+  addRestore: boolean;
+}): Change[] | null {
+  const tableId = stableId.table(constraintRef.schema, constraintRef.owner);
+  const mainTable = mainCatalog.tables[tableId];
+  const branchTable = branchCatalog.tables[tableId];
+  if (!mainTable || !branchTable) return null;
+
+  const mainConstraint = mainTable.constraints.find(
+    (constraint) => constraint.name === constraintRef.constraint,
+  );
+  const branchConstraint = branchTable.constraints.find(
+    (constraint) => constraint.name === constraintRef.constraint,
+  );
+  if (!mainConstraint || !branchConstraint) return null;
+
+  const changes: Change[] = [];
+  if (addRelease) {
+    changes.push(
+      new AlterTableDropConstraint({
+        table: mainTable,
+        constraint: mainConstraint,
+      }),
+    );
+  }
+
+  if (addRestore) {
+    changes.push(
+      new AlterTableAddConstraint({
+        table: branchTable,
+        constraint: branchConstraint,
+      }),
+    );
+    if (branchConstraint.comment !== null) {
+      changes.push(
+        new CreateCommentOnConstraint({
+          table: branchTable,
+          constraint: branchConstraint,
+        }),
+      );
+    }
+  }
+
+  return changes;
 }
 
 function isOwnedSequenceColumnDependency(
@@ -504,7 +924,11 @@ function parseProcedureSchemaName(stableId: string): string | null {
   return stableId.slice("procedure:".length, paren);
 }
 
-function normalizeDependentId(dependentId: string): string | null {
+function normalizeDependentId(
+  dependentId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+): string | null {
   let id = dependentId;
 
   while (id.startsWith("comment:")) {
@@ -531,15 +955,59 @@ function normalizeDependentId(dependentId: string): string | null {
   }
 
   if (id.startsWith("constraint:")) {
-    const parts = id.slice("constraint:".length).split(".");
-    if (parts.length >= 2) {
-      const [schema, table] = parts;
-      return `table:${schema}.${table}`;
+    const constraintRef = parseConstraintStableId(id);
+    if (constraintRef) {
+      const domainId = `domain:${constraintRef.schema}.${constraintRef.owner}`;
+      if (
+        mainCatalog.domains[domainId] !== undefined ||
+        branchCatalog.domains[domainId] !== undefined
+      ) {
+        return domainId;
+      }
+      return stableId.table(constraintRef.schema, constraintRef.owner);
     }
     return null;
   }
 
   return id;
+}
+
+interface ColumnStableIdParts {
+  schema: string;
+  table: string;
+  column: string;
+}
+
+interface ConstraintStableIdParts {
+  schema: string;
+  owner: string;
+  constraint: string;
+}
+
+function parseColumnStableId(stableId: string): ColumnStableIdParts | null {
+  if (!stableId.startsWith("column:")) return null;
+  const parts = stableId.slice("column:".length).split(".");
+  if (parts.length < 3) return null;
+  const [schema, table, ...columnParts] = parts;
+  return {
+    schema,
+    table,
+    column: columnParts.join("."),
+  };
+}
+
+function parseConstraintStableId(
+  stableId: string,
+): ConstraintStableIdParts | null {
+  if (!stableId.startsWith("constraint:")) return null;
+  const parts = stableId.slice("constraint:".length).split(".");
+  if (parts.length < 3) return null;
+  const [schema, owner, ...constraintParts] = parts;
+  return {
+    schema,
+    owner,
+    constraint: constraintParts.join("."),
+  };
 }
 
 function resolveObjectForStableId(
