@@ -138,6 +138,38 @@ describe("diagnostics", () => {
     expect(unresolvedWith.length).toBeLessThan(unresolvedWithout.length);
   });
 
+  test("external operator class providers satisfy omitted range subtype defaults", async () => {
+    const sql = [
+      "create schema app;",
+      "create type app.score as (value int4);",
+      "create type app.score_range as range (subtype = app.score);",
+    ];
+    const withoutProviders = await analyzeAndSort(sql);
+    const missingDefaultWithout = withoutProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes("No default btree operator class provider"),
+    );
+    expect(missingDefaultWithout.length).toBeGreaterThan(0);
+
+    const withProviders = await analyzeAndSort(sql, {
+      externalProviders: [
+        {
+          kind: "operator_class",
+          schema: "app",
+          name: "score_ops",
+          signature: "(btree)",
+        },
+      ],
+    });
+    const missingDefaultWith = withProviders.diagnostics.filter(
+      (d) =>
+        d.code === "UNRESOLVED_DEPENDENCY" &&
+        d.message.includes("No default btree operator class provider"),
+    );
+    expect(missingDefaultWith).toHaveLength(0);
+  });
+
   test("externalProviders with signature mismatch uses compatibility (e.g. timezone)", async () => {
     const sql = [
       "create table public.events(ts timestamptz default timezone('utc'::text, now()) not null);",

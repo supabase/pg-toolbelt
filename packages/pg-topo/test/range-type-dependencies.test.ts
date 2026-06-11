@@ -2062,6 +2062,140 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("does not treat range_cmp as built-in support for non-range scalar opclasses", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.score_ops for type app.score using btree as function 1 range_cmp(app.score, app.score);",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const unresolvedRangeCmp = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.name === "range_cmp" &&
+            ref.signature === "(app.score,app.score)",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_ops"),
+    );
+
+    expect(unresolvedRangeCmp.length).toBeGreaterThan(0);
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "range_cmp",
+      signature: "(app.score,app.score)",
+    });
+  });
+
+  test("does not require producers for pg_catalog hash opclass support functions", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4_hash_ops for type int4 using hash as operator 1 = (int4, int4), function 1 hashint4(int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.int4_hash_ops"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(operatorClassStatement?.requires).not.toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "hashint4",
+      signature: "(int4)",
+    });
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
+  test("does not require producers for pg_catalog enum and array support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.mood_ops for type app.mood using btree as operator 1 < (app.mood, app.mood), operator 2 <= (app.mood, app.mood), operator 3 = (app.mood, app.mood), operator 4 >= (app.mood, app.mood), operator 5 > (app.mood, app.mood), function 1 enum_cmp(app.mood, app.mood);",
+      "create operator class app.score_array_ops for type app.score[] using btree as operator 1 < (app.score[], app.score[]), operator 2 <= (app.score[], app.score[]), operator 3 = (app.score[], app.score[]), operator 4 >= (app.score[], app.score[]), operator 5 > (app.score[], app.score[]), function 1 btarraycmp(app.score[], app.score[]);",
+      "create type app.score as (value int4);",
+      "create type app.mood as enum ('sad', 'ok');",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const moodOperatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.mood_ops"),
+    );
+    const arrayOperatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_array_ops"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(moodOperatorClassStatement?.requires).not.toContainEqual({
+      kind: "operator",
+      schema: "public",
+      name: "<",
+      signature: "(app.mood,app.mood)",
+    });
+    expect(arrayOperatorClassStatement?.requires).not.toContainEqual({
+      kind: "operator",
+      schema: "public",
+      name: "<",
+      signature: "(app.score[],app.score[])",
+    });
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
+  test("does not require producers for unary pg_catalog operator callbacks", async () => {
+    const result = await analyzeAndSort([
+      "create operator app.- (function = int4um, rightarg = int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolvedInt4um = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.name === "int4um" &&
+            ref.signature === "(public.int4)",
+        ) === true,
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const operatorStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create operator app.-"),
+    );
+
+    expect(unresolvedInt4um).toHaveLength(0);
+    expect(operatorStatement?.requires).not.toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "int4um",
+      signature: "(public.int4)",
+    });
+    expect(executionErrors).toHaveLength(0);
+  }, 120000);
+
   test("does not require producer statements for built-in range operator classes", async () => {
     const result = await analyzeAndSort([
       "create table app.measurements(id int primary key, value_span app.int4_range not null);",
@@ -2093,6 +2227,29 @@ describe("range type dependencies", () => {
     expect(schemaIndex).toBeGreaterThanOrEqual(0);
     expect(rangeIndex).toBeGreaterThan(schemaIndex);
     expect(tableIndex).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
+  test("does not report missing default opclasses for pg_catalog polymorphic defaults", async () => {
+    const result = await analyzeAndSort([
+      "create table app.events(id int primary key, mood_span app.mood_range not null, mood_arrays app.mood_array_range not null, nested app.mood_nested_range not null);",
+      "create type app.mood_nested_range as range (subtype = app.mood_range);",
+      "create type app.mood_array_range as range (subtype = app.mood[]);",
+      "create type app.mood_range as range (subtype = app.mood);",
+      "create type app.mood as enum ('sad', 'ok');",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes("No default btree operator class provider"),
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+
+    expect(missingDefault).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
   }, 120000);
 
   test("does not require producer statements for pg_lsn range operator classes", async () => {
