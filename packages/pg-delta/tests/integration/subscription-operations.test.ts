@@ -1,7 +1,9 @@
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { sql } from "@ts-safeql/sql-tag";
 import dedent from "dedent";
 import type { Change } from "../../src/core/change.types.ts";
+import { applyPlan } from "../../src/core/plan/apply.ts";
+import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -228,6 +230,113 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             return priority(a) - priority(b);
           },
         });
+      }),
+    );
+
+    test(
+      "plans CREATE SUBSCRIPTION with an existing replication slot as a non-transactional unit",
+      withDbIsolated(pgVersion, async (db) => {
+        // A subscription whose replication slot actually exists serializes
+        // with the connect = true default, which PostgreSQL rejects inside a
+        // transaction block. Applying that form is not testable on a single
+        // cluster (CREATE SUBSCRIPTION connecting to its own cluster hangs
+        // during slot creation per the PostgreSQL docs), so this covers the
+        // extraction -> trait -> planner path against a real database.
+        const {
+          rows: [{ name: branchDbName }],
+        } = await db.branch.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
+        await db.branch.query(
+          sql`select pg_create_logical_replication_slot('sub_existing_slot', 'pgoutput')`,
+        );
+        await db.branch.query(dedent`
+          CREATE SUBSCRIPTION sub_with_slot
+            CONNECTION 'dbname=${branchDbName}'
+            PUBLICATION sub_with_slot_pub
+            WITH (
+              connect = false,
+              create_slot = false,
+              enabled = false,
+              slot_name = 'sub_existing_slot'
+            );
+        `);
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+        if (!result) throw new Error("expected result");
+
+        expect(result.plan.units).toHaveLength(1);
+        const [unit] = result.plan.units;
+        expect(unit.transactionMode).toBe("none");
+        expect(unit.reason).toBe("non_transactional");
+        expect(unit.statements).toHaveLength(1);
+        expect(unit.statements[0]).toStartWith(
+          "CREATE SUBSCRIPTION sub_with_slot",
+        );
+        // connect must stay at its default (true) so the slot is reused, not
+        // recreated — exactly the form that cannot run inside a transaction.
+        expect(unit.statements[0]).not.toContain("connect = false");
+        expect(unit.statements[0]).not.toContain("create_slot");
+        expect(unit.statements[0]).toContain("slot_name = 'sub_existing_slot'");
+      }),
+    );
+
+    test(
+      "drops a subscription with an associated replication slot outside a transaction block",
+      withDbIsolated(pgVersion, async (db) => {
+        // DROP SUBSCRIPTION must connect to the publisher to drop the remote
+        // slot, and PostgreSQL rejects it inside a transaction block (25001)
+        // whenever a slot is associated. The extra table guarantees the plan
+        // has more than one statement, so a naive single-script/explicit
+        // transaction apply would fail.
+        const {
+          rows: [{ name: mainDbName }],
+        } = await db.main.query<{ name: string }>(
+          sql`select current_database() as name`,
+        );
+        await db.main.query(
+          sql`select pg_create_logical_replication_slot('sub_drop_slot', 'pgoutput')`,
+        );
+        await db.main.query(dedent`
+          CREATE SUBSCRIPTION sub_drop_with_slot
+            CONNECTION 'dbname=${mainDbName}'
+            PUBLICATION sub_drop_pub
+            WITH (
+              connect = false,
+              create_slot = false,
+              enabled = false,
+              slot_name = 'sub_drop_slot'
+            );
+        `);
+        await db.main.query("CREATE TABLE public.drop_me (id integer)");
+
+        const result = await createPlan(db.main, db.branch);
+        expect(result).not.toBeNull();
+        if (!result) throw new Error("expected result");
+
+        const dropUnit = result.plan.units.find((unit) =>
+          unit.statements.some((statement) =>
+            statement.startsWith("DROP SUBSCRIPTION sub_drop_with_slot"),
+          ),
+        );
+        expect(dropUnit).toBeDefined();
+        expect(dropUnit?.transactionMode).toBe("none");
+        expect(dropUnit?.statements).toHaveLength(1);
+
+        const applied = await applyPlan(result.plan, db.main, db.branch);
+        expect(applied.status).toBe("applied");
+        if (applied.status !== "applied") throw new Error("expected applied");
+        expect(applied.warnings).toBeUndefined();
+
+        const after = await createPlan(db.main, db.branch);
+        expect(after).toBeNull();
+
+        // DROP SUBSCRIPTION also dropped the slot it connected for.
+        const { rows: slots } = await db.main.query(
+          sql`select 1 from pg_replication_slots where slot_name = 'sub_drop_slot'`,
+        );
+        expect(slots).toHaveLength(0);
       }),
     );
   });
