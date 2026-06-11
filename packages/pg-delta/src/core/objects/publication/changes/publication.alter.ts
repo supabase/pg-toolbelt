@@ -92,7 +92,7 @@ export class AlterPublicationSetList extends AlterPublicationChange {
 export class AlterPublicationAddTables extends AlterPublicationChange {
   public readonly publication: Publication;
   public readonly scope = "object" as const;
-  private readonly tables: PublicationTableProps[];
+  public readonly tables: PublicationTableProps[];
 
   constructor(props: {
     publication: Publication;

@@ -745,6 +745,17 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
   }
 
   serialize(_options?: SerializeOptions): string {
+    if (this.column.is_generated) {
+      return [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        "SET EXPRESSION AS",
+        `(NULL::${this.column.data_type_str})`,
+      ].join(" ");
+    }
+
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,

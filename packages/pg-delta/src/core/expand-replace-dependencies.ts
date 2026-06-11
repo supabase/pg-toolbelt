@@ -18,6 +18,10 @@ import { GrantProcedurePrivileges } from "./objects/procedure/changes/procedure.
 import { CreateSecurityLabelOnProcedure } from "./objects/procedure/changes/procedure.security-label.ts";
 import { diffProcedures } from "./objects/procedure/procedure.diff.ts";
 import {
+  AlterPublicationAddTables,
+  AlterPublicationDropTables,
+} from "./objects/publication/changes/publication.alter.ts";
+import {
   ReplaceRule,
   SetRuleEnabledState,
 } from "./objects/rule/changes/rule.alter.ts";
@@ -285,6 +289,17 @@ export function expandReplaceDependencies({
           ),
         );
       }
+      if (reachedFromInvalidation && dependentRaw.startsWith("publication:")) {
+        additions.push(
+          ...buildPublicationTableReplacementChanges(
+            refId,
+            dependentRaw,
+            mainCatalog,
+            branchCatalog,
+            [...changes, ...additions],
+          ),
+        );
+      }
 
       const targetId = normalizeDependentId(dependentRaw);
       if (!targetId) continue;
@@ -532,7 +547,7 @@ function buildColumnDefaultReplacementChanges(
     (column) => column.name === parsed.column,
   );
   if (!mainColumn || !branchColumn) return [];
-  if (mainColumn.default === null || mainColumn.is_generated) return [];
+  if (mainColumn.default === null) return [];
 
   const replacementChanges: Change[] = [];
   if (!hasColumnDefaultDropChange(existingChanges, columnStableId)) {
@@ -545,13 +560,68 @@ function buildColumnDefaultReplacementChanges(
   }
   if (
     branchColumn.default !== null &&
-    !branchColumn.is_generated &&
     !hasColumnDefaultSetChange(existingChanges, columnStableId)
   ) {
     replacementChanges.push(
       new AlterTableAlterColumnSetDefault({
         table: branchTable,
         column: branchColumn,
+      }),
+    );
+  }
+
+  return replacementChanges;
+}
+
+function buildPublicationTableReplacementChanges(
+  invalidatedStableId: string,
+  publicationStableId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+  existingChanges: readonly Change[],
+): Change[] {
+  const parsed = parseColumnStableId(invalidatedStableId);
+  if (!parsed) return [];
+
+  const mainPublication = mainCatalog.publications[publicationStableId];
+  const branchPublication = branchCatalog.publications[publicationStableId];
+  if (!mainPublication || !branchPublication) return [];
+
+  const matchesInvalidatedTable = (table: { schema: string; name: string }) =>
+    table.schema === parsed.schema && table.name === parsed.table;
+
+  const mainTables = mainPublication.tables.filter(matchesInvalidatedTable);
+  const branchTables = branchPublication.tables.filter(matchesInvalidatedTable);
+  if (mainTables.length === 0 && branchTables.length === 0) return [];
+
+  const replacementChanges: Change[] = [];
+  if (
+    mainTables.length > 0 &&
+    !hasPublicationDropTablesChange(
+      existingChanges,
+      publicationStableId,
+      mainTables,
+    )
+  ) {
+    replacementChanges.push(
+      new AlterPublicationDropTables({
+        publication: mainPublication,
+        tables: mainTables,
+      }),
+    );
+  }
+  if (
+    branchTables.length > 0 &&
+    !hasPublicationAddTablesChange(
+      existingChanges,
+      publicationStableId,
+      branchTables,
+    )
+  ) {
+    replacementChanges.push(
+      new AlterPublicationAddTables({
+        publication: branchPublication,
+        tables: branchTables,
       }),
     );
   }
@@ -596,6 +666,45 @@ function hasColumnDefaultSetChange(
         change.table.name,
         change.column.name,
       ) === columnStableId,
+  );
+}
+
+function hasPublicationDropTablesChange(
+  changes: readonly Change[],
+  publicationStableId: string,
+  tables: readonly { schema: string; name: string }[],
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterPublicationDropTables &&
+      change.publication.stableId === publicationStableId &&
+      includesAllPublicationTables(change.tables, tables),
+  );
+}
+
+function hasPublicationAddTablesChange(
+  changes: readonly Change[],
+  publicationStableId: string,
+  tables: readonly { schema: string; name: string }[],
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterPublicationAddTables &&
+      change.publication.stableId === publicationStableId &&
+      includesAllPublicationTables(change.tables, tables),
+  );
+}
+
+function includesAllPublicationTables(
+  actual: readonly { schema: string; name: string }[],
+  expected: readonly { schema: string; name: string }[],
+): boolean {
+  return expected.every((expectedTable) =>
+    actual.some(
+      (actualTable) =>
+        actualTable.schema === expectedTable.schema &&
+        actualTable.name === expectedTable.name,
+    ),
   );
 }
 
