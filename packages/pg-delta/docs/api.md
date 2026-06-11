@@ -197,6 +197,8 @@ A plan needs more than one unit when a statement's effects only become usable af
 
 Render a plan with `renderPlanSql(plan)` (single script) or `renderPlanFiles(plan)` (one numbered file per unit, as written by `pgdelta plan --output-dir`). `flattenPlanStatements(plan)` returns the raw ordered statements (session statements included) when transaction context does not matter.
 
+**Execution contract for rendered SQL:** run scripts with a statement-splitting runner such as `psql -f` (each statement is sent separately, so session `SET`s apply and non-transactional units execute outside any transaction). Do not execute a rendered script as a single multi-statement query string (node-postgres `query(file)`, `PQexec`) and do not use `psql --single-transaction`: PostgreSQL runs every statement of a multi-command string in an implicit transaction block, so any `transactionMode: "none"` unit would fail with 25001 regardless of statement ordering. For programmatic application use `applyPlan`, which executes statement-by-statement on a single session.
+
 Legacy v1 plan JSON (flat `statements` array) is still accepted by `deserializePlan`/`applyPlan` and is normalized into a single transactional unit.
 
 ### `CreatePlanOptions`

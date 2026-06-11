@@ -43,7 +43,7 @@ const statements = flattenPlanStatements(plan);
 **Behavioral consequences:**
 
 - Multi-unit plans are **not atomic as a whole**: earlier units commit before later units run, and a later failure does not roll back already-committed units (an added enum value cannot be dropped). `applyPlan` reports the failing unit and how many units committed.
-- Non-transactional units run without any transaction wrapper.
+- Non-transactional units run without any transaction wrapper. Rendered scripts must be executed by a statement-splitting runner such as `psql -f` (not as a single multi-statement query string, and not with `psql --single-transaction`): PostgreSQL runs multi-command strings in an implicit transaction block, which would fail any non-transactional unit.
 - Single-unit plans (the common case) still apply as one transaction.
 
 **Plan JSON:** new plans are written as `version: 2` with `units`. Legacy v1 plan files (flat `statements`) are still read and normalized into a single transactional unit — faithful to how v1 executed them — but v2 plan files are not readable by older pg-delta versions.

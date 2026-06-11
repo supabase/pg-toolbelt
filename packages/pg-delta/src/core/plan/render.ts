@@ -98,8 +98,19 @@ function renderUnitSql(
     `-- Migration unit ${index + 1}: ${unitName(unit.reason)}`,
     `-- Transaction mode: ${unit.transactionMode}`,
     `-- Boundary reason: ${unit.reason}`,
-    "",
   ];
+
+  if (unit.transactionMode === "none") {
+    // PostgreSQL runs every statement of a multi-command simple-query string
+    // in an implicit transaction block, so this unit can never execute as
+    // part of a single query string — no SET/COMMIT shuffling changes that.
+    lines.push(
+      "-- Run statement-by-statement (psql does this; do not use psql -1 or",
+      "-- send this script as a single multi-statement query string).",
+    );
+  }
+
+  lines.push("");
 
   if (plan.sessionStatements.length > 0) {
     lines.push(renderStatements(plan.sessionStatements));

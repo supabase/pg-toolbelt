@@ -98,7 +98,7 @@ Rule of thumb: if the fix changes a valid final `Change[]` before graph construc
 
 ### Execution model invariants
 
-A plan is an ordered list of `MigrationUnit`s (`src/core/plan/types.ts`), each with an explicit `transactionMode` and boundary `reason`, plus session-level statements applied once per session. `plan.units` + `plan.sessionStatements` are the **single execution source of truth** — there is no flat statement list on the plan; render via `renderPlanSql`/`renderPlanFiles` or flatten via `flattenPlanStatements`. Apply counts and messaging derive from units.
+A plan is an ordered list of `MigrationUnit`s (`src/core/plan/types.ts`), each with an explicit `transactionMode` and boundary `reason`, plus session-level statements applied once per session. `plan.units` + `plan.sessionStatements` are the **single execution source of truth** — there is no flat statement list on the plan; render via `renderPlanSql`/`renderPlanFiles` or flatten via `flattenPlanStatements`. Apply counts and messaging derive from units. Rendered scripts (`renderPlanSql`/`renderPlanFiles`) are for statement-splitting runners like `psql -f`; a plan containing a `"none"` unit can never run as a single multi-command query string (PostgreSQL wraps those in an implicit transaction block), which is why such units carry a run-statement-by-statement header instead of any SET/COMMIT reshuffling.
 
 Execution semantics are declared on the change classes (`base.change.ts`), **never inferred from rendered SQL** — no regex or string matching over serialized statements, ever (a sibling rule to the no-SQL-parsing rule for the plan path):
 

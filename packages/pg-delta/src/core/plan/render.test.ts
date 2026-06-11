@@ -90,6 +90,8 @@ describe("plan rendering", () => {
       "-- Migration unit 1: non_transactional
       -- Transaction mode: none
       -- Boundary reason: non_transactional
+      -- Run statement-by-statement (psql does this; do not use psql -1 or
+      -- send this script as a single multi-statement query string).
 
       SET ROLE app_owner;
 
