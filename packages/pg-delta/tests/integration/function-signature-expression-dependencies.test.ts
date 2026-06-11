@@ -1511,6 +1511,127 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "generated publication row filters without column lists are refreshed before column recreation",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_filtered_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.filtered_invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_filtered_total(subtotal)) STORED
+            );
+
+            CREATE PUBLICATION filtered_total_pub
+              FOR TABLE test_schema.filtered_invoice_totals
+              WHERE (total > 0);
+
+            INSERT INTO test_schema.filtered_invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            ALTER PUBLICATION filtered_total_pub
+              DROP TABLE test_schema.filtered_invoice_totals;
+
+            ALTER TABLE test_schema.filtered_invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_filtered_total(integer);
+
+            CREATE FUNCTION test_schema.compute_filtered_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.filtered_invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_filtered_total(subtotal)) STORED;
+
+            ALTER PUBLICATION filtered_total_pub
+              ADD TABLE test_schema.filtered_invoice_totals
+              WHERE (total > 0);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const publicationDropIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER PUBLICATION filtered_total_pub DROP TABLE test_schema.filtered_invoice_totals",
+              ),
+            );
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.filtered_invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_filtered_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_filtered_total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.filtered_invoice_totals ADD COLUMN total",
+              ),
+            );
+            const publicationAddIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER PUBLICATION filtered_total_pub ADD TABLE test_schema.filtered_invoice_totals WHERE (total > 0)",
+              ),
+            );
+
+            expect(publicationDropIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThan(publicationDropIndex);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
+            expect(publicationAddIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.filtered_invoice_totals",
+          1,
+        );
+        const { rows } = await db.main.query(dedent`
+          SELECT
+            pg_get_expr(pr.prqual, pr.prrelid) AS row_filter,
+            pr.prattrs IS NULL AS all_columns
+          FROM pg_catalog.pg_publication p
+          JOIN pg_catalog.pg_publication_rel pr ON pr.prpubid = p.oid
+          JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE p.pubname = 'filtered_total_pub'
+            AND n.nspname = 'test_schema'
+            AND c.relname = 'filtered_invoice_totals'
+        `);
+        expect(rows[0]?.row_filter).toBe("(total > 0)");
+        expect(rows[0]?.all_columns).toBe(true);
+      }),
+    );
+
+    test(
       "clustered materialized view indexes survive dependent function replacement",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

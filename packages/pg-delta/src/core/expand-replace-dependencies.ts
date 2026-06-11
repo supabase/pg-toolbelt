@@ -286,7 +286,8 @@ export function expandReplaceDependencies({
   // AlterTableDropColumn on a table that is about to be dropped) and the
   // associated drop-phase cycle with the catalog constraint→column edge.
   const tablesReplacedByExpansion = new Set<string>();
-  const generatedColumnsRecreatedByExpressionFallback = new Set<string>();
+  const generatedColumnsRecreatedByExpressionFallback =
+    collectCoveredGeneratedColumnRecreations(changes);
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -349,11 +350,15 @@ export function expandReplaceDependencies({
         const restoreCovered =
           expressionDependentCoverage.restore.has(dependentRaw);
         if (releaseCovered && restoreCovered) {
+          if (generatedColumnsRecreatedByExpressionFallback.has(dependentRaw)) {
+            queueRefForTraversal(dependentRaw, visitedRefs, queue);
+          }
           continue;
         }
 
         const expressionReplacementChanges =
           buildExpressionDependentReplacementChanges({
+            refId,
             dependentRaw,
             mainCatalog,
             branchCatalog,
@@ -706,6 +711,36 @@ function collectExpressionDependentCoverage(
   return { release, restore };
 }
 
+function collectCoveredGeneratedColumnRecreations(
+  changes: readonly Change[],
+): Set<string> {
+  const release = new Set<string>();
+  const restore = new Set<string>();
+
+  for (const change of changes) {
+    if (change instanceof AlterTableDropColumn && change.column.is_generated) {
+      release.add(
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ),
+      );
+    }
+    if (change instanceof AlterTableAddColumn && change.column.is_generated) {
+      restore.add(
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ),
+      );
+    }
+  }
+
+  return new Set([...release].filter((columnId) => restore.has(columnId)));
+}
+
 function shouldSuppressCoveredExpressionDependent({
   refId,
   dependentRaw,
@@ -875,6 +910,7 @@ function removeSupersededGeneratedColumnSetExpressions(
 }
 
 function buildExpressionDependentReplacementChanges({
+  refId,
   dependentRaw,
   mainCatalog,
   branchCatalog,
@@ -884,6 +920,7 @@ function buildExpressionDependentReplacementChanges({
   addRelease,
   addRestore,
 }: {
+  refId: string;
   dependentRaw: string;
   mainCatalog: Catalog;
   branchCatalog: Catalog;
@@ -898,6 +935,7 @@ function buildExpressionDependentReplacementChanges({
 }): Change[] | null {
   if (dependentRaw.startsWith("column:")) {
     return buildColumnExpressionReplacementChanges({
+      refId,
       dependentRaw,
       mainCatalog,
       branchCatalog,
@@ -1078,6 +1116,7 @@ function maybeAddColumnDependentConstraintReplacement({
 }
 
 function buildColumnExpressionReplacementChanges({
+  refId,
   dependentRaw,
   mainCatalog,
   branchCatalog,
@@ -1087,6 +1126,7 @@ function buildColumnExpressionReplacementChanges({
   addRelease,
   addRestore,
 }: {
+  refId: string;
   dependentRaw: string;
   mainCatalog: Catalog;
   branchCatalog: Catalog;
@@ -1131,12 +1171,20 @@ function buildColumnExpressionReplacementChanges({
 
   const generatedColumnInvolved =
     mainColumn.is_generated || branchColumn.is_generated;
-  // Generated partition child columns are managed by the parent table DDL.
-  // Local non-generated defaults on partitions are not parent-propagated and
-  // still need explicit DROP/SET DEFAULT around routine replacement.
+  // Generated partition child columns are parent-managed only when the parent
+  // column is also being recreated. Child-specific generation expressions keep
+  // their own pg_depend edge and must release it locally.
   if (
     (mainTable.is_partition || branchTable.is_partition) &&
-    generatedColumnInvolved
+    generatedColumnInvolved &&
+    isPartitionGeneratedColumnCoveredByParentRecreation({
+      mainTable,
+      branchTable,
+      columnName: columnRef.column,
+      refId,
+      mainCatalog,
+      existingChanges,
+    })
   ) {
     return [];
   }
@@ -1475,9 +1523,77 @@ function findPublicationTableForColumn(
       (table) =>
         table.schema === columnRef.schema &&
         table.name === columnRef.table &&
-        table.columns?.includes(columnRef.column),
+        (table.columns?.includes(columnRef.column) ||
+          table.row_filter !== null),
     ) ?? null
   );
+}
+
+function isPartitionGeneratedColumnCoveredByParentRecreation({
+  mainTable,
+  branchTable,
+  columnName,
+  refId,
+  mainCatalog,
+  existingChanges,
+}: {
+  mainTable: Catalog["tables"][string];
+  branchTable: Catalog["tables"][string];
+  columnName: string;
+  refId: string;
+  mainCatalog: Catalog;
+  existingChanges: readonly Change[];
+}): boolean {
+  const mainParentColumnId =
+    mainTable.parent_schema && mainTable.parent_name
+      ? stableId.column(
+          mainTable.parent_schema,
+          mainTable.parent_name,
+          columnName,
+        )
+      : null;
+  const branchParentColumnId =
+    branchTable.parent_schema && branchTable.parent_name
+      ? stableId.column(
+          branchTable.parent_schema,
+          branchTable.parent_name,
+          columnName,
+        )
+      : null;
+  if (!mainParentColumnId || !branchParentColumnId) return false;
+
+  if (
+    mainCatalog.depends.some(
+      (dep) =>
+        dep.dependent_stable_id === mainParentColumnId &&
+        dep.referenced_stable_id === refId,
+    )
+  ) {
+    return true;
+  }
+
+  let releaseCovered = false;
+  let restoreCovered = false;
+  for (const change of existingChanges) {
+    if (change instanceof AlterTableDropColumn) {
+      releaseCovered ||=
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ) === mainParentColumnId;
+    }
+    if (change instanceof AlterTableAddColumn) {
+      restoreCovered ||=
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ) === branchParentColumnId;
+    }
+  }
+
+  return releaseCovered && restoreCovered;
 }
 
 function buildDomainDefaultReplacementChanges({
