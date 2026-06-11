@@ -213,6 +213,83 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("orders custom operator classes after conventional support operators for custom types", async () => {
+    const result = await analyzeAndSort([
+      "create table app.measurements(id int primary key, value_span app.score_range not null);",
+      "create type app.score_range as range (subtype = app.score, subtype_opclass = app.score_ops);",
+      "create operator class app.score_ops for type app.score using btree as operator 1 < (app.score, app.score), operator 2 <= (app.score, app.score), operator 3 = (app.score, app.score), operator 4 >= (app.score, app.score), operator 5 > (app.score, app.score), function 1 app.score_cmp(app.score, app.score);",
+      "create operator > (function = app.score_gt, leftarg = app.score, rightarg = app.score);",
+      "create operator >= (function = app.score_gte, leftarg = app.score, rightarg = app.score);",
+      "create operator = (function = app.score_eq, leftarg = app.score, rightarg = app.score);",
+      "create operator <= (function = app.score_lte, leftarg = app.score, rightarg = app.score);",
+      "create operator < (function = app.score_lt, leftarg = app.score, rightarg = app.score);",
+      "create function app.score_cmp(a app.score, b app.score) returns int4 language sql immutable strict as $$ select case when (a).value < (b).value then -1 when (a).value > (b).value then 1 else 0 end $$;",
+      "create function app.score_gt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value > (b).value $$;",
+      "create function app.score_gte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value >= (b).value $$;",
+      "create function app.score_eq(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value = (b).value $$;",
+      "create function app.score_lte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value <= (b).value $$;",
+      "create function app.score_lt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value < (b).value $$;",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unknownCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    ).length;
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const schemaIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create schema app"),
+    );
+    const typeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.score as"),
+    );
+    const firstFunctionIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create function app.score_lt"),
+    );
+    const lastFunctionIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create function app.score_gt"),
+    );
+    const firstOperatorIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator <"),
+    );
+    const lastOperatorIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator >"),
+    );
+    const operatorClassIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator class app.score_ops"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.score_range"),
+    );
+    const tableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.measurements"),
+    );
+
+    expect(unknownCount).toBe(0);
+    expect(unresolvedCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(schemaIndex).toBeGreaterThanOrEqual(0);
+    expect(typeIndex).toBeGreaterThan(schemaIndex);
+    expect(firstFunctionIndex).toBeGreaterThan(typeIndex);
+    expect(lastFunctionIndex).toBeGreaterThan(typeIndex);
+    expect(firstOperatorIndex).toBeGreaterThan(firstFunctionIndex);
+    expect(firstOperatorIndex).toBeGreaterThan(lastFunctionIndex);
+    expect(lastOperatorIndex).toBeGreaterThan(firstFunctionIndex);
+    expect(lastOperatorIndex).toBeGreaterThan(lastFunctionIndex);
+    expect(operatorClassIndex).toBeGreaterThan(firstOperatorIndex);
+    expect(operatorClassIndex).toBeGreaterThan(lastOperatorIndex);
+    expect(rangeIndex).toBeGreaterThan(operatorClassIndex);
+    expect(tableIndex).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
   test("orders custom operator classes after support operators", async () => {
     const result = await analyzeAndSort([
       "create table app.measurements(id int primary key, value_span app.custom_int4_range not null);",
