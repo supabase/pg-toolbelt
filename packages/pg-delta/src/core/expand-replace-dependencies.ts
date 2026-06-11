@@ -33,6 +33,7 @@ import {
 } from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import { CreateCompositeType } from "./objects/type/composite-type/changes/composite-type.create.ts";
 import { DropCompositeType } from "./objects/type/composite-type/changes/composite-type.drop.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
@@ -248,9 +249,9 @@ export function expandReplaceDependencies({
         generatedColumnsRecreatedByExpressionFallback.has(refId) &&
         isMetadataDependentStableId(dependentRaw)
       ) {
-        // Column comments are metadata for the recreated column itself. The
-        // drop/add fallback restores them directly, so walking the comment edge
-        // would incorrectly promote `comment:column:*` to the owning table.
+        // Column comments and security labels are metadata for the recreated
+        // column itself. The drop/add fallback restores them directly, so
+        // walking those edges must not promote metadata into object replacement.
         continue;
       }
 
@@ -630,7 +631,9 @@ function isExpressionContainerStableId(stableId: string): boolean {
 }
 
 function isMetadataDependentStableId(stableId: string): boolean {
-  return stableId.startsWith("comment:");
+  return (
+    stableId.startsWith("comment:") || stableId.startsWith("securityLabel:")
+  );
 }
 
 function shouldTraverseExpressionReplacementDependent({
@@ -864,6 +867,21 @@ function buildColumnExpressionReplacementChanges({
               }),
             ]
           : []),
+        ...(branchColumn.security_labels ?? [])
+          .filter(
+            (securityLabel) =>
+              !createdIds.has(
+                stableId.securityLabel(dependentRaw, securityLabel.provider),
+              ),
+          )
+          .map(
+            (securityLabel) =>
+              new CreateSecurityLabelOnColumn({
+                table: branchTable,
+                column: branchColumn,
+                securityLabel,
+              }),
+          ),
       ];
     }
 
