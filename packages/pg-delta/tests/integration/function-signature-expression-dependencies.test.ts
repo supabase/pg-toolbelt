@@ -1115,17 +1115,140 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                       WHERE r.rulename = 'invoice_totals_total_rule'
                         AND n.nspname = 'test_schema'
                         AND c.relname = 'invoice_totals'
-                    `);
+        `);
         expect(ruleRows[0]?.definition).toContain("new.total");
         const { rows: privilegeRows } = await db.main.query(dedent`
-                      SELECT has_column_privilege(
-                        'invoice_total_reader',
+          SELECT has_column_privilege(
+            'invoice_total_reader',
             'test_schema.invoice_totals',
             'total',
             'SELECT'
           ) AS has_privilege
         `);
         expect(privilegeRows[0]?.has_privilege).toBe(true);
+      }),
+    );
+
+    test.skipIf(pgVersion < 18)(
+      "unchanged generated column in publication column list does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+	            CREATE SCHEMA test_schema;
+
+	            CREATE FUNCTION test_schema.compute_publication_total(value integer)
+	            RETURNS integer
+	            LANGUAGE sql
+	            IMMUTABLE
+	            AS $function$
+	              SELECT value + 1
+	            $function$;
+
+	            CREATE TABLE test_schema.published_invoice_totals (
+	              id integer NOT NULL,
+	              subtotal integer NOT NULL,
+	              total integer GENERATED ALWAYS AS
+	                (test_schema.compute_publication_total(subtotal)) STORED
+	            );
+
+	            CREATE PUBLICATION invoice_total_pub
+	              FOR TABLE test_schema.published_invoice_totals (id, total);
+
+	            INSERT INTO test_schema.published_invoice_totals (id, subtotal)
+	            VALUES (1, 20);
+	          `,
+          testSql: dedent`
+	            ALTER PUBLICATION invoice_total_pub
+	              SET TABLE test_schema.published_invoice_totals (id);
+
+	            ALTER TABLE test_schema.published_invoice_totals
+	              DROP COLUMN total;
+
+	            DROP FUNCTION test_schema.compute_publication_total(integer);
+
+	            CREATE FUNCTION test_schema.compute_publication_total(input integer)
+	            RETURNS integer
+	            LANGUAGE sql
+	            IMMUTABLE
+	            AS $function$
+	              SELECT input + 1
+	            $function$;
+
+	            ALTER TABLE test_schema.published_invoice_totals
+	              ADD COLUMN total integer GENERATED ALWAYS AS
+	                (test_schema.compute_publication_total(subtotal)) STORED;
+
+	            ALTER PUBLICATION invoice_total_pub
+	              SET TABLE test_schema.published_invoice_totals (id, total);
+	          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const releasePublicationIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER PUBLICATION invoice_total_pub DROP TABLE test_schema.published_invoice_totals",
+                ),
+            );
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.published_invoice_totals DROP COLUMN total",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_publication_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_publication_total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.published_invoice_totals ADD COLUMN total",
+              ),
+            );
+            const restorePublicationIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER PUBLICATION invoice_total_pub ADD TABLE test_schema.published_invoice_totals (id, total)",
+                ),
+            );
+
+            expect(releasePublicationIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThan(releasePublicationIndex);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
+            expect(restorePublicationIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.published_invoice_totals",
+          1,
+        );
+        const { rows: publicationRows } = await db.main.query(dedent`
+	          SELECT json_agg(att.attname ORDER BY cols.ord) AS columns
+	          FROM pg_catalog.pg_publication p
+	          JOIN pg_catalog.pg_publication_rel pr ON pr.prpubid = p.oid
+	          JOIN pg_catalog.pg_class c ON c.oid = pr.prrelid
+	          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+	          JOIN unnest(pr.prattrs) WITH ORDINALITY AS cols(attnum, ord)
+	            ON true
+	          JOIN pg_catalog.pg_attribute att
+	            ON att.attrelid = c.oid
+	           AND att.attnum = cols.attnum
+	          WHERE p.pubname = 'invoice_total_pub'
+	            AND n.nspname = 'test_schema'
+	            AND c.relname = 'published_invoice_totals'
+	        `);
+        expect(publicationRows[0]?.columns).toEqual(["id", "total"]);
       }),
     );
 
