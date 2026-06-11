@@ -230,4 +230,26 @@ describe("typeFromTypeNameNode", () => {
       schema: "app",
     });
   });
+
+  test("collapses multidimensional arrays to the single PostgreSQL array type", () => {
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "int4" } }],
+        arrayBounds: [{}, {}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "int4[]",
+    });
+    expect(
+      typeFromTypeNameNode({
+        names: [{ String: { sval: "app" } }, { String: { sval: "score" } }],
+        arrayBounds: [{}, {}],
+      }),
+    ).toEqual({
+      kind: "type",
+      name: "score[]",
+      schema: "app",
+    });
+  });
 });

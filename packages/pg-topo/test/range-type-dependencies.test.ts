@@ -1615,6 +1615,79 @@ describe("range type dependencies", () => {
     expect(operatorClassIndex).toBeGreaterThan(operatorIndex);
   }, 120000);
 
+  test("preserves local opclass support functions with built-in names", async () => {
+    const result = await analyzeAndSort([
+      "set search_path = public, pg_catalog;",
+      "create operator class app.uuid_ops for type uuid using btree as function 1 uuid_cmp(uuid, uuid);",
+      "create function uuid_cmp(a uuid, b uuid) returns int4 language sql immutable strict as $$ select pg_catalog.uuid_cmp(a, b) $$;",
+      "create schema app;",
+    ]);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.uuid_ops"),
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const supportFunctionIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create function uuid_cmp"),
+    );
+    const operatorClassIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator class app.uuid_ops"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "uuid_cmp",
+      signature: "(public.uuid,public.uuid)",
+    });
+    expect(supportFunctionIndex).toBeGreaterThanOrEqual(0);
+    expect(operatorClassIndex).toBeGreaterThan(supportFunctionIndex);
+  });
+
+  test("does not require producer statements for polymorphic built-in opclass support functions", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.mood_ops for type app.mood using btree as function 1 enum_cmp(app.mood, app.mood);",
+      "create operator class app.score_array_ops for type app.score[] using btree as function 1 btarraycmp(app.score[], app.score[]);",
+      "create type app.score as (value int4);",
+      "create type app.mood as enum ('sad', 'ok');",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const moodOperatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.mood_ops"),
+    );
+    const arrayOperatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_array_ops"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(moodOperatorClassStatement?.requires).not.toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "enum_cmp",
+      signature: "(app.mood,app.mood)",
+    });
+    expect(arrayOperatorClassStatement?.requires).not.toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "btarraycmp",
+      signature: "(app.score[],app.score[])",
+    });
+  });
+
   test("provides implicit operator families from operator classes", async () => {
     const result = await analyzeAndSort([
       "create operator class app.text_score_ops for type text using btree family app.score_ops as operator 1 < (text, text), operator 2 <= (text, text), operator 3 = (text, text), operator 4 >= (text, text), operator 5 > (text, text), function 1 bttextcmp(text, text);",
@@ -2082,6 +2155,40 @@ describe("range type dependencies", () => {
     }
   }, 120000);
 
+  test("preserves local unqualified range collations with built-in names", async () => {
+    const result = await analyzeAndSort([
+      "set search_path = public, pg_catalog;",
+      "create table app.labels(id int primary key, value_span app.label_range not null);",
+      'create type app.label_range as range (subtype = text, collation = "C");',
+      'create collation "C" from pg_catalog."C";',
+      "create schema app;",
+    ]);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const rangeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.label_range"),
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const collationIndex = orderedSql.findIndex((sql) =>
+      sql.includes('create collation "c"'),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.label_range"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(rangeStatement?.requires).toContainEqual({
+      kind: "collation",
+      schema: "public",
+      name: "C",
+    });
+    expect(collationIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(collationIndex);
+  });
+
   test("orders explicitly qualified public range collations before the range type", async () => {
     const result = await analyzeAndSort([
       "create table app.labels(id int primary key, value_span app.label_range not null);",
@@ -2266,6 +2373,59 @@ describe("range type dependencies", () => {
     expect(schemaIndex).toBeGreaterThanOrEqual(0);
     expect(rangeIndex).toBeGreaterThan(schemaIndex);
     expect(tableIndex).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
+  test("provides array refs for explicit and implicit multirange type names", async () => {
+    const result = await analyzeAndSort([
+      "create table app.labels(id int primary key, spans app.label_multirange[] not null);",
+      "create table app.prices(id int primary key, spans app.price_multirange[] not null);",
+      "create type app.label_range as range (subtype = text, multirange_type_name = app.label_multirange);",
+      "create type app.price_range as range (subtype = int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const explicitRangeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.label_range"),
+    );
+    const implicitRangeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.price_range"),
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const explicitRangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.label_range"),
+    );
+    const implicitRangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.price_range"),
+    );
+    const labelsTableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.labels"),
+    );
+    const pricesTableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.prices"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(explicitRangeStatement?.provides).toContainEqual({
+      kind: "type",
+      schema: "app",
+      name: "label_multirange[]",
+    });
+    expect(implicitRangeStatement?.provides).toContainEqual({
+      kind: "type",
+      schema: "app",
+      name: "price_multirange[]",
+    });
+    expect(labelsTableIndex).toBeGreaterThan(explicitRangeIndex);
+    expect(pricesTableIndex).toBeGreaterThan(implicitRangeIndex);
   }, 120000);
 
   test("orders canonical range functions through the shell type pattern", async () => {
