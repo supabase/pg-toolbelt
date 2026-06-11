@@ -52,6 +52,7 @@ export type {
   Plan,
   TransactionMode,
 } from "./core/plan/types.ts";
+export { UnorderableCycleError } from "./core/sort/unorderable-cycle-error.ts";
 
 // Postgres config
 export { createManagedPool } from "./core/postgres-config.ts";

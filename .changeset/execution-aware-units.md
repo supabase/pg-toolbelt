@@ -46,3 +46,5 @@ const statements = flattenPlanStatements(plan);
 - Single-unit plans (the common case) still apply as one transaction.
 
 **Plan JSON:** new plans are written as `version: 2` with `units`. Legacy v1 plan files (flat `statements`) are still read and normalized into a single transactional unit — faithful to how v1 executed them — but v2 plan files are not readable by older pg-delta versions.
+
+**New:** unorderable dependency cycles now throw a typed `UnorderableCycleError` (exported) carrying the offending changes in `error.cycle`, instead of a plain `Error` that callers had to string-match. And `pgdelta plan --output-dir <dir>` writes one numbered, transaction-aware SQL file per migration unit.

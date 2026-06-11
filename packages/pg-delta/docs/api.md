@@ -46,6 +46,7 @@ import {
   renderPlanSql,
   renderPlanFiles,
   flattenPlanStatements,
+  UnorderableCycleError,
   type Plan,
   type MigrationUnit,
   type CreatePlanOptions,
@@ -77,6 +78,7 @@ Create a migration plan by comparing two databases.
 
 - Returns an object with the plan and metadata if there are changes
 - Returns `null` if databases are identical
+- Throws `UnorderableCycleError` when the changes contain a dependency cycle that cannot be ordered; `error.cycle` carries the offending changes
 
 #### Example
 
