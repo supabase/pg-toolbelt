@@ -51,6 +51,7 @@ describe("objectKindFromObjType", () => {
     expect(objectKindFromObjType("OBJECT_TABLE")).toBe("table");
     expect(objectKindFromObjType("OBJECT_FUNCTION")).toBe("function");
     expect(objectKindFromObjType("OBJECT_VIEW")).toBe("view");
+    expect(objectKindFromObjType("OBJECT_RULE")).toBe("rule");
   });
 });
 
@@ -59,9 +60,10 @@ describe("objectFromNameParts", () => {
     expect(objectFromNameParts("table", [])).toBeNull();
   });
 
-  test("returns null for trigger/policy when objectName or relationName missing", () => {
+  test("returns null for trigger/policy/rule when objectName or relationName missing", () => {
     expect(objectFromNameParts("trigger", ["rel", ""])).toBeNull();
     expect(objectFromNameParts("policy", ["", "policy_name"])).toBeNull();
+    expect(objectFromNameParts("rule", ["rel", ""])).toBeNull();
   });
 
   test("returns ref for single-part schema-like kinds", () => {
@@ -104,6 +106,18 @@ describe("objectFromNameParts", () => {
       name: "users.users_select_policy",
     });
 
+    // COMMENT ON RULE name on relation → same shape
+    const ruleRef = objectFromNameParts(
+      "rule",
+      ["app", "users", "users_insert_guard"],
+      "public",
+    );
+    expect(ruleRef).toEqual({
+      kind: "rule",
+      schema: "app",
+      name: "users.users_insert_guard",
+    });
+
     // Two parts only (no schema) → schema from fallback
     const triggerNoSchema = objectFromNameParts(
       "trigger",
@@ -113,6 +127,17 @@ describe("objectFromNameParts", () => {
     expect(triggerNoSchema).toEqual({
       kind: "trigger",
       name: "my_table.my_trigger",
+      schema: "public",
+    });
+
+    const ruleNoSchema = objectFromNameParts(
+      "rule",
+      ["my_table", "my_rule"],
+      "public",
+    );
+    expect(ruleNoSchema).toEqual({
+      kind: "rule",
+      name: "my_table.my_rule",
       schema: "public",
     });
   });

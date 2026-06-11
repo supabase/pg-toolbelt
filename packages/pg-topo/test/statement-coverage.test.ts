@@ -244,6 +244,75 @@ describe("statement coverage", () => {
     expect(validation.diagnostics).toHaveLength(0);
   }, 120000);
 
+  test("orders create rule without expressions after its relation", async () => {
+    const result = await analyzeAndSort([
+      "create rule users_delete_guard as on delete to app.users do instead nothing;",
+      "create table app.users(id int primary key);",
+      "create schema app;",
+    ]);
+    const unknownDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+    const unresolvedDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const tableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.users"),
+    );
+    const ruleIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create rule users_delete_guard"),
+    );
+    const validation = await validateAnalyzeResultWithPostgres(result);
+
+    expect(unknownDiagnostics).toHaveLength(0);
+    expect(unresolvedDiagnostics).toHaveLength(0);
+    expect(tableIndex).toBeGreaterThan(-1);
+    expect(ruleIndex).toBeGreaterThan(tableIndex);
+    expect(validation.diagnostics).toHaveLength(0);
+  }, 120000);
+
+  test("orders comment on rule after the rule it targets", async () => {
+    const result = await analyzeAndSort([
+      "comment on rule users_delete_guard on app.users is 'guard rule';",
+      "create rule users_delete_guard as on delete to app.users do instead nothing;",
+      "create table app.users(id int primary key);",
+      "create schema app;",
+    ]);
+    const unknownDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+    const unresolvedDiagnostics = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const ruleIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create rule users_delete_guard"),
+    );
+    const commentIndex = orderedSql.findIndex((sql) =>
+      sql.includes("comment on rule users_delete_guard"),
+    );
+    const commentStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("comment on rule"),
+    );
+    const validation = await validateAnalyzeResultWithPostgres(result);
+
+    expect(unknownDiagnostics).toHaveLength(0);
+    expect(unresolvedDiagnostics).toHaveLength(0);
+    expect(commentStatement?.requires).toContainEqual({
+      kind: "rule",
+      schema: "app",
+      name: "users.users_delete_guard",
+    });
+    expect(ruleIndex).toBeGreaterThan(-1);
+    expect(commentIndex).toBeGreaterThan(ruleIndex);
+    expect(validation.diagnostics).toHaveLength(0);
+  }, 120000);
+
   test("resolves correct overload when multiple overloads have defaults", async () => {
     const result = await analyzeAndSort([
       "create schema auth;",
