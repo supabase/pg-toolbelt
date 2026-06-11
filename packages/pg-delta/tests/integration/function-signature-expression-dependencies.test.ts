@@ -278,6 +278,75 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test(
+      "removed column default for replaced function argument name does not recreate table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_input(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.form_inputs (
+              id integer NOT NULL,
+              value integer DEFAULT test_schema.default_input(1::integer),
+              keep_value integer NOT NULL
+            );
+
+            INSERT INTO test_schema.form_inputs (id, keep_value)
+            VALUES (1, 10);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.form_inputs
+              DROP COLUMN value;
+
+            DROP FUNCTION test_schema.default_input(integer);
+
+            CREATE FUNCTION test_schema.default_input(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.form_inputs DROP COLUMN value",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.default_input"),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith("CREATE FUNCTION test_schema.default_input"),
+            );
+
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropColumnIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.form_inputs",
+          1,
+        );
+      }),
+    );
+
     test.skipIf(pgVersion < 17)(
       "generated column update for replaced function signature does not recreate table",
       withDb(pgVersion, async (db) => {

@@ -1299,6 +1299,79 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
   });
 
+  test("does not replace a table when a replaced procedure only drops a dependent column default", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(1)");
+    const branchTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainTable,
+      columns: [],
+    });
+    const dropColumn = new AlterTableDropColumn({
+      table: mainTable,
+      column: mainTable.columns[0] as TableProps["columns"][number],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      dropColumn,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(dropColumn);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableDropColumn,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(false);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+    expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
+  });
+
   test("synthesizes a generated column fallback for an unchanged expression that depends on a same-signature procedure replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
