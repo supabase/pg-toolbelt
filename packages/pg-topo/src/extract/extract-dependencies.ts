@@ -9,6 +9,7 @@ import {
   markExactSignatureRef,
   markImplicitProviderRef,
   markOmitIfNoLocalProducerRef,
+  objectRefKey,
   SHELL_TYPE_SIGNATURE,
   splitQualifiedName,
 } from "../model/object-ref.ts";
@@ -36,6 +37,18 @@ import {
 type ExtractDependenciesResult = {
   provides: ObjectRef[];
   requires: ObjectRef[];
+};
+
+type ExtractionContext = {
+  enumTypeKeys: ReadonlySet<string>;
+  rangeTypeKeys: ReadonlySet<string>;
+  multirangeTypeKeys: ReadonlySet<string>;
+};
+
+const EMPTY_EXTRACTION_CONTEXT: ExtractionContext = {
+  enumTypeKeys: new Set(),
+  rangeTypeKeys: new Set(),
+  multirangeTypeKeys: new Set(),
 };
 
 const typeProviderRefs = (typeRef: ObjectRef): ObjectRef[] => [
@@ -810,6 +823,8 @@ const builtInRangeOperatorClassNames = new Set([
   "oid_ops",
   "pg_lsn_ops",
   "record_ops",
+  "range_ops",
+  "multirange_ops",
   "text_ops",
   "time_ops",
   "timestamp_ops",
@@ -911,6 +926,7 @@ const polymorphicBuiltInTypeNames = new Set([
 const typeRefMatchesPolymorphicBuiltInName = (
   typeRef: ObjectRef | null,
   typeName: string,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean => {
   if (!typeRef || typeRef.kind !== "type") {
     return false;
@@ -918,6 +934,7 @@ const typeRefMatchesPolymorphicBuiltInName = (
 
   const normalizedTypeName = typeName.toLowerCase();
   const normalizedRefName = typeRef.name.toLowerCase();
+  const typeKey = objectRefKey(typeRef);
   if (
     normalizedTypeName === "anyarray" ||
     normalizedTypeName === "anycompatiblearray"
@@ -925,6 +942,42 @@ const typeRefMatchesPolymorphicBuiltInName = (
     return normalizedRefName.endsWith("[]");
   }
   if (normalizedTypeName === "anyenum") {
+    return context.enumTypeKeys.has(typeKey);
+  }
+  if (
+    normalizedTypeName === "anyrange" ||
+    normalizedTypeName === "anycompatiblerange"
+  ) {
+    return (
+      typeRefMatchesBuiltInNames(typeRef, [
+        "daterange",
+        "int4range",
+        "int8range",
+        "numrange",
+        "tsrange",
+        "tstzrange",
+      ]) || context.rangeTypeKeys.has(typeKey)
+    );
+  }
+  if (
+    normalizedTypeName === "anymultirange" ||
+    normalizedTypeName === "anycompatiblemultirange"
+  ) {
+    return (
+      typeRefMatchesBuiltInNames(typeRef, [
+        "datemultirange",
+        "int4multirange",
+        "int8multirange",
+        "nummultirange",
+        "tsmultirange",
+        "tstzmultirange",
+      ]) || context.multirangeTypeKeys.has(typeKey)
+    );
+  }
+  if (
+    normalizedTypeName === "anynonarray" ||
+    normalizedTypeName === "anycompatiblenonarray"
+  ) {
     return !normalizedRefName.endsWith("[]");
   }
 
@@ -934,14 +987,16 @@ const typeRefMatchesPolymorphicBuiltInName = (
 const typeRefMatchesBuiltInSupportTypeName = (
   typeRef: ObjectRef | null,
   typeName: string,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean =>
   polymorphicBuiltInTypeNames.has(typeName.toLowerCase())
-    ? typeRefMatchesPolymorphicBuiltInName(typeRef, typeName)
+    ? typeRefMatchesPolymorphicBuiltInName(typeRef, typeName, context)
     : typeRefMatchesBuiltInNames(typeRef, [typeName]);
 
 const isBuiltInRangeOperatorClassName = (
   nameParts: string[],
   subtypeRef: ObjectRef | null,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
   if (!name || !builtInRangeOperatorClassNames.has(name)) {
@@ -958,6 +1013,34 @@ const isBuiltInRangeOperatorClassName = (
 
   const expectedSubtypes = builtInRangeOperatorClassSubtypes.get(name);
   if (!expectedSubtypes) {
+    if (name === "array_ops") {
+      return typeRefMatchesPolymorphicBuiltInName(
+        subtypeRef,
+        "anyarray",
+        context,
+      );
+    }
+    if (name === "enum_ops") {
+      return typeRefMatchesPolymorphicBuiltInName(
+        subtypeRef,
+        "anyenum",
+        context,
+      );
+    }
+    if (name === "range_ops") {
+      return typeRefMatchesPolymorphicBuiltInName(
+        subtypeRef,
+        "anyrange",
+        context,
+      );
+    }
+    if (name === "multirange_ops") {
+      return typeRefMatchesPolymorphicBuiltInName(
+        subtypeRef,
+        "anymultirange",
+        context,
+      );
+    }
     return true;
   }
 
@@ -1041,6 +1124,7 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
   ["date_cmp", [["date", "date"]]],
   ["date_sortsupport", [["internal"]]],
   ["enum_cmp", [["anyenum", "anyenum"]]],
+  ["hashint4", [["int4"]]],
   [
     "in_range",
     [
@@ -1080,6 +1164,7 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
 const isBuiltInOperatorClassSupportFunctionName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
   if (!name) {
@@ -1101,7 +1186,11 @@ const isBuiltInOperatorClassSupportFunctionName = (
     (signature) =>
       args.length === signature.length &&
       signature.every((typeName, index) =>
-        typeRefMatchesBuiltInSupportTypeName(args[index] ?? null, typeName),
+        typeRefMatchesBuiltInSupportTypeName(
+          args[index] ?? null,
+          typeName,
+          context,
+        ),
       ),
   );
 };
@@ -1118,6 +1207,7 @@ const isBuiltInOperatorClassSupportOperatorName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
   operatorClassDataTypeRef: ObjectRef | null,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
   if (
@@ -1137,7 +1227,22 @@ const isBuiltInOperatorClassSupportOperatorName = (
     );
   }
 
-  return args.every((argRef) => argRef !== null && isBuiltInObjectRef(argRef));
+  if (args.every((argRef) => argRef !== null && isBuiltInObjectRef(argRef))) {
+    return true;
+  }
+
+  const leftArg = args[0] ?? null;
+  const rightArg = args[1] ?? null;
+  if (args.length !== 2 || !objectRefsSameObject(leftArg, rightArg)) {
+    return false;
+  }
+
+  return (
+    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyarray", context) ||
+    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyenum", context) ||
+    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyrange", context) ||
+    typeRefMatchesPolymorphicBuiltInName(leftArg, "anymultirange", context)
+  );
 };
 
 const defaultMultirangeTypeName = (rangeTypeName: string): string =>
@@ -1279,6 +1384,78 @@ const objectRefsSameObject = (
   );
 };
 
+const addTypeKey = (typeKeys: Set<string>, typeRef: ObjectRef | null): void => {
+  if (!typeRef) {
+    return;
+  }
+  typeKeys.add(
+    objectRefKey(createObjectRefFromAst("type", typeRef.name, typeRef.schema)),
+  );
+};
+
+export const createExtractionContext = (
+  astNodes: readonly unknown[],
+): ExtractionContext => {
+  const enumTypeKeys = new Set<string>();
+  const rangeTypeKeys = new Set<string>();
+  const multirangeTypeKeys = new Set<string>();
+
+  for (const astNode of astNodes) {
+    const astRecord = asRecord(astNode);
+    const enumStmt = asRecord(astRecord?.CreateEnumStmt);
+    addTypeKey(
+      enumTypeKeys,
+      objectFromNameParts("type", extractNameParts(enumStmt?.typeName)),
+    );
+
+    const rangeStmt = asRecord(astRecord?.CreateRangeStmt);
+    const rangeRef = objectFromNameParts(
+      "type",
+      extractNameParts(rangeStmt?.typeName),
+    );
+    addTypeKey(rangeTypeKeys, rangeRef);
+    if (!rangeRef) {
+      continue;
+    }
+
+    const params = Array.isArray(rangeStmt?.params) ? rangeStmt.params : [];
+    let hasExplicitMultirangeTypeName = false;
+    for (const paramNode of params) {
+      const defElem = asRecord(asRecord(paramNode)?.DefElem);
+      const optionName =
+        typeof defElem?.defname === "string"
+          ? defElem.defname.toLowerCase()
+          : "";
+      if (optionName !== "multirange_type_name") {
+        continue;
+      }
+      hasExplicitMultirangeTypeName = true;
+      const typeName = asRecord(asRecord(defElem?.arg)?.TypeName);
+      addTypeKey(
+        multirangeTypeKeys,
+        objectFromNameParts(
+          "type",
+          extractNameParts(typeName?.names),
+          rangeRef.schema ?? DEFAULT_SCHEMA,
+        ),
+      );
+    }
+
+    if (!hasExplicitMultirangeTypeName) {
+      addTypeKey(
+        multirangeTypeKeys,
+        createObjectRefFromAst(
+          "type",
+          defaultMultirangeTypeName(rangeRef.name),
+          rangeRef.schema,
+        ),
+      );
+    }
+  }
+
+  return { enumTypeKeys, rangeTypeKeys, multirangeTypeKeys };
+};
+
 export const omittedRangeSubtypeOperatorClassSubtypeRef = (
   statementNode: unknown,
 ): ObjectRef | null => {
@@ -1351,8 +1528,18 @@ export const defaultBtreeOperatorClassProviderRefForSubtype = (
     : null;
 };
 
+export const hasPgCatalogDefaultBtreeOperatorClassForSubtype = (
+  subtypeRef: ObjectRef,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
+): boolean =>
+  typeRefMatchesPolymorphicBuiltInName(subtypeRef, "anyarray", context) ||
+  typeRefMatchesPolymorphicBuiltInName(subtypeRef, "anyenum", context) ||
+  typeRefMatchesPolymorphicBuiltInName(subtypeRef, "anyrange", context) ||
+  typeRefMatchesPolymorphicBuiltInName(subtypeRef, "anymultirange", context);
+
 const extractCreateRangeDependencies = (
   statementNode: Record<string, unknown>,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -1422,7 +1609,11 @@ const extractCreateRangeDependencies = (
           "btree",
         );
         if (
-          isBuiltInRangeOperatorClassName(operatorClassNameParts, subtypeRef)
+          isBuiltInRangeOperatorClassName(
+            operatorClassNameParts,
+            subtypeRef,
+            context,
+          )
         ) {
           if (operatorClassNameParts.length === 1) {
             requires.push(
@@ -1554,18 +1745,21 @@ const builtInOperatorImplementationFunctionSignatures = new Map<
   ["int2le", [["int2", "int2"]]],
   ["int2lt", [["int2", "int2"]]],
   ["int2ne", [["int2", "int2"]]],
+  ["int2um", [["int2"]]],
   ["int4eq", [["int4", "int4"]]],
   ["int4ge", [["int4", "int4"]]],
   ["int4gt", [["int4", "int4"]]],
   ["int4le", [["int4", "int4"]]],
   ["int4lt", [["int4", "int4"]]],
   ["int4ne", [["int4", "int4"]]],
+  ["int4um", [["int4"]]],
   ["int8eq", [["int8", "int8"]]],
   ["int8ge", [["int8", "int8"]]],
   ["int8gt", [["int8", "int8"]]],
   ["int8le", [["int8", "int8"]]],
   ["int8lt", [["int8", "int8"]]],
   ["int8ne", [["int8", "int8"]]],
+  ["int8um", [["int8"]]],
   ["numeric_eq", [["numeric", "numeric"]]],
   ["numeric_ge", [["numeric", "numeric"]]],
   ["numeric_gt", [["numeric", "numeric"]]],
@@ -1822,6 +2016,7 @@ const extractCreateOperatorFamilyDependencies = (
 
 const extractCreateOperatorClassDependencies = (
   statementNode: Record<string, unknown>,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -1925,6 +2120,7 @@ const extractCreateOperatorClassDependencies = (
           nameParts,
           operatorArgs,
           dataTypeRef,
+          context,
         )
       ) {
         if (nameParts.length === 1) {
@@ -1957,7 +2153,13 @@ const extractCreateOperatorClassDependencies = (
       }
 
       const functionArgs = objectWithArgsTypeRefs(itemName);
-      if (isBuiltInOperatorClassSupportFunctionName(nameParts, functionArgs)) {
+      if (
+        isBuiltInOperatorClassSupportFunctionName(
+          nameParts,
+          functionArgs,
+          context,
+        )
+      ) {
         if (nameParts.length === 1) {
           const functionRef = objectWithArgsRef(
             "function",
@@ -2355,6 +2557,7 @@ const extractDoDependencies = (
 const extractDependencyRefs = (
   statementClass: StatementClass,
   ast: unknown,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): ExtractDependenciesResult => {
   const astNode = asRecord(ast);
   if (!astNode) {
@@ -2457,7 +2660,7 @@ const extractDependencyRefs = (
       );
       const rangeStmt = asRecord(astNode.CreateRangeStmt);
       const rangeDependencies = rangeStmt
-        ? extractCreateRangeDependencies(rangeStmt)
+        ? extractCreateRangeDependencies(rangeStmt, context)
         : null;
       const typeRef = compositeRef ?? enumRef;
       if (rangeDependencies) {
@@ -2620,6 +2823,7 @@ const extractDependencyRefs = (
     case "CREATE_OPERATOR_CLASS":
       return extractCreateOperatorClassDependencies(
         asRecord(astNode.CreateOpClassStmt) ?? {},
+        context,
       );
     case "CREATE_OPERATOR_FAMILY":
       return extractCreateOperatorFamilyDependencies(
@@ -2731,8 +2935,9 @@ export const extractDependencies = (
   statementClass: StatementClass,
   ast: unknown,
   annotations: AnnotationHints,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): ExtractDependenciesResult => {
-  const extracted = extractDependencyRefs(statementClass, ast);
+  const extracted = extractDependencyRefs(statementClass, ast, context);
   return {
     provides: dedupeObjectRefs([
       ...extracted.provides,

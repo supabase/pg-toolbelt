@@ -4,8 +4,10 @@ import {
   statementClassAstNode,
 } from "./classify/classify-statement.ts";
 import {
+  createExtractionContext,
   defaultBtreeOperatorClassProviderRefForSubtype,
   extractDependencies,
+  hasPgCatalogDefaultBtreeOperatorClassForSubtype,
   omittedRangeSubtypeOperatorClassSubtypeRef,
 } from "./extract/extract-dependencies.ts";
 import { buildGraph, type EdgeMetadata } from "./graph/build-graph.ts";
@@ -74,7 +76,18 @@ const addImplicitRangeOperatorClassDependencies = (
   statementNodes: StatementNode[],
   parsedStatements: ParsedStatement[],
   diagnostics: Diagnostic[],
+  externalProviders?: AnalyzeOptions["externalProviders"],
 ): void => {
+  const extractionContext = createExtractionContext(
+    parsedStatements.map((statement) => statement.ast),
+  );
+  const hasExternalDefaultBtreeOperatorClass = (): boolean =>
+    externalProviders?.some(
+      (providerRef) =>
+        providerRef.kind === "operator_class" &&
+        signaturesCompatible("(btree)", providerRef.signature),
+    ) === true;
+
   for (let index = 0; index < statementNodes.length; index += 1) {
     const statementNode = statementNodes[index];
     const parsedStatement = parsedStatements[index];
@@ -113,7 +126,14 @@ const addImplicitRangeOperatorClassDependencies = (
       }
     }
 
-    if (rangeOperatorClassRefs.size === 0) {
+    if (
+      rangeOperatorClassRefs.size === 0 &&
+      !hasExternalDefaultBtreeOperatorClass() &&
+      !hasPgCatalogDefaultBtreeOperatorClassForSubtype(
+        subtypeRef,
+        extractionContext,
+      )
+    ) {
       const subtypeName = subtypeRef.schema
         ? `${subtypeRef.schema}.${subtypeRef.name}`
         : subtypeRef.name;
@@ -307,6 +327,9 @@ export const analyzeAndSort = async (
   }
 
   const statementNodes: StatementNode[] = [];
+  const extractionContext = createExtractionContext(
+    parsedStatements.map((statement) => statement.ast),
+  );
   for (const parsedStatement of parsedStatements) {
     const statementClass = classifyStatement(parsedStatement.ast);
     if (statementClass === "UNKNOWN") {
@@ -321,6 +344,7 @@ export const analyzeAndSort = async (
       statementClass,
       parsedStatement.ast,
       parsedStatement.annotations,
+      extractionContext,
     );
 
     statementNodes.push({
@@ -340,6 +364,7 @@ export const analyzeAndSort = async (
     statementNodes,
     parsedStatements,
     diagnostics,
+    options?.externalProviders,
   );
   resolveExplicitOperatorFamilyProviders(statementNodes);
   omitRequirementsWithoutLocalProducers(statementNodes);
