@@ -47,6 +47,15 @@ pg-topo's production role are *replaced*, not ported.
 
 ## What to look for (pitfalls)
 
+- **Some inputs are unorderable in principle.** Two `CREATE TABLE`
+  statements with mutual *inline* FK clauses converge under no permutation
+  and no number of retry rounds — the user must split one FK into a
+  separate `ALTER TABLE … ADD CONSTRAINT`. The stuck-statement error for
+  this case should say exactly that (and the dev layer can suggest the
+  split). The ordering contract is **convergence or loud failure, never
+  silent wrongness** — reordering can never change what the SQL means,
+  because Postgres elaborates every statement. Add a corpus scenario for
+  the mutual-FK case asserting the diagnostic.
 - **Don't resurrect the retry engine as a production path.** The bounded
   rounds run against the throwaway shadow only. The plan that eventually
   touches a live target comes from the planner; the loader's job ends at a
