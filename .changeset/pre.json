@@ -37,6 +37,7 @@
     "fix-mutual-fk-drop-cycle",
     "fix-not-valid-constraint-convergence",
     "fix-null-key-columns-expression-exclude",
+    "fix-pg-topo-alter-publication-subscription",
     "fix-procedure-signature-replace",
     "fix-publication-fk-chain-cycle",
     "fix-rename-table-cascade-and-orphan-sequence",
