@@ -418,8 +418,18 @@ function tryBreakPublicationFkConstraintDropCycle(
     return null;
   }
 
-  for (const dropTable of dropTables) {
-    if (!publicationTableIds.has(dropTable.table.stableId)) return null;
+  // At least one dropped table must be a publication member — that's the
+  // publication → DropTable edge that pulls the publication change into the
+  // cycle (the back-edge is the terminal constraint's table, checked above).
+  // Don't require ALL of them: publications like supabase_realtime commonly
+  // contain only a subset of tables, so intermediate FK-chain tables may not
+  // be members (Sentry SUPABASE-API-7RS / CLI-1605).
+  if (
+    !dropTables.some((dropTable) =>
+      publicationTableIds.has(dropTable.table.stableId),
+    )
+  ) {
+    return null;
   }
 
   const cycleDropTableIds = new Set(

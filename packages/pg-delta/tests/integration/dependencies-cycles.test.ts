@@ -657,7 +657,16 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               DROP CONSTRAINT trades_trade_id_key;
           `,
           assertSqlStatements: (statements) => {
-            expect(statements).toMatchInlineSnapshot();
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE public.public_offering_events DROP CONSTRAINT public_offering_events_source_event_id_fkey",
+                "ALTER TABLE public.trade_status_events DROP CONSTRAINT trade_status_events_trade_id_fkey",
+                "DROP TABLE public.trade_status_events",
+                "ALTER TABLE public.trades DROP CONSTRAINT trades_trade_id_key",
+                "ALTER PUBLICATION supabase_realtime DROP TABLE public.public_offering_events, public.trades",
+                "DROP TABLE public.public_offering_events",
+              ]
+            `);
           },
         });
       }),
