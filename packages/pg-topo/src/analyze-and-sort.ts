@@ -362,6 +362,12 @@ export const analyzeAndSort = async (
       parsedStatement.annotations,
       extractionContext,
     );
+    for (const diagnostic of extraction.diagnostics ?? []) {
+      diagnostics.push({
+        ...diagnostic,
+        statementId: diagnostic.statementId ?? parsedStatement.id,
+      });
+    }
 
     statementNodes.push({
       id: parsedStatement.id,

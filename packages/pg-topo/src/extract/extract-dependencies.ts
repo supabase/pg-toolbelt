@@ -13,7 +13,7 @@ import {
   SHELL_TYPE_SIGNATURE,
   splitQualifiedName,
 } from "../model/object-ref.ts";
-import type { AnnotationHints, ObjectRef } from "../model/types.ts";
+import type { AnnotationHints, Diagnostic, ObjectRef } from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
 import {
   addExpressionDependencies,
@@ -37,6 +37,7 @@ import {
 type ExtractDependenciesResult = {
   provides: ObjectRef[];
   requires: ObjectRef[];
+  diagnostics?: Diagnostic[];
 };
 
 type ExtractionContext = {
@@ -797,6 +798,9 @@ const isBuiltInRangeCollationName = (nameParts: string[]): boolean => {
   return nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog";
 };
 
+const isPgCatalogQualifiedName = (nameParts: string[]): boolean =>
+  nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog";
+
 // Common pg_catalog btree operator classes that can be used as range
 // SUBTYPE_OPCLASS values without an input CREATE OPERATOR CLASS statement.
 const builtInRangeOperatorClassNames = new Set([
@@ -1011,11 +1015,7 @@ const isBuiltInRangeOperatorClassName = (
     return false;
   }
 
-  if (nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog") {
-    return true;
-  }
-
-  if (nameParts.length !== 1) {
+  if (nameParts.length !== 1 && !isPgCatalogQualifiedName(nameParts)) {
     return false;
   }
 
@@ -1268,11 +1268,19 @@ const builtInOperatorClassSupportOperatorNames = new Set([
   "=",
   ">=",
   ">",
+]);
+
+const builtInPatternOperatorClassSupportOperatorNames = new Set([
   "~<~",
   "~<=~",
   "~>=~",
   "~>~",
 ]);
+
+const typeRefMatchesBuiltInPatternOperatorType = (
+  typeRef: ObjectRef | null,
+): boolean =>
+  typeRefMatchesBuiltInNames(typeRef, ["bpchar", "text", "varchar"]);
 
 const isBuiltInOperatorClassSupportOperatorName = (
   nameParts: string[],
@@ -1287,9 +1295,24 @@ const isBuiltInOperatorClassSupportOperatorName = (
         nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog"
       )) ||
     !name ||
-    !builtInOperatorClassSupportOperatorNames.has(name)
+    (!builtInOperatorClassSupportOperatorNames.has(name) &&
+      !builtInPatternOperatorClassSupportOperatorNames.has(name))
   ) {
     return false;
+  }
+
+  if (builtInPatternOperatorClassSupportOperatorNames.has(name)) {
+    if (args.length === 0) {
+      return typeRefMatchesBuiltInPatternOperatorType(operatorClassDataTypeRef);
+    }
+
+    const leftArg = args[0] ?? null;
+    const rightArg = args[1] ?? null;
+    return (
+      args.length === 2 &&
+      objectRefsSameObject(leftArg, rightArg) &&
+      typeRefMatchesBuiltInPatternOperatorType(leftArg)
+    );
   }
 
   if (args.length === 0) {
@@ -1691,6 +1714,7 @@ const extractCreateRangeDependencies = (
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
+  const diagnostics: Diagnostic[] = [];
 
   const rangeRef = objectFromNameParts(
     "type",
@@ -1759,13 +1783,12 @@ const extractCreateRangeDependencies = (
           operatorClassRef.schema,
           operatorClassSignature("btree", operatorClassSubtypeRef),
         );
-        if (
-          isBuiltInRangeOperatorClassName(
-            operatorClassNameParts,
-            operatorClassSubtypeRef,
-            context,
-          )
-        ) {
+        const isBuiltInRangeOperatorClass = isBuiltInRangeOperatorClassName(
+          operatorClassNameParts,
+          operatorClassSubtypeRef,
+          context,
+        );
+        if (isBuiltInRangeOperatorClass) {
           if (operatorClassNameParts.length === 1) {
             requires.push(
               markOmitIfNoLocalProducerRef(operatorClassRequirement),
@@ -1773,6 +1796,23 @@ const extractCreateRangeDependencies = (
           }
         } else {
           requires.push(operatorClassRequirement);
+          if (
+            operatorClassRef.schema?.toLowerCase() === "pg_catalog" &&
+            builtInRangeOperatorClassNames.has(
+              operatorClassRef.name.toLowerCase(),
+            )
+          ) {
+            const subtypeName = operatorClassSubtypeRef
+              ? typeSignaturePart(operatorClassSubtypeRef)
+              : "unknown";
+            diagnostics.push({
+              code: "UNRESOLVED_DEPENDENCY",
+              message: `No compatible pg_catalog btree operator class '${operatorClassRef.name}' found for range subtype '${subtypeName}'.`,
+              objectRefs: [operatorClassRequirement],
+              suggestedFix:
+                "Use a btree operator class whose input type matches the range subtype.",
+            });
+          }
         }
       }
       continue;
@@ -1833,7 +1873,7 @@ const extractCreateRangeDependencies = (
     );
   }
 
-  return { provides, requires };
+  return { provides, requires, diagnostics };
 };
 
 const operatorImplementationFunctionOptionNames = new Set([
@@ -3105,5 +3145,6 @@ export const extractDependencies = (
       ...annotations.requires,
       ...annotations.dependsOn,
     ]),
+    diagnostics: extracted.diagnostics,
   };
 };
