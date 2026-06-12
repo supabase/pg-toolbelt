@@ -30,9 +30,9 @@ space must answer all five: state capture, comparison, action synthesis,
 ordering, execution. Every serious tool (pg_dump/pg_restore itself, migra,
 pg-schema-diff, atlas, skeema) converges on this staged shape; the
 architectural freedom — and where this design differs from the current
-codebase — is *within* the stages: where semantic knowledge lives, who is
-trusted to elaborate PostgreSQL semantics, how cycles are handled, and how
-correctness is established.
+codebase — is *within* the stages: how state is represented, where semantic
+knowledge lives, who is trusted to elaborate PostgreSQL semantics, how cycles
+are handled, and how correctness is established.
 
 Out of scope, permanently: data migrations (DML). The tool's contract is
 schema state, not data movement.
@@ -78,16 +78,23 @@ new PostgreSQL version or object type touches most of them.
 
 The north star has **two**:
 
-1. **Extraction queries** — catalog → facts (the existing extractor SQL
-   corpus, the most valuable code in the repository, survives nearly
-   verbatim).
-2. **The rule table** — fact-deltas → actions (§3.3).
+1. **Extraction queries** — catalog → normalized facts (§3.1). The existing
+   extractor SQL corpus, the most valuable code in the repository, survives
+   nearly verbatim as the fact producer.
+2. **The rule table** — fact-deltas → actions (§3.4).
 
 Everything between — diffing, ordering, planning, verification — is generic
 machinery that never changes when Postgres evolves. Supporting PostgreSQL 19
 means updating extraction queries and adding rules. **That is the
 scalability that matters most over a decade: scaling with PostgreSQL's
 evolution, not only with schema size.**
+
+A corollary that the rest of the design depends on: the two forms can only
+stay two if state, diff, dependencies, and actions all share **one
+granularity** — the fact. The moment state is stored at a coarser grain than
+dependencies point at, hand-written translation code reappears (§8.7 shows
+this is exactly what happened). The fact base below is therefore not a
+storage detail; it is what makes P2 hold.
 
 ---
 
@@ -96,55 +103,91 @@ evolution, not only with schema size.**
 ```text
 frontends:   live DB ──(single-snapshot extract)──┐
              SQL files ──(shadow-DB elaboration)──┼──▶  FACT BASE
-             snapshot JSON ───────────────────────┘     typed facts + dependency edges,
-                                                        content-addressed (hash per object)
+             snapshot JSON ───────────────────────┘     normalized fact rows + parent &
+                                                        dependency edges; content hash per
+                                                        fact, Merkle rollups along parents
                                   │
-                     generic set-diff (hash compare — zero per-type code)
-                                  │
-                              DELTA SET
+                  generic diff: rollup-guided descent → fact-level DELTAS
+                  (hash compare — zero per-type code, O(changed))
                                   │
                      RULE TABLE  ◀── the only per-type logic in the system
                                   │
-                          ATOMIC ACTIONS
-              maximally decomposed; each declares produces / consumes /
-              destroys, lock class, rewrite risk, data-loss class,
-              transactionality
+                          ATOMIC ACTIONS  (≈ 1:1 with deltas)
+              each declares produces / consumes / destroys, lock class,
+              rewrite risk, data-loss class, transactionality
                                   │
               ONE dependency graph → one deterministic topological sort
               (a cycle is a rule bug caught by CI, not a runtime repair job)
                                   │
               optional COMPACTION: merge adjacent actions into idiomatic DDL
-              only where no edge crosses the merge (cosmetics; off for machines)
+              by joining facts along parent relations, only where no edge
+              crosses the merge (cosmetics; off for machines)
                                   │
-                   PLAN = actions + fingerprints + safety report
+                   PLAN = ordered deltas + fingerprints + safety report
                                   │
             ┌── PROOF: apply to scratch clone, re-extract, hash-compare ──┐
             └──────────── apply (lock-aware segmented txns) ──────────────┘
 ```
 
-### 3.1 The fact base
+### 3.1 The fact base: a normalized, content-addressed relation
 
-One normalized, immutable representation of "a schema state," identical
-regardless of origin. Three properties define it:
+**Normalized, not nested.** PostgreSQL's own catalog is relational —
+`pg_attribute`, `pg_constraint`, `pg_attrdef` are rows referencing their
+parents, not sub-documents of `pg_class`. The optimal state representation
+mirrors that shape instead of re-imposing a document hierarchy on it: every
+addressable thing — table, column, constraint, default, index, trigger,
+policy, ACL entry, comment, security label, role membership, extension
+membership — is its **own fact**:
+
+```ts
+interface Fact {
+  id: StableId;             // typed union: column:, constraint:, default:, acl:, comment: …
+  parent?: StableId;        // hierarchy as a relation, not as containment
+  payload: NormalizedAttrs; // cooked attributes (names not attnums, canonical pg_get_*def)
+  hash: ContentHash;        // content hash of the normalized payload
+}
+
+interface FactBase {
+  facts: Map<StableId, Fact>;
+  edges: Set<DependencyEdge>;   // pg_depend-derived + ACL/membership/ownership, as data
+  rollup: Map<StableId, Hash>;  // Merkle: parent hash folds children's hashes
+}
+```
+
+Five properties define it:
 
 - **Typed identity.** Stable IDs are a parsed discriminated union
   (`{kind: "procedure", schema, name, args}` …) with a frozen canonical
   string form for persistence and graph keys. Structure is accessed by
-  field, never recovered by regex (today:
-  [expand-replace-dependencies.ts:419-425](../packages/pg-delta/src/core/expand-replace-dependencies.ts)
-  slices `"procedure:"` strings apart).
-- **Content addressing.** Every object carries a content hash computed once
-  at construction from its normalized equality surface (the existing
-  `stableSnapshot()` normalizations — the "physical attnums vs logical
-  names" doctrine — carry over intact). A catalog is effectively a Merkle
-  set: equality checks, fingerprints, no-op detection, and caching are all
-  O(1) per object. (Today equality is a double `JSON.stringify` per shared
-  object per diff —
-  [base.model.ts:70-75](../packages/pg-delta/src/core/objects/base.model.ts),
-  [objects/utils.ts:36-37](../packages/pg-delta/src/core/objects/utils.ts).)
-- **Dependencies as facts.** `pg_depend`-derived edges (plus the synthesized
-  ACL/membership/ownership edges) are part of the state, extracted under the
-  same snapshot as everything else.
+  field, never recovered by regex.
+- **One granularity everywhere.** Facts, dependency edges, diff deltas, and
+  actions all live at the same grain. A `pg_depend` edge that points at a
+  column points at a fact that *exists*; nothing maps between coarse state
+  and fine dependencies, because there is no coarse state.
+- **Content addressing with Merkle rollups.** Every fact hashes its
+  normalized payload; every parent's rollup hash folds its children's. Two
+  consequences: equality at any granularity is one comparison, and diffing
+  is **O(changed)** — subtrees whose rollups match are skipped wholesale.
+  Fingerprints, no-op detection, drift detection, and caching are the same
+  mechanism.
+- **Hierarchy is a view, not the storage.** Renderers and the compactor that
+  need "a table with its columns and inlineable constraints" *join* facts
+  along the parent relation at render time. The document shape exists where
+  documents are useful — output — and nowhere else.
+- **Cross-cutting metadata is not special.** A comment is a fact whose
+  target is another fact's ID; so is an ACL entry, a security label, a
+  membership. There is no "scope" dimension in the system — one global rule
+  per metadata kind (§3.4) replaces per-object-type reimplementation.
+- **Provenance is data.** "Owned by extension X" is an edge fact, not an
+  extraction-time filter. Downstream policy (integrations, vendor filtering)
+  decides what to do with provenance instead of extraction deciding what to
+  hide.
+
+The payload normalization doctrine carries over from today unchanged
+(logical names instead of physical attnums; canonical `pg_get_*def()` output
+as the comparison form where Postgres provides it): it answers *what we
+know* correctly. The fact model changes *how it is keyed* — which is where
+the current design pays (§8.7).
 
 ### 3.2 Frontends: one elaborator, three doors
 
@@ -162,48 +205,83 @@ regardless of origin. Three properties define it:
   (template-cloned; `check_function_bodies = off`), then extracted. The
   desired state is whatever Postgres actually builds — no fuzzy reference
   matching, no retry heuristics. This *is* the declarative workflow.
-- **Snapshots**: the serialized fact base round-trips losslessly (exists
-  today as `serializeCatalog`/`deserializeCatalog`; becomes the contract for
-  offline diffing, fixtures, and caching).
+- **Snapshots**: the serialized fact base round-trips losslessly and is the
+  contract for offline diffing, fixtures, and caching. A flat fact relation
+  serializes, filters, and streams trivially — properties a nested document
+  model resists.
 
-### 3.3 Generic diff
+### 3.3 Generic diff: rollup-guided descent to fact-level deltas
 
-With content addressing, comparison is set algebra on `(stableId → hash)`:
-added, removed, changed. **Zero per-type diff code** — no `table.diff.ts`
-(1,034 lines today), no per-type diff functions at all. Per-type knowledge is
-not needed to detect *that* something changed; it is needed only to decide
-*what to do about it* — which is the rule table's job.
+Comparison is hash algebra, top-down: compare rollups; where they match,
+skip the entire subtree; where they differ, descend and compare fact hashes;
+where a fact differs, compare payload attributes. The output is the system's
+central data type:
+
+```ts
+type Delta =
+  | { verb: "add";    fact: Fact }
+  | { verb: "remove"; fact: Fact }
+  | { verb: "set";    id: StableId; attr: string; from: unknown; to: unknown };
+```
+
+**Zero per-type diff code — structurally, not aspirationally.** The differ
+never knows what a table is. Because state is normalized at fact grain, the
+generic differ already produces "the default of `column:public.users.email`
+changed" — there is no nested document for per-type code to re-walk. (In a
+document model, "generic diff" can only say *this table changed somehow*,
+and a second, hand-written diff engine per type must rediscover what — that
+is precisely the 1,034 lines of
+[table.diff.ts](../packages/pg-delta/src/core/objects/table/table.diff.ts)
+today, see §8.7.)
+
+Deltas — not statements, not class instances — are also what plans persist:
+a delta list is diffable, replayable, and storable by construction.
 
 ### 3.4 The rule table
 
-The only per-type logic in the system. For each object kind, structured data
-declares:
+The only per-type logic in the system: structured data mapping deltas to
+actions.
 
 ```ts
 // sketch — rules are data with functions in narrow slots only
-interface KindRules<M> {
-  kind: ObjectKind;
-  identitySql(m: M): string;
-  createTemplate(m: M): string;                    // bare object only (§3.5)
-  attributes: Record<string, AttributeRule<M>>;    // per changed attribute:
-  //   { alter: (old, new) => string }             //   in-place ALTER
-  //   | { replace: true }                         //   forces drop+create
-  //   | { replace: (old, new) => boolean }        //   conditional (e.g. column type)
-  implicitlyDrops(m: M): StableId[];               // cascade knowledge (DROP TABLE → its
-                                                   // constraints, columns, owned sequences)
-  lockClass(action: Action): LockClass;
-  rewriteRisk(action: Action): boolean;
-  dataLossClass(action: Action): DataLoss;
+interface KindRules<P> {
+  kind: FactKind;
+  identitySql(p: P): string;
+  createTemplate(p: P, view: FactView): string;     // bare object only (§3.5)
+  attributes: Record<string, AttributeRule<P>>;     // per changed attribute:
+  //   { alter: (from, to, view) => string }        //   in-place ALTER
+  //   | { replace: true }                          //   forces drop+create
+  //   | { replace: (from, to) => boolean }         //   conditional (e.g. column type)
+  implicitlyRemoves(p: P, view: FactView): StableId[]; // cascade knowledge
+  lockClass(a: Action): LockClass;
+  rewriteRisk(a: Action): boolean;
+  dataLossClass(a: Action): DataLoss;
 }
 ```
 
-Hard cases — column type changes, view replacement chains, procedure
-signature identity — are *conditional rules with more structure*, not
-imperative escape hatches. The discipline that keeps rules from degenerating
-into code-in-disguise: functions appear only in predicate and template
-slots, and every rule's claims are checked by the proof loop (§3.7) — a rule
-that lies about cascades or alterability produces a state mismatch in CI,
-not a latent bug.
+Three structural consequences of operating on fact deltas:
+
+- **Cross-cutting kinds get one rule, globally.** `comment(target) = text`
+  is a single rule for the entire system — not 21 per-object-type comment
+  implementations. Same for ACL entries, security labels, memberships. The
+  rule count tracks PostgreSQL's *concepts*, not the cross product of
+  concepts × object types.
+- **Rules receive fact views, not documents.** A rule that renders
+  `CREATE TABLE` asks the view API for the children it may inline; the
+  hierarchy it needs is computed, not stored.
+- **Multi-fact semantic atoms are delta-set rules.** `ALTER COLUMN … TYPE`
+  touches the column fact, possibly its default fact, and invalidates
+  dependent index/view facts. A rule may match a *set* of related deltas and
+  emit the composite action with the correct teardown/rebuild edges — the
+  declarative form of the knowledge that today lives in the `invalidates`
+  side channel and the expand-replace pass.
+
+Hard cases remain *conditional rules with more structure*, never imperative
+escape hatches — escape hatches are how today's eight-forms situation
+happened. The discipline that keeps rules honest: functions confined to
+predicate/template slots, and the proof loop (§3.7) as a lie detector — a
+rule that misdeclares cascades or alterability produces a state mismatch in
+CI the day it is written.
 
 This replaces, outright: 21 per-type diff functions, 106 change classes, the
 five per-`objectType` dispatch switches
@@ -212,75 +290,68 @@ five per-`objectType` dispatch switches
 [fingerprint.ts:88](../packages/pg-delta/src/core/fingerprint.ts),
 [change.types.ts:65](../packages/pg-delta/src/core/change.types.ts),
 [file-mapper.ts:59](../packages/pg-delta/src/core/export/file-mapper.ts)),
-and the shared privilege/comment/security-label wrapper classes. Today that
-surface is 256 files / 31,162 LOC of source in `objects/` alone; the rule
-table plus models is estimated at a third of it.
+and the per-type privilege/comment/security-label wrappers — today 256
+files / 31,162 LOC of source in `objects/` alone.
 
-### 3.5 Atomic actions: maximal decomposition
+### 3.5 Atomic actions: decomposition mirrors normalization
 
-Every action is the smallest valid DDL unit: bare `CREATE TABLE`; every
-constraint, default, FK, index, grant, comment, ownership change as its own
-action. Each action declares `produces` / `consumes` / `destroys` (stable
-IDs), plus the safety metadata from its rule.
+Actions are ≈1:1 with deltas: bare `CREATE TABLE`; every constraint,
+default, FK, index, grant, comment, ownership change as its own action. Each
+action declares `produces` / `consumes` / `destroys` (fact IDs) plus the
+safety metadata from its rule. **Maximal decomposition in the action space
+is the same principle as normalization in the state space — one idea seen
+from two sides.** A normalized state diffed at fact grain *naturally* yields
+atomic actions; the impedance mismatch of decomposed actions over
+document-shaped state cannot arise.
 
-This is pg_dump's deep trick, adopted wholesale: **pg_dump has no
+This is also pg_dump's deep trick, adopted wholesale: **pg_dump has no
 cycle-breaker module because at this granularity, cycles structurally cannot
 form** for entire categories of dependencies (mutual FKs, FK-vs-drop
-interleavings). The current codebase already half-believes this — the create
-phase emits constraints as separate `AlterTableAddConstraint` changes
-([table.diff.ts:84](../packages/pg-delta/src/core/objects/table/table.diff.ts)),
-which is exactly why all three cycle breakers
-([cycle-breakers.ts](../packages/pg-delta/src/core/sort/cycle-breakers.ts):
-`tryBreakFkCycle`, `tryBreakPublicationColumnCycle`,
-`tryBreakPublicationFkConstraintDropCycle`) live in the **drop phase**, where
-compound `DROP TABLE` semantics create implicit edges. Worse, the system
-currently fights itself: post-diff normalization *prunes* constraint drops
-for compactness, then the cycle breaker *re-injects* them when compactness
-creates a cycle. The north star resolves the tension in one direction:
-decomposed by construction, compacted only where provably safe (§3.6 output
-stage).
+interleavings). Compound semantics stop being implicit: `DROP TABLE`'s
+cascade becomes explicit fact-removals related by edges, ordered by the
+graph like everything else.
 
-Failure-mode analysis is the argument: with repair, a new cycle class means
-a wrong/unsortable plan in production and a new hand-written breaker (the
-git history is a string of exactly these fixes). With avoidance, the
-worst case is a more verbose script. Verbosity is recoverable; wrongness is
-not.
+Failure-mode analysis is the argument for avoidance over repair: with
+repair, a new cycle class means a wrong or unsortable plan in production and
+a new hand-written breaker (the current registry —
+[cycle-breakers.ts](../packages/pg-delta/src/core/sort/cycle-breakers.ts):
+`tryBreakFkCycle`, `tryBreakPublicationColumnCycle`,
+`tryBreakPublicationFkConstraintDropCycle` — each added after a
+field-discovered cycle; the codebase even fights itself, with post-diff
+normalization *pruning* constraint drops for compactness that the drop-phase
+breaker then *re-injects*). With avoidance, the worst case is a more verbose
+script. Verbosity is recoverable; wrongness is not.
 
 ### 3.6 One graph, one sort, then cosmetic compaction
 
 A single dependency graph over all atomic actions — drops, creates, alters
-together. Edges come from three sources: the old state's dependency facts
+together. Edges come from three sources: the old state's edge facts
 (teardown ordering: an action destroying X follows everything that consumes
-X), the new state's dependency facts (build ordering: an action producing Y
-precedes everything consuming Y), and identity conflicts (drop of `X` before
-create of new `X`). One deterministic Kahn pass (heap-based ready queue,
-tie-break by phase weight → kind weight → name) replaces today's two-phase
-sort + `invalidates` side channel + repair loop: an in-place mutation is
-simply an action that destroys the old fact and produces the new one, and
-the mixed graph orders its dependents' teardown and rebuild around it
-naturally.
+X), the new state's edge facts (build ordering: an action producing Y
+precedes everything consuming Y), and identity conflicts (remove of `X`
+before add of new `X`). One deterministic Kahn pass (heap-based ready queue,
+tie-break by phase weight → kind weight → name) replaces a two-phase sort, an
+`invalidates` side channel, and a repair loop: an in-place mutation is simply
+an action that destroys the old fact and produces the new one, and the mixed
+graph orders its dependents' teardown and rebuild around it naturally.
 
 **A cycle is a rule bug.** Cycle detection remains as an assertion with a
 high-quality diagnostic, and as a property-test target — never as a runtime
-repair subsystem. (Today: graph rebuilt from scratch on every repair round,
-[sort-changes.ts:161-289](../packages/pg-delta/src/core/sort/sort-changes.ts);
-full catalog depend-row scan regardless of diff size,
-[graph-builder.ts:26](../packages/pg-delta/src/core/sort/graph-builder.ts);
-O(V²) ready queue,
-[topological-sort.ts:33-52](../packages/pg-delta/src/core/sort/topological-sort.ts).
-All of it dissolves rather than getting optimized.)
+repair subsystem.
 
 **Compaction** is the final, optional stage: merge adjacent actions into
 idiomatic compound DDL (constraints inlined into `CREATE TABLE`, column
-clauses folded) only when no graph edge crosses the merge boundary. It is a
-peephole optimization on an already-correct sorted script — it can produce
-ugliness, never wrongness. On by default for humans, off for machines.
+clauses folded) by joining facts along parent relations, only when no graph
+edge crosses the merge boundary. It is a peephole optimization on an
+already-correct sorted script — it can produce ugliness, never wrongness. On
+by default for humans, off for machines.
 
 ### 3.7 Plan and proof
 
-A plan is: ordered actions + source/target fingerprints (which are now just
-fact-base hashes — same machinery as equality) + the safety report
-aggregated from per-action metadata (locks, rewrites, data loss).
+A plan is: ordered deltas (with their rendered actions) + source/target
+fingerprints — which are now just fact-base rollup hashes, the same
+machinery as equality — + the safety report aggregated from per-action
+metadata (locks, rewrites, data loss).
 
 **The proof loop is the architecture's keystone.** Because any state can be
 materialized (template-cloned scratch DB) and re-extracted, the planner can
@@ -318,22 +389,24 @@ attribution replaces the joined-string megaquery.
 These are not cleanups — they are features the current architecture cannot
 express:
 
-### 4.1 Rename detection
+### 4.1 Rename detection, down to sub-entities
 
-Content addressing makes renames visible: an object removed on one side and
-added on the other **with the same content hash** is a rename candidate →
-emit `ALTER … RENAME` (data-preserving) instead of drop+create
-(data-destroying), governed by policy (`auto` / `prompt` / `off`) since
-hash-equality is necessary but not sufficient evidence of intent. Every tool
-in this class punts on renames; here it falls out of the state
-representation.
+Content addressing makes renames visible at every grain: a fact removed on
+one side and added on the other **with the same content hash** is a rename
+candidate. At object grain that means `ALTER TABLE … RENAME TO`
+(data-preserving) instead of drop+create (data-destroying). At fact grain it
+extends to the case that destroys data in practice: **column renames** —
+same payload hash, same parent, different name. Governed by policy
+(`auto` / `prompt` / `off`), since hash-equality is necessary but not
+sufficient evidence of intent. Every tool in this class punts on renames;
+here they fall out of the state representation.
 
 ### 4.2 Proof-certified plans
 
-"This plan was applied to a clone and produced a byte-identical desired
+"This plan was applied to a clone and produced a hash-identical desired
 state" is a product claim no comparable tool makes. It also gives drift
-detection for free: fingerprint comparison between any environment and any
-snapshot is two hash sets.
+detection for free: comparing any environment against any snapshot is a
+rollup-hash walk.
 
 ### 4.3 Generative testing as the safety net
 
@@ -369,30 +442,36 @@ over nearly verbatim:
 
 - **The extractor SQL corpus** (`<type>.model.ts` queries) — years of
   accumulated `pg_catalog` knowledge across PG versions; the single most
-  valuable asset in the repository. It becomes the fact-base producer.
+  valuable asset in the repository. It becomes the fact producer; what
+  changes is the keying of its output (fact rows instead of nested
+  documents), not its content.
 - **The `pg_depend` doctrine** — deepened from "the diff path's source of
   truth" to "the only semantic engine, period" (P1).
 - **The normalization knowledge** in `stableSnapshot()` overrides (physical
-  attnums vs logical names, etc.) — it becomes the content-hash surface.
+  attnums vs logical names, canonical `pg_get_*def()` comparison forms) —
+  it becomes the fact payload normalization, i.e. the content-hash surface.
 - **Stable identity** as a concept — upgraded to typed values with a frozen
-  string form.
+  string form, extended to every fact kind.
 - **The plan + fingerprint product contract** — plans as reviewable,
-  version-controllable artifacts with drift detection.
+  version-controllable artifacts with drift detection; fingerprints become
+  rollup hashes.
 - **Safety/risk classification** — generalized into per-action metadata
   supplied by the rule table.
 - **The serialize/filter DSL surface** for integrations (Supabase rules) —
-  re-targeted at actions instead of change classes, same user-facing
-  contract.
+  re-targeted at deltas/actions instead of change classes, same user-facing
+  contract, strengthened by provenance facts (§3.1).
 
 ## 6. What is retired
 
 | Retired | Replaced by |
 |---|---|
-| 21 per-type diff functions + 106 change classes (256 files / 31,162 LOC) | generic hash diff + rule table (§3.3–3.4) |
+| Document-shaped catalog models (columns/constraints/privileges/labels nested in `dataFields`, [table.model.ts:211-230](../packages/pg-delta/src/core/objects/table/table.model.ts)) | normalized fact rows with parent relations + Merkle rollups (§3.1) |
+| 21 per-type diff functions + 106 change classes (256 files / 31,162 LOC) | rollup-guided generic diff + rule table (§3.3–3.4) |
+| Per-type comment/privilege/security-label implementations (the "scope" axis) | one global rule per metadata kind over target-referencing facts (§3.4) |
 | Two-phase sort + `invalidates` side channel + cycle breakers + dependency filter + post-diff normalization-as-repair | one mixed graph, decomposition by construction, cosmetic compaction (§3.5–3.6) |
 | Round-based declarative apply ([round-apply.ts](../packages/pg-delta/src/core/declarative-apply/round-apply.ts)) | shadow-DB elaboration through the one plan path (§3.2) |
 | pg-topo in the apply path | pg-topo as dev-experience layer (§4.4) |
-| String stable-ID re-parsing | typed `StableId` (§3.1) |
+| String stable-ID re-parsing ([expand-replace-dependencies.ts:419-425](../packages/pg-delta/src/core/expand-replace-dependencies.ts)) | typed `StableId` (§3.1) |
 | `JSON.stringify` equality + triple extraction per apply | content hashes + single-snapshot extraction + proof-as-opt-in (§3.1, §3.2, §3.7) |
 | Hand-written per-type test matrix as primary safety net | generative roundtrip proof + thin integration ring (§4.3) |
 
@@ -404,12 +483,18 @@ over nearly verbatim:
   version parity rule it out of the trusted path today. Environments that
   cannot reach any scratch database lose the declarative frontend — that is
   a real constraint and is accepted.
+- **Fact-count growth.** Normalization multiplies object count ~10–30× (a
+  10k-table schema becomes a few hundred thousand facts). Memory impact is
+  trivial; diff cost tracks *changes*, not facts, because of rollup
+  skipping. The real cost is conceptual: contributors think in facts and
+  views instead of convenient pre-joined documents.
 - **Rule-table expressiveness risk.** The gnarliest ALTER semantics resist
   tabularization; rules can degenerate into code-in-disguise. Mitigations:
-  functions confined to predicate/template slots, and the proof loop as a
-  lie detector. If a kind genuinely cannot be expressed, the honest response
-  is a structured sub-rule vocabulary, not an imperative escape hatch —
-  escape hatches are how the current eight-forms situation happened.
+  functions confined to predicate/template slots, delta-set rules for
+  multi-fact atoms, and the proof loop as a lie detector. If a kind
+  genuinely cannot be expressed, the honest response is a structured
+  sub-rule vocabulary, not an imperative escape hatch — escape hatches are
+  how the current eight-forms situation happened.
 - **Verbosity when compaction is conservative.** Cosmetic by construction;
   the compactor can improve forever without correctness risk.
 - **Proof costs an extra apply + extract.** Optional per environment; cheap
@@ -446,6 +531,21 @@ removes:
 6. **45-job CI matrix defending hand-written cases** — consequence of
    lacking a proof loop; correctness must be asserted per-case because it
    cannot be checked per-run. §3.7.
+7. **Three granularities that don't agree.** Equality lives at the document
+   level (`dataFields` nests columns, constraints, privileges, labels —
+   [table.model.ts:211-230](../packages/pg-delta/src/core/objects/table/table.model.ts)),
+   dependencies live at the sub-entity level (`pg_depend` targets columns
+   and constraints), and actions live at the statement level. Most
+   hand-written code is translation between the three:
+   [table.create.ts:36-43](../packages/pg-delta/src/core/objects/table/changes/table.create.ts)
+   re-enumerates column IDs out of the nested array so the graph can see
+   them; the graph builder maintains reverse multimaps to map IDs back onto
+   changes; and the 1,034 lines of
+   [table.diff.ts](../packages/pg-delta/src/core/objects/table/table.diff.ts)
+   exist to re-discover *which nested part* of a "changed" document actually
+   changed — a second, per-type diff engine inside each document. The fact
+   base removes the translation by removing the disagreement: one
+   granularity for state, dependencies, deltas, and actions. §3.1, §3.3.
 
 ## 9. The path from here
 
@@ -457,32 +557,44 @@ RED→GREEN regression test per repository policy.
 
 | # | Phase | North-star component it builds | Notes |
 |---|---|---|---|
-| 1 | Single-snapshot parallel extraction; memoized content hashes on models; hash-based `equals`; post-apply verify becomes explicit proof opt-in | Fact base §3.1–3.2 | Fixes the consistency bug on day one; hashes later power fingerprints, renames, proof |
-| 2 | Typed `StableId` (frozen canonical string form, parse/format round-trip tested); kill regex re-parsing | Fact base identity §3.1 | Wire format byte-frozen — persisted in plan fingerprints |
+| 1 | Single-snapshot parallel extraction; memoized content hashes on models; hash-based `equals`; post-apply verify becomes explicit proof opt-in | Fact base capture & hashing §3.1–3.2 | Fixes the consistency bug on day one; hashes later power fingerprints, renames, proof |
+| 2 | Typed `StableId` (frozen canonical string form, parse/format round-trip tested); kill regex re-parsing | Fact identity §3.1 | Wire format byte-frozen — persisted in plan fingerprints |
 | 3 | `provePlan(plan, source)` as a first-class API: template-cloned scratch, apply, extract, hash-compare. Adopt as CI oracle; begin generative roundtrip tests; shrink the hand-written integration matrix as proof coverage grows | Proof loop §3.7, §4.3 | **Do this before touching emission** — it is the safety net for phases 5–8 |
 | 4 | Sort hygiene while the old sort still exists: depend-row pre-filtering to the change set, single graph build per phase, heap queue | Interim perf | Pure wins now; code is absorbed by phase 6 |
 | 5 | Decomposition-by-default emission + the compaction pass; delete cycle breakers by attrition as their cycle classes become unconstructible | §3.5–3.6 | First emission-changing phase; gated on state-proof + review |
 | 6 | One mixed graph (old-state edges + new-state edges + identity conflicts) replaces two-phase + `invalidates` + repair loop | §3.6 | A surviving cycle after 5+6 is a rule/emission bug — fix the rule, never add a breaker |
-| 7 | Rule table: migrate kinds from per-type diff+classes to rules consumed by the generic engine — cookie-cutter kinds first, table/view/procedure as structured conditional rules last; delete the per-type dispatch switches and the change-class union | §3.3–3.4 / P2 | Largest phase; per-kind PRs; proof loop is the oracle |
-| 8 | Shadow-DB frontend for SQL files through the one plan path; round-apply demoted to fallback, then removed; pg-topo repositioned as dev-experience layer; WASM leaves the core install | §3.2, §4.4 | The declarative workflow's correctness becomes the diff engine's correctness |
-| 9 | Rename detection (hash-equal candidates, policy-gated); layered public API finalized (fact base / diff / plan / proof / apply); packaging falls out | §4.1, §4.5 | The visible product payoff |
+| 7 | Fact-model normalization: flatten sub-entities (columns, constraints, defaults, ACL entries, comments, labels) into facts with parent relations and Merkle rollups, kind by kind; document views become render-time joins; rollup hashes preserve whole-object equality during transition | Fact base §3.1, generic diff §3.3 | Internal refactor — byte-identical SQL gate; enables phase 8 |
+| 8 | Rule table: migrate kinds from per-type diff+classes to delta rules consumed by the generic engine — global metadata rules (comment/ACL/label) first, cookie-cutter kinds next, table/view/procedure as structured conditional + delta-set rules last; delete the per-type dispatch switches and the change-class union | §3.3–3.4 / P2 | Largest phase; per-kind PRs; proof loop is the oracle |
+| 9 | Shadow-DB frontend for SQL files through the one plan path; round-apply demoted to fallback, then removed; pg-topo repositioned as dev-experience layer; WASM leaves the core install | §3.2, §4.4 | The declarative workflow's correctness becomes the diff engine's correctness |
+| 10 | Rename detection (object- and fact-level hash-equal candidates, policy-gated); layered public API finalized (fact base / diff / plan / proof / apply); packaging falls out | §4.1, §4.5 | The visible product payoff |
 
 Ordering rationale: 1–3 build the measurement and safety instruments; 4 is
-opportunistic; 5–7 are the structural inversion under proof protection; 8–9
-are the product payoff. Phases 1, 2, 4 can start immediately and in
-parallel.
+opportunistic; 5–8 are the structural inversion under proof protection —
+emission first (5–6), then state (7), then knowledge (8); 9–10 are the
+product payoff. Phases 1, 2, 4 can start immediately and in parallel.
 
 ## 10. Decision log
 
-- **2026-06-12** — This document supersedes the earlier incremental-roadmap
-  framing of itself. The maintainer's direction: define the **technical
-  optimum without regard to past choices**; it is the project's north star.
-  Earlier scoping decisions made under the incremental framing (e.g.
-  "moderate packaging") are superseded where this document derives a
-  different answer; the shadow-DB convergence decision is unchanged and now
-  central (P1).
+- **2026-06-12 (a)** — This document supersedes the earlier
+  incremental-roadmap framing of itself. The maintainer's direction: define
+  the **technical optimum without regard to past choices**; it is the
+  project's north star. Earlier scoping decisions made under the incremental
+  framing (e.g. "moderate packaging") are superseded where this document
+  derives a different answer; the shadow-DB convergence decision is
+  unchanged and now central (P1).
+- **2026-06-12 (b)** — Following maintainer review ("are the change-based
+  data structures and captured data the optimum?"), the fact base is
+  specified as **fully normalized with Merkle rollup hashing** (§3.1), the
+  diff output as fact-level deltas (§3.3), and cross-cutting metadata as
+  ordinary target-referencing facts. This unifies state, dependency, delta,
+  and action granularity — the property that makes P2's "two forms of
+  knowledge" structurally true (§8.7) — and extends rename detection to
+  sub-entities (§4.1). The captured *data* (extractor SQL, normalization
+  doctrine) is affirmed as correct; the reshaping concerns its keying, plus
+  provenance (extension membership) captured as edge facts instead of
+  extraction-time filtering.
 - Open questions intentionally left to their phases: compaction's default
-  aggressiveness (phase 5), rename-policy default (phase 9), the minimum
+  aggressiveness (phase 5), rename-policy default (phase 10), the minimum
   integration-test ring kept alongside generative proof (phase 3).
 
 ---
