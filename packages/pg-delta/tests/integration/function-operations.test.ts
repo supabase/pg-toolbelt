@@ -659,6 +659,99 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "function signature change cascades through a dependent check constraint",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.is_valid_status(status text)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT status <> '' $$;
+
+            CREATE TABLE test_schema.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL,
+              CONSTRAINT accounts_status_check CHECK (
+                test_schema.is_valid_status(status)
+              )
+            );
+
+            COMMENT ON CONSTRAINT accounts_status_check
+              ON test_schema.accounts
+              IS 'status guard';
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.accounts
+              DROP CONSTRAINT accounts_status_check;
+
+            DROP FUNCTION test_schema.is_valid_status(text);
+
+            CREATE FUNCTION test_schema.is_valid_status(
+              status text,
+              expected text DEFAULT 'active'
+            )
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT status <> '' AND expected <> '' $$;
+
+            ALTER TABLE test_schema.accounts
+              ADD CONSTRAINT accounts_status_check CHECK (
+                test_schema.is_valid_status(status)
+              );
+
+            COMMENT ON CONSTRAINT accounts_status_check
+              ON test_schema.accounts
+              IS 'status guard';
+          `,
+          assertSqlStatements: (statements) => {
+            const dropTableIdx = statements.findIndex((statement) =>
+              statement.startsWith("DROP TABLE test_schema.accounts"),
+            );
+            const createTableIdx = statements.findIndex((statement) =>
+              statement.startsWith("CREATE TABLE test_schema.accounts"),
+            );
+            const dropConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.accounts DROP CONSTRAINT accounts_status_check",
+              ),
+            );
+            const dropFunctionIdx = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.is_valid_status(",
+              ),
+            );
+            const createFunctionIdx = statements.findIndex((statement) =>
+              statement.includes("CREATE FUNCTION test_schema.is_valid_status"),
+            );
+            const addConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.accounts ADD CONSTRAINT accounts_status_check",
+              ),
+            );
+            const commentConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "COMMENT ON CONSTRAINT accounts_status_check ON test_schema.accounts",
+              ),
+            );
+
+            expect(dropTableIdx).toBe(-1);
+            expect(createTableIdx).toBe(-1);
+            expect(dropConstraintIdx).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIdx).toBeGreaterThan(dropConstraintIdx);
+            expect(createFunctionIdx).toBeGreaterThan(dropFunctionIdx);
+            expect(addConstraintIdx).toBeGreaterThan(createFunctionIdx);
+            expect(commentConstraintIdx).toBeGreaterThan(addConstraintIdx);
+          },
+        });
+      }),
+    );
+
+    test(
       "function overloading",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

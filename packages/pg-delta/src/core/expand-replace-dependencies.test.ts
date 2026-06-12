@@ -40,6 +40,7 @@ import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAddColumn,
+  AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
@@ -114,6 +115,7 @@ function mockInvalidatingChange(invalidates: string[]): Change {
 function makeTable(
   name: string,
   columns: ConstructorParameters<typeof Table>[0]["columns"],
+  overrides: Partial<ConstructorParameters<typeof Table>[0]> = {},
 ): Table {
   return new Table({
     schema: "public",
@@ -136,7 +138,10 @@ function makeTable(
     parent_schema: null,
     parent_name: null,
     columns,
+    constraints: [],
     privileges: [],
+    security_labels: [],
+    ...overrides,
   });
 }
 
@@ -1104,6 +1109,128 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes.some((c) => c instanceof DropView)).toBe(true);
+  });
+
+  test("replaces dependent constraints without replacing their table when a procedure signature changes", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 1,
+      argument_names: ["status"],
+      argument_types: ["text"],
+      argument_default_count: 0,
+      argument_defaults: null,
+      source_code: "SELECT status <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' $$",
+    });
+    const branchProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 2,
+      argument_names: ["status", "expected"],
+      argument_types: ["text", "text"],
+      argument_default_count: 1,
+      argument_defaults: "'active'::text",
+      source_code: "SELECT status <> '' AND expected <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text, expected text DEFAULT 'active'::text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' AND expected <> '' $$",
+    });
+    const constraint = {
+      name: "accounts_status_check",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "is_valid_status(status)",
+      owner: "postgres",
+      definition: "CHECK (is_valid_status(status))",
+      comment: "status guard",
+    };
+    const table = makeTable(
+      "accounts",
+      [
+        {
+          name: "status",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      { constraints: [constraint] },
+    );
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id:
+            "constraint:public.accounts.accounts_status_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropTable)).toBe(false);
+    expect(expanded.changes.some((c) => c instanceof CreateTable)).toBe(false);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropConstraint),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableAddConstraint),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) =>
+        c.serialize().includes("COMMENT ON CONSTRAINT accounts_status_check"),
+      ),
+    ).toBe(true);
   });
 
   test("promotes dependent RLS policy when a procedure's signature changes", async () => {
