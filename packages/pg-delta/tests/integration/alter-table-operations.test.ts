@@ -729,6 +729,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           assertSqlStatements: (sqlStatements) => {
             expect(sqlStatements).toMatchInlineSnapshot(`
               [
+                "ALTER TABLE test_schema.generated_metadata DROP CONSTRAINT generated_metadata_status_label_check",
+                "ALTER TABLE test_schema.generated_metadata DROP CONSTRAINT generated_metadata_status_label_key",
                 "ALTER TABLE test_schema.generated_metadata DROP COLUMN status_label",
                 "ALTER TABLE test_schema.generated_metadata ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
                 "ALTER TABLE test_schema.generated_metadata ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
