@@ -682,6 +682,132 @@ describe("tryBreakCycleByChangeInjection", () => {
     expect(broken).toContain(terminalDrop);
   });
 
+  test("publication FK-chain 4-cycle with partial publication membership: injects FK drops", () => {
+    // Sentry SUPABASE-API-7RS / CLI-1605. Same shape as the previous test,
+    // but the publication only contains the terminal constraint's table
+    // (trades) and the first dropped table (public_offering_events) — the
+    // intermediate FK-chain table (trade_status_events) was never a member
+    // of supabase_realtime. The breaker must not require every dropped
+    // table in the cycle to be a publication member; the pub edge only
+    // needs one of them.
+    //
+    // Schema:
+    //   trades.trade_id UNIQUE (trades_trade_id_key) — table survives
+    //   trade_status_events.trade_id REFERENCES trades(trade_id)
+    //   public_offering_events.source_event_id REFERENCES trade_status_events(id)
+    //   publication supabase_realtime: trades, public_offering_events only
+    const tableTrades = new Table({
+      ...baseTableProps,
+      name: "trades",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        { ...integerColumn("trade_id", 2), not_null: true },
+      ],
+      constraints: [uniqueConstraint("trades_trade_id_key", "trade_id")],
+    });
+    const tableTradeStatusEvents = new Table({
+      ...baseTableProps,
+      name: "trade_status_events",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("trade_id", 2),
+      ],
+      constraints: [
+        fkConstraint({
+          name: "trade_status_events_trade_id_fkey",
+          fkColumn: "trade_id",
+          targetSchema: "public",
+          targetTable: "trades",
+          targetColumn: "trade_id",
+        }),
+      ],
+    });
+    const tablePublicOfferingEvents = new Table({
+      ...baseTableProps,
+      name: "public_offering_events",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("source_event_id", 2),
+      ],
+      constraints: [
+        fkConstraint({
+          name: "public_offering_events_source_event_id_fkey",
+          fkColumn: "source_event_id",
+          targetSchema: "public",
+          targetTable: "trade_status_events",
+        }),
+      ],
+    });
+    const publication = new Publication({
+      name: "supabase_realtime",
+      owner: "postgres",
+      comment: null,
+      all_tables: false,
+      publish_insert: true,
+      publish_update: true,
+      publish_delete: true,
+      publish_truncate: true,
+      publish_via_partition_root: false,
+      tables: [
+        {
+          schema: "public",
+          name: "public_offering_events",
+          columns: null,
+          row_filter: null,
+        },
+        { schema: "public", name: "trades", columns: null, row_filter: null },
+      ],
+      schemas: [],
+    });
+
+    const terminalDrop = new AlterTableDropConstraint({
+      table: tableTrades,
+      constraint: tableTrades.constraints[0],
+    });
+    const changes: Change[] = [
+      new AlterPublicationDropTables({
+        publication,
+        tables: publication.tables,
+      }),
+      new DropTable({ table: tablePublicOfferingEvents }),
+      new DropTable({ table: tableTradeStatusEvents }),
+      terminalDrop,
+    ];
+
+    const broken = tryBreakCycleByChangeInjection([0, 1, 2, 3], changes);
+    if (broken === null) throw new Error("expected breaker to fire");
+
+    const injectedDropNames = broken
+      .filter(
+        (change): change is AlterTableDropConstraint =>
+          change instanceof AlterTableDropConstraint && change !== terminalDrop,
+      )
+      .map((change) => change.constraint.name)
+      .sort();
+    expect(injectedDropNames).toEqual([
+      "public_offering_events_source_event_id_fkey",
+      "trade_status_events_trade_id_fkey",
+    ]);
+
+    for (const [tableId, constraintName] of [
+      [
+        tablePublicOfferingEvents.stableId,
+        "public_offering_events_source_event_id_fkey",
+      ],
+      [tableTradeStatusEvents.stableId, "trade_status_events_trade_id_fkey"],
+    ] as const) {
+      const rewrittenDrop = broken.find(
+        (change): change is DropTable =>
+          change instanceof DropTable && change.table.stableId === tableId,
+      );
+      if (!rewrittenDrop) throw new Error(`missing DropTable for ${tableId}`);
+      expect(
+        rewrittenDrop.externallyDroppedConstraints.has(constraintName),
+      ).toBe(true);
+    }
+    expect(broken).toContain(terminalDrop);
+  });
+
   test("returns null for a cycle with no recognised pattern (e.g. publication-only)", () => {
     // Cycle of `AlterPublicationSetOwner` changes — neither FK nor
     // publication-column shape. Breaker must bail so the formatted

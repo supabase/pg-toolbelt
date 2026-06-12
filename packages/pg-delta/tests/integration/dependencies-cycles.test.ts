@@ -591,6 +591,79 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "drop publication FK-chain tables with partial publication membership should not produce a cycle",
+      withDb(pgVersion, async (db) => {
+        /**
+         * Reproduction for production CycleError (Sentry SUPABASE-API-7RS,
+         * CLI-1605, alpha.24):
+         *
+         *   CycleError: dependency graph contains a cycle involving 4 changes:
+         *     1. AlterPublicationDropTables (supabase_realtime)
+         *     2. DropTable(public_offering_events)
+         *     3. DropTable(trade_status_events)
+         *     4. AlterTableDropConstraint(trades.trades_trade_id_key)
+         *
+         * Cycle path:
+         *   publication:supabase_realtime → table:public.public_offering_events
+         *   public_offering_events_source_event_id_fkey → column:public.trade_status_events.id
+         *   trade_status_events_trade_id_fkey → constraint:public.trades.trades_trade_id_key
+         *   constraint:public.trades.trades_trade_id_key → table:public.trades
+         *
+         * Same shape as the previous test, with one twist: the intermediate
+         * FK-chain table (trade_status_events) is NOT a member of the
+         * publication — supabase_realtime commonly contains only a subset
+         * of tables. The Branch C cycle breaker used to require every
+         * dropped table in the cycle to be a publication member and bailed,
+         * surfacing the raw CycleError to the user.
+         */
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+            CREATE TABLE public.trades (
+              id bigint PRIMARY KEY,
+              trade_id bigint NOT NULL,
+              CONSTRAINT trades_trade_id_key UNIQUE (trade_id)
+            );
+
+            CREATE TABLE public.trade_status_events (
+              id bigint PRIMARY KEY,
+              trade_id bigint NOT NULL,
+              CONSTRAINT trade_status_events_trade_id_fkey
+                FOREIGN KEY (trade_id)
+                REFERENCES public.trades(trade_id)
+            );
+
+            CREATE TABLE public.public_offering_events (
+              id bigint PRIMARY KEY,
+              source_event_id bigint NOT NULL,
+              CONSTRAINT public_offering_events_source_event_id_fkey
+                FOREIGN KEY (source_event_id)
+                REFERENCES public.trade_status_events(id)
+            );
+
+            -- trade_status_events is deliberately NOT in the publication.
+            CREATE PUBLICATION supabase_realtime
+              FOR TABLE public.trades, public.public_offering_events;
+          `,
+          testSql: `
+            ALTER PUBLICATION supabase_realtime
+              DROP TABLE public.public_offering_events, public.trades;
+
+            DROP TABLE public.public_offering_events;
+            DROP TABLE public.trade_status_events;
+
+            ALTER TABLE public.trades
+              DROP CONSTRAINT trades_trade_id_key;
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot();
+          },
+        });
+      }),
+    );
+
+    test(
       "alter sequence data_type while owning column survives should not produce DropSequence cycle",
       withDb(pgVersion, async (db) => {
         /**
