@@ -34,8 +34,11 @@ pattern syntax is not carried (decision log f); its evaluation model
 4. **Baseline subtraction**: `applyBaseline(fb, baselineSnapshot)` — facts
    present-and-identical in the baseline are dropped from both sides before
    diffing. The baseline is a stage-1 snapshot, version-tagged, regenerated
-   by script (port the *workflow* of the old `sync-base-images` script:
-   bare image vs fully-provisioned instance, extract, save).
+   by script — port the *workflow* of the old
+   `packages/pg-delta/scripts/sync-supabase-base-images.ts` (bare image vs
+   fully-provisioned instance, extract, save) and mine
+   `update-empty-catalog-baseline.ts` for the empty-catalog baseline this
+   mechanism replaces.
 5. **The Supabase policy package** — the first consumer and the proof the
    DSL suffices: port every rule from the old `supabase.ts` (schema/role
    exclusion lists, skip-authorization rules, extension suppression) into
@@ -57,9 +60,10 @@ pattern syntax is not carried (decision log f); its evaluation model
   reproducibility).
 - **Filtering vs correctness.** A filtered delta can be a dependency of an
   unfiltered action (user table referencing a filtered-out role). The
-  planner must fail loudly on a dangling requirement introduced by policy —
-  a policy-induced hole is a user-facing error ("your filter excludes role
-  X required by table Y"), not a silent edge drop.
+  *check* for this already exists — stage 5's graph build fails loudly on
+  any missing requirement (its deliverable 6); this stage's job is the
+  policy-shaped negative test and the user-facing message ("your filter
+  excludes role X required by table Y"), not a new mechanism.
 - **Baseline drift.** Platform images change; a stale baseline shows up as
   phantom deltas. The baseline snapshot embeds the image tag it came from;
   the policy scenario in CI regenerates against the pinned tag so drift is

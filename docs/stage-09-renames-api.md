@@ -1,8 +1,10 @@
 # Stage 9: Renames + Public API & CLI
 
-> Part of the [north-star architecture](./target-architecture.md) (§4.1, §4.5).
-> Depends on: stages 5–6 (planner, artifacts); stage 1 designed the
-> structural rollup this stage uses. Gate: rename corpus; API review.
+> Part of the [north-star architecture](./target-architecture.md) (§4.1,
+> §4.2, §4.5). Depends on: stages 5–7 (planner, artifacts; stage 7's
+> `loadSqlFiles` is what the export round-trip gate runs through); stage 1
+> designed the structural rollup this stage uses. Gate: rename corpus;
+> export round-trip; API review.
 
 ## Goal
 
@@ -65,11 +67,20 @@ CLI — that consumers will actually touch.
    gains round-trip scenarios asserting exactly that, which closes the
    declarative loop: export → hand-edit → apply is the same proof-covered
    path in both directions.
-7. **CLI v2**, a thin consumer of the public API: `plan`, `apply`, `prove`,
-   `diff`, `schema export` (fact base → declarative files via renderer),
-   `schema apply` (files → shadow → plan → apply). Interactive rename
-   prompts; policy selection by name/path; plan artifacts as files. The
-   old CLI's command vocabulary is a reference, not a contract.
+7. **Drift detection, surfaced.** The §4.2 capability is a rollup-hash walk
+   the engine already does — this stage makes it a product feature:
+   `diff(extract(env), loadSnapshot(pinned))` exposed as a CLI verb
+   (`pgdelta drift <env> <snapshot>`) reporting changed/added/removed facts.
+   Without this deliverable the capability silently dies in the engine.
+8. **CLI v2**, a thin consumer of the public API: `plan`, `apply`, `prove`,
+   `diff`, `drift`, `schema export` (fact base → declarative files via
+   renderer), `schema apply` (files → shadow → plan → apply), `snapshot`
+   (fact base → file; replaces the old `catalog-export`). Interactive
+   rename prompts; policy selection by name/path; plan artifacts as files.
+   The old CLI's command vocabulary is a reference, not a contract — the
+   mapping table must cover all six old commands explicitly, including
+   `sync` (→ `plan` + `apply` in one invocation) and `catalog-export`
+   (→ `snapshot`).
 
 ## What to look for (pitfalls)
 
@@ -92,5 +103,7 @@ CLI — that consumers will actually touch.
   schemas (and the exported tree loads with zero deferred rounds — exports
   are emitted pre-ordered).
 - API review completed and recorded (a checklist in the PR, name by name).
-- CLI v2 covers the old CLI's workflows (mapping table old command → new),
-  demonstrated against the corpus's happy-path scenarios.
+- Drift verb demonstrated: a mutated environment vs a pinned snapshot
+  reports exactly the mutated facts.
+- CLI v2 covers the old CLI's workflows (mapping table covering all six
+  old commands), demonstrated against the corpus's happy-path scenarios.

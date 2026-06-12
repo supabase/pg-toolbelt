@@ -44,6 +44,23 @@ where the two architectural inversions live — maximal decomposition
    serializers (`changes/*.ts` templates, `table.alter.ts`'s ~25 variants)
    for the SQL-shape knowledge — port the *strings*, not the class
    structure.
+6. **Loud failure on missing requirements.** The graph build fails with a
+   structured diagnostic (the stage-1 shared type) when an action's
+   `consumes`/edge target is absent from the fact set — this covers both
+   genuine missing dependencies and holes introduced by policy filtering
+   (stage 8 supplies the policy negative test; the *check* lives here).
+7. **The vetted lock-class table.** Net-new (the old engine has none):
+   populate per-DDL-form lock levels from PostgreSQL's documentation, with
+   a targeted unit assertion per form. This is the "vetted" tier of the
+   safety report (§3.7); stage 6 consumes it, stage 6 does not build it.
+8. **The benchmark fixture + timing harness.** A ≥10k-object schema fixture
+   and an extract/diff/plan wall-time harness, run in CI from this stage on
+   — stage 10's performance-parity bar reads these numbers; they must exist
+   long before cutover to catch regressions early.
+9. **Generator growth, per PR.** Each kind-batch PR extends the stage-3
+   generative engine to cover the kinds it lands. The stage-10 soak is only
+   meaningful if the generator emits every supported kind — coverage is
+   tracked as a simple kind-checklist in the generator module.
 
 ## Recommended PR sequence (each lands corpus-greens, flips `EXPECTED_RED` entries)
 
@@ -111,6 +128,19 @@ where the two architectural inversions live — maximal decomposition
   versions — `EXPECTED_RED` is empty for engine tests.
 - Differential vs old engine: zero untriaged divergences.
 - Generative soak: an agreed run-count (e.g. 10k generated roundtrips)
-  with zero proof failures and zero cycles.
+  with zero proof failures and zero cycles; the generator covers every
+  kind landed in this stage (checklist complete).
 - Zero cycle errors across corpus + soak (guardrail 4 holds with no
   exceptions needed).
+- Missing-requirement failure covered by a negative test; lock-class table
+  populated with per-form assertions; benchmark fixture + timing harness
+  running in CI.
+
+## Open decisions for this stage
+
+- Compaction's default aggressiveness (how much beyond
+  constraints-into-CREATE-TABLE the default merges) — listed as open in the
+  architecture doc §11; decide from corpus readability once the pass
+  exists.
+- The kind-weight table's exact ordering beyond the pg_dump-inspired seed —
+  tune for output readability, pinned by determinism tests.

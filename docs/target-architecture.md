@@ -156,7 +156,7 @@ interface FactBase {
 }
 ```
 
-Five properties define it:
+Six properties define it:
 
 - **Typed identity, structured end-to-end.** IDs are a discriminated union
   (`{kind: "procedure", schema, name, args}` …) everywhere — including at
@@ -392,7 +392,7 @@ together. Edges come from three sources: the old state's edge facts
 X), the new state's edge facts (build ordering: an action producing Y
 precedes everything consuming Y), and identity conflicts (remove of `X`
 before add of new `X`). One deterministic Kahn pass (heap-based ready queue,
-tie-break by phase weight → kind weight → name) replaces a two-phase sort, an
+tie-break by kind weight → canonical identity) replaces a two-phase sort, an
 `invalidates` side channel, and a repair loop: an in-place mutation is simply
 an action that destroys the old fact and produces the new one, and the mixed
 graph orders its dependents' teardown and rebuild around it naturally.
@@ -607,7 +607,9 @@ authoring declarative schemas, lint, cycle diagnostics. Its approximate
 nothing downstream depends on it. (Consequence: the libpg-query WASM
 dependency leaves the core install —
 [package.json:80-89](../packages/pg-delta/package.json) currently forces it
-on every consumer.)
+on every consumer.) The dev layer is today's pg-topo continuing as-is; its
+evolution is deliberately **outside the staged build** (§9) — stage 7 treats
+it as an optional, degradable assist, never a dependency.
 
 ### 4.5 Packaging that falls out instead of being debated
 
@@ -730,7 +732,7 @@ is imported as data and SQL; none of its *mechanisms* — and none of its
 
 The findings below (all verified at `115dde8`) are not isolated bugs — each
 is a direct consequence of an architectural commitment the north star
-removes:
+removes. (Findings are cited elsewhere in this document as §8.1–§8.7.)
 
 1. **No shared extraction snapshot** (consistency bug) — consequence of
    extraction being a query fan-out rather than a state capture. §3.2.
@@ -787,14 +789,22 @@ old-codebase mining maps, pitfalls, and the gate in checkable form.
 | 0 | **The red test suite, first**: scenario corpus ported from the existing integration tests; target API as typed stubs; fixture-validity layer green from day one; engine tests red on `NotImplementedError`, pinned by an explicit list; old-engine baselines captured | §4.3 | Fixture validity green on all PG versions; 100% of old integration files accounted for; every red explained |
 | 1 | Identity codec + fact-base core: typed IDs, identity-free payload hashing, Merkle rollups (facts + edges), snapshot format v1 (version-tagged) | §3.1 | Property tests: codec round-trip, rollup algebra, hash stability |
 | 2 | Extractor port: re-key the extractor SQL corpus to return structured identity parts and fact rows + edges; snapshot-consistent parallel capture | §3.1–3.2 | Extractor fixture ring per PG version; pg_dump observer; content cross-check against old-engine catalogs |
-| 3 | Proof harness + corpus: `provePlan` (state + data-preservation checks, both materialization forms); port the integration scenarios as the seed corpus; stand up the differential runner against the old engine | §3.7, §4.3 | Harness proves extract → materialize → re-extract fidelity over the corpus |
+| 3 | Proof harness + corpus: `provePlan` (state + data-preservation checks; template-clone materialization — the render-from-fact-base form lands in stage 6); port the integration scenarios as the seed corpus; stand up the differential runner against the old engine | §3.7, §4.3 | Harness proves extract → clone → re-extract fidelity and snapshot round-trips over the corpus |
 | 4 | Generic diff: rollup-guided descent emitting fact and edge deltas | §3.3 | Fixture diffs; `diff(A, A) = ∅` generatively |
 | 5 | The planner: rule table, atomic actions, one-graph sort, compaction | §3.4–3.6 | Corpus green under proof; differential vs old engine (state-equivalent plans, divergences triaged); generative soak; zero cycles |
 | 6 | Execution + plan artifact v1: ordered deltas, rollup-hash fingerprints, safety report (proven / observed / vetted tiers) | §3.7–3.8 | End-to-end proof on the corpus, including segmented non-transactional actions |
 | 7 | Frontends: shadow-DB SQL loader (fail-safe ordering, body validation, cluster isolation, DML rejection); snapshot frontend | §3.2 | Declarative scenarios in the corpus; loader rejection tests |
 | 8 | Policy layer: DSL v2 over facts/deltas; Supabase integration as a data package with platform baseline | §3.9 | Policy scenarios; baseline-subtraction proof against a real platform image |
-| 9 | Renames (leaf + structural-rollup matching, policy-gated); public API and CLI finalized | §4.1, §4.5 | Rename corpus; API review |
+| 9 | Renames (leaf + structural-rollup matching, policy-gated); declarative export; drift detection surfaced; public API and CLI finalized | §4.1, §4.2, §4.5 | Rename corpus; export round-trip `load(export(fb)) ≡ fb`; API review |
 | 10 | **Cutover at the parity bar**: full corpus green; differential clean-or-explained; generative soak quota met; extractor ring green on all supported PG versions. Old library enters maintenance; consumer migration guide ships | — | The parity bar itself |
+
+**Supported PostgreSQL versions.** The build targets the set the old
+engine's CI matrix tests today: **15, 17, 18** (16 is absent because the
+current product never supported it; that is inherited, not re-decided).
+Adding or retiring a version is a product decision recorded in this decision
+log; mechanically it is P2's promise — extraction-query updates, rules, and
+a new fixture-ring lane (stage 2 owns the lanes; stage 10's bar runs on the
+then-current set).
 
 Stage 0 builds the definition of done before any engine code exists — the
 corpus is the contract, and "all red" is sound because red is pinned to
@@ -888,7 +898,8 @@ code.
   The document is considered ready; further refinement happens through
   implementation contact and decision-log amendments.
 - **2026-06-12 (e)** — External review (PR #297, 13 findings — all
-  verified against the codebase and accepted, some with refined fixes):
+  verified against the codebase; every *finding* accepted, one suggested
+  *mitigation* replaced with a different fix, noted at the end):
   collision-resistant identity-free hashing with edges folded into rollups
   and `link`/`unlink` deltas (§3.1, §3.3); shadow-loader specifics —
   fail-safe ordering, restored body validation, cluster isolation for
@@ -925,10 +936,24 @@ code.
   API stubs, old-engine baselines — with one refinement: red must mean
   *engine missing* (pinned `NotImplementedError` list), never *fixture
   broken* (the fixture-validity layer is green from day one).
+- **2026-06-12 (h)** — Final pre-handoff review (two independent audit
+  passes over all 12 documents). Consistency fixes: §3.1 property count;
+  §3.6 tie-break aligned with stage 5 (kind weight → canonical identity —
+  no phase tier in a one-graph sort); §9 stage-3 row no longer overstates
+  materialization (render-from-fact-base is stage 6); §9 stage-9 row gains
+  export + drift; stage-doc dependency headers and wording corrected.
+  Ownership gaps closed: drift detection (stage 9), the
+  dangling-requirement-from-policy check (stage 5, graph build), the vetted
+  lock-class table (stage 5), the ≥10k benchmark fixture (stage 5),
+  generator-coverage growth (stage 5 + stage 10 bar), the new package's CI
+  lane (stage 0), plan-artifact version rejection (stage 6), shared
+  diagnostic type (stage 1), and the supported-PG-versions policy (§9).
+  Rename-policy default is no longer open — stage 9 sets `prompt` (CLI) /
+  `off` (library), revisit after field experience.
 - Open questions intentionally left to their stages: compaction's default
-  aggressiveness (stage 5), rename-policy default (stage 9), how
-  aggressively to prune the ported corpus once generative coverage matures
-  (stage 3), new-major vs new-package-name (stage 10, product decision).
+  aggressiveness (stage 5), how aggressively to prune the ported corpus
+  once generative coverage matures (stage 3), new-major vs new-package-name
+  (stage 10, product decision).
 
 ---
 

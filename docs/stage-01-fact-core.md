@@ -58,6 +58,12 @@ stage to test exhaustively — exploit that.
 6. **Snapshot format v1.** A single JSON document: `{formatVersion: 1,
    pgVersion, capturedAt, facts: [...], edges: [...]}`. Round-trips
    losslessly: `deserialize(serialize(fb))` is hash-identical.
+7. **One shared diagnostic type** used by every later stage:
+   `{code, severity, subject?: StableId, message, context}`. Stage 2's
+   unresolved-reference diagnostics, stage 7's loader rejections, stage 8's
+   dangling-requirement error, and stage 6's apply reports all reuse this
+   shape — defining it here is what keeps error output renderable by one
+   CLI formatter instead of five ad-hoc shapes.
 
 ## How to proceed
 

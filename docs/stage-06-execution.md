@@ -17,9 +17,12 @@ enabling proof against live sources.
    `{formatVersion: 1, engineVersion, source: {fingerprint}, target:
    {fingerprint}, deltas: [...], actions: [{sql, produces, consumes,
    destroys, lockClass, rewriteRisk, dataLoss, transactional}],
-   safetyReport, policyId?}`. Fingerprints are fact-base rollup digests
-   (stage 1). Round-trips losslessly; `apply` accepts the artifact, never
-   a bare SQL list.
+   safetyReport, policy?}` — `policy` carries the id *and* inline rules for
+   reproducibility (§3.9/stage 8). Fingerprints are fact-base rollup
+   digests (stage 1). Round-trips losslessly; `apply` accepts the artifact,
+   never a bare SQL list, and **rejects an artifact whose
+   `formatVersion`/`engineVersion` it does not understand** — the same
+   check stage 7 applies to snapshots.
 2. **Segmented executor.** Transactionality is three-valued, declared per
    action by the rule table:
    - `transactional` — the default; grouped into maximal transaction runs.
@@ -83,7 +86,8 @@ enabling proof against live sources.
   policy as auto-seed skips.
 - **Lock-class honesty**: the executor doesn't *enforce* lock claims; it
   reports them. Verification is stage-3's relfilenode check plus the vetted
-  static table (§3.7) — resist inventing runtime lock introspection here.
+  static table **built in stage 5** (§3.7) — this stage consumes that
+  table; resist inventing runtime lock introspection here.
 
 ## Gate
 

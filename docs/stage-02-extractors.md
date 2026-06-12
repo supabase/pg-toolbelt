@@ -79,6 +79,11 @@ import.
 
 ## What to look for (pitfalls)
 
+- **Connections are the caller's trust boundary.** The lead + N worker
+  connections all derive from the caller-supplied pool/URL — same
+  credentials, same SSL config; the library never stores or re-derives
+  credentials. Workers are read-only (`READ ONLY` transactions); enforce
+  that in the capture wrapper so an extractor bug cannot write.
 - **Shared objects.** Roles/memberships are cluster-level; the extractor
   must scope what it reports (roles referenced by the database's objects +
   all roles, as the old extractor does) and tag them so frontends can apply

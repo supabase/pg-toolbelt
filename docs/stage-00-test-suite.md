@@ -27,9 +27,11 @@ subsequent stage lands against a pre-existing definition of done.
 1. **New package skeleton** — working directory `packages/pg-delta-next/`
    (the name is a placeholder; final naming is a stage-10 product decision).
    Contains only: the target public API as typed stubs that throw
-   `NotImplementedError` (`extractFactBase`, `diff`, `plan`, `provePlan`,
-   `apply`, `loadSqlFiles` — signatures from the architecture doc §3), the
-   corpus, and the test suite.
+   `NotImplementedError` (`extract`, `diff`, `plan`, `provePlan`, `apply`,
+   `loadSqlFiles` — names per the public API shape in §4.5, finalized in
+   stage 9), the corpus, and the test suite. Adopt a `debug`-namespace
+   logging convention (`DEBUG=<package>:*`) in the scaffold so every later
+   stage inherits it.
 2. **Corpus format.** One directory per scenario:
 
    ```text
@@ -66,7 +68,13 @@ subsequent stage lands against a pre-existing definition of done.
    stage flips it: maintain an explicit `EXPECTED_RED` list in one file so
    turning a scenario green is a deliberate one-line diff, and an
    accidentally-green test is a failure.
-5. **Differential baseline capture (green).** A script (not a test) that
+5. **The new package's CI lane.** Create the CI workflow this whole plan
+   runs on: a PG-version matrix (per the supported-versions policy in the
+   architecture doc §9) with lanes for fixture validity, baseline capture,
+   and the (red) engine suite. Later stages add lanes (extractor ring,
+   differential, soak) to this workflow — it must exist from stage 0 or no
+   gate is evaluable.
+6. **Differential baseline capture (green).** A script (not a test) that
    runs the *current* `@supabase/pg-delta` `createPlan` over every scenario
    and records: the statement list, apply success/failure, and the resulting
    schema (via `pg_dump --schema-only` for now — the new extractor doesn't
@@ -124,6 +132,7 @@ subsequent stage lands against a pre-existing definition of done.
 - Fixture validity green on PG 15, 17, 18.
 - Old-engine baselines captured for every scenario the old engine supports.
 - Engine suite red, with every red accounted for in `EXPECTED_RED`.
+- The CI workflow exists and runs all three lanes on the version matrix.
 - The corpus has scenarios covering: every cycle-breaker case
   (`cycle-breakers.ts` patterns), every post-diff-normalization case, the
   Supabase baseline flow, and at least one scenario per object kind.

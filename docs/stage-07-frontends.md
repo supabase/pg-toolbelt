@@ -13,8 +13,9 @@ pg-topo's production role are *replaced*, not ported.
 
 ## Deliverables
 
-1. **`loadSqlFiles(roots, shadowTarget): FactBase`** with the four
-   obligations from §3.2, in execution order:
+1. **`loadSqlFiles(roots, shadowTarget): FactBase`** — six steps in
+   execution order (the four §3.2 shadow-loader obligations, bracketed by
+   discovery and extraction):
    1. *Discovery*: deterministic file enumeration (lexicographic, like
       migration tools — document the contract).
    2. *Loading with fail-safe ordering*: apply statements; on dependency
@@ -71,6 +72,11 @@ pg-topo's production role are *replaced*, not ported.
 - **Extensions in shadow**: files with `CREATE EXTENSION` need the
   extension available in the shadow image. Surface a clear error;
   the corpus's `requires` tags already model image needs.
+- **The shadow executes arbitrary user SQL.** Treat it as such: the shadow
+  must never share a cluster with anything valuable, its credentials must
+  not open anything beyond itself, and `isolatedCluster` mode is the only
+  safe home for files that touch shared objects. This is a trust boundary,
+  not just a hygiene rule.
 
 ## Gate
 

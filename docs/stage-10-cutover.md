@@ -19,11 +19,13 @@ gathering and a decision.
    corpus scenario.
 3. **Generative soak**: the agreed quota (set it now — e.g. a sustained
    CI-week of roundtrips at ≥10k schemas) with zero proof failures, zero
-   cycles, zero crashes.
+   cycles, zero crashes — **and the generator's kind-coverage checklist
+   complete** (stage 5 grew it per kind-batch PR); a soak from a
+   three-kind generator satisfies nothing.
 4. **Extractor ring**: green on all supported PG versions; `COVERAGE.md`
    per kind has no untriaged gaps; pg_dump observer green.
-5. **Performance**: the benchmark fixture (≥10k objects — build it during
-   stage 5 if it doesn't exist yet) shows the new engine ≥ old engine on
+5. **Performance**: the benchmark fixture and timing harness (built in
+   stage 5, running in CI since) show the new engine ≥ old engine on
    extract, diff, plan wall-time; publish the numbers.
 6. **Real-world shakedown**: the Supabase policy scenarios against current
    production image tags, plus at least one large real schema (anonymized
