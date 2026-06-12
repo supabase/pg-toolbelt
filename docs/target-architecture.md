@@ -165,11 +165,21 @@ Five properties define it:
   column points at a fact that *exists*; nothing maps between coarse state
   and fine dependencies, because there is no coarse state.
 - **Content addressing with Merkle rollups.** Every fact hashes its
-  normalized payload; every parent's rollup hash folds its children's. Two
-  consequences: equality at any granularity is one comparison, and diffing
-  is **O(changed)** — subtrees whose rollups match are skipped wholesale.
-  Fingerprints, no-op detection, drift detection, and caching are the same
-  mechanism.
+  normalized payload; every parent's rollup hash folds its children's
+  hashes **and its outgoing edge set**, so edge-only changes (an object
+  gaining or losing extension ownership, a shifted dependency) are visible
+  to hash comparison, not just payload changes. Two consequences: equality
+  at any granularity is one comparison, and diffing is **O(changed)** —
+  subtrees whose rollups match are skipped wholesale. Fingerprints, no-op
+  detection, drift detection, and caching are the same mechanism. Because
+  hash equality is the **sole** equality gate (a deep-compare fallback on
+  matches would reinstate the full-compare cost on the unchanged majority),
+  the digest must be collision-resistant — ≥128 bits over the canonical
+  payload encoding (e.g. BLAKE3 or truncated SHA-256), computed once at
+  extraction where it amortizes into I/O wait. **Hashes are computed over
+  identity-free payloads**: a fact's own name and its parent's name live in
+  its `id`, never in the hashed payload — this is what makes rename
+  detection (§4.1) possible.
 - **Hierarchy is a view, not the storage.** Renderers and the compactor that
   need "a table with its columns and inlineable constraints" *join* facts
   along the parent relation at render time. The document shape exists where
@@ -187,7 +197,16 @@ The payload normalization doctrine carries over from today unchanged
 (logical names instead of physical attnums; canonical `pg_get_*def()` output
 as the comparison form where Postgres provides it): it answers *what we
 know* correctly. The fact model changes *how it is keyed* — which is where
-the current design pays (§8.7).
+the current design pays (§8.7). One sharpening: **which attributes
+participate in equality is itself per-kind knowledge** and lives in the
+payload definition, not in diff logic. Example: extension versions drift
+legitimately across environments, and today's diff deliberately ignores
+them
+([extension.diff.ts:53-62](../packages/pg-delta/src/core/objects/extension/extension.diff.ts))
+even though `version` sits in the equality fields — under the fact model
+that tolerance is declared once, by excluding `version` from the hashed
+payload (or marking its attribute rule a no-op), instead of being
+re-implemented inside an imperative diff.
 
 ### 3.2 Frontends: one elaborator, three doors
 
@@ -201,10 +220,39 @@ the current design pays (§8.7).
   so the catalog and its dependency rows can disagree under concurrent DDL —
   masked by the `unknown:` filter in
   [graph-builder.ts:26-33](../packages/pg-delta/src/core/sort/graph-builder.ts).
-- **SQL files**: applied in a single pass to an ephemeral shadow database
-  (template-cloned; `check_function_bodies = off`), then extracted. The
-  desired state is whatever Postgres actually builds — no fuzzy reference
-  matching, no retry heuristics. This *is* the declarative workflow.
+- **SQL files**: applied to an ephemeral shadow database, then extracted.
+  The desired state is whatever Postgres actually builds — no fuzzy
+  reference matching in the trusted path. This *is* the declarative
+  workflow. Four specifics the shadow loader owns:
+  - **Ordering is best-effort and fail-safe.** Files may not arrive
+    apply-ordered; the loader may pre-sort with the dev-layer static
+    analyzer and/or retry deferred statements in bounded rounds *against
+    the shadow*. This does not violate P1: ordering assistance can only
+    fail to build the shadow — a visible error before anything is
+    extracted — never corrupt the desired state, because Postgres remains
+    the elaborator. (The objection to round-retry was as a *production
+    apply engine* against live targets; on a throwaway shadow it is
+    harmless.)
+  - **Body validation is restored before extraction.** Loading runs with
+    `check_function_bodies = off`; accepting the catalog without
+    re-checking would admit a typo'd routine body into the desired state —
+    and the proof loop would vacuously agree, since it applies the same
+    invalid body. After loading, the loader re-validates routine bodies
+    with checks on — the same final pass the current declarative engine
+    performs
+    ([round-apply.ts:445-448](../packages/pg-delta/src/core/declarative-apply/round-apply.ts)).
+  - **Shared objects need cluster isolation.** Roles and memberships are
+    cluster-level: in a same-cluster scratch database, `CREATE ROLE` leaks
+    out of the shadow and can collide with existing roles. When declarative
+    files manage shared objects, the shadow must be an isolated ephemeral
+    cluster (throwaway instance/container); a same-cluster scratch database
+    is only safe for database-local schemas, and the loader enforces the
+    distinction.
+  - **Data statements are rejected, parser-free.** DML would succeed in the
+    shadow and then silently vanish from the schema-only plan. After
+    loading, the loader checks for observable data — any user table with
+    rows fails the run ("declarative files must not contain data
+    statements"). Detection by effect, not by parsing.
 - **Snapshots**: the serialized fact base round-trips losslessly and is the
   contract for offline diffing, fixtures, and caching. A flat fact relation
   serializes, filters, and streams trivially — properties a nested document
@@ -221,7 +269,9 @@ central data type:
 type Delta =
   | { verb: "add";    fact: Fact }
   | { verb: "remove"; fact: Fact }
-  | { verb: "set";    id: StableId; attr: string; from: unknown; to: unknown };
+  | { verb: "set";    id: StableId; attr: string; from: unknown; to: unknown }
+  | { verb: "link";   edge: DependencyEdge }    // edge-only changes are deltas too:
+  | { verb: "unlink"; edge: DependencyEdge };   // provenance/ownership shifts (§3.9)
 ```
 
 **Zero per-type diff code — structurally, not aspirationally.** The differ
@@ -354,9 +404,20 @@ machinery as equality — + the safety report aggregated from per-action
 metadata (locks, rewrites, data loss).
 
 **The proof loop is the architecture's keystone.** Because any state can be
-materialized (template-cloned scratch DB) and re-extracted, the planner can
-certify its own output. The proof has two checks, because schema convergence
-alone has a blind spot:
+materialized and re-extracted, the planner can certify its own output.
+Materialization has two forms: **template-cloning** (a cheap file copy —
+right for CI, scratch sources, and quiesced databases) and **re-creation
+from the extracted fact base** (render the fact base to DDL and apply it to
+an empty scratch). The second form exists because
+`CREATE DATABASE … TEMPLATE` requires the template database to have no
+other active connections — unavailable against a live production source.
+Proof against live targets therefore clones the *model* of the source, not
+its files; what that certifies is "the plan correctly transforms the state
+as extracted," which is the exact claim the proof makes anyway (extractor
+blind spots are a separate risk with a separate defense, §4.3).
+
+The proof has two checks, because schema convergence alone has a blind
+spot:
 
 1. **State proof.** Apply the plan to a clone of the source, extract,
    hash-compare against the desired fact base. Zero diff = the plan produces
@@ -365,8 +426,8 @@ alone has a blind spot:
    altering it converges to an *identical schema* — and destroys every row.
    State proof cannot see this. So the clone is seeded with rows before
    applying, and the proof asserts they survive wherever the plan claims
-   `dataLoss: none`. The safety report stops being a report and becomes a
-   **verified claim**.
+   `dataLoss: none`. The data-loss column of the safety report stops being
+   a report and becomes a **verified claim**.
 
 One failure class remains invisible to any state-based proof: the
 **convergent-but-non-minimal** plan (rebuilding an index unnecessarily loses
@@ -383,6 +444,14 @@ The proof loop inverts the correctness economy of the whole project:
 - **For the rule table**: rules that misdeclare cascades, alterability, or
   data-loss classes are caught as proof failures the day they are written,
   not as field bugs.
+
+Two safety fields need verification of their own, because state proof
+cannot see them: **rewrite risk** is checked observationally on the clone
+(a table whose `relfilenode` changed under an action that claimed no
+rewrite is a failed proof), and **lock classes** are not provable by
+outcome at all — they come from a vetted static table (PostgreSQL's
+documented lock levels per DDL form) with targeted assertions, and the plan
+presents them as *reported*, not certified.
 
 ### 3.8 Execution
 
@@ -443,6 +512,17 @@ same payload hash, same parent, different name. Governed by policy
 sufficient evidence of intent. Every tool in this class punts on renames;
 here they fall out of the state representation.
 
+The mechanics depend on two §3.1 properties. Payload hashes are
+identity-free (a fact's own name lives in its `id`, not in what is hashed),
+so renaming a leaf changes its ID but not its hash. For *container* renames
+— a renamed table changes every child's stable ID — matching uses the
+identity-free **structural rollup**: payload hashes folded over the subtree
+without any names, so the whole renamed subtree still matches. Honest
+limit: payloads that reference *other* objects by name (an FK constraint
+naming its referenced table) break hash-equality transitively, so detection
+is strongest at the leaf and degrades gracefully — an undetected rename
+falls back to today's drop+create behavior, never the reverse.
+
 ### 4.2 Proof-certified plans
 
 "This plan was applied to a clone, produced a hash-identical desired state,
@@ -486,6 +566,15 @@ The test architecture is P2 applied to testing itself: **one proof harness
   is itself an oracle: run both engines over the corpus and assert
   state-equivalent plans. Every divergence is a bug in one of them — and
   either finding is valuable.
+- **An independent extractor ring.** The proof loop reads both sides
+  through the same extractor, so an extractor blind spot (an unmodeled
+  reloption, a missed catalog field) passes proof **vacuously** — both
+  catalogs are equally blind. Two defenses: extraction fixture tests that
+  pin specific catalog facts per PG version (these survive from today),
+  and **pg_dump as an independent observer** — in CI proof runs, the
+  schema dumps of two states the proof calls equal must also be equal; a
+  divergence is an extractor gap found by a tool this project does not
+  maintain.
 
 What this replaces: the hand-written per-type matrix as the primary safety
 net (127 unit-test files / 18,505 LOC in `objects/` die with the structures
@@ -513,6 +602,15 @@ deps only) exposing the layers — fact base / diff / plan / proof / apply —
 as independently usable entry points; pg-topo as a dev tool; the CLI as a
 consumer of the public API. No further package engineering is required to
 get a WASM-free, embeddable core.
+
+Two clarifications so the dependency story is airtight: the `pgdelta`
+binary ships from the CLI package, **not** from the core library — making
+pg-topo optional can never strand a CLI user, because no install that
+provides the binary lacks its dependencies. And the north-star declarative
+path needs no pg-topo at all (the shadow frontend replaced the
+static-analysis engine, §3.2); only explicitly dev-facing commands (lint,
+file-ordering help) touch it, and those degrade with a clear install hint
+rather than failing obscurely.
 
 ---
 
@@ -585,6 +683,18 @@ over nearly verbatim:
   the compactor can improve forever without correctness risk.
 - **Proof costs an extra apply + extract.** Optional per environment; cheap
   with templates and hashes.
+- **`pg_depend` does not see routine bodies.** PL/pgSQL and string-literal
+  `LANGUAGE SQL` bodies are opaque to Postgres's dependency tracking (only
+  SQL-standard `BEGIN ATOMIC` bodies get edges), so the graph cannot order
+  a routine after a table its body references. The strategy is layered:
+  plans run with `check_function_bodies = off` (the diff path already
+  emits this —
+  [create.ts:350](../packages/pg-delta/src/core/plan/create.ts)); PL/pgSQL
+  is late-bound at runtime, so missing edges rarely matter for it;
+  SQL-language ordering gaps surface in the proof loop as a failed clone
+  apply — before production, not in it; and the dev layer (§4.4) can lint
+  bodies for ordering hints. What is explicitly not done: re-parsing
+  bodies in the trusted path to synthesize edges (P1).
 - **Output changes during migration.** Decomposition-by-default changes
   emitted SQL relative to today. The oracle therefore shifts: refactor
   phases keep byte-identical output; emission-changing phases are gated on
@@ -737,6 +847,24 @@ code.
   preparation for implementation planning being delegated phase by phase.
   The document is considered ready; further refinement happens through
   implementation contact and decision-log amendments.
+- **2026-06-12 (e)** — External review (PR #297, 13 findings — all
+  verified against the codebase and accepted, some with refined fixes):
+  collision-resistant identity-free hashing with edges folded into rollups
+  and `link`/`unlink` deltas (§3.1, §3.3); shadow-loader specifics —
+  fail-safe ordering, restored body validation, cluster isolation for
+  shared objects, parser-free DML rejection (§3.2); fact-base re-creation
+  as the proof materialization for live sources, since `TEMPLATE` cloning
+  requires a connection-free source (§3.7); narrowed safety-certification
+  claims — data loss proven, rewrite risk observed via `relfilenode`, lock
+  classes vetted-not-proven (§3.7); independent extractor ring with
+  pg_dump as outside observer against vacuous proof (§4.3); rename
+  mechanics via identity-free structural rollups with the
+  cross-reference caveat (§4.1); CLI packaging clarification (§4.5);
+  per-kind equality-surface policy with the extension-version example
+  (§3.1); `pg_depend` routine-body blind-spot strategy (§7). One reviewer
+  suggestion was rejected on technical grounds: a deep-compare fallback on
+  hash matches would reinstate the full-compare cost on the unchanged
+  majority — the accepted fix is a collision-resistant digest instead.
 - Open questions intentionally left to their phases: compaction's default
   aggressiveness (phase 5), rename-policy default (phase 10), how
   aggressively to prune the ported corpus once generative coverage matures
