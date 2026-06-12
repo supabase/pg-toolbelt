@@ -56,7 +56,16 @@ CLI — that consumers will actually touch.
    API review = a written pass over every exported name/type against the
    architecture doc's vocabulary (facts, deltas, actions, proof — no legacy
    terms like "catalog"/"changes" leaking through).
-6. **CLI v2**, a thin consumer of the public API: `plan`, `apply`, `prove`,
+6. **Declarative export** — `exportSqlFiles(fb, mapping): FileTree`: render
+   the fact base via the stage-6 renderer and split the statements across
+   files by a mapping policy (kind/schema-driven paths — mine the old
+   `export/file-mapper.ts` for the layout users already know). Export
+   fidelity is provable, not aspirational:
+   `loadSqlFiles(exportSqlFiles(fb)) ≡ fb` hash-identically — the corpus
+   gains round-trip scenarios asserting exactly that, which closes the
+   declarative loop: export → hand-edit → apply is the same proof-covered
+   path in both directions.
+7. **CLI v2**, a thin consumer of the public API: `plan`, `apply`, `prove`,
    `diff`, `schema export` (fact base → declarative files via renderer),
    `schema apply` (files → shadow → plan → apply). Interactive rename
    prompts; policy selection by name/path; plan artifacts as files. The
@@ -79,6 +88,9 @@ CLI — that consumers will actually touch.
 - Rename corpus green: leaf rename, container rename, ambiguous pair
   (prompt), near-miss degradation, swap case, seeded-row survival on every
   auto rename.
+- Export round-trip green: `load(export(fb)) ≡ fb` over the corpus's
+  schemas (and the exported tree loads with zero deferred rounds — exports
+  are emitted pre-ordered).
 - API review completed and recorded (a checklist in the PR, name by name).
 - CLI v2 covers the old CLI's workflows (mapping table old command → new),
   demonstrated against the corpus's happy-path scenarios.
