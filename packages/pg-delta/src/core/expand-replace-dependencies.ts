@@ -1,6 +1,9 @@
 import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
+import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
+import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
+import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
@@ -96,6 +99,11 @@ type ResolvedObject =
       kind: "procedure";
       main: Catalog["procedures"][string];
       branch: Catalog["procedures"][string];
+    }
+  | {
+      kind: "aggregate";
+      main: Catalog["aggregates"][string];
+      branch: Catalog["aggregates"][string];
     }
   | {
       kind: "rls_policy";
@@ -303,6 +311,11 @@ export function expandReplaceDependencies({
           )
         ) {
           generatedColumnsReplacedByExpansion.add(dependentRaw);
+          if (!visitedRefs.has(dependentRaw)) {
+            visitedRefs.add(dependentRaw);
+            refsReachedFromInvalidation.add(dependentRaw);
+            queue.push(dependentRaw);
+          }
         }
       }
       if (reachedFromInvalidation && dependentRaw.startsWith("publication:")) {
@@ -372,6 +385,7 @@ export function expandReplaceDependencies({
       const replacementChanges = buildReplaceChanges(resolved, {
         addDrop,
         addCreate: effectiveAddCreate,
+        branchCatalog,
         diffContext,
         existingChanges: [...changes, ...additions],
       });
@@ -480,6 +494,7 @@ function collectInvalidatedRlsPolicyReplacements({
     const replacementChanges = buildReplaceChanges(resolved, {
       addDrop,
       addCreate,
+      branchCatalog,
     });
     if (!replacementChanges) continue;
 
@@ -1182,6 +1197,12 @@ function resolveObjectForStableId(
     return main && branch ? { kind: "procedure", main, branch } : null;
   }
 
+  if (stableId.startsWith("aggregate:")) {
+    const main = mainCatalog.aggregates[stableId];
+    const branch = branchCatalog.aggregates[stableId];
+    return main && branch ? { kind: "aggregate", main, branch } : null;
+  }
+
   if (stableId.startsWith("rlsPolicy:")) {
     const main = mainCatalog.rlsPolicies[stableId];
     const branch = branchCatalog.rlsPolicies[stableId];
@@ -1245,11 +1266,58 @@ function resolveObjectForStableId(
   return null;
 }
 
+function buildMaterializedViewIndexReplacementChanges(
+  materializedViewStableId: string,
+  branchCatalog: Catalog | undefined,
+  existingChanges: readonly Change[],
+): Change[] {
+  if (!branchCatalog) return [];
+
+  const changes: Change[] = [];
+  for (const index of Object.values(branchCatalog.indexes)) {
+    if (index.tableStableId !== materializedViewStableId) continue;
+    if (!isStandaloneRecreatableIndex(index)) continue;
+    if (hasChangeCreating([...existingChanges, ...changes], index.stableId)) {
+      continue;
+    }
+
+    changes.push(
+      new CreateIndex({
+        index,
+        indexableObject: branchCatalog.indexableObjects[index.tableStableId],
+      }),
+    );
+
+    if (
+      index.comment !== null &&
+      !hasChangeCreating(
+        [...existingChanges, ...changes],
+        stableId.comment(index.stableId),
+      )
+    ) {
+      changes.push(new CreateCommentOnIndex({ index }));
+    }
+  }
+
+  return changes;
+}
+
+function isStandaloneRecreatableIndex(
+  index: Catalog["indexes"][string],
+): boolean {
+  return (
+    !index.is_owned_by_constraint &&
+    !index.is_primary &&
+    !index.is_index_partition
+  );
+}
+
 function buildReplaceChanges(
   resolved: ResolvedObject,
   options: {
     addDrop: boolean;
     addCreate: boolean;
+    branchCatalog?: Catalog;
     existingChanges?: readonly Change[];
     diffContext?: Pick<
       ObjectDiffContext,
@@ -1257,7 +1325,13 @@ function buildReplaceChanges(
     >;
   },
 ): Change[] | null {
-  const { addDrop, addCreate, existingChanges = [], diffContext } = options;
+  const {
+    addDrop,
+    addCreate,
+    branchCatalog,
+    existingChanges = [],
+    diffContext,
+  } = options;
 
   if (!addDrop && !addCreate) return null;
 
@@ -1306,13 +1380,23 @@ function buildReplaceChanges(
           ? [new DropMaterializedView({ materializedView: resolved.main })]
           : []),
         ...(addCreate
-          ? diffContext
-            ? buildCreateMaterializedViewChanges(diffContext, resolved.branch)
-            : [
-                new CreateMaterializedView({
-                  materializedView: resolved.branch,
-                }),
-              ]
+          ? [
+              ...(diffContext
+                ? buildCreateMaterializedViewChanges(
+                    diffContext,
+                    resolved.branch,
+                  )
+                : [
+                    new CreateMaterializedView({
+                      materializedView: resolved.branch,
+                    }),
+                  ]),
+              ...buildMaterializedViewIndexReplacementChanges(
+                resolved.branch.stableId,
+                branchCatalog,
+                existingChanges,
+              ),
+            ]
           : []),
       ];
     case "index":
@@ -1364,6 +1448,13 @@ function buildReplaceChanges(
                 existingChanges,
               )
             : []),
+      ];
+    case "aggregate":
+      return [
+        ...(addDrop ? [new DropAggregate({ aggregate: resolved.main })] : []),
+        ...(addCreate
+          ? buildCreateAggregateReplacementChanges(resolved.branch, diffContext)
+          : []),
       ];
     case "rls_policy":
       return [
@@ -1465,6 +1556,20 @@ function isSupersededReplaceChange(
     return triggerIds.has(change.trigger.stableId);
   }
   return false;
+}
+
+function buildCreateAggregateReplacementChanges(
+  aggregate: Catalog["aggregates"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+): Change[] {
+  return diffContext
+    ? diffAggregates(diffContext, {}, { [aggregate.stableId]: aggregate })
+    : [new CreateAggregate({ aggregate })];
 }
 
 function buildCreateProcedureReplacementChanges(
