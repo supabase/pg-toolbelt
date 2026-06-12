@@ -51,7 +51,8 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   const added = new Map<string, Fact>();
   const setsByFact = new Map<string, Extract<Delta, { verb: "set" }>[]>();
   for (const delta of deltas) {
-    if (delta.verb === "remove") removed.set(encodeId(delta.fact.id), delta.fact);
+    if (delta.verb === "remove")
+      removed.set(encodeId(delta.fact.id), delta.fact);
     if (delta.verb === "add") added.set(encodeId(delta.fact.id), delta.fact);
     if (delta.verb === "set") {
       const key = encodeId(delta.id);
@@ -110,20 +111,25 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   const pushAction = (
     verb: Action["verb"],
     spec: ActionSpec,
-    opts: { produces?: StableId[]; consumes?: StableId[]; destroys?: StableId[] },
+    opts: {
+      produces?: StableId[];
+      consumes?: StableId[];
+      destroys?: StableId[];
+    },
   ): number => {
     const index = actions.length;
+    const produces = [...(opts.produces ?? []), ...(spec.alsoProduces ?? [])];
     actions.push({
       sql: spec.sql,
       verb,
-      produces: opts.produces ?? [],
+      produces,
       consumes: [...(opts.consumes ?? []), ...(spec.consumes ?? [])],
       destroys: opts.destroys ?? [],
       transactional: true,
       dataLoss: spec.dataLoss ?? "none",
       rewriteRisk: spec.rewriteRisk ?? false,
     });
-    for (const id of opts.produces ?? []) {
+    for (const id of produces) {
       const key = encodeId(id);
       if (!producerOf.has(key)) producerOf.set(key, index);
     }
@@ -132,7 +138,7 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   };
 
   const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesFor(fact.id.kind).create(fact);
+    const specs = rulesFor(fact.id.kind).create(fact, base);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -142,11 +148,14 @@ export function plan(source: FactBase, desired: FactBase): Plan {
         ],
       });
     });
-    void base;
   };
 
-  // creates (skip facts that are descendants of replaced facts — handled below)
-  for (const fact of added.values()) emitCreate(fact, desired);
+  // creates — skipping facts an earlier action already produced via
+  // delta-set inlining (e.g. a default folded into its column's ADD)
+  for (const fact of added.values()) {
+    if (producerOf.has(encodeId(fact.id))) continue;
+    emitCreate(fact, desired);
+  }
 
   // drops (suppressed children fold into their root's destroys)
   const destroysByRoot = new Map<string, StableId[]>();
@@ -168,12 +177,8 @@ export function plan(source: FactBase, desired: FactBase): Plan {
 
   // replaces: drop old + create new (+ recreate unchanged descendants)
   for (const key of replaceIds) {
-    const oldFact = source
-      .facts()
-      .find((f) => encodeId(f.id) === key) as Fact;
-    const newFact = desired
-      .facts()
-      .find((f) => encodeId(f.id) === key) as Fact;
+    const oldFact = source.facts().find((f) => encodeId(f.id) === key) as Fact;
+    const newFact = desired.facts().find((f) => encodeId(f.id) === key) as Fact;
     // old descendants die with the drop
     const oldDescendants: StableId[] = [oldFact.id];
     const walkOld = (id: StableId): void => {
@@ -234,9 +239,11 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     for (const id of action.consumes) {
       const key = remember(id);
       const producer = producerOf.get(key);
-      if (producer !== undefined && producer !== index) edges.push([producer, index]);
+      if (producer !== undefined && producer !== index)
+        edges.push([producer, index]);
       const destroyer = destroyerOf.get(key);
-      if (destroyer !== undefined && destroyer !== index) edges.push([index, destroyer]);
+      if (destroyer !== undefined && destroyer !== index)
+        edges.push([index, destroyer]);
       if (producer === undefined && !source.has(id) && !desired.has(id)) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists nor is produced by this plan`,
@@ -250,7 +257,8 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       for (const edge of desired.outgoingEdges(id)) {
         const targetKey = remember(edge.to);
         const producer = producerOf.get(targetKey);
-        if (producer !== undefined && producer !== index) edges.push([producer, index]);
+        if (producer !== undefined && producer !== index)
+          edges.push([producer, index]);
       }
     }
     // teardown order from the SOURCE state's dependency edges
@@ -283,14 +291,16 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       }
       // replace: destroy before re-produce
       const reproducer = producerOf.get(key);
-      if (reproducer !== undefined && reproducer !== index) edges.push([index, reproducer]);
+      if (reproducer !== undefined && reproducer !== index)
+        edges.push([index, reproducer]);
     }
   });
 
   // ── deterministic order ───────────────────────────────────────────────
   const tieKeyOf = (i: number): string => {
     const action = actions[i] as Action;
-    const subject = action.produces[0] ?? action.destroys[0] ?? action.consumes[0];
+    const subject =
+      action.produces[0] ?? action.destroys[0] ?? action.consumes[0];
     const kind = subject?.kind ?? "zz";
     const weight = (() => {
       try {
@@ -304,7 +314,12 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     return `${phase}|${String(w).padStart(2, "0")}|${subject ? encodeId(subject) : ""}|${i}`;
   };
 
-  const order = topoSort(actions.length, edges, tieKeyOf, (i) => (actions[i] as Action).sql);
+  const order = topoSort(
+    actions.length,
+    edges,
+    tieKeyOf,
+    (i) => (actions[i] as Action).sql,
+  );
 
   return {
     formatVersion: 1,

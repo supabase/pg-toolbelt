@@ -4,8 +4,18 @@ import type { StableId } from "./stable-id.ts";
 
 const schema: StableId = { kind: "schema", name: "public" };
 const table: StableId = { kind: "table", schema: "public", name: "users" };
-const colA: StableId = { kind: "column", schema: "public", table: "users", name: "a" };
-const colB: StableId = { kind: "column", schema: "public", table: "users", name: "b" };
+const colA: StableId = {
+  kind: "column",
+  schema: "public",
+  table: "users",
+  name: "a",
+};
+const colB: StableId = {
+  kind: "column",
+  schema: "public",
+  table: "users",
+  name: "b",
+};
 const role: StableId = { kind: "role", name: "owner1" };
 
 function baseFacts(): Fact[] {
@@ -46,7 +56,12 @@ describe("buildFactBase", () => {
 
   test("renaming a child changes parent rollup but not parent structural rollup", () => {
     const fb1 = buildFactBase(baseFacts(), []);
-    const renamed: StableId = { kind: "column", schema: "public", table: "users", name: "a2" };
+    const renamed: StableId = {
+      kind: "column",
+      schema: "public",
+      table: "users",
+      name: "a2",
+    };
     const facts = baseFacts().map((f) =>
       f.id === colA ? { ...f, id: renamed } : f,
     );
@@ -68,14 +83,19 @@ describe("buildFactBase", () => {
   test("renaming a root changes the root hash", () => {
     const fb1 = buildFactBase(baseFacts(), []);
     const renamedRole: StableId = { kind: "role", name: "owner2" };
-    const facts = baseFacts().map((f) => (f.id === role ? { ...f, id: renamedRole } : f));
+    const facts = baseFacts().map((f) =>
+      f.id === role ? { ...f, id: renamedRole } : f,
+    );
     const fb2 = buildFactBase(facts, []);
     expect(fb2.rootHash).not.toBe(fb1.rootHash);
   });
 
   test("duplicate ids throw", () => {
     expect(() =>
-      buildFactBase([...baseFacts(), { id: colA, parent: table, payload: {} }], []),
+      buildFactBase(
+        [...baseFacts(), { id: colA, parent: table, payload: {} }],
+        [],
+      ),
     ).toThrow(/duplicate/i);
   });
 
@@ -85,12 +105,18 @@ describe("buildFactBase", () => {
       parent: { kind: "table", schema: "x", name: "missing" },
       payload: {},
     };
-    expect(() => buildFactBase([...baseFacts(), orphan], [])).toThrow(/parent/i);
+    expect(() => buildFactBase([...baseFacts(), orphan], [])).toThrow(
+      /parent/i,
+    );
   });
 
   test("dangling edges are dropped with a diagnostic, not thrown", () => {
     const dangling: DependencyEdge[] = [
-      { from: table, to: { kind: "table", schema: "x", name: "ghost" }, kind: "depends" },
+      {
+        from: table,
+        to: { kind: "table", schema: "x", name: "ghost" },
+        kind: "depends",
+      },
     ];
     const fb = buildFactBase(baseFacts(), dangling);
     expect(fb.diagnostics).toHaveLength(1);

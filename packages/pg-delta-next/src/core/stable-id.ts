@@ -136,30 +136,12 @@ class Cursor {
 
   /** Read one segment: quoted ("" escapes) or bare (until a delimiter). */
   readSegment(): string {
-    if (this.peek() === '"') {
-      this.pos++;
-      let out = "";
-      for (;;) {
-        const ch = this.input[this.pos];
-        if (ch === undefined) {
-          throw new Error(`parseId: unterminated quote in '${this.input}'`);
-        }
-        if (ch === '"') {
-          if (this.input[this.pos + 1] === '"') {
-            out += '"';
-            this.pos += 2;
-          } else {
-            this.pos++;
-            return out;
-          }
-        } else {
-          out += ch;
-          this.pos++;
-        }
-      }
-    }
+    if (this.peek() === '"') return this.readQuotedSegment();
     const start = this.pos;
-    while (this.pos < this.input.length && !/[.:(),)]/.test(this.input[this.pos] as string)) {
+    while (
+      this.pos < this.input.length &&
+      !/[.:(),)]/.test(this.input[this.pos] as string)
+    ) {
       this.pos++;
     }
     if (this.pos === start) {
@@ -170,6 +152,29 @@ class Cursor {
     return this.input.slice(start, this.pos);
   }
 
+  private readQuotedSegment(): string {
+    this.pos++;
+    let out = "";
+    for (;;) {
+      const ch = this.input[this.pos];
+      if (ch === undefined) {
+        throw new Error(`parseId: unterminated quote in '${this.input}'`);
+      }
+      if (ch === '"') {
+        if (this.input[this.pos + 1] === '"') {
+          out += '"';
+          this.pos += 2;
+        } else {
+          this.pos++;
+          return out;
+        }
+      } else {
+        out += ch;
+        this.pos++;
+      }
+    }
+  }
+
   atEnd(): boolean {
     return this.pos >= this.input.length;
   }
@@ -178,7 +183,8 @@ class Cursor {
 function parseAt(c: Cursor): StableId {
   // kind is always bare alphanumeric, never quoted
   const kindStart = c.pos;
-  while (c.pos < c.input.length && /[a-zA-Z]/.test(c.input[c.pos] as string)) c.pos++;
+  while (c.pos < c.input.length && /[a-zA-Z]/.test(c.input[c.pos] as string))
+    c.pos++;
   const kind = c.input.slice(kindStart, c.pos);
   c.expect(":");
 
@@ -261,7 +267,13 @@ function parseAt(c: Cursor): StableId {
       const objtype = c.readSegment();
       c.expect(".");
       const grantee = c.readSegment();
-      return { kind, role, schema: schema === "" ? null : schema, objtype, grantee };
+      return {
+        kind,
+        role,
+        schema: schema === "" ? null : schema,
+        objtype,
+        grantee,
+      };
     }
     default:
       throw new Error(`parseId: unknown kind '${kind}' in '${c.input}'`);

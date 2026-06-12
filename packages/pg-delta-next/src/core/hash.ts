@@ -50,7 +50,9 @@ export function canonicalize(value: PayloadValue): string {
         return `[${value
           .map((item) => {
             if (item === undefined) {
-              throw new Error("canonicalize: arrays must not contain undefined");
+              throw new Error(
+                "canonicalize: arrays must not contain undefined",
+              );
             }
             return canonicalize(item);
           })

@@ -2,7 +2,11 @@
  * Lean test-container manager: one PostgreSQL container per test process,
  * databases as the isolation unit (the proven model from the old suite).
  */
-import { GenericContainer, Wait, type StartedTestContainer } from "testcontainers";
+import {
+  GenericContainer,
+  Wait,
+  type StartedTestContainer,
+} from "testcontainers";
 import pg from "pg";
 
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
@@ -23,9 +27,12 @@ async function ensureContainer() {
       })
       .withCommand([
         "postgres",
-        "-c", "fsync=off",
-        "-c", "full_page_writes=off",
-        "-c", "max_connections=200",
+        "-c",
+        "fsync=off",
+        "-c",
+        "full_page_writes=off",
+        "-c",
+        "max_connections=200",
       ])
       .withExposedPorts(5432)
       .withWaitStrategy(
@@ -34,7 +41,10 @@ async function ensureContainer() {
       .start();
     const uriFor = (db: string) =>
       `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
-    const adminPool = new pg.Pool({ connectionString: uriFor("postgres"), max: 3 });
+    const adminPool = new pg.Pool({
+      connectionString: uriFor("postgres"),
+      max: 3,
+    });
     return { container, adminPool, uriFor };
   })();
   return started;
@@ -64,7 +74,9 @@ async function makeDb(name: string): Promise<TestDb> {
       // TEMPLATE requires zero connections on the source
       await pool.end().catch(() => {});
       const cloneName = `${name}_c${dbCounter++}`;
-      await adminPool.query(`CREATE DATABASE "${cloneName}" TEMPLATE "${name}"`);
+      await adminPool.query(
+        `CREATE DATABASE "${cloneName}" TEMPLATE "${name}"`,
+      );
       const fresh = await makeDb(cloneName);
       // reopen the source pool for continued use
       const reopened = new pg.Pool({ connectionString: uri, max: 5 });

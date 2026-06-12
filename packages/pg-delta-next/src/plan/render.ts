@@ -13,7 +13,11 @@ export function rel(schema: string, name: string): string {
   return `${qid(schema)}.${qid(name)}`;
 }
 
-export function routineSig(id: { schema: string; name: string; args: string[] }): string {
+export function routineSig(id: {
+  schema: string;
+  name: string;
+  args: string[];
+}): string {
   return `${rel(id.schema, id.name)}(${id.args.join(", ")})`;
 }
 

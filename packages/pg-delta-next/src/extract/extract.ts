@@ -19,8 +19,13 @@
  */
 import type { Pool, PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
-import { buildFactBase, FactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
-import type { Payload } from "../core/hash.ts";
+import {
+  buildFactBase,
+  FactBase,
+  type DependencyEdge,
+  type Fact,
+} from "../core/fact.ts";
+
 import type { StableId } from "../core/stable-id.ts";
 
 export interface ExtractResult {
@@ -69,17 +74,22 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   const edges: DependencyEdge[] = [];
   const diagnostics: Diagnostic[] = [];
 
-  const q = async (sql: string): Promise<Row[]> => (await client.query(sql)).rows as Row[];
+  const q = async (sql: string): Promise<Row[]> =>
+    (await client.query(sql)).rows as Row[];
 
-  const pgVersion = String(
-    (await q(`SHOW server_version`))[0]?.["server_version"] ?? "unknown",
-  );
+  const pgVersion =
+    ((await q(`SHOW server_version`))[0]?.["server_version"] as string) ??
+    "unknown";
 
   /** Helper: push a fact plus its optional comment/acl satellite facts. */
   const pushWithMeta = (
     fact: Fact,
     row: Row,
-    aclTargets?: { privileges: string[]; grantable: string[]; grantee: string }[],
+    aclTargets?: {
+      privileges: string[];
+      grantable: string[];
+      grantee: string;
+    }[],
   ): void => {
     facts.push(fact);
     const comment = row["comment"];
@@ -119,7 +129,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     raw: unknown,
   ): { grantee: string; privileges: string[]; grantable: string[] }[] => {
     if (raw == null) return [];
-    const entries = raw as { grantee: string; privileges: string[]; grantable: string[] | null }[];
+    const entries = raw as {
+      grantee: string;
+      privileges: string[];
+      grantable: string[] | null;
+    }[];
     return entries.map((e) => ({
       grantee: e.grantee,
       privileges: e.privileges,
@@ -185,7 +199,10 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     );
   }
 
-  const schemaId = (name: unknown): StableId => ({ kind: "schema", name: String(name) });
+  const schemaId = (name: unknown): StableId => ({
+    kind: "schema",
+    name: String(name),
+  });
 
   // ── tables ───────────────────────────────────────────────────────────
   for (const row of await q(`
@@ -203,7 +220,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     ORDER BY n.nspname, c.relname`)) {
     pushWithMeta(
       {
-        id: { kind: "table", schema: String(row["schema"]), name: String(row["name"]) },
+        id: {
+          kind: "table",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -259,19 +280,28 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
         payload: {
           type: String(row["type"]),
           notNull: Boolean(row["not_null"]),
-          identity: row["identity"] == null ? null : String(row["identity"]),
-          collation: row["collation"] == null ? null : String(row["collation"]),
+          identity:
+            row["identity"] == null ? null : (row["identity"] as string),
+          collation:
+            row["collation"] == null ? null : (row["collation"] as string),
           generatedExpr:
-            generated && row["default_expr"] != null ? String(row["default_expr"]) : null,
+            generated && row["default_expr"] != null
+              ? (row["default_expr"] as string)
+              : null,
         },
       },
       row,
     );
     if (!generated && row["default_expr"] != null) {
       facts.push({
-        id: { kind: "default", schema: String(row["schema"]), table: String(row["table"]), name: String(row["name"]) },
+        id: {
+          kind: "default",
+          schema: String(row["schema"]),
+          table: String(row["table"]),
+          name: String(row["name"]),
+        },
         parent: columnId,
-        payload: { expr: String(row["default_expr"]) },
+        payload: { expr: row["default_expr"] as string },
       });
     }
   }
@@ -297,7 +327,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           table: String(row["table"]),
           name: String(row["name"]),
         },
-        parent: { kind: "table", schema: String(row["schema"]), name: String(row["table"]) },
+        parent: {
+          kind: "table",
+          schema: String(row["schema"]),
+          name: String(row["table"]),
+        },
         payload: {
           def: String(row["def"]),
           type: String(row["type"]),
@@ -322,11 +356,20 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
       AND NOT EXISTS (SELECT 1 FROM pg_constraint pc WHERE pc.conindid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, ic.relname`)) {
-    const tableKind = String(row["table_kind"]) === "m" ? "materializedView" : "table";
+    const tableKind =
+      String(row["table_kind"]) === "m" ? "materializedView" : "table";
     pushWithMeta(
       {
-        id: { kind: "index", schema: String(row["schema"]), name: String(row["name"]) },
-        parent: { kind: tableKind, schema: String(row["schema"]), name: String(row["table"]) },
+        id: {
+          kind: "index",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: {
+          kind: tableKind,
+          schema: String(row["schema"]),
+          name: String(row["table"]),
+        },
         payload: { def: String(row["def"]) },
       },
       row,
@@ -355,7 +398,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     ORDER BY n.nspname, c.relname`)) {
     pushWithMeta(
       {
-        id: { kind: "sequence", schema: String(row["schema"]), name: String(row["name"]) },
+        id: {
+          kind: "sequence",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -420,7 +467,12 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     const args = (row["identity_args"] as string[]).map(String);
     pushWithMeta(
       {
-        id: { kind: "procedure", schema: String(row["schema"]), name: String(row["name"]), args },
+        id: {
+          kind: "procedure",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+          args,
+        },
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -452,7 +504,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           table: String(row["table"]),
           name: String(row["name"]),
         },
-        parent: { kind: "table", schema: String(row["schema"]), name: String(row["table"]) },
+        parent: {
+          kind: "table",
+          schema: String(row["schema"]),
+          name: String(row["table"]),
+        },
         payload: { def: String(row["def"]) },
       },
       row,
@@ -483,12 +539,18 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           table: String(row["table"]),
           name: String(row["name"]),
         },
-        parent: { kind: "table", schema: String(row["schema"]), name: String(row["table"]) },
+        parent: {
+          kind: "table",
+          schema: String(row["schema"]),
+          name: String(row["table"]),
+        },
         payload: {
           cmd: String(row["cmd"]),
           permissive: Boolean(row["permissive"]),
-          usingExpr: row["using_expr"] == null ? null : String(row["using_expr"]),
-          checkExpr: row["check_expr"] == null ? null : String(row["check_expr"]),
+          usingExpr:
+            row["using_expr"] == null ? null : (row["using_expr"] as string),
+          checkExpr:
+            row["check_expr"] == null ? null : (row["check_expr"] as string),
           roles: (row["roles"] as string[]).map(String),
         },
       },
@@ -587,7 +649,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
       case "materializedView":
       case "index":
       case "sequence":
-        return { kind: o["kind"], schema: o["schema"] as string, name: o["name"] as string };
+        return {
+          kind: o["kind"],
+          schema: o["schema"] as string,
+          name: o["name"] as string,
+        };
       case "column":
       case "constraint":
       case "default":

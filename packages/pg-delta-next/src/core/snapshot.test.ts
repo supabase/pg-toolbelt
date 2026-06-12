@@ -41,6 +41,8 @@ describe("snapshot", () => {
     const json = serializeSnapshot(fb, { pgVersion: "17.6" });
     const doc = JSON.parse(json);
     doc.facts[1].payload.persistence = "u"; // tamper
-    expect(() => deserializeSnapshot(JSON.stringify(doc))).toThrow(/digest|corrupt/i);
+    expect(() => deserializeSnapshot(JSON.stringify(doc))).toThrow(
+      /digest|corrupt/i,
+    );
   });
 });

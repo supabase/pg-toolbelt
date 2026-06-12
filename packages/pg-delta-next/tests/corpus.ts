@@ -21,7 +21,9 @@ export function loadCorpus(): Scenario[] {
         name: entry.name,
         a: readFileSync(join(dir, "a.sql"), "utf8"),
         b: readFileSync(join(dir, "b.sql"), "utf8"),
-        ...(existsSync(seedPath) ? { seed: readFileSync(seedPath, "utf8") } : {}),
+        ...(existsSync(seedPath)
+          ? { seed: readFileSync(seedPath, "utf8") }
+          : {}),
       };
     })
     .sort((x, y) => (x.name < y.name ? -1 : 1));

@@ -3,7 +3,12 @@
  * base. Version-tagged; digest re-verified on load (a corrupted snapshot
  * must never silently plan).
  */
-import { buildFactBase, type DependencyEdge, type EdgeKind, FactBase } from "./fact.ts";
+import {
+  buildFactBase,
+  type DependencyEdge,
+  type EdgeKind,
+  FactBase,
+} from "./fact.ts";
 import type { Payload, PayloadValue } from "./hash.ts";
 import { encodeId, parseId } from "./stable-id.ts";
 
@@ -62,7 +67,11 @@ export function serializeSnapshot(
       }))
       .sort((a, b) => (a.id < b.id ? -1 : 1)),
     edges: fb.edges
-      .map((e) => ({ from: encodeId(e.from), to: encodeId(e.to), kind: e.kind }))
+      .map((e) => ({
+        from: encodeId(e.from),
+        to: encodeId(e.to),
+        kind: e.kind,
+      }))
       .sort((a, b) =>
         `${a.from}|${a.kind}|${a.to}` < `${b.from}|${b.kind}|${b.to}` ? -1 : 1,
       ),

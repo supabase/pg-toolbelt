@@ -8,7 +8,12 @@
  * is hashed.
  */
 import type { Diagnostic } from "./diagnostic.ts";
-import { contentHash, hashString, type ContentHash, type Payload } from "./hash.ts";
+import {
+  contentHash,
+  hashString,
+  type ContentHash,
+  type Payload,
+} from "./hash.ts";
 import { encodeId, type StableId } from "./stable-id.ts";
 
 export interface Fact {
@@ -49,7 +54,11 @@ export class FactBase {
       if (this.#byId.has(encoded)) {
         throw new Error(`FactBase: duplicate fact id ${encoded}`);
       }
-      this.#byId.set(encoded, { fact, encoded, hash: contentHash(fact.payload) });
+      this.#byId.set(encoded, {
+        fact,
+        encoded,
+        hash: contentHash(fact.payload),
+      });
     }
     for (const entry of this.#byId.values()) {
       const parent = entry.fact.parent;
@@ -185,6 +194,9 @@ export class FactBase {
   }
 }
 
-export function buildFactBase(facts: Fact[], edges: DependencyEdge[]): FactBase {
+export function buildFactBase(
+  facts: Fact[],
+  edges: DependencyEdge[],
+): FactBase {
   return new FactBase(facts, edges);
 }

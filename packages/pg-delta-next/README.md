@@ -1,0 +1,71 @@
+# @supabase/pg-delta-next
+
+Clean-room rebuild of pg-delta per [`docs/target-architecture.md`](../../docs/target-architecture.md)
+and the stage guides (`docs/stage-00` … `stage-10`). **Working name** —
+final naming is a stage-10 product decision. Private until the cutover
+parity bar.
+
+## What works today (proven by the test suite)
+
+The full pipeline, end to end, on the covered kinds:
+
+```text
+extract (one consistent txn)  →  fact base (content-addressed, Merkle rollups)
+        →  generic diff (fact deltas — zero per-kind code)
+        →  rule table → atomic actions → ONE dependency graph → deterministic sort
+        →  apply (single txn, per-statement attribution)
+        →  provePlan (state proof + data-preservation proof on a TEMPLATE clone)
+```
+
+plus the **declarative frontend**: `loadSqlFiles` applies files to a shadow
+database with fail-safe ordering (bounded rounds), routine-body
+re-validation, shared-object leak detection, and parser-free DML rejection
+— then the result flows through the same plan/prove path.
+
+- **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
+  directions (build and teardown) — state proof = zero drift deltas after
+  applying the plan to a clone; data proof = seeded rows survive.
+- **Fixture-validity layer**: green independently of the engine, so an
+  engine failure can never be a broken fixture.
+- **Extractor ring**: fixture DDL → asserted facts/payloads/edges,
+  deterministic re-extraction, snapshot round-trip, clone fidelity.
+
+## Kind coverage (v1 slice)
+
+schema, role, extension, table, column, default, constraint, index,
+sequence, view, materialized view, function/procedure, trigger, policy,
+comments (global rule), ACLs (global rule).
+
+Not yet covered (extend the rule table + extractor, then add corpus
+scenarios): domains, enums/composite/range types, collations, languages,
+event triggers, publications, subscriptions, FDW family, partitioned-table
+specifics (ATTACH/DETACH), `ALTER TYPE` segmentation, compaction,
+renames, the policy layer (stage 8), snapshots-as-frontend CLI.
+
+Known v1 simplifications (each has a stage-doc home):
+
+- extension-member objects are filtered at extraction (stage 8 turns this
+  into provenance edges + policy)
+- executor is single-transaction (three-valued segmentation arrives with
+  the kinds that need it — `CREATE INDEX CONCURRENTLY` etc.)
+- capture is serial on one snapshot connection (parallel
+  `pg_export_snapshot()` workers are a measured optimization)
+- a surviving dependent of a dropped fact fails the plan loudly instead of
+  triggering teardown/rebuild (needs delta-set rules for dependent
+  rebuild chains)
+
+## Running
+
+```bash
+bun test src/        # unit: codec, hashing, fact base, snapshot, diff
+bun test tests/      # integration: Docker required (postgres:17-alpine)
+bun run check-types
+PGDELTA_TEST_IMAGE=postgres:15-alpine bun test tests/   # other PG versions
+```
+
+## Guardrails
+
+See `docs/target-architecture.md` §10. The ones most often relevant here:
+no SQL parsing in the trusted path; no per-kind code outside the rule
+table; a cycle is a rule bug (there is no breaker module, ever); never
+assert SQL bytes in tests — assert state, data survival, or action shape.

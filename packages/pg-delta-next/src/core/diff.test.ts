@@ -5,8 +5,18 @@ import type { StableId } from "./stable-id.ts";
 
 const schema: StableId = { kind: "schema", name: "public" };
 const table: StableId = { kind: "table", schema: "public", name: "users" };
-const colA: StableId = { kind: "column", schema: "public", table: "users", name: "a" };
-const colB: StableId = { kind: "column", schema: "public", table: "users", name: "b" };
+const colA: StableId = {
+  kind: "column",
+  schema: "public",
+  table: "users",
+  name: "a",
+};
+const colB: StableId = {
+  kind: "column",
+  schema: "public",
+  table: "users",
+  name: "b",
+};
 const role: StableId = { kind: "role", name: "r" };
 
 function facts(overrides?: { colAType?: string; withColB?: boolean }): Fact[] {
@@ -14,17 +24,27 @@ function facts(overrides?: { colAType?: string; withColB?: boolean }): Fact[] {
     { id: schema, payload: {} },
     { id: role, payload: { login: true } },
     { id: table, parent: schema, payload: { persistence: "p" } },
-    { id: colA, parent: table, payload: { type: overrides?.colAType ?? "integer", notNull: false } },
+    {
+      id: colA,
+      parent: table,
+      payload: { type: overrides?.colAType ?? "integer", notNull: false },
+    },
   ];
   if (overrides?.withColB !== false) {
-    out.push({ id: colB, parent: table, payload: { type: "text", notNull: true } });
+    out.push({
+      id: colB,
+      parent: table,
+      payload: { type: "text", notNull: true },
+    });
   }
   return out;
 }
 
 describe("diff", () => {
   test("diff(A, A) is empty", () => {
-    expect(diff(buildFactBase(facts(), []), buildFactBase(facts(), []))).toEqual([]);
+    expect(
+      diff(buildFactBase(facts(), []), buildFactBase(facts(), [])),
+    ).toEqual([]);
   });
 
   test("changed attribute yields a set delta with from/to", () => {
@@ -41,7 +61,14 @@ describe("diff", () => {
     const b = buildFactBase(facts({ withColB: false }), []);
     const deltas = diff(a, b);
     expect(deltas).toEqual([
-      { verb: "remove", fact: { id: colB, parent: table, payload: { type: "text", notNull: true } } },
+      {
+        verb: "remove",
+        fact: {
+          id: colB,
+          parent: table,
+          payload: { type: "text", notNull: true },
+        },
+      },
     ]);
   });
 
@@ -69,7 +96,10 @@ describe("diff", () => {
 
   test("attribute added/dropped from a payload diffs as set with undefined side", () => {
     const a = buildFactBase([{ id: role, payload: { login: true } }], []);
-    const b = buildFactBase([{ id: role, payload: { login: true, replication: true } }], []);
+    const b = buildFactBase(
+      [{ id: role, payload: { login: true, replication: true } }],
+      [],
+    );
     expect(diff(a, b)).toEqual([
       { verb: "set", id: role, attr: "replication", from: undefined, to: true },
     ]);
@@ -82,7 +112,11 @@ describe("diff", () => {
         { id: schema, payload: {} },
         { id: role, payload: { login: false } },
         { id: table, parent: schema, payload: { persistence: "u" } },
-        { id: colA, parent: table, payload: { type: "bigint", notNull: false } },
+        {
+          id: colA,
+          parent: table,
+          payload: { type: "bigint", notNull: false },
+        },
       ],
       [],
     );
@@ -99,7 +133,15 @@ describe("diff", () => {
     const forward = diff(a, b);
     const backward = diff(b, a);
     const flip = (v: "add" | "remove" | "set" | "link" | "unlink") =>
-      v === "add" ? "remove" : v === "remove" ? "add" : v === "link" ? "unlink" : v === "unlink" ? "link" : v;
+      v === "add"
+        ? "remove"
+        : v === "remove"
+          ? "add"
+          : v === "link"
+            ? "unlink"
+            : v === "unlink"
+              ? "link"
+              : v;
     expect(backward.map((d) => d.verb).sort()).toEqual(
       forward.map((d) => flip(d.verb)).sort(),
     );

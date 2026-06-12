@@ -17,8 +17,15 @@ class MinHeap {
     let i = this.#items.length - 1;
     while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (this.keyOf(this.#items[parent] as number) <= this.keyOf(this.#items[i] as number)) break;
-      [this.#items[parent], this.#items[i]] = [this.#items[i] as number, this.#items[parent] as number];
+      if (
+        this.keyOf(this.#items[parent] as number) <=
+        this.keyOf(this.#items[i] as number)
+      )
+        break;
+      [this.#items[parent], this.#items[i]] = [
+        this.#items[i] as number,
+        this.#items[parent] as number,
+      ];
       i = parent;
     }
   }
@@ -33,10 +40,23 @@ class MinHeap {
         const l = 2 * i + 1;
         const r = l + 1;
         let smallest = i;
-        if (l < this.#items.length && this.keyOf(this.#items[l] as number) < this.keyOf(this.#items[smallest] as number)) smallest = l;
-        if (r < this.#items.length && this.keyOf(this.#items[r] as number) < this.keyOf(this.#items[smallest] as number)) smallest = r;
+        if (
+          l < this.#items.length &&
+          this.keyOf(this.#items[l] as number) <
+            this.keyOf(this.#items[smallest] as number)
+        )
+          smallest = l;
+        if (
+          r < this.#items.length &&
+          this.keyOf(this.#items[r] as number) <
+            this.keyOf(this.#items[smallest] as number)
+        )
+          smallest = r;
         if (smallest === i) break;
-        [this.#items[smallest], this.#items[i]] = [this.#items[i] as number, this.#items[smallest] as number];
+        [this.#items[smallest], this.#items[i]] = [
+          this.#items[i] as number,
+          this.#items[smallest] as number,
+        ];
         i = smallest;
       }
     }
@@ -51,7 +71,7 @@ export function topoSort(
   describe: (node: number) => string,
 ): number[] {
   const adjacency: number[][] = Array.from({ length: nodeCount }, () => []);
-  const indegree = new Array<number>(nodeCount).fill(0);
+  const indegree = Array.from({ length: nodeCount }, () => 0);
   const seen = new Set<string>();
   for (const [u, v] of edges) {
     if (u === v) continue;
@@ -78,7 +98,8 @@ export function topoSort(
   if (order.length !== nodeCount) {
     // a cycle is a RULE BUG: report the cycle path, never repair (guardrail 4)
     const inCycle = new Set<number>();
-    for (let i = 0; i < nodeCount; i++) if ((indegree[i] as number) > 0) inCycle.add(i);
+    for (let i = 0; i < nodeCount; i++)
+      if ((indegree[i] as number) > 0) inCycle.add(i);
     const cyclePath = [...inCycle].map(describe).join("\n  ");
     throw new Error(
       `dependency cycle among ${inCycle.size} actions — this is a rule/emission bug, fix the rule (guardrail 4):\n  ${cyclePath}`,

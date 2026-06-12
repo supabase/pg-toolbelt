@@ -23,36 +23,61 @@ describe("encodeId", () => {
     expect(encodeId({ kind: "view", schema: "app", name: "v_users" })).toBe(
       "view:app.v_users",
     );
-    expect(encodeId({ kind: "index", schema: "public", name: "users_pkey" })).toBe(
-      "index:public.users_pkey",
-    );
+    expect(
+      encodeId({ kind: "index", schema: "public", name: "users_pkey" }),
+    ).toBe("index:public.users_pkey");
   });
 
   test("sub-entity kinds", () => {
     expect(
-      encodeId({ kind: "column", schema: "public", table: "users", name: "email" }),
+      encodeId({
+        kind: "column",
+        schema: "public",
+        table: "users",
+        name: "email",
+      }),
     ).toBe("column:public.users.email");
     expect(
-      encodeId({ kind: "constraint", schema: "public", table: "users", name: "users_pkey" }),
+      encodeId({
+        kind: "constraint",
+        schema: "public",
+        table: "users",
+        name: "users_pkey",
+      }),
     ).toBe("constraint:public.users.users_pkey");
     expect(
-      encodeId({ kind: "default", schema: "public", table: "users", name: "id" }),
+      encodeId({
+        kind: "default",
+        schema: "public",
+        table: "users",
+        name: "id",
+      }),
     ).toBe("default:public.users.id");
   });
 
   test("routines carry signatures", () => {
     expect(
-      encodeId({ kind: "procedure", schema: "public", name: "add", args: ["integer", "integer"] }),
+      encodeId({
+        kind: "procedure",
+        schema: "public",
+        name: "add",
+        args: ["integer", "integer"],
+      }),
     ).toBe("procedure:public.add(integer,integer)");
     expect(
-      encodeId({ kind: "procedure", schema: "public", name: "now_utc", args: [] }),
+      encodeId({
+        kind: "procedure",
+        schema: "public",
+        name: "now_utc",
+        args: [],
+      }),
     ).toBe("procedure:public.now_utc()");
   });
 
   test("quotes parts containing delimiters", () => {
-    expect(encodeId({ kind: "table", schema: "public", name: "weird.name" })).toBe(
-      'table:public."weird.name"',
-    );
+    expect(
+      encodeId({ kind: "table", schema: "public", name: "weird.name" }),
+    ).toBe('table:public."weird.name"');
     expect(encodeId({ kind: "schema", name: 'has"quote' })).toBe(
       'schema:"has""quote"',
     );
@@ -71,17 +96,16 @@ describe("encodeId", () => {
     );
     expect(
       encodeId({ kind: "securityLabel", target: table, provider: "selinux" }),
-    ).toBe("securityLabel:(table:public.users).selinux",
-    );
+    ).toBe("securityLabel:(table:public.users).selinux");
   });
 
   test("membership and user mapping", () => {
-    expect(encodeId({ kind: "membership", role: "admin", member: "alice" })).toBe(
-      "membership:admin.alice",
-    );
-    expect(encodeId({ kind: "userMapping", server: "files", role: "bob" })).toBe(
-      "userMapping:files.bob",
-    );
+    expect(
+      encodeId({ kind: "membership", role: "admin", member: "alice" }),
+    ).toBe("membership:admin.alice");
+    expect(
+      encodeId({ kind: "userMapping", server: "files", role: "bob" }),
+    ).toBe("userMapping:files.bob");
   });
 });
 
@@ -94,12 +118,25 @@ describe("parseId round-trips", () => {
     { kind: "column", schema: "s", table: "t", name: "c" },
     { kind: "column", schema: "a.b", table: "c:d", name: "e(f)" },
     { kind: "procedure", schema: "public", name: "fn", args: [] },
-    { kind: "procedure", schema: "public", name: "fn", args: ["text", "integer[]"] },
-    { kind: "procedure", schema: "s", name: "weird,fn", args: ["my schema.my type"] },
+    {
+      kind: "procedure",
+      schema: "public",
+      name: "fn",
+      args: ["text", "integer[]"],
+    },
+    {
+      kind: "procedure",
+      schema: "s",
+      name: "weird,fn",
+      args: ["my schema.my type"],
+    },
     { kind: "aggregate", schema: "public", name: "agg", args: ["numeric"] },
     { kind: "index", schema: "public", name: "idx" },
     { kind: "sequence", schema: "public", name: "users_id_seq" },
-    { kind: "comment", target: { kind: "column", schema: "s", table: "t", name: "c" } },
+    {
+      kind: "comment",
+      target: { kind: "column", schema: "s", table: "t", name: "c" },
+    },
     {
       kind: "acl",
       target: { kind: "procedure", schema: "s", name: "f", args: ["text"] },
@@ -114,7 +151,11 @@ describe("parseId round-trips", () => {
     // codec itself must support recursion
     {
       kind: "comment",
-      target: { kind: "acl", target: { kind: "schema", name: "s" }, grantee: "g" },
+      target: {
+        kind: "acl",
+        target: { kind: "schema", name: "s" },
+        grantee: "g",
+      },
     },
     { kind: "membership", role: "r1", member: "r2" },
     { kind: "userMapping", server: "srv", role: "rl" },
@@ -125,7 +166,13 @@ describe("parseId round-trips", () => {
       objtype: "tables",
       grantee: "app",
     },
-    { kind: "defaultPrivilege", role: "owner", schema: null, objtype: "functions", grantee: "app" },
+    {
+      kind: "defaultPrivilege",
+      role: "owner",
+      schema: null,
+      objtype: "functions",
+      grantee: "app",
+    },
   ];
 
   for (const id of cases) {
@@ -133,7 +180,13 @@ describe("parseId round-trips", () => {
   }
 
   test("empty-string parts are quoted and round-trip", () => {
-    const id: StableId = { kind: "defaultPrivilege", role: "o", schema: null, objtype: "tables", grantee: "g" };
+    const id: StableId = {
+      kind: "defaultPrivilege",
+      role: "o",
+      schema: null,
+      objtype: "tables",
+      grantee: "g",
+    };
     const enc = encodeId(id);
     expect(parseId(enc)).toEqual(id);
   });

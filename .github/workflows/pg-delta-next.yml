@@ -1,0 +1,38 @@
+name: pg-delta-next
+
+on:
+  pull_request:
+    paths:
+      - "packages/pg-delta-next/**"
+      - ".github/workflows/pg-delta-next.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/pg-delta-next/**"
+
+jobs:
+  test:
+    name: Test (PG ${{ matrix.postgres_version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["15", "17", "18"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Type check
+        working-directory: packages/pg-delta-next
+        run: bun run check-types
+      - name: Unit tests
+        working-directory: packages/pg-delta-next
+        run: bun test src/
+      - name: Integration tests (extractor ring, corpus proof loop, shadow loader)
+        working-directory: packages/pg-delta-next
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+        run: bun test tests/
