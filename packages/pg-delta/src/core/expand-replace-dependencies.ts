@@ -42,6 +42,7 @@ import {
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableDropConstraint,
   AlterTableDropColumn,
 } from "./objects/table/changes/table.alter.ts";
 import {
@@ -328,6 +329,20 @@ export function expandReplaceDependencies({
             [...changes, ...additions],
           ),
         );
+      }
+      if (!reachedFromInvalidation && dependentRaw.startsWith("constraint:")) {
+        const replacementChanges = buildConstraintReplacementChanges(
+          dependentRaw,
+          mainCatalog,
+          branchCatalog,
+          [...changes, ...additions],
+        );
+        additions.push(...replacementChanges);
+        for (const change of replacementChanges) {
+          for (const id of change.creates ?? []) createdIds.add(id);
+          for (const id of change.drops ?? []) droppedIds.add(id);
+        }
+        continue;
       }
 
       const targetId = normalizeDependentId(dependentRaw);
@@ -980,6 +995,118 @@ function buildPublicationTableReplacementChanges(
   }
 
   return replacementChanges;
+}
+
+function buildConstraintReplacementChanges(
+  constraintStableId: string,
+  mainCatalog: Catalog,
+  branchCatalog: Catalog,
+  existingChanges: readonly Change[],
+): Change[] {
+  const parsed = parseConstraintStableId(constraintStableId);
+  if (!parsed) return [];
+
+  const tableStableId = stableId.table(parsed.schema, parsed.table);
+  const mainTable = mainCatalog.tables[tableStableId];
+  const branchTable = branchCatalog.tables[tableStableId];
+  if (!mainTable && !branchTable) return [];
+
+  const mainConstraint = mainTable?.constraints.find(
+    (constraint) => constraint.name === parsed.constraint,
+  );
+  const branchConstraint = branchTable?.constraints.find(
+    (constraint) => constraint.name === parsed.constraint,
+  );
+  if (!mainConstraint && !branchConstraint) return [];
+
+  const replacementChanges: Change[] = [];
+  if (
+    mainTable &&
+    mainConstraint &&
+    !hasConstraintDropChange(existingChanges, constraintStableId)
+  ) {
+    replacementChanges.push(
+      new AlterTableDropConstraint({
+        table: mainTable,
+        constraint: mainConstraint,
+      }),
+    );
+  }
+
+  if (
+    branchTable &&
+    branchConstraint &&
+    !hasConstraintAddChange(
+      [...existingChanges, ...replacementChanges],
+      constraintStableId,
+    )
+  ) {
+    replacementChanges.push(
+      new AlterTableAddConstraint({
+        table: branchTable,
+        constraint: branchConstraint,
+      }),
+    );
+  }
+
+  if (
+    branchTable &&
+    branchConstraint?.comment !== null &&
+    branchConstraint?.comment !== undefined &&
+    !hasChangeCreating(
+      [...existingChanges, ...replacementChanges],
+      stableId.comment(constraintStableId),
+    )
+  ) {
+    replacementChanges.push(
+      new CreateCommentOnConstraint({
+        table: branchTable,
+        constraint: branchConstraint,
+      }),
+    );
+  }
+
+  return replacementChanges;
+}
+
+function parseConstraintStableId(
+  constraintStableId: string,
+): { schema: string; table: string; constraint: string } | null {
+  if (!constraintStableId.startsWith("constraint:")) return null;
+  const parts = constraintStableId.slice("constraint:".length).split(".");
+  if (parts.length < 3) return null;
+  const [schema, table, ...constraintParts] = parts;
+  return { schema, table, constraint: constraintParts.join(".") };
+}
+
+function hasConstraintDropChange(
+  changes: readonly Change[],
+  constraintStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableDropConstraint &&
+      stableId.constraint(
+        change.table.schema,
+        change.table.name,
+        change.constraint.name,
+      ) === constraintStableId,
+  );
+}
+
+function hasConstraintAddChange(
+  changes: readonly Change[],
+  constraintStableId: string,
+): boolean {
+  return changes.some(
+    (change) =>
+      change instanceof AlterTableAddConstraint &&
+      stableId.constraint(
+        change.table.schema,
+        change.table.name,
+        change.constraint.name,
+      ) === constraintStableId,
+  );
 }
 
 function parseColumnStableId(
