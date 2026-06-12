@@ -6,6 +6,7 @@ import { diff, type Delta } from "../core/diff.ts";
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { topoSort } from "./graph.ts";
+import { grantTarget, qid } from "./render.ts";
 import { rulesFor, type ActionSpec } from "./rules.ts";
 
 export interface Action {
@@ -71,6 +72,9 @@ export function plan(source: FactBase, desired: FactBase): Plan {
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
   const replaceIds = new Set<string>();
+  // alters that invalidate dependents (e.g. an enum value-set replacement)
+  // seed the forced-rebuild pass without replacing the fact itself
+  const rebuildSeeds = new Set<string>();
   for (const [key, sets] of setsByFact) {
     const kind = (desired.get(sets[0]!.id) as Fact).id.kind;
     const rules = rulesFor(kind);
@@ -82,6 +86,8 @@ export function plan(source: FactBase, desired: FactBase): Plan {
         );
       }
       if (attrRule === "replace") replaceIds.add(key);
+      else if (attrRule.rebuildsDependents?.(s.from, s.to))
+        rebuildSeeds.add(key);
     }
   }
 
@@ -97,9 +103,14 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     "rule",
     "constraint",
     "default",
+    "procedure",
   ]);
   {
-    const destroyedIds = new Set([...removed.keys(), ...replaceIds]);
+    const destroyedIds = new Set([
+      ...removed.keys(),
+      ...replaceIds,
+      ...rebuildSeeds,
+    ]);
     let grew = true;
     while (grew) {
       grew = false;
@@ -117,7 +128,8 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     }
     // descendants of replaced facts are handled by the ancestor's subtree
     // recreate — keep only the topmost replaced facts
-    for (const key of [...replaceIds]) {
+    // deleting the entry under iteration is safe for a JS Set
+    for (const key of replaceIds) {
       const fact = source.facts().find((f) => encodeId(f.id) === key);
       let ancestor = fact?.parent;
       while (ancestor !== undefined) {
@@ -186,10 +198,7 @@ export function plan(source: FactBase, desired: FactBase): Plan {
         ? tableKey
         : null;
     if (ownerKey !== null) {
-      dropRootOf.set(
-        encodeId(fact.id),
-        dropRootOf.get(ownerKey) ?? ownerKey,
-      );
+      dropRootOf.set(encodeId(fact.id), dropRootOf.get(ownerKey) ?? ownerKey);
     }
   }
 
@@ -209,12 +218,13 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   ): number => {
     const index = actions.length;
     const produces = [...(opts.produces ?? []), ...(spec.alsoProduces ?? [])];
+    const destroys = [...(opts.destroys ?? []), ...(spec.alsoDestroys ?? [])];
     actions.push({
       sql: spec.sql,
       verb,
       produces,
       consumes: [...(opts.consumes ?? []), ...(spec.consumes ?? [])],
-      destroys: opts.destroys ?? [],
+      destroys,
       releases: spec.releases ?? [],
       transactional: true,
       dataLoss: spec.dataLoss ?? "none",
@@ -224,7 +234,7 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       const key = encodeId(id);
       if (!producerOf.has(key)) producerOf.set(key, index);
     }
-    for (const id of opts.destroys ?? []) destroyerOf.set(encodeId(id), index);
+    for (const id of destroys) destroyerOf.set(encodeId(id), index);
     return index;
   };
 
@@ -241,11 +251,72 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     });
   };
 
-  // creates — skipping facts an earlier action already produced via
-  // delta-set inlining (e.g. a default folded into its column's ADD)
-  for (const fact of added.values()) {
+  // creates — parents first, so a parent's delta-set inlining (e.g. a
+  // partitioned table's columns rendered inside its CREATE, registered via
+  // alsoProduces) is visible before its children are considered
+  const depthOf = (fact: Fact): number => {
+    let depth = 0;
+    let parent = fact.parent;
+    while (parent !== undefined) {
+      depth++;
+      parent = desired.get(parent)?.parent;
+    }
+    return depth;
+  };
+  for (const fact of [...added.values()].sort(
+    (a, b) => depthOf(a) - depthOf(b),
+  )) {
     if (producerOf.has(encodeId(fact.id))) continue;
     emitCreate(fact, desired);
+  }
+
+  // default-privilege hygiene: objects created under active default ACLs
+  // receive implicit grants; revoke them when the desired state has no
+  // corresponding acl fact (pg_dump-style clean slate)
+  const DEFACL_KIND: Record<string, string> = {
+    table: "r",
+    view: "r",
+    materializedView: "r",
+    foreignTable: "r",
+    sequence: "S",
+    procedure: "f",
+    aggregate: "f",
+  };
+  for (const fact of added.values()) {
+    const objtype = DEFACL_KIND[fact.id.kind];
+    if (objtype === undefined) continue;
+    const owner = fact.payload["owner"];
+    if (typeof owner !== "string") continue;
+    const schema = (fact.id as { schema?: string }).schema ?? null;
+    for (const dp of desired.facts()) {
+      if (dp.id.kind !== "defaultPrivilege") continue;
+      const dpid = dp.id as {
+        role: string;
+        schema: string | null;
+        objtype: string;
+        grantee: string;
+      };
+      if (dpid.role !== owner || dpid.objtype !== objtype) continue;
+      if (dpid.schema != null && dpid.schema !== schema) continue;
+      if (dpid.grantee === owner) continue; // the owner's implicit entry IS the default
+      const aclId: StableId = {
+        kind: "acl",
+        target: fact.id,
+        grantee: dpid.grantee,
+      };
+      if (desired.has(aclId)) continue; // acl create's REVOKE-first handles it
+      pushAction(
+        "alter",
+        {
+          sql: `REVOKE ALL ON ${grantTarget(fact.id)} FROM ${dpid.grantee === "PUBLIC" ? "PUBLIC" : qid(dpid.grantee)}`,
+          consumes:
+            dpid.grantee === "PUBLIC"
+              ? []
+              : [{ kind: "role", name: dpid.grantee } as StableId],
+        },
+        { consumes: [fact.id] },
+      );
+    }
   }
 
   // drops (suppressed children fold into their root's destroys)
@@ -327,6 +398,18 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     return key;
   };
 
+  // alter actions indexed by their primary fact (opts.consumes[0])
+  const alterersOf = new Map<string, number[]>();
+  actions.forEach((action, index) => {
+    if (action.verb !== "alter") return;
+    const primary = action.consumes[0];
+    if (primary === undefined) return;
+    const key = encodeId(primary);
+    const list = alterersOf.get(key) ?? [];
+    list.push(index);
+    alterersOf.set(key, list);
+  });
+
   actions.forEach((action, index) => {
     for (const id of action.releases) {
       const destroyer = destroyerOf.get(remember(id));
@@ -340,8 +423,15 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       if (producer !== undefined && producer !== index)
         edges.push([producer, index]);
       const destroyer = destroyerOf.get(key);
-      if (destroyer !== undefined && destroyer !== index)
+      // consumer-before-destroyer applies only when the id is NOT being
+      // re-produced; consumers of a replaced fact use the new one
+      if (
+        destroyer !== undefined &&
+        destroyer !== index &&
+        producer === undefined
+      ) {
         edges.push([index, destroyer]);
+      }
       if (producer === undefined && !source.has(id) && !desired.has(id)) {
         throw new Error(
           `missing requirement: action "${action.sql}" consumes ${key}, which neither exists nor is produced by this plan`,
@@ -349,19 +439,41 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       }
     }
     // build order from the DESIRED state's dependency edges
+    const producesKeys = new Set(action.produces.map((id) => encodeId(id)));
     for (const id of action.produces) {
       remember(id);
       if (!desired.has(id)) continue;
       for (const edge of desired.outgoingEdges(id)) {
         const targetKey = remember(edge.to);
         const producer = producerOf.get(targetKey);
-        if (producer !== undefined && producer !== index)
+        if (producer !== undefined && producer !== index) {
           edges.push([producer, index]);
+        } else if (producer === undefined) {
+          // the dependency is kept but altered in place: create the dependent
+          // against its FINAL state (e.g. a view recreated after an enum's
+          // value-set migration). Skip alterers that consume what this action
+          // produces — there the alter needs the create first (REPLICA
+          // IDENTITY USING a new index).
+          for (const alterer of alterersOf.get(targetKey) ?? []) {
+            if (alterer === index) continue;
+            const altererConsumesProduct = (
+              actions[alterer] as Action
+            ).consumes.some((c) => producesKeys.has(encodeId(c)));
+            if (!altererConsumesProduct) edges.push([alterer, index]);
+          }
+        }
       }
     }
     // teardown order from the SOURCE state's dependency edges
+    const destroysKeys = new Set(action.destroys.map((id) => encodeId(id)));
     for (const id of action.destroys) {
       const key = remember(id);
+      // replace: destroy before re-produce. This applies even to ids with no
+      // source fact — DROP IDENTITY implicitly destroys the backing sequence
+      // (alsoDestroys), which a CREATE SEQUENCE of the same name re-produces
+      const reproducer = producerOf.get(key);
+      if (reproducer !== undefined && reproducer !== index)
+        edges.push([index, reproducer]);
       if (!source.has(id)) continue;
       for (const edge of source.edges) {
         if (encodeId(edge.to) !== key) continue;
@@ -370,13 +482,39 @@ export function plan(source: FactBase, desired: FactBase): Plan {
         if (dependentDestroyer !== undefined && dependentDestroyer !== index) {
           edges.push([dependentDestroyer, index]);
         } else if (dependentDestroyer === undefined && desired.has(edge.from)) {
+          if (producerOf.has(key)) continue;
+          // the desired state no longer carries this dependency: whatever
+          // alters the dependent (e.g. ALTER PUBLICATION … SET delisting a
+          // dropped table) releases it — order those alters first
+          const stillRequired = desired
+            .outgoingEdges(edge.from)
+            .some((e) => encodeId(e.to) === key);
+          if (!stillRequired) {
+            for (const alterer of alterersOf.get(dependentKey) ?? []) {
+              if (alterer !== index) edges.push([alterer, index]);
+            }
+            continue;
+          }
           // a surviving fact depends on something this plan destroys, and
           // nothing recreates the dependency: fail loudly (stage-5 deliverable 6)
-          if (!producerOf.has(key)) {
-            throw new Error(
-              `missing requirement: ${dependentKey} survives but depends on ${key}, which this plan drops without recreating`,
-            );
-          }
+          throw new Error(
+            `missing requirement: ${dependentKey} survives but depends on ${key}, which this plan drops without recreating`,
+          );
+        }
+      }
+      // a dependent's teardown precedes in-place alters of its dependencies
+      // (drop the view before migrating the enum its definition references);
+      // an alterer that releases something this action destroys is the
+      // opposite shape — releases ordering wins there
+      for (const edge of source.outgoingEdges(id)) {
+        const depKey = remember(edge.to);
+        if (destroyerOf.has(depKey)) continue;
+        for (const alterer of alterersOf.get(depKey) ?? []) {
+          if (alterer === index) continue;
+          const altererReleasesOurDestroy = (
+            actions[alterer] as Action
+          ).releases.some((r) => destroysKeys.has(encodeId(r)));
+          if (!altererReleasesOurDestroy) edges.push([index, alterer]);
         }
       }
       // child teardown precedes parent teardown
@@ -387,10 +525,6 @@ export function plan(source: FactBase, desired: FactBase): Plan {
           edges.push([index, parentDestroyer]);
         }
       }
-      // replace: destroy before re-produce
-      const reproducer = producerOf.get(key);
-      if (reproducer !== undefined && reproducer !== index)
-        edges.push([index, reproducer]);
     }
   });
 
@@ -409,7 +543,10 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     })();
     const phase = action.verb === "drop" ? "0" : "1";
     const w = action.verb === "drop" ? 99 - weight : weight;
-    return `${phase}|${String(w).padStart(2, "0")}|${subject ? encodeId(subject) : ""}|${i}`;
+    // the index is zero-padded: this is a STRING key, and "10" < "9" would
+    // scramble multi-spec sequences (the enum value-set migration relies on
+    // emission order among equal-priority actions)
+    return `${phase}|${String(w).padStart(2, "0")}|${subject ? encodeId(subject) : ""}|${String(i).padStart(6, "0")}`;
   };
 
   const order = topoSort(

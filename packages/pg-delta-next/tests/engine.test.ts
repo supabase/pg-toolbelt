@@ -41,6 +41,9 @@ async function proveOn(
     const thePlan = plan(sourceState.factBase, desiredState.factBase);
 
     const clone = await source.clone();
+    // the original source DB would block cluster-wide DROP ROLE actions
+    // (the role still owns its objects there); the clone is the proof target
+    await source.drop();
     try {
       // TEMPLATE cloning skips shared-catalog state (subscriptions): presync
       // the clone to the source's fact base before proving the real plan
@@ -54,7 +57,11 @@ async function proveOn(
           );
         }
       }
-      const verdict = await provePlan(thePlan, clone.pool, desiredState.factBase);
+      const verdict = await provePlan(
+        thePlan,
+        clone.pool,
+        desiredState.factBase,
+      );
       if (!verdict.ok) {
         const planText = thePlan.actions
           .map((a, i) => `  ${i}: ${a.sql}`)
@@ -149,20 +156,12 @@ async function runPinnedOrProve(
 
 describe("engine: corpus proof loop", () => {
   for (const scenario of loadCorpus()) {
-    test(
-      `${scenario.name} (a -> b)`,
-      async () => {
-        await runPinnedOrProve(scenario, "forward");
-      },
-      180_000,
-    );
+    test(`${scenario.name} (a -> b)`, async () => {
+      await runPinnedOrProve(scenario, "forward");
+    }, 180_000);
 
-    test(
-      `${scenario.name} (b -> a, teardown direction)`,
-      async () => {
-        await runPinnedOrProve(scenario, "reverse");
-      },
-      180_000,
-    );
+    test(`${scenario.name} (b -> a, teardown direction)`, async () => {
+      await runPinnedOrProve(scenario, "reverse");
+    }, 180_000);
   }
 });

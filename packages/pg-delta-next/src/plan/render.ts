@@ -130,7 +130,8 @@ export function alterOptionsClause(
   const parts: string[] = [];
   for (const [key, value] of newMap) {
     if (!oldMap.has(key)) parts.push(`ADD ${qid(key)} ${lit(value)}`);
-    else if (oldMap.get(key) !== value) parts.push(`SET ${qid(key)} ${lit(value)}`);
+    else if (oldMap.get(key) !== value)
+      parts.push(`SET ${qid(key)} ${lit(value)}`);
   }
   for (const key of oldMap.keys()) {
     if (!newMap.has(key)) parts.push(`DROP ${qid(key)}`);

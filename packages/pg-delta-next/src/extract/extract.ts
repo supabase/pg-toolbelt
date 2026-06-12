@@ -109,8 +109,12 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     }
   };
 
-  /** ACL subquery: aggregated per grantee, sorted, PUBLIC for grantee 0. */
-  const aclJson = (aclColumn: string) => `
+  /** ACL subquery: aggregated per grantee, sorted, PUBLIC for grantee 0.
+   *  A NULL acl column means "the built-in default" — coalescing through
+   *  acldefault() (pg_dump's model) makes NULL and an explicitly
+   *  instantiated default extract identically, so a REVOKE that merely
+   *  materializes the owner's implicit grant is not a diff. */
+  const aclJson = (aclColumn: string, objtype: string, ownerColumn: string) => `
     (SELECT json_agg(json_build_object(
         'grantee', acl.grantee_name,
         'privileges', acl.privileges,
@@ -120,7 +124,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
               array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
               array_agg(e.privilege_type ORDER BY e.privilege_type)
                 FILTER (WHERE e.is_grantable) AS grantable
-       FROM aclexplode(${aclColumn}) e
+       FROM aclexplode(COALESCE(${aclColumn}, acldefault('${objtype}', ${ownerColumn}))) e
        LEFT JOIN pg_roles g ON g.oid = e.grantee
        GROUP BY 1
      ) acl)`;
@@ -208,7 +212,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
       id: {
         kind: "defaultPrivilege",
         role: String(row["role"]),
-        schema: row["schema"] == null ? null : String(row["schema"]),
+        schema: row["schema"] == null ? null : (row["schema"] as string),
         objtype: String(row["objtype"]),
         grantee: String(row["grantee"]),
       },
@@ -223,7 +227,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   for (const row of await q(`
     SELECT n.nspname AS name, r.rolname AS owner,
            obj_description(n.oid, 'pg_namespace') AS comment,
-           ${aclJson("n.nspacl")} AS acl
+           ${aclJson("n.nspacl", "n", "n.nspowner")} AS acl
     FROM pg_namespace n
     JOIN pg_roles r ON r.oid = n.nspowner
     WHERE ${USER_SCHEMA_FILTER}
@@ -280,7 +284,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
             WHERE inh.inhrelid = c.oid
             LIMIT 1) AS parent_table,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl")} AS acl
+           ${aclJson("c.relacl", "r", "c.relowner")} AS acl
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
@@ -331,6 +335,15 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            format_type(a.atttypid, a.atttypmod) AS type,
            a.attnotnull AS not_null,
            NULLIF(a.attidentity, '') AS identity,
+           (SELECT json_build_object('schema', sn.nspname, 'name', sc.relname)
+            FROM pg_depend d
+            JOIN pg_class sc ON sc.oid = d.objid
+            JOIN pg_namespace sn ON sn.oid = sc.relnamespace
+            WHERE d.classid = 'pg_class'::regclass
+              AND d.refclassid = 'pg_class'::regclass
+              AND d.refobjid = c.oid AND d.refobjsubid = a.attnum
+              AND d.deptype = 'i' AND sc.relkind = 'S'
+            LIMIT 1) AS identity_sequence,
            NULLIF(a.attgenerated, '') AS generated,
            CASE WHEN a.attcollation <> t.typcollation THEN (
              SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
@@ -369,7 +382,15 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           type: String(row["type"]),
           notNull: Boolean(row["not_null"]),
           identity:
-            row["identity"] == null ? null : (row["identity"] as string),
+            row["identity"] == null
+              ? null
+              : {
+                  generation: row["identity"] as string,
+                  sequence: row["identity_sequence"] as {
+                    schema: string;
+                    name: string;
+                  } | null,
+                },
           collation:
             row["collation"] == null ? null : (row["collation"] as string),
           generatedExpr:
@@ -483,7 +504,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
               AND od.refobjsubid > 0
             LIMIT 1) AS owned_by,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl")} AS acl
+           ${aclJson("c.relacl", "s", "c.relowner")} AS acl
     FROM pg_sequence s
     JOIN pg_class c ON c.oid = s.seqrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -533,7 +554,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            c.relkind AS kind,
            pg_get_viewdef(c.oid) AS def,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl")} AS acl
+           ${aclJson("c.relacl", "r", "c.relowner")} AS acl
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
@@ -564,7 +585,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
                  ORDER BY t.ord)::text[] AS identity_args,
            pg_get_functiondef(p.oid) AS def,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl")} AS acl
+           ${aclJson("p.proacl", "f", "p.proowner")} AS acl
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     JOIN pg_roles r ON r.oid = p.proowner
@@ -693,7 +714,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
              WHERE co.oid = t.typcollation)
            END AS collation,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
@@ -714,7 +735,9 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           baseType: String(row["base_type"]),
           notNull: Boolean(row["not_null"]),
           default:
-            row["default_expr"] == null ? null : (row["default_expr"] as string),
+            row["default_expr"] == null
+              ? null
+              : (row["default_expr"] as string),
           collation:
             row["collation"] == null ? null : (row["collation"] as string),
         },
@@ -763,7 +786,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            ARRAY(SELECT e.enumlabel::text FROM pg_enum e
                  WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS values,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
@@ -802,7 +825,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
             JOIN pg_type at ON at.oid = a.atttypid
             WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) AS attrs,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
     FROM pg_type t
     JOIN pg_class tc ON tc.oid = t.typrelid AND tc.relkind = 'c'
     JOIN pg_namespace n ON n.oid = t.typnamespace
@@ -821,9 +844,10 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
         payload: {
           variant: "composite",
           owner: String(row["owner"]),
-          attributes: (row["attrs"] as
-            | { name: string; type: string; collation: string | null }[]
-            | null) ?? [],
+          attributes:
+            (row["attrs"] as
+              | { name: string; type: string; collation: string | null }[]
+              | null) ?? [],
         },
       },
       row,
@@ -839,7 +863,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
              WHERE co.oid = rng.rngcollation) END AS collation,
            CASE WHEN rng.rngsubdiff <> 0 THEN rng.rngsubdiff::regproc::text END AS subtype_diff,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
     FROM pg_range rng
     JOIN pg_type t ON t.oid = rng.rngtypid
     JOIN pg_namespace n ON n.oid = t.typnamespace
@@ -862,7 +886,9 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           collation:
             row["collation"] == null ? null : (row["collation"] as string),
           subtypeDiff:
-            row["subtype_diff"] == null ? null : (row["subtype_diff"] as string),
+            row["subtype_diff"] == null
+              ? null
+              : (row["subtype_diff"] as string),
         },
       },
       row,
@@ -986,7 +1012,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            CASE WHEN a.aggfinalfn <> 0 THEN a.aggfinalfn::regproc::text END AS finalfunc,
            a.agginitval AS initcond,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl")} AS acl
+           ${aclJson("p.proacl", "f", "p.proowner")} AS acl
     FROM pg_proc p
     JOIN pg_aggregate a ON a.aggfnoid = p.oid
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1027,7 +1053,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            CASE WHEN f.fdwvalidator <> 0 THEN f.fdwvalidator::regproc::text END AS validator,
            COALESCE(ARRAY(SELECT opt FROM unnest(f.fdwoptions) opt ORDER BY opt), '{}')::text[] AS options,
            obj_description(f.oid, 'pg_foreign_data_wrapper') AS comment,
-           ${aclJson("f.fdwacl")} AS acl
+           ${aclJson("f.fdwacl", "F", "f.fdwowner")} AS acl
     FROM pg_foreign_data_wrapper f
     JOIN pg_roles r ON r.oid = f.fdwowner
     WHERE ${notExtensionMember("pg_foreign_data_wrapper", "f.oid")}
@@ -1050,9 +1076,16 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   for (const row of await q(`
     SELECT s.srvname AS name, f.fdwname AS fdw, r.rolname AS owner,
            s.srvtype AS type, s.srvversion AS version,
+           (SELECT e.extname FROM pg_depend d
+            JOIN pg_extension e ON e.oid = d.refobjid
+            WHERE d.classid = 'pg_foreign_data_wrapper'::regclass
+              AND d.objid = f.oid
+              AND d.refclassid = 'pg_extension'::regclass
+              AND d.deptype = 'e'
+            LIMIT 1) AS fdw_extension,
            COALESCE(ARRAY(SELECT opt FROM unnest(s.srvoptions) opt ORDER BY opt), '{}')::text[] AS options,
            obj_description(s.oid, 'pg_foreign_server') AS comment,
-           ${aclJson("s.srvacl")} AS acl
+           ${aclJson("s.srvacl", "S", "s.srvowner")} AS acl
     FROM pg_foreign_server s
     JOIN pg_foreign_data_wrapper f ON f.oid = s.srvfdw
     JOIN pg_roles r ON r.oid = s.srvowner
@@ -1061,7 +1094,12 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     pushWithMeta(
       {
         id: { kind: "server", name: String(row["name"]) },
-        parent: { kind: "fdw", name: String(row["fdw"]) },
+        // an extension-provided FDW has no fact of its own — parent the
+        // server to the extension instead so the reference resolves
+        parent:
+          row["fdw_extension"] != null
+            ? { kind: "extension", name: row["fdw_extension"] as string }
+            : { kind: "fdw", name: String(row["fdw"]) },
         payload: {
           owner: String(row["owner"]),
           fdw: String(row["fdw"]),
@@ -1096,7 +1134,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            s.srvname AS server,
            COALESCE(ARRAY(SELECT opt FROM unnest(ft.ftoptions) opt ORDER BY opt), '{}')::text[] AS options,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl")} AS acl
+           ${aclJson("c.relacl", "r", "c.relowner")} AS acl
     FROM pg_foreign_table ft
     JOIN pg_class c ON c.oid = ft.ftrelid
     JOIN pg_foreign_server s ON s.oid = ft.ftserver
@@ -1162,14 +1200,15 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           allTables: Boolean(row["all_tables"]),
           viaRoot: Boolean(row["via_root"]),
           publish,
-          tables: (row["tables"] as
-            | {
-                schema: string;
-                name: string;
-                columns: string[] | null;
-                where: string | null;
-              }[]
-            | null) ?? [],
+          tables:
+            (row["tables"] as
+              | {
+                  schema: string;
+                  name: string;
+                  columns: string[] | null;
+                  where: string | null;
+                }[]
+              | null) ?? [],
           schemas: ((row["schemas"] as string[] | null) ?? []).map(String),
         },
       },
@@ -1251,13 +1290,19 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           'schema', rn.nspname, 'name', rc.relname)
         FROM pg_class rc JOIN pg_namespace rn ON rn.oid = rc.relnamespace
         WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p','v','m','i','I','S')))
-      WHEN cls.classid = 'pg_class'::regclass AND cls.objsubid > 0 THEN (
-        SELECT json_build_object('kind', 'column', 'schema', rn.nspname,
+      WHEN cls.classid = 'pg_class'::regclass AND cls.objsubid > 0 THEN COALESCE(
+        (SELECT json_build_object('kind', 'column', 'schema', rn.nspname,
                                  'table', rc.relname, 'name', att.attname)
         FROM pg_class rc
         JOIN pg_namespace rn ON rn.oid = rc.relnamespace
         JOIN pg_attribute att ON att.attrelid = rc.oid AND att.attnum = cls.objsubid
-        WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p') AND NOT att.attisdropped)
+        WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p','f') AND NOT att.attisdropped),
+        -- view/matview columns are not facts: resolve to the relation
+        (SELECT json_build_object(
+           'kind', CASE rc.relkind WHEN 'm' THEN 'materializedView' ELSE 'view' END,
+           'schema', rn.nspname, 'name', rc.relname)
+        FROM pg_class rc JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+        WHERE rc.oid = cls.objid AND rc.relkind IN ('v','m')))
       WHEN cls.classid = 'pg_proc'::regclass THEN COALESCE(
         -- extension-member routines are not facts: resolve to the extension
         (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
@@ -1339,9 +1384,16 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
         FROM pg_publication_rel pr2
         JOIN pg_publication pub2 ON pub2.oid = pr2.prpubid
         WHERE pr2.oid = cls.objid)
-      WHEN cls.classid = 'pg_foreign_data_wrapper'::regclass THEN (
-        SELECT json_build_object('kind', 'fdw', 'name', fd.fdwname)
-        FROM pg_foreign_data_wrapper fd WHERE fd.oid = cls.objid)
+      WHEN cls.classid = 'pg_foreign_data_wrapper'::regclass THEN COALESCE(
+        -- extension-member FDWs are not facts: resolve to the extension
+        (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+         FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+         WHERE ed.classid = 'pg_foreign_data_wrapper'::regclass
+           AND ed.objid = cls.objid
+           AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+         LIMIT 1),
+        (SELECT json_build_object('kind', 'fdw', 'name', fd.fdwname)
+         FROM pg_foreign_data_wrapper fd WHERE fd.oid = cls.objid))
       WHEN cls.classid = 'pg_foreign_server'::regclass THEN (
         SELECT json_build_object('kind', 'server', 'name', fs.srvname)
         FROM pg_foreign_server fs WHERE fs.oid = cls.objid)

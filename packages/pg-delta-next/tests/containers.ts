@@ -83,7 +83,9 @@ export class Cluster {
           );
           for (const row of subs.rows as { subname: string }[]) {
             const sub = `"${row.subname.replaceAll('"', '""')}"`;
-            await this.pool.query(`ALTER SUBSCRIPTION ${sub} DISABLE`).catch(() => {});
+            await this.pool
+              .query(`ALTER SUBSCRIPTION ${sub} DISABLE`)
+              .catch(() => {});
             await this.pool
               .query(`ALTER SUBSCRIPTION ${sub} SET (slot_name = NONE)`)
               .catch(() => {});
@@ -116,7 +118,9 @@ export class Cluster {
       await this.adminPool
         .query(`DROP OWNED BY ${quoted} CASCADE`)
         .catch(() => {});
-      await this.adminPool.query(`DROP ROLE IF EXISTS ${quoted}`).catch(() => {});
+      await this.adminPool
+        .query(`DROP ROLE IF EXISTS ${quoted}`)
+        .catch(() => {});
     }
   }
 }
@@ -130,10 +134,14 @@ async function startCluster(): Promise<Cluster> {
     })
     .withCommand([
       "postgres",
-      "-c", "fsync=off",
-      "-c", "full_page_writes=off",
-      "-c", "max_connections=300",
-      "-c", "wal_level=logical",
+      "-c",
+      "fsync=off",
+      "-c",
+      "full_page_writes=off",
+      "-c",
+      "max_connections=300",
+      "-c",
+      "wal_level=logical",
     ])
     .withExposedPorts(5432)
     .withWaitStrategy(
@@ -142,7 +150,10 @@ async function startCluster(): Promise<Cluster> {
     .start();
   const uriFor = (db: string) =>
     `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
-  const adminPool = new pg.Pool({ connectionString: uriFor("postgres"), max: 3 });
+  const adminPool = new pg.Pool({
+    connectionString: uriFor("postgres"),
+    max: 3,
+  });
   adminPool.on("error", () => {});
   return new Cluster(container, adminPool, uriFor);
 }

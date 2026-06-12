@@ -263,7 +263,7 @@ All tests use `diffCatalogs` with `expect.objectContaining` assertions on the ch
 | enum modification with complex function dependencies | merged-into `corpus/mixed-objects--enum-add-value-with-functions/` |
 | enum modification with view dependencies | merged-into `corpus/mixed-objects--enum-replace-with-dependents/` — view dependents covered |
 | enum value removal with function dependencies | merged-into `corpus/mixed-objects--enum-replace-with-dependents/` |
-| enum value removal with table and view dependencies | ported → `corpus/mixed-objects--enum-replace-with-dependents/` |
+| enum value removal with table and view dependencies | ported → `corpus/mixed-objects--enum-replace-with-dependents/` — forward direction green (rename-aside value-set migration); `:reverse` pinned in `tests/expected-red.ts` (ADD VALUE + same-transaction usage needs execution-context segmentation, §3.7) |
 | enum value removal with complex function dependencies | merged-into `corpus/mixed-objects--enum-replace-with-dependents/` |
 | enum modification with check constraints | not-ported — `test.todo` (skipped in source); requires multi-transaction DDL outside corpus scope |
 

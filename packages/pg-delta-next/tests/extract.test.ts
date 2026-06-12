@@ -82,7 +82,10 @@ describe("extract: fixture ring", () => {
       table: "users",
       name: "id",
     });
-    expect(id?.payload).toMatchObject({ type: "integer", identity: "a" });
+    expect(id?.payload).toMatchObject({
+      type: "integer",
+      identity: { generation: "a" },
+    });
     const score = fb().get({
       kind: "column",
       schema: "app",

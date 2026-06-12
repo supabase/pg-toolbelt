@@ -20,24 +20,50 @@ export interface Scenario {
 
 const CORPUS_DIR = new URL("../corpus", import.meta.url).pathname;
 
+/** Narrow the corpus while iterating:
+ *  - PGDELTA_NEXT_ONLY: comma-separated scenario-name substrings
+ *  - PGDELTA_NEXT_SHARD: "i/n" (0-based) — deterministic slice for parallel runs
+ *  Both are dev/CI conveniences; an unset env runs everything. */
+function selectScenarios(names: string[]): string[] {
+  const only = process.env["PGDELTA_NEXT_ONLY"];
+  let selected = names;
+  if (only) {
+    const patterns = only
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    selected = selected.filter((n) => patterns.some((p) => n.includes(p)));
+  }
+  const shard = process.env["PGDELTA_NEXT_SHARD"];
+  if (shard) {
+    const match = /^(\d+)\/(\d+)$/.exec(shard);
+    if (!match)
+      throw new Error(`PGDELTA_NEXT_SHARD must be "i/n", got "${shard}"`);
+    const [index, total] = [Number(match[1]), Number(match[2])];
+    if (index >= total)
+      throw new Error(`shard index ${index} out of range for total ${total}`);
+    selected = selected.filter((_, i) => i % total === index);
+  }
+  return selected;
+}
+
 export function loadCorpus(): Scenario[] {
-  return readdirSync(CORPUS_DIR, { withFileTypes: true })
+  const names = readdirSync(CORPUS_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const dir = join(CORPUS_DIR, entry.name);
-      const seedPath = join(dir, "seed.sql");
-      const metaPath = join(dir, "meta.json");
-      return {
-        name: entry.name,
-        a: readFileSync(join(dir, "a.sql"), "utf8"),
-        b: readFileSync(join(dir, "b.sql"), "utf8"),
-        ...(existsSync(seedPath)
-          ? { seed: readFileSync(seedPath, "utf8") }
-          : {}),
-        meta: existsSync(metaPath)
-          ? (JSON.parse(readFileSync(metaPath, "utf8")) as ScenarioMeta)
-          : {},
-      };
-    })
-    .sort((x, y) => (x.name < y.name ? -1 : 1));
+    .map((entry) => entry.name)
+    .sort();
+  return selectScenarios(names).map((name) => {
+    const dir = join(CORPUS_DIR, name);
+    const seedPath = join(dir, "seed.sql");
+    const metaPath = join(dir, "meta.json");
+    return {
+      name,
+      a: readFileSync(join(dir, "a.sql"), "utf8"),
+      b: readFileSync(join(dir, "b.sql"), "utf8"),
+      ...(existsSync(seedPath) ? { seed: readFileSync(seedPath, "utf8") } : {}),
+      meta: existsSync(metaPath)
+        ? (JSON.parse(readFileSync(metaPath, "utf8")) as ScenarioMeta)
+        : {},
+    };
+  });
 }

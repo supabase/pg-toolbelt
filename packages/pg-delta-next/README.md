@@ -48,8 +48,15 @@ dummy_seclabel, stage-9 renames/export).
 
 Not yet covered: compaction (plans are decomposed/verbose by design),
 renames (stage 9), the policy layer + provenance edges (stage 8),
-`ALTER TYPE ADD VALUE` same-transaction usage segmentation, security
+`ALTER TYPE ADD VALUE` same-transaction usage segmentation (one corpus
+direction is pinned in `tests/expected-red.ts` for this), security
 labels (needs dummy_seclabel image).
+
+Enum value removal/reorder IS covered: the `values` rule renames the old
+type aside, creates the desired value set, walks every dependent column
+through a `::text` cast, and drops the renamed type — while
+`rebuildsDependents` forces views/defaults/routines that reference the
+type through a drop + recreate around the migration.
 
 Known v1 simplifications (each has a stage-doc home):
 
@@ -59,9 +66,10 @@ Known v1 simplifications (each has a stage-doc home):
   the kinds that need it — `CREATE INDEX CONCURRENTLY` etc.)
 - capture is serial on one snapshot connection (parallel
   `pg_export_snapshot()` workers are a measured optimization)
-- a surviving dependent of a dropped fact fails the plan loudly instead of
-  triggering teardown/rebuild (needs delta-set rules for dependent
-  rebuild chains)
+- a surviving dependent of a destroyed fact is force-rebuilt when its kind
+  is rebuildable (view, matview, index, policy, trigger, rule, constraint,
+  default, routine); a non-rebuildable survivor whose dependency stays
+  gone fails the plan loudly
 
 ## Running
 
