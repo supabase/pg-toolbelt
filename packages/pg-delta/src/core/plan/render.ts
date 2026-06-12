@@ -137,6 +137,12 @@ function renderStatements(statements: string[]): string {
   return `${statements.map(trimTerminator).join(STATEMENT_DELIMITER)};`;
 }
 
+/**
+ * Strip trailing semicolons so every rendered statement ends with exactly
+ * one. pg-delta's own serializers emit no terminator, but plan JSON is a
+ * persisted artifact — legacy v1 files, hand-built units, or user-edited
+ * plans may already carry one, and joining those blindly would render ";;".
+ */
 function trimTerminator(statement: string): string {
   const trimmed = statement.trim();
   let end = trimmed.length;

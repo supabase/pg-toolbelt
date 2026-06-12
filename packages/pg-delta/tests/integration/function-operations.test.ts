@@ -4,7 +4,6 @@
 
 import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
-import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -24,35 +23,30 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // non-transactional and lost plan atomicity. Trait-based
         // classification never inspects rendered SQL, so the whole plan must
         // stay one transactional unit and apply cleanly.
-        const testSql = dedent`
-          CREATE TABLE public.users (
-            id integer PRIMARY KEY,
-            email text
-          );
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          testSql: dedent`
+            CREATE TABLE public.users (
+              id integer PRIMARY KEY,
+              email text
+            );
 
-          CREATE FUNCTION public.rebuild_users_index() RETURNS void
-          LANGUAGE plpgsql
-          AS $function$
-          BEGIN
-            EXECUTE 'CREATE INDEX CONCURRENTLY users_email_idx ON public.users (email)';
-            EXECUTE 'VACUUM FULL public.users; ALTER SYSTEM SET work_mem = ''64MB''';
-          END;
-          $function$;
-        `;
-        await db.branch.query(testSql);
-
-        const result = await createPlan(db.main, db.branch);
-        expect(result).not.toBeNull();
-        if (!result) throw new Error("expected result");
-
-        expect(result.plan.units).toHaveLength(1);
-        expect(result.plan.units[0].transactionMode).toBe("transactional");
-        expect(result.plan.units[0].reason).toBe("default");
-
-        const applied = await applyPlan(result.plan, db.main, db.branch);
-        expect(applied.status).toBe("applied");
-        const after = await createPlan(db.main, db.branch);
-        expect(after).toBeNull();
+            CREATE FUNCTION public.rebuild_users_index() RETURNS void
+            LANGUAGE plpgsql
+            AS $function$
+            BEGIN
+              EXECUTE 'CREATE INDEX CONCURRENTLY users_email_idx ON public.users (email)';
+              EXECUTE 'VACUUM FULL public.users; ALTER SYSTEM SET work_mem = ''64MB''';
+            END;
+            $function$;
+          `,
+          assertPlan: (plan) => {
+            expect(plan.units).toHaveLength(1);
+            expect(plan.units[0].transactionMode).toBe("transactional");
+            expect(plan.units[0].reason).toBe("default");
+          },
+        });
       }),
     );
 

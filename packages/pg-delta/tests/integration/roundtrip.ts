@@ -35,6 +35,7 @@ import {
 } from "../constants.ts";
 import { containerManager } from "../container-manager.js";
 import { flattenPlanStatements } from "../../src/core/plan/render.ts";
+import type { Plan } from "../../src/core/plan/types.ts";
 
 const debugTest = debug("pg-delta:test");
 const debugDependencies = debug("pg-delta:dependencies");
@@ -61,6 +62,8 @@ interface RoundtripTestOptions {
   expectedSqlTerms?: string[] | "same-as-test-sql";
   /** Optional custom assertion for generated SQL statements (e.g. inline snapshots). */
   assertSqlStatements?: (sqlStatements: string[]) => void;
+  /** Optional assertion on the generated plan (e.g. migration unit shape). */
+  assertPlan?: (plan: Plan) => void;
   /** Dependencies that must be present in the main catalog after the roundtrip. */
   expectedMainDependencies?: PgDepend[];
   /** Dependencies that must be present in the branch catalog. */
@@ -213,6 +216,10 @@ export async function roundtripFidelityTest(
 
   if (assertSqlStatements) {
     assertSqlStatements(sqlStatements);
+  }
+
+  if (options.assertPlan) {
+    options.assertPlan(plan);
   }
 
   debugTest("migrationScript: %s", migrationScript);
