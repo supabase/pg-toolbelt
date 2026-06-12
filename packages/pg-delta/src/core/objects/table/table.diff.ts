@@ -790,12 +790,30 @@ export function diffTables(
       const columnCollationChanged = mainCol.collation !== branchCol.collation;
       const needsDefaultSafeFlow =
         columnTypeChanged && mainCol.default !== null;
+      const shouldRebuildGeneratedColumnForTypeChange =
+        (columnTypeChanged || columnCollationChanged) &&
+        branchCol.is_generated &&
+        (ctx.version < 170000 ||
+          mainCol.is_generated !== branchCol.is_generated);
 
       // TYPE or COLLATION change
       if (columnTypeChanged || columnCollationChanged) {
         // Skip if parent has the same type/collation change
         if (!parentHasSameColumnPropertyChange(name, "type")) {
-          if (needsDefaultSafeFlow) {
+          if (shouldRebuildGeneratedColumnForTypeChange) {
+            changes.push(
+              new AlterTableDropColumn({
+                table: mainTable,
+                column: mainCol,
+              }),
+            );
+            changes.push(
+              new AlterTableAddColumn({
+                table: branchTable,
+                column: branchCol,
+              }),
+            );
+          } else if (needsDefaultSafeFlow) {
             changes.push(
               new AlterTableAlterColumnDropDefault({
                 table: branchTable,
@@ -803,20 +821,22 @@ export function diffTables(
               }),
             );
           }
-          changes.push(
-            new AlterTableAlterColumnType({
-              table: branchTable,
-              column: branchCol,
-              previousColumn: mainCol,
-            }),
-          );
-          if (needsDefaultSafeFlow && branchCol.default !== null) {
+          if (!shouldRebuildGeneratedColumnForTypeChange) {
             changes.push(
-              new AlterTableAlterColumnSetDefault({
+              new AlterTableAlterColumnType({
                 table: branchTable,
                 column: branchCol,
+                previousColumn: mainCol,
               }),
             );
+            if (needsDefaultSafeFlow && branchCol.default !== null) {
+              changes.push(
+                new AlterTableAlterColumnSetDefault({
+                  table: branchTable,
+                  column: branchCol,
+                }),
+              );
+            }
           }
         }
       }
@@ -838,6 +858,10 @@ export function diffTables(
       if (mainCol.default !== branchCol.default) {
         // Skip if parent has the same default change
         if (!parentHasSameColumnPropertyChange(name, "default")) {
+          if (shouldRebuildGeneratedColumnForTypeChange) {
+            // Rebuilt generated columns carry the branch expression in ADD COLUMN.
+            continue;
+          }
           if (needsDefaultSafeFlow) {
             // Defaults were already dropped/re-set in the type-change flow above.
             continue;

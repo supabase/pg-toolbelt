@@ -189,6 +189,32 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "remove table from publication without rebuilding surviving dependents",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.accounts (id integer PRIMARY KEY);
+          CREATE VIEW pub_test.account_ids AS SELECT id FROM pub_test.accounts;
+          CREATE PUBLICATION pub_drop_member FOR TABLE pub_test.accounts;
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_drop_member DROP TABLE pub_test.accounts;
+        `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "ALTER PUBLICATION pub_drop_member DROP TABLE pub_test.accounts",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
       "alter publication schema list",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

@@ -1055,6 +1055,66 @@ describe.concurrent("table.diff", () => {
     ]);
   });
 
+  test("postgres before 17 rebuilds generated columns when their type changes", () => {
+    const generatedTextColumn = {
+      name: "status_label",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const generatedVarcharColumn = {
+      ...generatedTextColumn,
+      data_type: "character varying",
+      data_type_str: "character varying(64)",
+    };
+    const mainTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedTextColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedVarcharColumn],
+    });
+
+    const changes = diffTables(
+      testContext,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.map((change) => change.serialize())).toEqual([
+      "ALTER TABLE public.t_generated_type DROP COLUMN status_label",
+      "ALTER TABLE public.t_generated_type ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED",
+    ]);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(false);
+    expect(
+      changes.some((change) => change instanceof AlterTableAlterColumnType),
+    ).toBe(false);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(false);
+  });
+
   test("identity transitions emit drop/add/set-generated changes", () => {
     const serialColumn = {
       name: "id",

@@ -580,6 +580,41 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion >= 17)(
+      "alter generated column type before postgres 17 rebuilds the column",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_own_type (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED
+          );
+
+          INSERT INTO test_schema.generated_own_type (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_own_type DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_own_type ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
     test(
       "alter referenced column type restores generated column dependents",
       withDbIsolated(pgVersion, async (db) => {

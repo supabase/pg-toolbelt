@@ -361,6 +361,127 @@ describe("expandReplaceDependencies", () => {
     expect(result.replacedTableIds.size).toBe(0);
   });
 
+  test("does not treat publication table membership removal as a table replacement root", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const accountsTable = makeTable("accounts", [
+      {
+        name: "id",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: true,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+    ]);
+    const accountsView = new View({
+      schema: "public",
+      name: "account_ids",
+      owner: "postgres",
+      definition: " SELECT id FROM public.accounts;",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      partition_bound: null,
+      comment: null,
+      columns: [
+        {
+          name: "id",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      options: null,
+      privileges: [],
+      security_labels: [],
+    });
+    const mainPublication = makePublication({
+      name: "pub_accounts",
+      tables: [
+        {
+          schema: "public",
+          name: "accounts",
+          columns: null,
+          row_filter: null,
+        },
+      ],
+    });
+    const branchPublication = makePublication({
+      name: "pub_accounts",
+      tables: [],
+    });
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [accountsTable.stableId]: accountsTable },
+      views: { [accountsView.stableId]: accountsView },
+      publications: { [mainPublication.stableId]: mainPublication },
+      depends: [
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: accountsTable.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: accountsView.stableId,
+          referenced_stable_id: accountsTable.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [accountsTable.stableId]: accountsTable },
+      views: { [accountsView.stableId]: accountsView },
+      publications: { [branchPublication.stableId]: branchPublication },
+    });
+    const changes: Change[] = [
+      new AlterPublicationDropTables({
+        publication: mainPublication,
+        tables: mainPublication.tables,
+      }),
+    ];
+
+    const result = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(result.changes).toBe(changes);
+    expect(
+      result.changes.some(
+        (change) => change instanceof DropView || change instanceof CreateView,
+      ),
+    ).toBe(false);
+    expect(result.replacedTableIds.size).toBe(0);
+  });
+
   test("promotes surviving dependent view when its referenced table is dropped without a same-name create", async () => {
     // Reproduces issue #228 case 3: ALTER TABLE users RENAME TO members.
     // pg-delta sees `users` as drop-only and `members` as create-only — the

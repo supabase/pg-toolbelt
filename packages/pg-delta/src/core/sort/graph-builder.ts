@@ -1,5 +1,7 @@
 import type { Change } from "../change.types.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
+import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
+import { stableId } from "../objects/utils.ts";
 import type {
   Constraint,
   Edge,
@@ -164,6 +166,11 @@ export function buildGraphData(
       if (options.invert) {
         for (const droppedId of changeItem.drops ?? []) {
           createdIds.add(droppedId);
+        }
+        if (changeItem instanceof AlterPublicationDropTables) {
+          for (const table of changeItem.tables) {
+            createdIds.add(stableId.table(table.schema, table.name));
+          }
         }
       }
       return createdIds;

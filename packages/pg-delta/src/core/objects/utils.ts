@@ -95,6 +95,9 @@ export const stableId = {
   membership(role: string, member: string) {
     return `membership:${role}->${member}` as const;
   },
+  publicationTable(publication: string, schema: string, table: string) {
+    return `publicationTable:${publication}:${schema}.${table}` as const;
+  },
   foreignDataWrapper(name: string) {
     return `foreignDataWrapper:${name}` as const;
   },
