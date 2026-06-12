@@ -397,6 +397,33 @@ execution stays rejected — `ACCESS EXCLUSIVE` locks make it a deadlock
 machine, and the transaction is the atomicity contract. Per-statement error
 attribution replaces the joined-string megaquery.
 
+### 3.9 Integrations: a policy layer over deltas
+
+Vendor-specific behavior (the Supabase integration today) is policy, not
+engine: it decides *which* deltas a user sees and *how* actions render —
+never how state is captured, diffed, or ordered. The policy layer has three
+instruments, all data:
+
+- **Filtering = predicates over deltas and facts.** A filter rule matches
+  delta fields (kind, verb, identity) and fact context — including the
+  provenance edges of §3.1. "Hide everything owned by extension X" or
+  "never touch schema `auth`" become provenance/identity predicates instead
+  of extraction-time suppression: the engine sees everything; policy decides
+  visibility. The user-facing DSL contract (declarative patterns,
+  first-match-wins rules) carries over, re-targeted at deltas.
+- **Serialization options = rule parameterization.** Options like
+  `skipAuthorization` stop being per-change-class plumbing and become named
+  parameters that a serialize rule passes into the rule table's templates.
+- **Baselines = fact-base subtraction.** An "empty catalog" for a managed
+  platform (what a fresh Supabase project already contains) is just a fact
+  base; "diff against the platform baseline" is set subtraction before
+  planning, replacing hand-maintained empty-catalog special cases.
+
+A vendor integration is therefore a data package: predicates + rule
+parameters + a baseline snapshot. It is versioned, authored without touching
+engine code, and tested with the same proof harness (policy scenarios in the
+corpus, §4.3).
+
 ---
 
 ## 4. Capabilities the design unlocks
@@ -518,7 +545,7 @@ over nearly verbatim:
   supplied by the rule table.
 - **The serialize/filter DSL surface** for integrations (Supabase rules) —
   re-targeted at deltas/actions instead of change classes, same user-facing
-  contract, strengthened by provenance facts (§3.1).
+  contract, strengthened by provenance facts; specified in §3.9.
 
 ## 6. What is retired
 
@@ -632,7 +659,51 @@ opportunistic; 5–8 are the structural inversion under proof protection —
 emission first (5–6), then state (7), then knowledge (8); 9–10 are the
 product payoff. Phases 1, 2, 4 can start immediately and in parallel.
 
-## 10. Decision log
+## 10. Guardrails for implementers
+
+This document will be executed phase by phase, likely by different people
+and different agents, each holding only part of the context. The invariants
+below are absolute. When one seems to block progress, the correct move is to
+amend this document (with a decision-log entry) — never to make a local
+exception:
+
+1. **The stable-ID wire format is frozen.** The canonical string form is
+   persisted in plan fingerprints and synthesized inside extraction SQL. Any
+   change to it is a breaking product decision, not a refactor.
+2. **No static SQL parsing in the trusted path** — extraction, diffing,
+   planning, proof, apply. If a feature seems to need a parser, it belongs
+   in the dev-experience layer (§4.4) or the design is wrong (P1).
+3. **No imperative escape hatches in the rule table.** If a kind cannot be
+   expressed, extend the rule vocabulary with a structured sub-rule form and
+   record it in the decision log. One escape hatch is how eight forms of
+   knowledge happen again (P2).
+4. **A cycle is always a rule or emission bug.** Fix the rule or decompose
+   the emission. Adding a cycle breaker — any runtime repair of the graph —
+   is forbidden (§3.5–3.6).
+5. **No emission-changing work before `provePlan` exists** (phase 3 lands
+   before phases 5–8 start). The proof loop is the safety net; building the
+   trapeze act first is not faster.
+6. **Never assert SQL bytes in new tests.** Assert state (proof), data
+   survival (proof), or action kinds/budgets (semantic plan assertions,
+   §4.3). Byte assertions re-couple tests to emission shape.
+7. **Gates are non-negotiable.** Refactor phases ship byte-identical SQL;
+   emission-changing phases ship state-proof equality plus human review of
+   the new shape (§7, §9). Every behavior change carries a changeset and a
+   RED→GREEN regression per repository policy.
+8. **Granularity is one.** State, dependencies, deltas, and actions all live
+   at fact grain. Any new structure that nests sub-entities back into
+   documents — or any map that translates between grains — is §8.7
+   returning.
+9. **The proof loop is the arbiter.** A change that passes state +
+   data-preservation proof over the corpus and the generative engine is
+   presumed correct; a change that cannot be proven that way is presumed
+   wrong, however plausible it looks.
+
+This document wins conflicts. If implementation contact shows an invariant
+is genuinely wrong, amend the document first — decision-log entry, then
+code.
+
+## 11. Decision log
 
 - **2026-06-12 (a)** — This document supersedes the earlier
   incremental-roadmap framing of itself. The maintainer's direction: define
@@ -661,6 +732,11 @@ product payoff. Phases 1, 2, 4 can start immediately and in parallel.
   schema-state proof; convergent-but-non-minimal plans are covered by
   semantic plan assertions. The old engine serves as a differential oracle
   until retired.
+- **2026-06-12 (d)** — Pre-handoff review: added the integration policy
+  layer specification (§3.9) and the implementer guardrails (§10), in
+  preparation for implementation planning being delegated phase by phase.
+  The document is considered ready; further refinement happens through
+  implementation contact and decision-log amendments.
 - Open questions intentionally left to their phases: compaction's default
   aggressiveness (phase 5), rename-policy default (phase 10), how
   aggressively to prune the ported corpus once generative coverage matures
