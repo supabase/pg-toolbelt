@@ -11,9 +11,11 @@ it got here: the current design is the strongest in its class (it is the only
 tool in the migra/pg-schema-diff family that treats `pg_depend` as the source
 of ordering truth), and its accumulated PostgreSQL knowledge is the asset the
 north star is built from. But the north star is derived from the problem, not
-from the codebase — §9 then re-derives an incremental path from today's code
-toward it. When a local decision conflicts with this document, this document
-wins or this document gets amended.
+from the codebase — and it is a **clean-room library**: the old engine
+donates assets (§5) and serves as a differential oracle (§9), and nothing
+else. No format, API, or mechanism carries over for compatibility's sake.
+§9 defines the build-and-cutover plan. When a local decision conflicts with
+this document, this document wins or this document gets amended.
 
 ---
 
@@ -156,10 +158,20 @@ interface FactBase {
 
 Five properties define it:
 
-- **Typed identity.** Stable IDs are a parsed discriminated union
-  (`{kind: "procedure", schema, name, args}` …) with a frozen canonical
-  string form for persistence and graph keys. Structure is accessed by
-  field, never recovered by regex.
+- **Typed identity, structured end-to-end.** IDs are a discriminated union
+  (`{kind: "procedure", schema, name, args}` …) everywhere — including at
+  the SQL boundary: extraction queries return identity *parts* (kind,
+  schema, name, args, parent) as structured columns and never synthesize
+  identity strings, so the encoding exists in exactly **one codec**, on the
+  library side. (The current system maintains the format twice — TS helpers
+  plus `format()` literals inside the dependency mega-query — a divergence
+  risk the structured boundary removes outright.) A canonical string
+  encoding — one escaping rule, one version tag — is derived from the
+  structure and appears only where persistence demands it: snapshots, plan
+  artifacts, fingerprints. In memory, graph keys are interned. Structure is
+  accessed by field, never recovered by regex. **No format is frozen**:
+  persisted artifacts carry a format version, making compatibility a
+  versioning concern instead of a design constraint.
 - **One granularity everywhere.** Facts, dependency edges, diff deltas, and
   actions all live at the same grain. A `pg_depend` edge that points at a
   column points at a fact that *exists*; nothing maps between coarse state
@@ -478,8 +490,10 @@ instruments, all data:
   provenance edges of §3.1. "Hide everything owned by extension X" or
   "never touch schema `auth`" become provenance/identity predicates instead
   of extraction-time suppression: the engine sees everything; policy decides
-  visibility. The user-facing DSL contract (declarative patterns,
-  first-match-wins rules) carries over, re-targeted at deltas.
+  visibility. The DSL is designed fresh for the fact model — typed
+  predicates over fact kinds, identities, provenance edges, and delta
+  verbs. What carries over from the current DSL is its proven *evaluation
+  model* (declarative rules, first-match-wins), not its pattern syntax.
 - **Serialization options = rule parameterization.** Options like
   `skipAuthorization` stop being per-change-class plumbing and become named
   parameters that a serialize rule passes into the rule table's templates.
@@ -562,7 +576,7 @@ The test architecture is P2 applied to testing itself: **one proof harness
   action, not a replace"; "≤ N actions"), never SQL bytes. Byte snapshots
   die with the old engine: they assert emission shape, which decomposition
   (§3.5) intentionally changes and the compactor may change again.
-- **Differential testing during migration.** Until retired, the old engine
+- **Differential testing until cutover.** Until retired, the old engine
   is itself an oracle: run both engines over the corpus and assert
   state-equivalent plans. Every divergence is a bug in one of them — and
   either finding is valuable.
@@ -612,12 +626,17 @@ static-analysis engine, §3.2); only explicitly dev-facing commands (lint,
 file-ordering help) touch it, and those degrade with a clear install hint
 rather than failing obscurely.
 
+The new library ships as a new major (or a new package name — a product
+decision, not an architectural one). The existing library enters
+maintenance and is retired at the cutover bar (§9).
+
 ---
 
-## 5. What survives from today
+## 5. Imported assets: what the new library takes from the old
 
-The north star is a re-plumbing, not a rewrite of the knowledge. Carried
-over nearly verbatim:
+This is a clean-room build, but not amnesia. The old system's *knowledge*
+is imported as data and SQL; none of its *mechanisms* — and none of its
+*formats* — constrain the new design:
 
 - **The extractor SQL corpus** (`<type>.model.ts` queries) — years of
   accumulated `pg_catalog` knowledge across PG versions; the single most
@@ -634,16 +653,20 @@ over nearly verbatim:
 - **The normalization knowledge** in `stableSnapshot()` overrides (physical
   attnums vs logical names, canonical `pg_get_*def()` comparison forms) —
   it becomes the fact payload normalization, i.e. the content-hash surface.
-- **Stable identity** as a concept — upgraded to typed values with a frozen
-  string form, extended to every fact kind.
-- **The plan + fingerprint product contract** — plans as reviewable,
-  version-controllable artifacts with drift detection; fingerprints become
-  rollup hashes.
+- **Stable identity** as a concept — redesigned, not carried: structured
+  end-to-end, with a version-tagged canonical encoding used only in
+  persisted artifacts (§3.1). Nothing about today's string format is
+  retained.
+- **The plan + fingerprint product contract** — the *concept* is kept
+  (plans as reviewable, version-controllable artifacts with drift
+  detection); the format is new: ordered deltas plus rollup-hash
+  fingerprints, version-tagged from v1.
 - **Safety/risk classification** — generalized into per-action metadata
   supplied by the rule table.
-- **The serialize/filter DSL surface** for integrations (Supabase rules) —
-  re-targeted at deltas/actions instead of change classes, same user-facing
-  contract, strengthened by provenance facts; specified in §3.9.
+- **Policy-as-data for integrations** — the filter/serialize DSL's proven
+  ideas (declarative rules, first-match-wins evaluation) are kept; the
+  surface itself is redesigned for facts and deltas with no compatibility
+  with the old pattern syntax; specified in §3.9.
 
 ## 6. What is retired
 
@@ -695,12 +718,13 @@ over nearly verbatim:
   apply — before production, not in it; and the dev layer (§4.4) can lint
   bodies for ordering hints. What is explicitly not done: re-parsing
   bodies in the trusted path to synthesize edges (P1).
-- **Output changes during migration.** Decomposition-by-default changes
-  emitted SQL relative to today. The oracle therefore shifts: refactor
-  phases keep byte-identical output; emission-changing phases are gated on
-  **state-proof equality** (apply both old and new plans to clones —
-  identical resulting fact bases) plus human review of the new shape. Byte
-  drift stops being the invariant; *state* drift becomes the invariant.
+- **Consumers migrate once.** A clean-room library means a new major: new
+  API, new plan/snapshot formats (version-tagged), new SQL output shape.
+  There is no in-place compatibility layer — that is the point. The cost
+  is bounded by the cutover bar (§9): the old library keeps working, in
+  maintenance, until the new one has proven itself against the corpus, the
+  differential oracle, and the generative soak. **State equivalence —
+  never byte equivalence — is the invariant throughout.**
 
 ## 8. Why the current design cannot simply be tuned into this
 
@@ -743,43 +767,49 @@ removes:
    base removes the translation by removing the disagreement: one
    granularity for state, dependencies, deltas, and actions. §3.1, §3.3.
 
-## 9. The path from here
+## 9. The path: build clean, prove against old, cut over
 
-Each phase is independently shippable, independently valuable, and strictly
-reduces distance to the north star. Standing gates: refactor phases =
-byte-identical SQL (existing tests as oracle); emission-changing phases =
-state-proof equality (§7); every behavior change carries a changeset and a
-RED→GREEN regression test per repository policy.
+The new library is built **clean-room beside the old one**. No engine code
+is shared. The old engine has exactly two roles: *asset donor* (extractor
+SQL, normalization knowledge, scenario corpus, safety tables — §5) and
+*differential oracle* (it runs unmodified next to the new engine until
+cutover). There are no byte-compatibility gates anywhere — every stage
+ships behind proof-based gates only. Repository discipline (changesets,
+RED→GREEN regressions) applies as usual.
 
-| # | Phase | North-star component it builds | Notes |
+| # | Stage | Builds | Gate |
 |---|---|---|---|
-| 1 | Single-snapshot parallel extraction; memoized content hashes on models; hash-based `equals`; post-apply verify becomes explicit proof opt-in | Fact base capture & hashing §3.1–3.2 | Fixes the consistency bug on day one; hashes later power fingerprints, renames, proof |
-| 2 | Typed `StableId` (frozen canonical string form, parse/format round-trip tested); kill regex re-parsing | Fact identity §3.1 | Wire format byte-frozen — persisted in plan fingerprints |
-| 3 | `provePlan(plan, source)` as a first-class API: template-cloned scratch, apply, extract, hash-compare — plus the data-preservation check (seeded rows). Port the integration scenarios into the seed corpus behind one harness; replace load-bearing SQL snapshots with semantic plan assertions; stand up old-vs-new differential runs; begin generative roundtrip tests | Proof loop §3.7, test architecture §4.3 | **Do this before touching emission** — it is the safety net for phases 5–8 |
-| 4 | Sort hygiene while the old sort still exists: depend-row pre-filtering to the change set, single graph build per phase, heap queue | Interim perf | Pure wins now; code is absorbed by phase 6 |
-| 5 | Decomposition-by-default emission + the compaction pass; delete cycle breakers by attrition as their cycle classes become unconstructible | §3.5–3.6 | First emission-changing phase; gated on state-proof + review |
-| 6 | One mixed graph (old-state edges + new-state edges + identity conflicts) replaces two-phase + `invalidates` + repair loop | §3.6 | A surviving cycle after 5+6 is a rule/emission bug — fix the rule, never add a breaker |
-| 7 | Fact-model normalization: flatten sub-entities (columns, constraints, defaults, ACL entries, comments, labels) into facts with parent relations and Merkle rollups, kind by kind; document views become render-time joins; rollup hashes preserve whole-object equality during transition | Fact base §3.1, generic diff §3.3 | Internal refactor — byte-identical SQL gate; enables phase 8 |
-| 8 | Rule table: migrate kinds from per-type diff+classes to delta rules consumed by the generic engine — global metadata rules (comment/ACL/label) first, cookie-cutter kinds next, table/view/procedure as structured conditional + delta-set rules last; delete the per-type dispatch switches and the change-class union | §3.3–3.4 / P2 | Largest phase; per-kind PRs; proof loop is the oracle |
-| 9 | Shadow-DB frontend for SQL files through the one plan path; round-apply demoted to fallback, then removed; pg-topo repositioned as dev-experience layer; WASM leaves the core install | §3.2, §4.4 | The declarative workflow's correctness becomes the diff engine's correctness |
-| 10 | Rename detection (object- and fact-level hash-equal candidates, policy-gated); layered public API finalized (fact base / diff / plan / proof / apply); packaging falls out | §4.1, §4.5 | The visible product payoff |
+| 1 | Identity codec + fact-base core: typed IDs, identity-free payload hashing, Merkle rollups (facts + edges), snapshot format v1 (version-tagged) | §3.1 | Property tests: codec round-trip, rollup algebra, hash stability |
+| 2 | Extractor port: re-key the extractor SQL corpus to return structured identity parts and fact rows + edges; snapshot-consistent parallel capture | §3.1–3.2 | Extractor fixture ring per PG version; pg_dump observer; content cross-check against old-engine catalogs |
+| 3 | Proof harness + corpus: `provePlan` (state + data-preservation checks, both materialization forms); port the integration scenarios as the seed corpus; stand up the differential runner against the old engine | §3.7, §4.3 | Harness proves extract → materialize → re-extract fidelity over the corpus |
+| 4 | Generic diff: rollup-guided descent emitting fact and edge deltas | §3.3 | Fixture diffs; `diff(A, A) = ∅` generatively |
+| 5 | The planner: rule table, atomic actions, one-graph sort, compaction | §3.4–3.6 | Corpus green under proof; differential vs old engine (state-equivalent plans, divergences triaged); generative soak; zero cycles |
+| 6 | Execution + plan artifact v1: ordered deltas, rollup-hash fingerprints, safety report (proven / observed / vetted tiers) | §3.7–3.8 | End-to-end proof on the corpus, including segmented non-transactional actions |
+| 7 | Frontends: shadow-DB SQL loader (fail-safe ordering, body validation, cluster isolation, DML rejection); snapshot frontend | §3.2 | Declarative scenarios in the corpus; loader rejection tests |
+| 8 | Policy layer: DSL v2 over facts/deltas; Supabase integration as a data package with platform baseline | §3.9 | Policy scenarios; baseline-subtraction proof against a real platform image |
+| 9 | Renames (leaf + structural-rollup matching, policy-gated); public API and CLI finalized | §4.1, §4.5 | Rename corpus; API review |
+| 10 | **Cutover at the parity bar**: full corpus green; differential clean-or-explained; generative soak quota met; extractor ring green on all supported PG versions. Old library enters maintenance; consumer migration guide ships | — | The parity bar itself |
 
-Ordering rationale: 1–3 build the measurement and safety instruments; 4 is
-opportunistic; 5–8 are the structural inversion under proof protection —
-emission first (5–6), then state (7), then knowledge (8); 9–10 are the
-product payoff. Phases 1, 2, 4 can start immediately and in parallel.
+Stages 1–4 are bottom-up construction with no user-visible surface; 5–6 are
+the engine; 7–9 are the product; 10 is the switch. The old engine is never
+modified beyond what the differential runner needs. Consumers migrate once,
+at cutover, to a new major — there is no in-place compatibility layer.
 
 ## 10. Guardrails for implementers
 
-This document will be executed phase by phase, likely by different people
+This document will be executed stage by stage, likely by different people
 and different agents, each holding only part of the context. The invariants
 below are absolute. When one seems to block progress, the correct move is to
 amend this document (with a decision-log entry) — never to make a local
 exception:
 
-1. **The stable-ID wire format is frozen.** The canonical string form is
-   persisted in plan fingerprints and synthesized inside extraction SQL. Any
-   change to it is a breaking product decision, not a refactor.
+1. **Identity has exactly one codec.** Extraction SQL returns structured
+   identity parts — it never synthesizes identity strings; only the
+   library-side codec produces the canonical encoding, and every persisted
+   artifact (snapshot, plan, fingerprint) carries a format version.
+   Hand-building an identity string anywhere, TS or SQL, reintroduces the
+   §8.7 disease. Formats are never frozen — they are versioned; freezing
+   was the old library's constraint, not this one's.
 2. **No static SQL parsing in the trusted path** — extraction, diffing,
    planning, proof, apply. If a feature seems to need a parser, it belongs
    in the dev-experience layer (§4.4) or the design is wrong (P1).
@@ -790,16 +820,16 @@ exception:
 4. **A cycle is always a rule or emission bug.** Fix the rule or decompose
    the emission. Adding a cycle breaker — any runtime repair of the graph —
    is forbidden (§3.5–3.6).
-5. **No emission-changing work before `provePlan` exists** (phase 3 lands
-   before phases 5–8 start). The proof loop is the safety net; building the
+5. **No planner work before the proof harness exists** (stage 3 lands
+   before stage 5 starts). The proof loop is the safety net; building the
    trapeze act first is not faster.
 6. **Never assert SQL bytes in new tests.** Assert state (proof), data
    survival (proof), or action kinds/budgets (semantic plan assertions,
    §4.3). Byte assertions re-couple tests to emission shape.
-7. **Gates are non-negotiable.** Refactor phases ship byte-identical SQL;
-   emission-changing phases ship state-proof equality plus human review of
-   the new shape (§7, §9). Every behavior change carries a changeset and a
-   RED→GREEN regression per repository policy.
+7. **Gates are non-negotiable.** Every stage ships behind its §9 gate —
+   proof, differential, fixture ring; never byte equivalence. Cutover
+   happens only at the parity bar. Every behavior change carries a
+   changeset and a RED→GREEN regression per repository policy.
 8. **Granularity is one.** State, dependencies, deltas, and actions all live
    at fact grain. Any new structure that nests sub-entities back into
    documents — or any map that translates between grains — is §8.7
@@ -865,10 +895,23 @@ code.
   suggestion was rejected on technical grounds: a deep-compare fallback on
   hash matches would reinstate the full-compare cost on the unchanged
   majority — the accepted fix is a collision-resistant digest instead.
-- Open questions intentionally left to their phases: compaction's default
-  aggressiveness (phase 5), rename-policy default (phase 10), how
+- **2026-06-12 (f)** — Maintainer direction: full breaking changes allowed;
+  this is a **brand-new library**, not an evolution of the current one.
+  Revised accordingly: the stable-ID wire format is no longer frozen —
+  identity is structured end-to-end with a single library-side codec and
+  version-tagged canonical encoding, and extraction SQL returns identity
+  parts instead of synthesizing strings (§3.1, guardrail 1); the policy DSL
+  is designed fresh for facts/deltas rather than carrying the old pattern
+  syntax (§3.9); plan and snapshot formats are new and version-tagged
+  (§5); §9 is rewritten from in-place migration phases to a clean-room
+  build-and-cutover plan — byte-identical SQL gates are gone entirely,
+  replaced by proof/differential/fixture gates; consumers migrate once, at
+  the cutover parity bar (§7). Entries (a)–(e) above predate this and any
+  in-place-migration framing in them is superseded.
+- Open questions intentionally left to their stages: compaction's default
+  aggressiveness (stage 5), rename-policy default (stage 9), how
   aggressively to prune the ported corpus once generative coverage matures
-  (phase 3).
+  (stage 3), new-major vs new-package-name (stage 10, product decision).
 
 ---
 
