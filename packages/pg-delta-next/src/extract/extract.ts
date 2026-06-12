@@ -499,8 +499,16 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   // ── dependency edges from pg_depend (the authoritative source, P1) ───
   const resolver = `
     CASE
-      WHEN cls.classid = 'pg_class'::regclass AND cls.objsubid = 0 THEN (
-        SELECT json_build_object(
+      WHEN cls.classid = 'pg_class'::regclass AND cls.objsubid = 0 THEN COALESCE(
+        -- a constraint-backed index is not a fact: resolve to its constraint
+        (SELECT json_build_object('kind', 'constraint', 'schema', cn2.nspname,
+                                  'table', cc2.relname, 'name', con2.conname)
+         FROM pg_constraint con2
+         JOIN pg_class cc2 ON cc2.oid = con2.conrelid
+         JOIN pg_namespace cn2 ON cn2.oid = cc2.relnamespace
+         WHERE con2.conindid = cls.objid AND con2.contype IN ('p','u','x')
+         LIMIT 1),
+        (SELECT json_build_object(
           'kind', CASE rc.relkind
                     WHEN 'r' THEN 'table' WHEN 'p' THEN 'table'
                     WHEN 'v' THEN 'view' WHEN 'm' THEN 'materializedView'
@@ -508,7 +516,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
                     WHEN 'S' THEN 'sequence' END,
           'schema', rn.nspname, 'name', rc.relname)
         FROM pg_class rc JOIN pg_namespace rn ON rn.oid = rc.relnamespace
-        WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p','v','m','i','I','S'))
+        WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p','v','m','i','I','S')))
       WHEN cls.classid = 'pg_class'::regclass AND cls.objsubid > 0 THEN (
         SELECT json_build_object('kind', 'column', 'schema', rn.nspname,
                                  'table', rc.relname, 'name', att.attname)

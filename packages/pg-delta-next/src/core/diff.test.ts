@@ -98,7 +98,7 @@ describe("diff", () => {
     const b = buildFactBase(facts({ withColB: false, colAType: "bigint" }), []);
     const forward = diff(a, b);
     const backward = diff(b, a);
-    const flip = (v: string) =>
+    const flip = (v: "add" | "remove" | "set" | "link" | "unlink") =>
       v === "add" ? "remove" : v === "remove" ? "add" : v === "link" ? "unlink" : v === "unlink" ? "link" : v;
     expect(backward.map((d) => d.verb).sort()).toEqual(
       forward.map((d) => flip(d.verb)).sort(),
