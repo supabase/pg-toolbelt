@@ -70,6 +70,52 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "publication depending on rebuilt generated column is dropped before the column",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.generated_accounts (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          CREATE PUBLICATION pub_generated_accounts
+            FOR TABLE pub_test.generated_accounts
+            WHERE (status_label = 'ACTIVE');
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_generated_accounts
+            DROP TABLE pub_test.generated_accounts;
+          ALTER TABLE pub_test.generated_accounts
+            DROP COLUMN status_label;
+          ALTER TABLE pub_test.generated_accounts
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE pub_test.generated_accounts
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER PUBLICATION pub_generated_accounts
+            ADD TABLE pub_test.generated_accounts
+            WHERE (status_label = 'ACTIVE'::text);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropPublicationIndex = sqlStatements.indexOf(
+              "ALTER PUBLICATION pub_generated_accounts DROP TABLE pub_test.generated_accounts",
+            );
+            const dropColumnIndex = sqlStatements.indexOf(
+              "ALTER TABLE pub_test.generated_accounts DROP COLUMN status_label",
+            );
+            expect(dropPublicationIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropPublicationIndex).toBeLessThan(dropColumnIndex);
+          },
+        });
+      }),
+    );
+
+    test(
       "create publication for tables in schema",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

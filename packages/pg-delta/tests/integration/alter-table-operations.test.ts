@@ -615,6 +615,72 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion >= 17)(
+      "alter generated column type before postgres 17 restores rebuilt column metadata",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE ROLE generated_own_type_reader;
+
+          CREATE TABLE test_schema.generated_own_type_metadata (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_own_type_metadata_status_label_key UNIQUE (status_label),
+            CONSTRAINT generated_own_type_metadata_status_label_check CHECK (status_label <> '')
+          );
+
+          CREATE INDEX generated_own_type_metadata_status_label_idx
+            ON test_schema.generated_own_type_metadata (status_label)
+            WHERE status_label <> '';
+
+          COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label
+            IS 'generated status label';
+          COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx
+            IS 'generated status label lookup';
+
+          GRANT SELECT (status_label)
+            ON test_schema.generated_own_type_metadata
+            TO generated_own_type_reader;
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD CONSTRAINT generated_own_type_metadata_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD CONSTRAINT generated_own_type_metadata_status_label_check CHECK (status_label <> '');
+          CREATE INDEX generated_own_type_metadata_status_label_idx
+            ON test_schema.generated_own_type_metadata (status_label)
+            WHERE status_label <> '';
+          COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label
+            IS 'generated status label';
+          COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx
+            IS 'generated status label lookup';
+          GRANT SELECT (status_label)
+            ON test_schema.generated_own_type_metadata
+            TO generated_own_type_reader;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toContain(
+              "COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label IS 'generated status label'",
+            );
+            expect(sqlStatements).toContain(
+              "COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx IS 'generated status label lookup'",
+            );
+            expect(sqlStatements).toContain(
+              "GRANT SELECT (status_label) ON test_schema.generated_own_type_metadata TO generated_own_type_reader",
+            );
+          },
+        });
+      }),
+    );
+
     test(
       "alter referenced column type restores generated column dependents",
       withDbIsolated(pgVersion, async (db) => {
@@ -672,6 +738,64 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "GRANT SELECT (status_label) ON test_schema.generated_metadata TO generated_column_metadata_reader",
               ]
             `);
+          },
+        });
+      }),
+    );
+
+    test(
+      "alter referenced column type drops cross-table FK before generated column rebuild",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+
+          CREATE TABLE test_schema.generated_fk_parent (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_fk_parent_status_label_key UNIQUE (status_label)
+          );
+
+          CREATE TABLE test_schema.generated_fk_child (
+            status_label text NOT NULL,
+            CONSTRAINT generated_fk_child_status_label_fkey
+              FOREIGN KEY (status_label)
+              REFERENCES test_schema.generated_fk_parent(status_label)
+          );
+
+          INSERT INTO test_schema.generated_fk_parent (status)
+          VALUES ('active');
+          INSERT INTO test_schema.generated_fk_child (status_label)
+          VALUES ('ACTIVE');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_fk_child
+            DROP CONSTRAINT generated_fk_child_status_label_fkey;
+          ALTER TABLE test_schema.generated_fk_parent
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_fk_parent
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_fk_parent
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_fk_parent
+            ADD CONSTRAINT generated_fk_parent_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_fk_child
+            ADD CONSTRAINT generated_fk_child_status_label_fkey
+              FOREIGN KEY (status_label)
+              REFERENCES test_schema.generated_fk_parent(status_label);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropFkIndex = sqlStatements.indexOf(
+              "ALTER TABLE test_schema.generated_fk_child DROP CONSTRAINT generated_fk_child_status_label_fkey",
+            );
+            const dropColumnIndex = sqlStatements.indexOf(
+              "ALTER TABLE test_schema.generated_fk_parent DROP COLUMN status_label",
+            );
+            expect(dropFkIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFkIndex).toBeLessThan(dropColumnIndex);
           },
         });
       }),

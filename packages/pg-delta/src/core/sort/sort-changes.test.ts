@@ -9,6 +9,7 @@ import { AlterPublicationDropTables } from "../objects/publication/changes/publi
 import { Publication } from "../objects/publication/publication.model.ts";
 import {
   AlterTableAlterColumnType,
+  AlterTableDropColumn,
   AlterTableDropConstraint,
 } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
@@ -258,8 +259,14 @@ function changeLabel(change: Change) {
   if (change instanceof AlterTableAlterColumnType) {
     return `${change.constructor.name}:${change.table.name}.${change.column.name}`;
   }
+  if (change instanceof AlterTableDropColumn) {
+    return `${change.constructor.name}:${change.table.name}.${change.column.name}`;
+  }
   if (change instanceof AlterTableDropConstraint) {
     return `${change.constructor.name}:${change.table.name}.${change.constraint.name}`;
+  }
+  if (change instanceof AlterPublicationDropTables) {
+    return `${change.constructor.name}:${change.publication.name}`;
   }
   if (change instanceof DropTable) {
     return `${change.constructor.name}:${change.table.name}`;
@@ -354,6 +361,68 @@ describe("sortChanges", () => {
       `CreateEnum:${accountStatusType.stableId}`,
       "AlterTableAlterColumnType:accounts.status",
       `CreateProcedure:${branchProcedure.stableId}`,
+    ]);
+  });
+
+  test("orders publication table removal before generated column drop on the same table", async () => {
+    const accounts = new Table({
+      ...baseTableProps,
+      name: "accounts",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        {
+          ...integerColumn("status_label", 2),
+          data_type: "text",
+          data_type_str: "text",
+          is_generated: true,
+          default: "upper(id::text)",
+        },
+      ],
+    });
+    const publication = new Publication({
+      name: "pub_accounts",
+      owner: "postgres",
+      comment: null,
+      all_tables: false,
+      publish_insert: true,
+      publish_update: true,
+      publish_delete: true,
+      publish_truncate: true,
+      publish_via_partition_root: false,
+      tables: [
+        {
+          schema: "public",
+          name: "accounts",
+          columns: ["id", "status_label"],
+          row_filter: null,
+        },
+      ],
+      schemas: [],
+    });
+    const changes: Change[] = [
+      new AlterTableDropColumn({
+        table: accounts,
+        column: accounts.columns[1],
+      }),
+      new AlterPublicationDropTables({
+        publication,
+        tables: publication.tables,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([
+      {
+        dependent_stable_id: publication.stableId,
+        referenced_stable_id: "column:public.accounts.status_label",
+        deptype: "n",
+      },
+    ]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "AlterPublicationDropTables:pub_accounts",
+      "AlterTableDropColumn:accounts.status_label",
     ]);
   });
 

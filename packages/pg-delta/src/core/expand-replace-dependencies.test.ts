@@ -2,6 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
+import { AlterAggregateChangeOwner } from "./objects/aggregate/changes/aggregate.alter.ts";
+import { CreateCommentOnAggregate } from "./objects/aggregate/changes/aggregate.comment.ts";
+import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
+import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
+import { GrantAggregatePrivileges } from "./objects/aggregate/changes/aggregate.privilege.ts";
+import { CreateSecurityLabelOnAggregate } from "./objects/aggregate/changes/aggregate.security-label.ts";
+import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
@@ -50,9 +57,14 @@ import {
   AlterTableEnableRowLevelSecurity,
   AlterTableSetReplicaIdentity,
 } from "./objects/table/changes/table.alter.ts";
+import {
+  CreateCommentOnColumn,
+  CreateCommentOnConstraint,
+} from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
+import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import { Table } from "./objects/table/table.model.ts";
 import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
 import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
@@ -241,6 +253,56 @@ function makeProcedure(
     definition:
       "CREATE FUNCTION public.account_status_text() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT status::text FROM public.accounts WHERE id = 1; END",
     config: null,
+    owner: "postgres",
+    comment: null,
+    privileges: [],
+    security_labels: [],
+    ...overrides,
+  });
+}
+
+function makeAggregate(
+  overrides: Partial<ConstructorParameters<typeof Aggregate>[0]> = {},
+): Aggregate {
+  return new Aggregate({
+    schema: "public",
+    name: "total_amount",
+    identity_arguments: "integer",
+    kind: "a",
+    aggkind: "n",
+    num_direct_args: 0,
+    return_type: "bigint",
+    return_type_schema: "pg_catalog",
+    parallel_safety: "u",
+    is_strict: false,
+    transition_function: "public.amount_transition(bigint,integer)",
+    state_data_type: "bigint",
+    state_data_type_schema: "pg_catalog",
+    state_data_space: 0,
+    final_function: null,
+    final_function_extra_args: false,
+    final_function_modify: null,
+    combine_function: null,
+    serial_function: null,
+    deserial_function: null,
+    initial_condition: "0",
+    moving_transition_function: null,
+    moving_inverse_function: null,
+    moving_state_data_type: null,
+    moving_state_data_type_schema: null,
+    moving_state_data_space: null,
+    moving_final_function: null,
+    moving_final_function_extra_args: false,
+    moving_final_function_modify: null,
+    moving_initial_condition: null,
+    sort_operator: null,
+    argument_count: 1,
+    argument_default_count: 0,
+    argument_names: null,
+    argument_types: ["integer"],
+    all_argument_types: null,
+    argument_modes: null,
+    argument_defaults: null,
     owner: "postgres",
     comment: null,
     privileges: [],
@@ -892,6 +954,368 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("restores generated column dependents when the column itself is rebuilt", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const baseColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const generatedTextColumn = {
+      name: "status_label",
+      position: 2,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: "status label",
+      security_labels: [{ provider: "dummy", label: "classified" }],
+    };
+    const generatedVarcharColumn = {
+      ...generatedTextColumn,
+      data_type: "character varying",
+      data_type_str: "character varying(64)",
+    };
+    const checkConstraint = {
+      name: "accounts_status_label_check",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status_label"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "status_label <> ''",
+      owner: "postgres",
+      definition: "CHECK (status_label <> '')",
+      comment: "label guard",
+    };
+    const mainTable = makeTable(
+      "accounts",
+      [baseColumn, generatedTextColumn],
+      {
+        constraints: [checkConstraint],
+        privileges: [
+          {
+            grantee: "generated_reader",
+            privilege: "SELECT",
+            grantable: false,
+            columns: ["status_label"],
+          },
+        ],
+      },
+    );
+    const branchTable = makeTable(
+      "accounts",
+      [baseColumn, generatedVarcharColumn],
+      {
+        constraints: [checkConstraint],
+        privileges: mainTable.privileges,
+      },
+    );
+    const index = makeIndex({
+      name: "accounts_status_label_idx",
+      key_columns: [2],
+      index_expressions: null,
+      definition:
+        "CREATE INDEX accounts_status_label_idx ON public.accounts USING btree (status_label)",
+      comment: "label lookup",
+    });
+    const mainPublication = makePublication({
+      tables: [
+        {
+          schema: "public",
+          name: "accounts",
+          columns: ["status", "status_label"],
+          row_filter: null,
+        },
+      ],
+    });
+    const branchPublication = makePublication({
+      tables: [
+        {
+          schema: "public",
+          name: "accounts",
+          columns: ["status", "status_label"],
+          row_filter: null,
+        },
+      ],
+    });
+    const columnId = "column:public.accounts.status_label";
+    const changes: Change[] = [
+      new AlterTableDropColumn({
+        table: mainTable,
+        column: mainTable.columns[1],
+      }),
+      new AlterTableAddColumn({
+        table: branchTable,
+        column: branchTable.columns[1],
+      }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [mainTable.stableId]: mainTable },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [mainTable.stableId]: mainTable },
+      publications: { [mainPublication.stableId]: mainPublication },
+      depends: [
+        {
+          dependent_stable_id:
+            "constraint:public.accounts.accounts_status_label_check",
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [branchTable.stableId]: branchTable },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [branchTable.stableId]: branchTable },
+      publications: { [branchPublication.stableId]: branchPublication },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some((change) => change instanceof CreateCommentOnColumn),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof CreateSecurityLabelOnColumn,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((change) => change instanceof GrantTablePrivileges),
+    ).toBe(true);
+    expect(expanded.changes.some((change) => change instanceof DropIndex)).toBe(
+      true,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateIndex),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((change) => change instanceof CreateCommentOnIndex),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterPublicationDropTables,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterPublicationAddTables,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterTableAddConstraint,
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof CreateCommentOnConstraint,
+      ),
+    ).toBe(true);
+  });
+
+  test("drops cross-table constraints before rebuilding generated columns reached from invalidation", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const statusColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const statusLabelColumn = {
+      name: "status_label",
+      position: 2,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const parent = makeTable("accounts", [statusColumn, statusLabelColumn]);
+    const childFk = {
+      name: "account_events_status_label_fkey",
+      constraint_type: "f" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status_label"],
+      foreign_key_columns: ["status_label"],
+      foreign_key_table: "accounts",
+      foreign_key_schema: "public",
+      foreign_key_table_is_partition: false,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: "public",
+      foreign_key_effective_table: "accounts",
+      on_update: "a" as const,
+      on_delete: "a" as const,
+      match_type: "s" as const,
+      check_expression: null,
+      owner: "postgres",
+      definition:
+        "FOREIGN KEY (status_label) REFERENCES public.accounts(status_label)",
+      comment: "generated label ref",
+    };
+    const child = makeTable(
+      "account_events",
+      [{ ...statusLabelColumn, is_generated: false, default: null }],
+      { constraints: [childFk] },
+    );
+    const columnTypeChange = new AlterTableAlterColumnType({
+      table: parent,
+      column: {
+        ...statusColumn,
+        data_type: "character varying",
+        data_type_str: "character varying(32)",
+      },
+      previousColumn: statusColumn,
+    });
+    const generatedExpressionChange = new AlterTableAlterColumnSetDefault({
+      table: parent,
+      column: statusLabelColumn,
+    });
+    const mainCatalog = catalogWith(baseline, {
+      tables: {
+        [parent.stableId]: parent,
+        [child.stableId]: child,
+      },
+      depends: [
+        {
+          dependent_stable_id: "column:public.accounts.status_label",
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id:
+            "constraint:public.account_events.account_events_status_label_fkey",
+          referenced_stable_id: "column:public.accounts.status_label",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: {
+        [parent.stableId]: parent,
+        [child.stableId]: child,
+      },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes: [columnTypeChange, generatedExpressionChange],
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableDropConstraint &&
+          change.table.name === "account_events",
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableAddConstraint &&
+          change.table.name === "account_events",
+      ),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof CreateCommentOnConstraint &&
+          change.table.name === "account_events",
+      ),
+    ).toBe(true);
+  });
+
   test("reports replaced tables for downstream post-diff normalization", async () => {
     // Reproduction guard for the enum-replacement expansion case: the expander
     // must report which dependent tables it promoted to DropTable+CreateTable,
@@ -1351,6 +1775,127 @@ describe("expandReplaceDependencies", () => {
       expanded.changes.some((c) =>
         c.serialize().includes("COMMENT ON CONSTRAINT accounts_status_check"),
       ),
+    ).toBe(true);
+  });
+
+  test("replays backing index comments when constraint rebuilds recreate owned indexes", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 1,
+      argument_names: ["status"],
+      argument_types: ["text"],
+      source_code: "SELECT status <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' $$",
+    });
+    const branchProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 2,
+      argument_names: ["status", "expected"],
+      argument_types: ["text", "text"],
+      argument_default_count: 1,
+      argument_defaults: "'active'::text",
+      source_code: "SELECT status <> '' AND expected <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text, expected text DEFAULT 'active'::text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' AND expected <> '' $$",
+    });
+    const constraint = {
+      name: "accounts_status_key",
+      constraint_type: "u" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "is_valid_status(status)",
+      owner: "postgres",
+      definition: "UNIQUE (status)",
+      comment: null,
+    };
+    const table = makeTable(
+      "accounts",
+      [
+        {
+          name: "status",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      { constraints: [constraint] },
+    );
+    const backingIndex = makeIndex({
+      name: "accounts_status_key",
+      key_columns: [1],
+      index_expressions: null,
+      is_unique: true,
+      is_owned_by_constraint: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_key ON public.accounts USING btree (status)",
+      comment: "constraint-owned index comment",
+    });
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.accounts.accounts_status_key",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expanded.changes.some((change) => change instanceof CreateCommentOnIndex),
     ).toBe(true);
   });
 
@@ -2184,6 +2729,89 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
     expect(
       expanded.changes.some((c) => c instanceof GrantProcedurePrivileges),
+    ).toBe(true);
+  });
+
+  test("replays aggregate metadata when expansion adds a drop before an existing aggregate create", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = makeProcedure({
+      name: "amount_transition",
+      argument_types: ["bigint", "integer"],
+      argument_count: 2,
+      return_type: "bigint",
+      source_code: "SELECT state + value",
+      definition:
+        "CREATE FUNCTION public.amount_transition(state bigint, value integer) RETURNS bigint LANGUAGE sql IMMUTABLE AS $$ SELECT state + value $$",
+    });
+    const branchProcedure = makeProcedure({
+      name: "amount_transition",
+      argument_types: ["numeric", "integer"],
+      argument_count: 2,
+      return_type: "numeric",
+      source_code: "SELECT state + value",
+      definition:
+        "CREATE FUNCTION public.amount_transition(state numeric, value integer) RETURNS numeric LANGUAGE sql IMMUTABLE AS $$ SELECT state + value $$",
+    });
+    const aggregate = makeAggregate({
+      owner: "aggregate_owner",
+      comment: "aggregate comment",
+      security_labels: [{ provider: "dummy", label: "classified" }],
+      privileges: [
+        {
+          grantee: "aggregate_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateAggregate({ aggregate, orReplace: true }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      aggregates: { [aggregate.stableId]: aggregate },
+      depends: [
+        {
+          dependent_stable_id: aggregate.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      aggregates: { [aggregate.stableId]: aggregate },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropAggregate)).toBe(true);
+    expect(
+      expanded.changes.filter((c) => c instanceof CreateAggregate),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterAggregateChangeOwner),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnAggregate),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateSecurityLabelOnAggregate),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof GrantAggregatePrivileges),
     ).toBe(true);
   });
 
