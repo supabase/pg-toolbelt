@@ -279,6 +279,88 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "restore materialized view index when replacing for column type rewrite",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE TABLE test_schema.users (
+              id integer PRIMARY KEY,
+              age numeric
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.user_ages AS
+              SELECT id, age
+              FROM test_schema.users
+              WHERE age > 0
+              WITH NO DATA;
+
+            CREATE INDEX user_ages_constant_idx
+              ON test_schema.user_ages ((1));
+
+            COMMENT ON INDEX test_schema.user_ages_constant_idx
+              IS 'user ages matview index';
+          `,
+          testSql: dedent`
+            DROP MATERIALIZED VIEW test_schema.user_ages;
+
+            ALTER TABLE test_schema.users
+              ALTER COLUMN age TYPE integer USING age::integer;
+
+            CREATE MATERIALIZED VIEW test_schema.user_ages AS
+              SELECT id, age
+              FROM test_schema.users
+              WHERE age > 0
+              WITH NO DATA;
+
+            CREATE INDEX user_ages_constant_idx
+              ON test_schema.user_ages ((1));
+
+            COMMENT ON INDEX test_schema.user_ages_constant_idx
+              IS 'user ages matview index';
+          `,
+          assertSqlStatements: (statements) => {
+            const dropMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "DROP MATERIALIZED VIEW test_schema.user_ages",
+              ),
+            );
+            const alterColumnIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.users ALTER COLUMN age TYPE integer",
+              ),
+            );
+            const createMatviewIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "CREATE MATERIALIZED VIEW test_schema.user_ages",
+              ),
+            );
+            const createIndexIdx = statements.findIndex((statement) =>
+              statement.includes("CREATE INDEX user_ages_constant_idx"),
+            );
+            const commentIndexIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "COMMENT ON INDEX test_schema.user_ages_constant_idx",
+              ),
+            );
+
+            expect(dropMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(alterColumnIdx).toBeGreaterThanOrEqual(0);
+            expect(createMatviewIdx).toBeGreaterThanOrEqual(0);
+            expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+            expect(commentIndexIdx).toBeGreaterThanOrEqual(0);
+            expect(dropMatviewIdx).toBeLessThan(alterColumnIdx);
+            expect(alterColumnIdx).toBeLessThan(createMatviewIdx);
+            expect(createMatviewIdx).toBeLessThan(createIndexIdx);
+            expect(createIndexIdx).toBeLessThan(commentIndexIdx);
+          },
+        });
+      }),
+    );
+
+    test(
       "materialized view with aggregations",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

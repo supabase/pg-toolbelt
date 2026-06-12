@@ -7,6 +7,9 @@ import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index } from "./objects/index/index.model.ts";
+import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
+import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
+import { MaterializedView } from "./objects/materialized-view/materialized-view.model.ts";
 import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
 import { CreateCommentOnProcedure } from "./objects/procedure/changes/procedure.comment.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
@@ -134,6 +137,71 @@ function makeTable(
     parent_name: null,
     columns,
     privileges: [],
+  });
+}
+
+function makeMaterializedView(
+  overrides: Partial<ConstructorParameters<typeof MaterializedView>[0]> = {},
+): MaterializedView {
+  return new MaterializedView({
+    schema: "public",
+    name: "account_statuses",
+    definition:
+      "CREATE MATERIALIZED VIEW public.account_statuses AS SELECT id, status::text AS status_text FROM public.accounts WITH NO DATA",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: true,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: false,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    owner: "postgres",
+    comment: null,
+    columns: [
+      {
+        name: "id",
+        position: 1,
+        data_type: "integer",
+        data_type_str: "integer",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+      {
+        name: "status_text",
+        position: 2,
+        data_type: "text",
+        data_type_str: "text",
+        is_custom_type: false,
+        custom_type_type: null,
+        custom_type_category: null,
+        custom_type_schema: null,
+        custom_type_name: null,
+        not_null: false,
+        is_identity: false,
+        is_identity_always: false,
+        is_generated: false,
+        collation: null,
+        default: null,
+        comment: null,
+      },
+    ],
+    privileges: [],
+    security_labels: [],
+    ...overrides,
   });
 }
 
@@ -1899,6 +1967,72 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes.some((c) => c instanceof DropIndex)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateCommentOnIndex),
+    ).toBe(true);
+  });
+
+  test("replays matview indexes when a column invalidation rebuilds the matview", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const materializedView = makeMaterializedView();
+    const index = makeIndex({
+      table_name: materializedView.name,
+      name: "account_statuses_id_idx",
+      key_columns: [1],
+      index_expressions: null,
+      table_relkind: "m",
+      definition:
+        "CREATE INDEX account_statuses_id_idx ON public.account_statuses USING btree (id)",
+      comment: "matview id lookup",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      materializedViews: {
+        [materializedView.stableId]: materializedView,
+      },
+      indexes: { [index.stableId]: index },
+      indexableObjects: {
+        [materializedView.stableId]: materializedView,
+      },
+      depends: [
+        {
+          dependent_stable_id: materializedView.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      materializedViews: {
+        [materializedView.stableId]: materializedView,
+      },
+      indexes: { [index.stableId]: index },
+      indexableObjects: {
+        [materializedView.stableId]: materializedView,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.some((c) => c instanceof DropMaterializedView),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof CreateMaterializedView),
+    ).toBe(true);
     expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
     expect(
       expanded.changes.some((c) => c instanceof CreateCommentOnIndex),

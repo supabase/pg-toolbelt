@@ -643,6 +643,53 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "alter referenced column type restores generated column dependent indexes",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_index_metadata (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          CREATE INDEX generated_index_metadata_status_label_idx
+            ON test_schema.generated_index_metadata (status_label)
+            WHERE status_label <> '';
+
+          INSERT INTO test_schema.generated_index_metadata (id, status)
+          VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_index_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_index_metadata
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_index_metadata
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          CREATE INDEX generated_index_metadata_status_label_idx
+            ON test_schema.generated_index_metadata (status_label)
+            WHERE status_label <> '';
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "DROP INDEX test_schema.generated_index_metadata_status_label_idx",
+                "ALTER TABLE test_schema.generated_index_metadata DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_index_metadata ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER TABLE test_schema.generated_index_metadata ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
+                "CREATE INDEX generated_index_metadata_status_label_idx ON test_schema.generated_index_metadata (status_label) WHERE status_label <> ''::text",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
       "table and column comments",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

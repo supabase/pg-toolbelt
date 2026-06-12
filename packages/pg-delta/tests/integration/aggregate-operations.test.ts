@@ -76,6 +76,49 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "aggregate depending on replaced transition function is recreated around the function",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+
+          CREATE FUNCTION test_schema.amount_transition(state bigint, value integer)
+          RETURNS bigint
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount(integer)
+          (
+            SFUNC = test_schema.amount_transition,
+            STYPE = bigint,
+            INITCOND = '0'
+          );
+        `,
+          testSql: dedent`
+          DROP AGGREGATE test_schema.total_amount(integer);
+          DROP FUNCTION test_schema.amount_transition(bigint, integer);
+
+          CREATE FUNCTION test_schema.amount_transition(state numeric, value integer)
+          RETURNS numeric
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount(integer)
+          (
+            SFUNC = test_schema.amount_transition,
+            STYPE = numeric,
+            INITCOND = '0'
+          );
+        `,
+        });
+      }),
+    );
+
+    test(
       "aggregate comment creation",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

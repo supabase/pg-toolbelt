@@ -428,6 +428,45 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "column default depending on replaced function signature is restored around the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_amount()
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT 1 $$;
+
+            CREATE TABLE test_schema.orders (
+              id integer PRIMARY KEY,
+              amount integer DEFAULT test_schema.default_amount()
+            );
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.orders
+              ALTER COLUMN amount DROP DEFAULT;
+
+            DROP FUNCTION test_schema.default_amount();
+
+            CREATE FUNCTION test_schema.default_amount(fallback integer DEFAULT 1)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT fallback $$;
+
+            ALTER TABLE test_schema.orders
+              ALTER COLUMN amount SET DEFAULT test_schema.default_amount();
+          `,
+        });
+      }),
+    );
+
+    test(
       "function signature: parameter type change",
       withDb(pgVersion, async (db) => {
         // Changes the IN parameter type (text -> uuid). stableId changes
