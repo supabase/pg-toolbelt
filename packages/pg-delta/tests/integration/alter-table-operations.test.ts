@@ -581,6 +581,68 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "alter referenced column type restores generated column dependents",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE ROLE generated_column_metadata_reader;
+
+          CREATE TABLE test_schema.generated_metadata (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label),
+            CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> '')
+          );
+
+          COMMENT ON COLUMN test_schema.generated_metadata.status_label
+            IS 'generated status label';
+
+          GRANT SELECT (status_label)
+            ON test_schema.generated_metadata
+            TO generated_column_metadata_reader;
+
+          INSERT INTO test_schema.generated_metadata (id, status)
+          VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_metadata
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_metadata
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_metadata
+            ADD CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_metadata
+            ADD CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> '');
+          COMMENT ON COLUMN test_schema.generated_metadata.status_label
+            IS 'generated status label';
+          GRANT SELECT (status_label)
+            ON test_schema.generated_metadata
+            TO generated_column_metadata_reader;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_metadata DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_metadata ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER TABLE test_schema.generated_metadata ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
+                "COMMENT ON COLUMN test_schema.generated_metadata.status_label IS 'generated status label'",
+                "ALTER TABLE test_schema.generated_metadata ADD CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> ''::text)",
+                "ALTER TABLE test_schema.generated_metadata ADD CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label)",
+                "GRANT SELECT (status_label) ON test_schema.generated_metadata TO generated_column_metadata_reader",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
       "table and column comments",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
