@@ -2504,6 +2504,183 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
+  test("promotes aggregate dependents when a column invalidation rebuilds a SQL routine", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const procedure = makeProcedure({
+      name: "status_len_state",
+      argument_types: ["integer", "integer"],
+      argument_count: 2,
+      return_type: "integer",
+      return_type_schema: "pg_catalog",
+      source_code: "",
+      sql_body:
+        "SELECT state + length(status::text) FROM public.accounts WHERE id = account_id",
+      definition:
+        "CREATE FUNCTION public.status_len_state(state integer, account_id integer) RETURNS integer LANGUAGE sql STABLE BEGIN ATOMIC SELECT state + length(status::text) FROM public.accounts WHERE id = account_id; END",
+    });
+    const aggregate = makeAggregate({
+      name: "status_len_sum",
+      identity_arguments: "integer",
+      return_type: "integer",
+      return_type_schema: "pg_catalog",
+      transition_function: "public.status_len_state(integer,integer)",
+      state_data_type: "integer",
+      state_data_type_schema: "pg_catalog",
+      initial_condition: "0",
+      argument_types: ["integer"],
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      aggregates: { [aggregate.stableId]: aggregate },
+      depends: [
+        {
+          dependent_stable_id: procedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: aggregate.stableId,
+          referenced_stable_id: procedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [procedure.stableId]: procedure },
+      aggregates: { [aggregate.stableId]: aggregate },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
+      true,
+    );
+    expect(expanded.changes.some((c) => c instanceof DropAggregate)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateAggregate)).toBe(
+      true,
+    );
+  });
+
+  test("drops constraints that depend on routines rebuilt from column invalidation", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const accountIdColumn = {
+      name: "account_id",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const constraint = {
+      name: "account_events_status_check",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["account_id"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "public.account_status_is_open(account_id)",
+      owner: "postgres",
+      definition: "CHECK (public.account_status_is_open(account_id))",
+      comment: null,
+    };
+    const accountEvents = makeTable("account_events", [accountIdColumn], {
+      constraints: [constraint],
+    });
+    const procedure = makeProcedure({
+      name: "account_status_is_open",
+      argument_types: ["integer"],
+      argument_count: 1,
+      return_type: "boolean",
+      return_type_schema: "pg_catalog",
+      source_code: "",
+      sql_body:
+        "SELECT status::text = 'open' FROM public.accounts WHERE id = account_id",
+      definition:
+        "CREATE FUNCTION public.account_status_is_open(account_id integer) RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT status::text = 'open' FROM public.accounts WHERE id = account_id; END",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const constraintStableId =
+      "constraint:public.account_events.account_events_status_check";
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [accountEvents.stableId]: accountEvents },
+      procedures: { [procedure.stableId]: procedure },
+      depends: [
+        {
+          dependent_stable_id: procedure.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: constraintStableId,
+          referenced_stable_id: procedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [accountEvents.stableId]: accountEvents },
+      procedures: { [procedure.stableId]: procedure },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropProcedure)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateProcedure)).toBe(
+      true,
+    );
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableDropConstraint),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterTableAddConstraint),
+    ).toBe(true);
+  });
+
   test("drops and re-adds column defaults that depend on invalidated routines", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const statusTextColumn = {

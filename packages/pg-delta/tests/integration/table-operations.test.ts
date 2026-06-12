@@ -249,6 +249,57 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion < 17)(
+      "postgres 17 generated column type change rebuilds constrained columns",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA generated_pg17;
+            CREATE TABLE generated_pg17.accounts (
+              status text NOT NULL,
+              status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+              CONSTRAINT accounts_status_label_check CHECK (status_label <> '')
+            );
+          `,
+          testSql: dedent`
+            ALTER TABLE generated_pg17.accounts DROP CONSTRAINT accounts_status_label_check;
+            ALTER TABLE generated_pg17.accounts DROP COLUMN status_label;
+            ALTER TABLE generated_pg17.accounts
+              ADD COLUMN status_label varchar(64) GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+            ALTER TABLE generated_pg17.accounts
+              ADD CONSTRAINT accounts_status_label_check CHECK (status_label <> '');
+          `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toContain(
+              "ALTER TABLE generated_pg17.accounts DROP COLUMN status_label",
+            );
+            expect(statements).toContain(
+              "ALTER TABLE generated_pg17.accounts ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED NOT NULL",
+            );
+            expect(
+              statements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE generated_pg17.accounts ADD CONSTRAINT accounts_status_label_check CHECK",
+                ),
+              ),
+            ).toBe(true);
+            expect(
+              statements.some((statement) =>
+                statement.includes("ALTER COLUMN status_label DROP DEFAULT"),
+              ),
+            ).toBe(false);
+            expect(
+              statements.some((statement) =>
+                statement.includes("ALTER COLUMN status_label TYPE"),
+              ),
+            ).toBe(false);
+          },
+        });
+      }),
+    );
+
     test(
       "replace table via enum dependency does not emit standalone drop/create for PK-owned index",
       withDb(pgVersion, async (db) => {
