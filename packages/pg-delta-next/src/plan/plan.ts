@@ -14,6 +14,8 @@ export interface Action {
   produces: StableId[];
   consumes: StableId[];
   destroys: StableId[];
+  /** ids this action stops referencing — must run before their destroyer */
+  releases: StableId[];
   transactional: boolean;
   dataLoss: "none" | "destructive";
   rewriteRisk: boolean;
@@ -34,13 +36,18 @@ const CASCADING_PARENTS = new Set([
   "table",
   "view",
   "materializedView",
+  "foreignTable",
   "column",
   "constraint",
   "index",
   "sequence",
   "procedure",
+  "aggregate",
+  "domain",
+  "type",
   "trigger",
   "policy",
+  "rule",
   "default",
 ]);
 
@@ -78,8 +85,56 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     }
   }
 
+  // ── forced dependent rebuild (the clean expand-replace, §3.4) ─────────
+  // A surviving dependent of something this plan destroys must be dropped
+  // and recreated from the desired state — recursively.
+  const REBUILDABLE = new Set([
+    "view",
+    "materializedView",
+    "index",
+    "policy",
+    "trigger",
+    "rule",
+    "constraint",
+    "default",
+  ]);
+  {
+    const destroyedIds = new Set([...removed.keys(), ...replaceIds]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const edge of source.edges) {
+        if (!destroyedIds.has(encodeId(edge.to))) continue;
+        const fromKey = encodeId(edge.from);
+        if (destroyedIds.has(fromKey)) continue;
+        const dependent = source.get(edge.from);
+        if (!dependent || !desired.has(edge.from)) continue;
+        if (!REBUILDABLE.has(dependent.id.kind)) continue;
+        replaceIds.add(fromKey);
+        destroyedIds.add(fromKey);
+        grew = true;
+      }
+    }
+    // descendants of replaced facts are handled by the ancestor's subtree
+    // recreate — keep only the topmost replaced facts
+    for (const key of [...replaceIds]) {
+      const fact = source.facts().find((f) => encodeId(f.id) === key);
+      let ancestor = fact?.parent;
+      while (ancestor !== undefined) {
+        if (replaceIds.has(encodeId(ancestor))) {
+          replaceIds.delete(key);
+          break;
+        }
+        ancestor = source.get(ancestor)?.parent;
+      }
+    }
+  }
+
   // ── suppression: child removals that cascade with an ancestor's drop ──
-  // dropRootOf(id) = nearest removed ancestor whose drop action will exist
+  // dropRootOf(id) = nearest removed ancestor whose drop action will exist.
+  // FK constraint drops are NEVER suppressed: explicit DROP CONSTRAINT
+  // before the table drops makes mutual-FK teardown cycles unconstructible
+  // (decomposition over repair, §3.5).
   const dropRootOf = new Map<string, string>();
   const findDropRoot = (fact: Fact): string => {
     const key = encodeId(fact.id);
@@ -87,7 +142,9 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     if (cached) return cached;
     let root = key;
     const parent = fact.parent;
-    if (parent !== undefined) {
+    const isFkConstraint =
+      fact.id.kind === "constraint" && fact.payload["type"] === "f";
+    if (parent !== undefined && !isFkConstraint) {
       const parentKey = encodeId(parent);
       const parentRemoved = removed.has(parentKey) || replaceIds.has(parentKey);
       const cascades =
@@ -102,6 +159,39 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     return root;
   };
   for (const fact of removed.values()) findDropRoot(fact);
+
+  // an OWNED BY sequence cascades with its owning column/table drop
+  for (const fact of removed.values()) {
+    if (fact.id.kind !== "sequence") continue;
+    const ownedBy = fact.payload["ownedBy"] as {
+      schema: string;
+      table: string;
+      column: string;
+    } | null;
+    if (ownedBy == null) continue;
+    const columnKey = encodeId({
+      kind: "column",
+      schema: ownedBy.schema,
+      table: ownedBy.table,
+      name: ownedBy.column,
+    });
+    const tableKey = encodeId({
+      kind: "table",
+      schema: ownedBy.schema,
+      name: ownedBy.table,
+    });
+    const ownerKey = removed.has(columnKey)
+      ? columnKey
+      : removed.has(tableKey)
+        ? tableKey
+        : null;
+    if (ownerKey !== null) {
+      dropRootOf.set(
+        encodeId(fact.id),
+        dropRootOf.get(ownerKey) ?? ownerKey,
+      );
+    }
+  }
 
   // ── emit actions ──────────────────────────────────────────────────────
   const actions: Action[] = [];
@@ -125,6 +215,7 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       produces,
       consumes: [...(opts.consumes ?? []), ...(spec.consumes ?? [])],
       destroys: opts.destroys ?? [],
+      releases: spec.releases ?? [],
       transactional: true,
       dataLoss: spec.dataLoss ?? "none",
       rewriteRisk: spec.rewriteRisk ?? false,
@@ -176,6 +267,7 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   }
 
   // replaces: drop old + create new (+ recreate unchanged descendants)
+  const recreatedByReplace = new Set<string>();
   for (const key of replaceIds) {
     const oldFact = source.facts().find((f) => encodeId(f.id) === key) as Fact;
     const newFact = desired.facts().find((f) => encodeId(f.id) === key) as Fact;
@@ -194,16 +286,14 @@ export function plan(source: FactBase, desired: FactBase): Plan {
       destroys: oldDescendants,
     });
     emitCreate(newFact, desired);
-    // recreate surviving descendants (unchanged satellites like comments/ACLs)
+    // recreate surviving descendants from the DESIRED state (satellites,
+    // sub-facts). Descendants with their own attribute deltas are covered:
+    // the create renders the desired payload, so their alters are skipped.
     const recreate = (id: StableId): void => {
       for (const child of desired.childrenOf(id)) {
         const childKey = encodeId(child.id);
         if (added.has(childKey)) continue; // already created via add delta
-        if (setsByFact.has(childKey)) {
-          throw new Error(
-            `replace of ${key} collides with attribute changes on descendant ${childKey} — needs a delta-set rule`,
-          );
-        }
+        recreatedByReplace.add(childKey);
         emitCreate(child, desired);
         recreate(child.id);
       }
@@ -211,16 +301,18 @@ export function plan(source: FactBase, desired: FactBase): Plan {
     recreate(newFact.id);
   }
 
-  // in-place alters
+  // in-place alters (skipped for facts a replace already recreated)
   for (const [key, sets] of setsByFact) {
-    if (replaceIds.has(key)) continue;
+    if (replaceIds.has(key) || recreatedByReplace.has(key)) continue;
     const fact = desired.get(sets[0]!.id) as Fact;
     const rules = rulesFor(fact.id.kind);
     for (const s of sets) {
       const attrRule = rules.attributes[s.attr];
       if (attrRule === undefined || attrRule === "replace") continue;
-      const spec = attrRule.alter(fact, s.from, s.to);
-      pushAction("alter", spec, { consumes: [fact.id] });
+      const specs = attrRule.alter(fact, s.from, s.to, desired);
+      for (const spec of Array.isArray(specs) ? specs : [specs]) {
+        pushAction("alter", spec, { consumes: [fact.id] });
+      }
     }
   }
 
@@ -236,6 +328,12 @@ export function plan(source: FactBase, desired: FactBase): Plan {
   };
 
   actions.forEach((action, index) => {
+    for (const id of action.releases) {
+      const destroyer = destroyerOf.get(remember(id));
+      if (destroyer !== undefined && destroyer !== index) {
+        edges.push([index, destroyer]);
+      }
+    }
     for (const id of action.consumes) {
       const key = remember(id);
       const producer = producerOf.get(key);

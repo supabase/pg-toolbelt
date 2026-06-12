@@ -1,6 +1,9 @@
 /**
- * Lean test-container manager: one PostgreSQL container per test process,
- * databases as the isolation unit (the proven model from the old suite).
+ * Test-container manager: one shared PostgreSQL cluster (databases as the
+ * isolation unit) plus a lazily started PAIR of clusters for scenarios whose
+ * point is cluster-level state (roles/memberships/default privileges) —
+ * those run state A and state B on different clusters, with role cleanup
+ * between scenarios.
  */
 import {
   GenericContainer,
@@ -11,95 +14,152 @@ import pg from "pg";
 
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
 
-let started: Promise<{
-  container: StartedTestContainer;
-  adminPool: pg.Pool;
-  uriFor: (db: string) => string;
-}> | null = null;
-
-async function ensureContainer() {
-  started ??= (async () => {
-    const container = await new GenericContainer(PG_IMAGE)
-      .withEnvironment({
-        POSTGRES_USER: "test",
-        POSTGRES_PASSWORD: "test",
-        POSTGRES_DB: "postgres",
-      })
-      .withCommand([
-        "postgres",
-        "-c",
-        "fsync=off",
-        "-c",
-        "full_page_writes=off",
-        "-c",
-        "max_connections=200",
-      ])
-      .withExposedPorts(5432)
-      .withWaitStrategy(
-        Wait.forLogMessage(/database system is ready to accept connections/, 2),
-      )
-      .start();
-    const uriFor = (db: string) =>
-      `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
-    const adminPool = new pg.Pool({
-      connectionString: uriFor("postgres"),
-      max: 3,
-    });
-    return { container, adminPool, uriFor };
-  })();
-  return started;
-}
-
 let dbCounter = 0;
 
 export interface TestDb {
   name: string;
   pool: pg.Pool;
   uri: string;
+  cluster: Cluster;
   /** Create a clone of this database via CREATE DATABASE … TEMPLATE. */
   clone(): Promise<TestDb>;
   drop(): Promise<void>;
 }
 
-async function makeDb(name: string): Promise<TestDb> {
-  const { adminPool, uriFor } = await ensureContainer();
-  const uri = uriFor(name);
-  const pool = new pg.Pool({ connectionString: uri, max: 5 });
-  pool.on("error", () => {});
-  return {
-    name,
-    pool,
-    uri,
-    async clone() {
-      // TEMPLATE requires zero connections on the source
-      await pool.end().catch(() => {});
-      const cloneName = `${name}_c${dbCounter++}`;
-      await adminPool.query(
-        `CREATE DATABASE "${cloneName}" TEMPLATE "${name}"`,
+export class Cluster {
+  #pgMajor: number | undefined;
+
+  constructor(
+    readonly container: StartedTestContainer,
+    readonly adminPool: pg.Pool,
+    readonly uriFor: (db: string) => string,
+  ) {}
+
+  async pgMajor(): Promise<number> {
+    if (this.#pgMajor === undefined) {
+      const res = await this.adminPool.query(
+        `SELECT current_setting('server_version_num')::int AS v`,
       );
-      const fresh = await makeDb(cloneName);
-      // reopen the source pool for continued use
-      const reopened = new pg.Pool({ connectionString: uri, max: 5 });
-      reopened.on("error", () => {});
-      (this as { pool: pg.Pool }).pool = reopened;
-      return fresh;
-    },
-    async drop() {
-      await pool.end().catch(() => {});
-      await adminPool.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
-    },
-  };
+      this.#pgMajor = Math.floor((res.rows[0] as { v: number }).v / 10000);
+    }
+    return this.#pgMajor;
+  }
+
+  async createDb(prefix = "t"): Promise<TestDb> {
+    const name = `${prefix}_${dbCounter++}`;
+    await this.adminPool.query(`CREATE DATABASE "${name}"`);
+    return this.#makeDb(name);
+  }
+
+  #makeDb(name: string): TestDb {
+    const uri = this.uriFor(name);
+    const pool = new pg.Pool({ connectionString: uri, max: 5 });
+    pool.on("error", () => {});
+    const cluster = this as Cluster;
+    return {
+      name,
+      pool,
+      uri,
+      cluster,
+      async clone() {
+        // TEMPLATE requires zero connections on the source
+        await this.pool.end().catch(() => {});
+        const cloneName = `${name}_c${dbCounter++}`;
+        await cluster.adminPool.query(
+          `CREATE DATABASE "${cloneName}" TEMPLATE "${name}"`,
+        );
+        const fresh = cluster.#makeDb(cloneName);
+        const reopened = new pg.Pool({ connectionString: uri, max: 5 });
+        reopened.on("error", () => {});
+        (this as { pool: pg.Pool }).pool = reopened;
+        return fresh;
+      },
+      async drop() {
+        // DROP DATABASE refuses databases that still own subscriptions
+        try {
+          const subs = await this.pool.query(
+            `SELECT subname FROM pg_subscription
+             WHERE subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+          );
+          for (const row of subs.rows as { subname: string }[]) {
+            const sub = `"${row.subname.replaceAll('"', '""')}"`;
+            await this.pool.query(`ALTER SUBSCRIPTION ${sub} DISABLE`).catch(() => {});
+            await this.pool
+              .query(`ALTER SUBSCRIPTION ${sub} SET (slot_name = NONE)`)
+              .catch(() => {});
+            await this.pool.query(`DROP SUBSCRIPTION ${sub}`).catch(() => {});
+          }
+        } catch {
+          // no subscriptions or already gone — fine
+        }
+        await this.pool.end().catch(() => {});
+        await cluster.adminPool.query(
+          `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`,
+        );
+      },
+    };
+  }
+
+  async listRoles(): Promise<Set<string>> {
+    const res = await this.adminPool.query(
+      `SELECT rolname FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%'`,
+    );
+    return new Set(res.rows.map((r) => (r as { rolname: string }).rolname));
+  }
+
+  /** Drop roles created since `baseline` (scenario cleanup). */
+  async dropRolesExcept(baseline: Set<string>): Promise<void> {
+    const current = await this.listRoles();
+    for (const role of current) {
+      if (baseline.has(role)) continue;
+      const quoted = `"${role.replaceAll('"', '""')}"`;
+      await this.adminPool
+        .query(`DROP OWNED BY ${quoted} CASCADE`)
+        .catch(() => {});
+      await this.adminPool.query(`DROP ROLE IF EXISTS ${quoted}`).catch(() => {});
+    }
+  }
+}
+
+async function startCluster(): Promise<Cluster> {
+  const container = await new GenericContainer(PG_IMAGE)
+    .withEnvironment({
+      POSTGRES_USER: "test",
+      POSTGRES_PASSWORD: "test",
+      POSTGRES_DB: "postgres",
+    })
+    .withCommand([
+      "postgres",
+      "-c", "fsync=off",
+      "-c", "full_page_writes=off",
+      "-c", "max_connections=300",
+      "-c", "wal_level=logical",
+    ])
+    .withExposedPorts(5432)
+    .withWaitStrategy(
+      Wait.forLogMessage(/database system is ready to accept connections/, 2),
+    )
+    .start();
+  const uriFor = (db: string) =>
+    `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
+  const adminPool = new pg.Pool({ connectionString: uriFor("postgres"), max: 3 });
+  adminPool.on("error", () => {});
+  return new Cluster(container, adminPool, uriFor);
+}
+
+let shared: Promise<Cluster> | null = null;
+export async function sharedCluster(): Promise<Cluster> {
+  shared ??= startCluster();
+  return shared;
+}
+
+let isolatedPair: Promise<[Cluster, Cluster]> | null = null;
+/** Two extra clusters for cluster-level-difference scenarios (A-side, B-side). */
+export async function isolatedClusterPair(): Promise<[Cluster, Cluster]> {
+  isolatedPair ??= Promise.all([startCluster(), startCluster()]);
+  return isolatedPair;
 }
 
 export async function createTestDb(prefix = "t"): Promise<TestDb> {
-  const { adminPool } = await ensureContainer();
-  const name = `${prefix}_${dbCounter++}`;
-  await adminPool.query(`CREATE DATABASE "${name}"`);
-  return makeDb(name);
-}
-
-/** Two databases for diff-style tests. */
-export async function createDbPair(): Promise<{ a: TestDb; b: TestDb }> {
-  const [a, b] = await Promise.all([createTestDb("a"), createTestDb("b")]);
-  return { a, b };
+  return (await sharedCluster()).createDb(prefix);
 }

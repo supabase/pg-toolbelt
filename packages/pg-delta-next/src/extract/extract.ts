@@ -144,7 +144,11 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   // ── roles (cluster-level) ────────────────────────────────────────────
   for (const row of await q(`
     SELECT r.rolname AS name, r.rolsuper, r.rolinherit, r.rolcreaterole,
-           r.rolcreatedb, r.rolcanlogin, r.rolreplication, r.rolbypassrls
+           r.rolcreatedb, r.rolcanlogin, r.rolreplication, r.rolbypassrls,
+           COALESCE((SELECT array_agg(cfg ORDER BY cfg)
+                     FROM pg_db_role_setting s, unnest(s.setconfig) cfg
+                     WHERE s.setrole = r.oid AND s.setdatabase = 0),
+                    '{}')::text[] AS config
     FROM pg_roles r
     WHERE r.rolname NOT LIKE 'pg\\_%'
     ORDER BY r.rolname`)) {
@@ -158,6 +162,59 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
         login: Boolean(row["rolcanlogin"]),
         replication: Boolean(row["rolreplication"]),
         bypassRls: Boolean(row["rolbypassrls"]),
+        config: (row["config"] as string[]).map(String),
+      },
+    });
+  }
+
+  // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
+  for (const row of await q(`
+    SELECT r1.rolname AS role, r2.rolname AS member,
+           bool_or(m.admin_option) AS admin
+    FROM pg_auth_members m
+    JOIN pg_roles r1 ON r1.oid = m.roleid
+    JOIN pg_roles r2 ON r2.oid = m.member
+    WHERE r1.rolname NOT LIKE 'pg\\_%' AND r2.rolname NOT LIKE 'pg\\_%'
+    GROUP BY 1, 2
+    ORDER BY 1, 2`)) {
+    facts.push({
+      id: {
+        kind: "membership",
+        role: String(row["role"]),
+        member: String(row["member"]),
+      },
+      payload: { admin: Boolean(row["admin"]) },
+    });
+  }
+
+  // ── default privileges ───────────────────────────────────────────────
+  for (const row of await q(`
+    SELECT dr.rolname AS role, n.nspname AS schema, d.defaclobjtype AS objtype,
+           acl.grantee_name AS grantee, acl.privileges, acl.grantable
+    FROM pg_default_acl d
+    JOIN pg_roles dr ON dr.oid = d.defaclrole
+    LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace,
+    LATERAL (
+      SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee_name,
+             array_agg(e.privilege_type ORDER BY e.privilege_type) AS privileges,
+             array_agg(e.privilege_type ORDER BY e.privilege_type)
+               FILTER (WHERE e.is_grantable) AS grantable
+      FROM aclexplode(d.defaclacl) e
+      LEFT JOIN pg_roles g ON g.oid = e.grantee
+      GROUP BY 1
+    ) acl
+    ORDER BY 1, 2, 3, 4`)) {
+    facts.push({
+      id: {
+        kind: "defaultPrivilege",
+        role: String(row["role"]),
+        schema: row["schema"] == null ? null : String(row["schema"]),
+        objtype: String(row["objtype"]),
+        grantee: String(row["grantee"]),
+      },
+      payload: {
+        privileges: (row["privileges"] as string[]).map(String),
+        grantable: ((row["grantable"] as string[] | null) ?? []).map(String),
       },
     });
   }
@@ -210,6 +267,18 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            c.relpersistence AS persistence,
            c.relrowsecurity AS row_security,
            c.relforcerowsecurity AS force_row_security,
+           c.relreplident AS replica_identity,
+           (SELECT ic.relname FROM pg_index i
+            JOIN pg_class ic ON ic.oid = i.indexrelid
+            WHERE i.indrelid = c.oid AND i.indisreplident) AS replica_identity_index,
+           CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) END AS partition_key,
+           pg_get_expr(c.relpartbound, c.oid) AS partition_bound,
+           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
+            FROM pg_inherits inh
+            JOIN pg_class pc ON pc.oid = inh.inhparent
+            JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+            WHERE inh.inhrelid = c.oid
+            LIMIT 1) AS parent_table,
            obj_description(c.oid, 'pg_class') AS comment,
            ${aclJson("c.relacl")} AS acl
     FROM pg_class c
@@ -231,6 +300,23 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           persistence: String(row["persistence"]),
           rowSecurity: Boolean(row["row_security"]),
           forceRowSecurity: Boolean(row["force_row_security"]),
+          replicaIdentity: String(row["replica_identity"]),
+          replicaIdentityIndex:
+            row["replica_identity_index"] == null
+              ? null
+              : (row["replica_identity_index"] as string),
+          partitionKey:
+            row["partition_key"] == null
+              ? null
+              : (row["partition_key"] as string),
+          partitionBound:
+            row["partition_bound"] == null
+              ? null
+              : (row["partition_bound"] as string),
+          parentTable:
+            row["parent_table"] == null
+              ? null
+              : (row["parent_table"] as { schema: string; name: string }),
         },
       },
       row,
@@ -241,6 +327,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
   for (const row of await q(`
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
+           c.relkind AS table_kind,
            format_type(a.atttypid, a.atttypmod) AS type,
            a.attnotnull AS not_null,
            NULLIF(a.attidentity, '') AS identity,
@@ -257,12 +344,13 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_type t ON t.oid = a.atttypid
     LEFT JOIN pg_attrdef ad ON ad.adrelid = c.oid AND ad.adnum = a.attnum
-    WHERE c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE c.relkind IN ('r', 'p', 'f') AND a.attnum > 0 AND NOT a.attisdropped
+      AND a.attislocal
       AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname, a.attname`)) {
     const tableId: StableId = {
-      kind: "table",
+      kind: String(row["table_kind"]) === "f" ? "foreignTable" : "table",
       schema: String(row["schema"]),
       name: String(row["table"]),
     };
@@ -354,6 +442,7 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     JOIN pg_namespace n ON n.oid = ic.relnamespace
     WHERE c.relkind IN ('r', 'p', 'm') AND ${USER_SCHEMA_FILTER}
       AND NOT EXISTS (SELECT 1 FROM pg_constraint pc WHERE pc.conindid = i.indexrelid)
+      AND NOT EXISTS (SELECT 1 FROM pg_inherits ih WHERE ih.inhrelid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, ic.relname`)) {
     const tableKind =
@@ -383,6 +472,16 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
            s.seqstart::text AS start, s.seqincrement::text AS increment,
            s.seqmin::text AS min_value, s.seqmax::text AS max_value,
            s.seqcache::text AS cache, s.seqcycle AS cycle,
+           (SELECT json_build_object('schema', tn.nspname, 'table', tc.relname,
+                                     'column', ta.attname)
+            FROM pg_depend od
+            JOIN pg_class tc ON tc.oid = od.refobjid
+            JOIN pg_namespace tn ON tn.oid = tc.relnamespace
+            JOIN pg_attribute ta ON ta.attrelid = tc.oid AND ta.attnum = od.refobjsubid
+            WHERE od.classid = 'pg_class'::regclass AND od.objid = c.oid
+              AND od.refclassid = 'pg_class'::regclass AND od.deptype = 'a'
+              AND od.refobjsubid > 0
+            LIMIT 1) AS owned_by,
            obj_description(c.oid, 'pg_class') AS comment,
            ${aclJson("c.relacl")} AS acl
     FROM pg_sequence s
@@ -413,6 +512,14 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           maxValue: String(row["max_value"]),
           cache: String(row["cache"]),
           cycle: Boolean(row["cycle"]),
+          ownedBy:
+            row["owned_by"] == null
+              ? null
+              : (row["owned_by"] as {
+                  schema: string;
+                  table: string;
+                  column: string;
+                }),
         },
       },
       row,
@@ -463,6 +570,10 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     JOIN pg_roles r ON r.oid = p.proowner
     WHERE p.prokind IN ('f', 'p') AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_proc", "p.oid")}
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_depend idep
+        WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
+          AND idep.deptype = 'i')
     ORDER BY n.nspname, p.proname`)) {
     const args = (row["identity_args"] as string[]).map(String);
     pushWithMeta(
@@ -488,14 +599,17 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
   // ── triggers ─────────────────────────────────────────────────────────
   for (const row of await q(`
     SELECT n.nspname AS schema, c.relname AS table, t.tgname AS name,
+           c.relkind AS table_kind,
            pg_get_triggerdef(t.oid) AS def,
+           t.tgenabled AS enabled,
            obj_description(t.oid, 'pg_trigger') AS comment
     FROM pg_trigger t
     JOIN pg_class c ON c.oid = t.tgrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE NOT t.tgisinternal AND ${USER_SCHEMA_FILTER}
+    WHERE NOT t.tgisinternal AND t.tgparentid = 0 AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname, t.tgname`)) {
+    const relkind = String(row["table_kind"]);
     pushWithMeta(
       {
         id: {
@@ -505,11 +619,21 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           name: String(row["name"]),
         },
         parent: {
-          kind: "table",
+          kind:
+            relkind === "v"
+              ? "view"
+              : relkind === "m"
+                ? "materializedView"
+                : relkind === "f"
+                  ? "foreignTable"
+                  : "table",
           schema: String(row["schema"]),
           name: String(row["table"]),
         },
-        payload: { def: String(row["def"]) },
+        payload: {
+          def: String(row["def"]),
+          enabled: String(row["enabled"]),
+        },
       },
       row,
     );
@@ -558,6 +682,554 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     );
   }
 
+  // ── domains (+ their CHECK constraints as facts) ─────────────────────
+  for (const row of await q(`
+    SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
+           format_type(t.typbasetype, t.typtypmod) AS base_type,
+           t.typnotnull AS not_null, t.typdefault AS default_expr,
+           CASE WHEN t.typcollation <> bt.typcollation THEN (
+             SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
+             FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
+             WHERE co.oid = t.typcollation)
+           END AS collation,
+           obj_description(t.oid, 'pg_type') AS comment,
+           ${aclJson("t.typacl")} AS acl
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    JOIN pg_roles r ON r.oid = t.typowner
+    JOIN pg_type bt ON bt.oid = t.typbasetype
+    WHERE t.typtype = 'd' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_type", "t.oid")}
+    ORDER BY n.nspname, t.typname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "domain",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          owner: String(row["owner"]),
+          baseType: String(row["base_type"]),
+          notNull: Boolean(row["not_null"]),
+          default:
+            row["default_expr"] == null ? null : (row["default_expr"] as string),
+          collation:
+            row["collation"] == null ? null : (row["collation"] as string),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+  for (const row of await q(`
+    SELECT n.nspname AS schema, t.typname AS domain, con.conname AS name,
+           pg_get_constraintdef(con.oid) AS def,
+           con.contype AS type, con.convalidated AS validated,
+           obj_description(con.oid, 'pg_constraint') AS comment
+    FROM pg_constraint con
+    JOIN pg_type t ON t.oid = con.contypid
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE con.contypid <> 0 AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_type", "t.oid")}
+    ORDER BY n.nspname, t.typname, con.conname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "constraint",
+          schema: String(row["schema"]),
+          table: String(row["domain"]),
+          name: String(row["name"]),
+        },
+        parent: {
+          kind: "domain",
+          schema: String(row["schema"]),
+          name: String(row["domain"]),
+        },
+        payload: {
+          def: String(row["def"]),
+          type: String(row["type"]),
+          validated: Boolean(row["validated"]),
+        },
+      },
+      row,
+    );
+  }
+
+  // ── types: enums, standalone composites, ranges ──────────────────────
+  for (const row of await q(`
+    SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
+           ARRAY(SELECT e.enumlabel::text FROM pg_enum e
+                 WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS values,
+           obj_description(t.oid, 'pg_type') AS comment,
+           ${aclJson("t.typacl")} AS acl
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    JOIN pg_roles r ON r.oid = t.typowner
+    WHERE t.typtype = 'e' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_type", "t.oid")}
+    ORDER BY n.nspname, t.typname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "type",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          variant: "enum",
+          owner: String(row["owner"]),
+          values: (row["values"] as string[]).map(String),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+  for (const row of await q(`
+    SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
+           (SELECT json_agg(json_build_object(
+              'name', a.attname,
+              'type', format_type(a.atttypid, a.atttypmod),
+              'collation', CASE WHEN a.attcollation <> at.typcollation THEN (
+                SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
+                FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
+                WHERE co.oid = a.attcollation) END
+            ) ORDER BY a.attnum)
+            FROM pg_attribute a
+            JOIN pg_type at ON at.oid = a.atttypid
+            WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) AS attrs,
+           obj_description(t.oid, 'pg_type') AS comment,
+           ${aclJson("t.typacl")} AS acl
+    FROM pg_type t
+    JOIN pg_class tc ON tc.oid = t.typrelid AND tc.relkind = 'c'
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    JOIN pg_roles r ON r.oid = t.typowner
+    WHERE t.typtype = 'c' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_type", "t.oid")}
+    ORDER BY n.nspname, t.typname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "type",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          variant: "composite",
+          owner: String(row["owner"]),
+          attributes: (row["attrs"] as
+            | { name: string; type: string; collation: string | null }[]
+            | null) ?? [],
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+  for (const row of await q(`
+    SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
+           format_type(rng.rngsubtype, NULL) AS subtype,
+           CASE WHEN rng.rngcollation <> 0 THEN (
+             SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
+             FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
+             WHERE co.oid = rng.rngcollation) END AS collation,
+           CASE WHEN rng.rngsubdiff <> 0 THEN rng.rngsubdiff::regproc::text END AS subtype_diff,
+           obj_description(t.oid, 'pg_type') AS comment,
+           ${aclJson("t.typacl")} AS acl
+    FROM pg_range rng
+    JOIN pg_type t ON t.oid = rng.rngtypid
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    JOIN pg_roles r ON r.oid = t.typowner
+    WHERE t.typtype = 'r' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_type", "t.oid")}
+    ORDER BY n.nspname, t.typname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "type",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          variant: "range",
+          owner: String(row["owner"]),
+          subtype: String(row["subtype"]),
+          collation:
+            row["collation"] == null ? null : (row["collation"] as string),
+          subtypeDiff:
+            row["subtype_diff"] == null ? null : (row["subtype_diff"] as string),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+
+  // ── collations (collversion deliberately excluded from equality) ─────
+  for (const row of await q(`
+    SELECT n.nspname AS schema, c.collname AS name, r.rolname AS owner,
+           c.collprovider AS provider, c.collisdeterministic AS deterministic,
+           to_jsonb(c) AS raw,
+           obj_description(c.oid, 'pg_collation') AS comment
+    FROM pg_collation c
+    JOIN pg_namespace n ON n.oid = c.collnamespace
+    JOIN pg_roles r ON r.oid = c.collowner
+    WHERE ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_collation", "c.oid")}
+    ORDER BY n.nspname, c.collname`)) {
+    const raw = row["raw"] as Record<string, unknown>;
+    const locale =
+      (raw["colllocale"] as string | null) ??
+      (raw["colliculocale"] as string | null) ??
+      null;
+    pushWithMeta(
+      {
+        id: {
+          kind: "collation",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          owner: String(row["owner"]),
+          provider: String(row["provider"]),
+          deterministic: Boolean(row["deterministic"]),
+          locale,
+          lcCollate: (raw["collcollate"] as string | null) ?? null,
+          lcCtype: (raw["collctype"] as string | null) ?? null,
+        },
+      },
+      row,
+    );
+  }
+
+  // ── event triggers ───────────────────────────────────────────────────
+  for (const row of await q(`
+    SELECT e.evtname AS name, e.evtevent AS event, e.evtenabled AS enabled,
+           COALESCE(e.evttags, '{}')::text[] AS tags,
+           pn.nspname AS func_schema, p.proname AS func_name,
+           r.rolname AS owner,
+           obj_description(e.oid, 'pg_event_trigger') AS comment
+    FROM pg_event_trigger e
+    JOIN pg_proc p ON p.oid = e.evtfoid
+    JOIN pg_namespace pn ON pn.oid = p.pronamespace
+    JOIN pg_roles r ON r.oid = e.evtowner
+    WHERE ${notExtensionMember("pg_event_trigger", "e.oid")}
+    ORDER BY e.evtname`)) {
+    pushWithMeta(
+      {
+        id: { kind: "eventTrigger", name: String(row["name"]) },
+        payload: {
+          event: String(row["event"]),
+          enabled: String(row["enabled"]),
+          tags: (row["tags"] as string[]).map(String).sort(),
+          owner: String(row["owner"]),
+          functionSchema: String(row["func_schema"]),
+          functionName: String(row["func_name"]),
+        },
+      },
+      row,
+    );
+  }
+
+  // ── rewrite rules (user rules; the view _RETURN rule is the view def) ─
+  for (const row of await q(`
+    SELECT n.nspname AS schema, c.relname AS table, c.relkind AS table_kind,
+           rw.rulename AS name, pg_get_ruledef(rw.oid) AS def,
+           rw.ev_enabled AS enabled,
+           obj_description(rw.oid, 'pg_rewrite') AS comment
+    FROM pg_rewrite rw
+    JOIN pg_class c ON c.oid = rw.ev_class
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE rw.rulename <> '_RETURN' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_class", "c.oid")}
+    ORDER BY n.nspname, c.relname, rw.rulename`)) {
+    const relkind = String(row["table_kind"]);
+    pushWithMeta(
+      {
+        id: {
+          kind: "rule",
+          schema: String(row["schema"]),
+          table: String(row["table"]),
+          name: String(row["name"]),
+        },
+        parent: {
+          kind:
+            relkind === "v"
+              ? "view"
+              : relkind === "m"
+                ? "materializedView"
+                : "table",
+          schema: String(row["schema"]),
+          name: String(row["table"]),
+        },
+        payload: { def: String(row["def"]), enabled: String(row["enabled"]) },
+      },
+      row,
+    );
+  }
+
+  // ── aggregates (CREATE AGGREGATE is reconstructed from pg_aggregate) ─
+  for (const row of await q(`
+    SELECT n.nspname AS schema, p.proname AS name, r.rolname AS owner,
+           ARRAY(SELECT format_type(t.t, NULL)
+                 FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
+                 ORDER BY t.ord)::text[] AS identity_args,
+           a.aggkind AS agg_kind, a.aggnumdirectargs AS num_direct_args,
+           a.aggtransfn::regproc::text AS sfunc,
+           format_type(a.aggtranstype, NULL) AS stype,
+           CASE WHEN a.aggfinalfn <> 0 THEN a.aggfinalfn::regproc::text END AS finalfunc,
+           a.agginitval AS initcond,
+           obj_description(p.oid, 'pg_proc') AS comment,
+           ${aclJson("p.proacl")} AS acl
+    FROM pg_proc p
+    JOIN pg_aggregate a ON a.aggfnoid = p.oid
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_roles r ON r.oid = p.proowner
+    WHERE p.prokind = 'a' AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_proc", "p.oid")}
+    ORDER BY n.nspname, p.proname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "aggregate",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+          args: (row["identity_args"] as string[]).map(String),
+        },
+        parent: schemaId(row["schema"]),
+        payload: {
+          owner: String(row["owner"]),
+          aggKind: String(row["agg_kind"]),
+          numDirectArgs: Number(row["num_direct_args"]),
+          sfunc: String(row["sfunc"]),
+          stype: String(row["stype"]),
+          finalfunc:
+            row["finalfunc"] == null ? null : (row["finalfunc"] as string),
+          initcond:
+            row["initcond"] == null ? null : (row["initcond"] as string),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+
+  // ── foreign data wrappers / servers / user mappings / foreign tables ─
+  for (const row of await q(`
+    SELECT f.fdwname AS name, r.rolname AS owner,
+           CASE WHEN f.fdwhandler <> 0 THEN f.fdwhandler::regproc::text END AS handler,
+           CASE WHEN f.fdwvalidator <> 0 THEN f.fdwvalidator::regproc::text END AS validator,
+           COALESCE(ARRAY(SELECT opt FROM unnest(f.fdwoptions) opt ORDER BY opt), '{}')::text[] AS options,
+           obj_description(f.oid, 'pg_foreign_data_wrapper') AS comment,
+           ${aclJson("f.fdwacl")} AS acl
+    FROM pg_foreign_data_wrapper f
+    JOIN pg_roles r ON r.oid = f.fdwowner
+    WHERE ${notExtensionMember("pg_foreign_data_wrapper", "f.oid")}
+    ORDER BY f.fdwname`)) {
+    pushWithMeta(
+      {
+        id: { kind: "fdw", name: String(row["name"]) },
+        payload: {
+          owner: String(row["owner"]),
+          handler: row["handler"] == null ? null : (row["handler"] as string),
+          validator:
+            row["validator"] == null ? null : (row["validator"] as string),
+          options: (row["options"] as string[]).map(String),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+  for (const row of await q(`
+    SELECT s.srvname AS name, f.fdwname AS fdw, r.rolname AS owner,
+           s.srvtype AS type, s.srvversion AS version,
+           COALESCE(ARRAY(SELECT opt FROM unnest(s.srvoptions) opt ORDER BY opt), '{}')::text[] AS options,
+           obj_description(s.oid, 'pg_foreign_server') AS comment,
+           ${aclJson("s.srvacl")} AS acl
+    FROM pg_foreign_server s
+    JOIN pg_foreign_data_wrapper f ON f.oid = s.srvfdw
+    JOIN pg_roles r ON r.oid = s.srvowner
+    WHERE ${notExtensionMember("pg_foreign_server", "s.oid")}
+    ORDER BY s.srvname`)) {
+    pushWithMeta(
+      {
+        id: { kind: "server", name: String(row["name"]) },
+        parent: { kind: "fdw", name: String(row["fdw"]) },
+        payload: {
+          owner: String(row["owner"]),
+          fdw: String(row["fdw"]),
+          type: row["type"] == null ? null : (row["type"] as string),
+          version: row["version"] == null ? null : (row["version"] as string),
+          options: (row["options"] as string[]).map(String),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+  for (const row of await q(`
+    SELECT s.srvname AS server, COALESCE(r.rolname, 'PUBLIC') AS role,
+           COALESCE(ARRAY(SELECT opt FROM unnest(u.umoptions) opt ORDER BY opt), '{}')::text[] AS options
+    FROM pg_user_mapping u
+    JOIN pg_foreign_server s ON s.oid = u.umserver
+    LEFT JOIN pg_roles r ON r.oid = u.umuser
+    ORDER BY s.srvname, 2`)) {
+    facts.push({
+      id: {
+        kind: "userMapping",
+        server: String(row["server"]),
+        role: String(row["role"]),
+      },
+      parent: { kind: "server", name: String(row["server"]) },
+      payload: { options: (row["options"] as string[]).map(String) },
+    });
+  }
+  for (const row of await q(`
+    SELECT n.nspname AS schema, c.relname AS name, r.rolname AS owner,
+           s.srvname AS server,
+           COALESCE(ARRAY(SELECT opt FROM unnest(ft.ftoptions) opt ORDER BY opt), '{}')::text[] AS options,
+           obj_description(c.oid, 'pg_class') AS comment,
+           ${aclJson("c.relacl")} AS acl
+    FROM pg_foreign_table ft
+    JOIN pg_class c ON c.oid = ft.ftrelid
+    JOIN pg_foreign_server s ON s.oid = ft.ftserver
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_roles r ON r.oid = c.relowner
+    WHERE ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_class", "c.oid")}
+    ORDER BY n.nspname, c.relname`)) {
+    pushWithMeta(
+      {
+        id: {
+          kind: "foreignTable",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        parent: { kind: "server", name: String(row["server"]) },
+        payload: {
+          owner: String(row["owner"]),
+          server: String(row["server"]),
+          options: (row["options"] as string[]).map(String),
+        },
+      },
+      row,
+      parseAcl(row["acl"]),
+    );
+  }
+
+  // ── publications ─────────────────────────────────────────────────────
+  for (const row of await q(`
+    SELECT p.pubname AS name, r.rolname AS owner,
+           p.puballtables AS all_tables, p.pubviaroot AS via_root,
+           p.pubinsert, p.pubupdate, p.pubdelete, p.pubtruncate,
+           (SELECT json_agg(json_build_object(
+              'schema', pn.nspname, 'name', pc.relname,
+              'columns', (SELECT array_agg(att.attname::text ORDER BY att.attname)
+                          FROM unnest(pr.prattrs) WITH ORDINALITY AS pa(attnum, ord)
+                          JOIN pg_attribute att ON att.attrelid = pc.oid AND att.attnum = pa.attnum),
+              'where', pg_get_expr(pr.prqual, pr.prrelid)
+            ) ORDER BY pn.nspname, pc.relname)
+            FROM pg_publication_rel pr
+            JOIN pg_class pc ON pc.oid = pr.prrelid
+            JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+            WHERE pr.prpubid = p.oid) AS tables,
+           (SELECT array_agg(pn2.nspname::text ORDER BY 1)
+            FROM pg_publication_namespace pns
+            JOIN pg_namespace pn2 ON pn2.oid = pns.pnnspid
+            WHERE pns.pnpubid = p.oid) AS schemas,
+           obj_description(p.oid, 'pg_publication') AS comment
+    FROM pg_publication p
+    JOIN pg_roles r ON r.oid = p.pubowner
+    WHERE ${notExtensionMember("pg_publication", "p.oid")}
+    ORDER BY p.pubname`)) {
+    const publish: string[] = [];
+    if (row["pubinsert"]) publish.push("insert");
+    if (row["pubupdate"]) publish.push("update");
+    if (row["pubdelete"]) publish.push("delete");
+    if (row["pubtruncate"]) publish.push("truncate");
+    pushWithMeta(
+      {
+        id: { kind: "publication", name: String(row["name"]) },
+        payload: {
+          owner: String(row["owner"]),
+          allTables: Boolean(row["all_tables"]),
+          viaRoot: Boolean(row["via_root"]),
+          publish,
+          tables: (row["tables"] as
+            | {
+                schema: string;
+                name: string;
+                columns: string[] | null;
+                where: string | null;
+              }[]
+            | null) ?? [],
+          schemas: ((row["schemas"] as string[] | null) ?? []).map(String),
+        },
+      },
+      row,
+    );
+  }
+
+  // ── subscriptions (database-local rows only) ─────────────────────────
+  for (const row of await q(`
+    SELECT s.subname AS name, r.rolname AS owner, s.subenabled AS enabled,
+           s.subconninfo AS conninfo, s.subslotname AS slot_name,
+           s.subpublications::text[] AS publications,
+           obj_description(s.oid, 'pg_subscription') AS comment
+    FROM pg_subscription s
+    JOIN pg_roles r ON r.oid = s.subowner
+    JOIN pg_database d ON d.oid = s.subdbid
+    WHERE d.datname = current_database()
+    ORDER BY s.subname`)) {
+    pushWithMeta(
+      {
+        id: { kind: "subscription", name: String(row["name"]) },
+        payload: {
+          owner: String(row["owner"]),
+          enabled: Boolean(row["enabled"]),
+          conninfo: String(row["conninfo"]),
+          slotName:
+            row["slot_name"] == null ? null : (row["slot_name"] as string),
+          publications: (row["publications"] as string[]).map(String).sort(),
+        },
+      },
+      row,
+    );
+  }
+
+  // ── inheritance / partition edges (child depends on parent) ──────────
+  for (const row of await q(`
+    SELECT cn.nspname AS child_schema, cc.relname AS child_name,
+           pn.nspname AS parent_schema, pc.relname AS parent_name
+    FROM pg_inherits i
+    JOIN pg_class cc ON cc.oid = i.inhrelid
+    JOIN pg_namespace cn ON cn.oid = cc.relnamespace
+    JOIN pg_class pc ON pc.oid = i.inhparent
+    JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+    WHERE cc.relkind IN ('r', 'p')
+      AND cn.nspname NOT IN ${SYSTEM_SCHEMAS}`)) {
+    edges.push({
+      from: {
+        kind: "table",
+        schema: String(row["child_schema"]),
+        name: String(row["child_name"]),
+      },
+      to: {
+        kind: "table",
+        schema: String(row["parent_schema"]),
+        name: String(row["parent_name"]),
+      },
+      kind: "depends",
+    });
+  }
+
   // ── dependency edges from pg_depend (the authoritative source, P1) ───
   const resolver = `
     CASE
@@ -586,21 +1258,93 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
         JOIN pg_namespace rn ON rn.oid = rc.relnamespace
         JOIN pg_attribute att ON att.attrelid = rc.oid AND att.attnum = cls.objsubid
         WHERE rc.oid = cls.objid AND rc.relkind IN ('r','p') AND NOT att.attisdropped)
-      WHEN cls.classid = 'pg_proc'::regclass THEN (
-        SELECT json_build_object('kind', 'procedure', 'schema', pn.nspname,
-                                 'name', pp.proname,
-                                 'args', ARRAY(SELECT format_type(t.t, NULL)
-                                               FROM unnest(pp.proargtypes) WITH ORDINALITY AS t(t, ord)
-                                               ORDER BY t.ord)::text[])
+      WHEN cls.classid = 'pg_proc'::regclass THEN COALESCE(
+        -- extension-member routines are not facts: resolve to the extension
+        (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+         FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+         WHERE ed.classid = 'pg_proc'::regclass AND ed.objid = cls.objid
+           AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+         LIMIT 1),
+        (SELECT json_build_object(
+                 'kind', CASE pp.prokind WHEN 'a' THEN 'aggregate' ELSE 'procedure' END,
+                 'schema', pn.nspname,
+                 'name', pp.proname,
+                 'args', ARRAY(SELECT format_type(t.t, NULL)
+                               FROM unnest(pp.proargtypes) WITH ORDINALITY AS t(t, ord)
+                               ORDER BY t.ord)::text[])
         FROM pg_proc pp JOIN pg_namespace pn ON pn.oid = pp.pronamespace
-        WHERE pp.oid = cls.objid AND pp.prokind IN ('f','p'))
-      WHEN cls.classid = 'pg_constraint'::regclass THEN (
-        SELECT json_build_object('kind', 'constraint', 'schema', cn.nspname,
-                                 'table', cc.relname, 'name', con.conname)
-        FROM pg_constraint con
-        JOIN pg_class cc ON cc.oid = con.conrelid
-        JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-        WHERE con.oid = cls.objid AND con.conrelid <> 0)
+        WHERE pp.oid = cls.objid AND pp.prokind IN ('f','p','a')))
+      WHEN cls.classid = 'pg_constraint'::regclass THEN COALESCE(
+        (SELECT json_build_object('kind', 'constraint', 'schema', cn.nspname,
+                                  'table', cc.relname, 'name', con.conname)
+         FROM pg_constraint con
+         JOIN pg_class cc ON cc.oid = con.conrelid
+         JOIN pg_namespace cn ON cn.oid = cc.relnamespace
+         WHERE con.oid = cls.objid AND con.conrelid <> 0),
+        (SELECT json_build_object('kind', 'constraint', 'schema', dn.nspname,
+                                  'table', dt.typname, 'name', con.conname)
+         FROM pg_constraint con
+         JOIN pg_type dt ON dt.oid = con.contypid
+         JOIN pg_namespace dn ON dn.oid = dt.typnamespace
+         WHERE con.oid = cls.objid AND con.contypid <> 0))
+      WHEN cls.classid = 'pg_type'::regclass THEN COALESCE(
+        (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+         FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+         WHERE ed.classid = 'pg_type'::regclass AND ed.objid = cls.objid
+           AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+         LIMIT 1),
+        (SELECT json_build_object(
+                 'kind', CASE tt.typtype WHEN 'd' THEN 'domain' ELSE 'type' END,
+                 'schema', tn.nspname, 'name', tt.typname)
+        FROM pg_type tt JOIN pg_namespace tn ON tn.oid = tt.typnamespace
+        WHERE tt.oid = cls.objid AND tt.typtype IN ('d','e','c','r')))
+      WHEN cls.classid = 'pg_opclass'::regclass THEN (
+        SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+        FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+        WHERE ed.classid = 'pg_opclass'::regclass AND ed.objid = cls.objid
+          AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+        LIMIT 1)
+      WHEN cls.classid = 'pg_opfamily'::regclass THEN (
+        SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+        FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+        WHERE ed.classid = 'pg_opfamily'::regclass AND ed.objid = cls.objid
+          AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+        LIMIT 1)
+      WHEN cls.classid = 'pg_operator'::regclass THEN (
+        SELECT json_build_object('kind', 'extension', 'name', ext.extname)
+        FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
+        WHERE ed.classid = 'pg_operator'::regclass AND ed.objid = cls.objid
+          AND ed.refclassid = 'pg_extension'::regclass AND ed.deptype = 'e'
+        LIMIT 1)
+      WHEN cls.classid = 'pg_collation'::regclass THEN (
+        SELECT json_build_object('kind', 'collation', 'schema', cln.nspname,
+                                 'name', cl.collname)
+        FROM pg_collation cl JOIN pg_namespace cln ON cln.oid = cl.collnamespace
+        WHERE cl.oid = cls.objid)
+      WHEN cls.classid = 'pg_policy'::regclass THEN (
+        SELECT json_build_object('kind', 'policy', 'schema', poln.nspname,
+                                 'table', polc.relname, 'name', pol.polname)
+        FROM pg_policy pol
+        JOIN pg_class polc ON polc.oid = pol.polrelid
+        JOIN pg_namespace poln ON poln.oid = polc.relnamespace
+        WHERE pol.oid = cls.objid)
+      WHEN cls.classid = 'pg_event_trigger'::regclass THEN (
+        SELECT json_build_object('kind', 'eventTrigger', 'name', evt.evtname)
+        FROM pg_event_trigger evt WHERE evt.oid = cls.objid)
+      WHEN cls.classid = 'pg_publication'::regclass THEN (
+        SELECT json_build_object('kind', 'publication', 'name', pub.pubname)
+        FROM pg_publication pub WHERE pub.oid = cls.objid)
+      WHEN cls.classid = 'pg_publication_rel'::regclass THEN (
+        SELECT json_build_object('kind', 'publication', 'name', pub2.pubname)
+        FROM pg_publication_rel pr2
+        JOIN pg_publication pub2 ON pub2.oid = pr2.prpubid
+        WHERE pr2.oid = cls.objid)
+      WHEN cls.classid = 'pg_foreign_data_wrapper'::regclass THEN (
+        SELECT json_build_object('kind', 'fdw', 'name', fd.fdwname)
+        FROM pg_foreign_data_wrapper fd WHERE fd.oid = cls.objid)
+      WHEN cls.classid = 'pg_foreign_server'::regclass THEN (
+        SELECT json_build_object('kind', 'server', 'name', fs.srvname)
+        FROM pg_foreign_server fs WHERE fs.oid = cls.objid)
       WHEN cls.classid = 'pg_attrdef'::regclass THEN (
         SELECT json_build_object('kind', 'default', 'schema', dn.nspname,
                                  'table', dc.relname, 'name', da.attname)
@@ -636,7 +1380,15 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
       (SELECT ${resolver} FROM (SELECT d.refclassid AS classid, d.refobjid AS objid, d.refobjsubid AS objsubid) cls) AS referenced,
       d.deptype
     FROM pg_depend d
-    WHERE d.deptype IN ('n', 'a')`);
+    WHERE d.deptype IN ('n', 'a')
+      -- sequence OWNED BY is carried as payload + ALTER SEQUENCE … OWNED BY
+      -- (pg_dump's model); the auto edge would cycle with the column default
+      AND NOT (d.deptype = 'a'
+               AND d.classid = 'pg_class'::regclass
+               AND d.refclassid = 'pg_class'::regclass
+               AND d.refobjsubid > 0
+               AND EXISTS (SELECT 1 FROM pg_class sc
+                           WHERE sc.oid = d.objid AND sc.relkind = 'S'))`);
 
   const toId = (raw: unknown): StableId | undefined => {
     if (raw == null) return undefined;
@@ -644,11 +1396,21 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
     switch (o["kind"]) {
       case "schema":
         return { kind: "schema", name: o["name"] as string };
+      case "eventTrigger":
+      case "publication":
+      case "fdw":
+      case "server":
+      case "extension":
+        return { kind: o["kind"], name: o["name"] as string };
       case "table":
       case "view":
       case "materializedView":
       case "index":
       case "sequence":
+      case "domain":
+      case "type":
+      case "collation":
+      case "foreignTable":
         return {
           kind: o["kind"],
           schema: o["schema"] as string,
@@ -658,6 +1420,8 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
       case "constraint":
       case "default":
       case "trigger":
+      case "policy":
+      case "rule":
         return {
           kind: o["kind"],
           schema: o["schema"] as string,
@@ -665,8 +1429,9 @@ async function extractOnClient(client: PoolClient): Promise<ExtractResult> {
           name: o["name"] as string,
         };
       case "procedure":
+      case "aggregate":
         return {
-          kind: "procedure",
+          kind: o["kind"],
           schema: o["schema"] as string,
           name: o["name"] as string,
           args: (o["args"] as unknown as string[]).map(String),

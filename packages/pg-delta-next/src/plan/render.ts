@@ -46,10 +46,32 @@ export function commentTarget(id: StableId): string {
       return `POLICY ${qid(id.name)} ON ${rel(id.schema, id.table)}`;
     case "procedure":
       return `FUNCTION ${routineSig(id)}`;
+    case "aggregate":
+      return `AGGREGATE ${routineSig(id)}`;
     case "extension":
       return `EXTENSION ${qid(id.name)}`;
     case "role":
       return `ROLE ${qid(id.name)}`;
+    case "domain":
+      return `DOMAIN ${rel(id.schema, id.name)}`;
+    case "type":
+      return `TYPE ${rel(id.schema, id.name)}`;
+    case "collation":
+      return `COLLATION ${rel(id.schema, id.name)}`;
+    case "foreignTable":
+      return `FOREIGN TABLE ${rel(id.schema, id.name)}`;
+    case "rule":
+      return `RULE ${qid(id.name)} ON ${rel(id.schema, id.table)}`;
+    case "eventTrigger":
+      return `EVENT TRIGGER ${qid(id.name)}`;
+    case "publication":
+      return `PUBLICATION ${qid(id.name)}`;
+    case "subscription":
+      return `SUBSCRIPTION ${qid(id.name)}`;
+    case "fdw":
+      return `FOREIGN DATA WRAPPER ${qid(id.name)}`;
+    case "server":
+      return `SERVER ${qid(id.name)}`;
     default:
       throw new Error(`commentTarget: unsupported kind ${id.kind}`);
   }
@@ -67,8 +89,51 @@ export function grantTarget(id: StableId): string {
     case "schema":
       return `SCHEMA ${qid(id.name)}`;
     case "procedure":
+    case "aggregate":
       return `FUNCTION ${routineSig(id)}`;
+    case "domain":
+    case "type":
+      return `TYPE ${rel(id.schema, id.name)}`;
+    case "foreignTable":
+      return `TABLE ${rel(id.schema, id.name)}`;
+    case "fdw":
+      return `FOREIGN DATA WRAPPER ${qid(id.name)}`;
+    case "server":
+      return `FOREIGN SERVER ${qid(id.name)}`;
     default:
       throw new Error(`grantTarget: unsupported kind ${id.kind}`);
   }
+}
+
+/** "k=v" option strings (as stored in pg_*options) → OPTIONS clause pieces. */
+export function splitOption(opt: string): [key: string, value: string] {
+  const i = opt.indexOf("=");
+  return i === -1 ? [opt, ""] : [opt.slice(0, i), opt.slice(i + 1)];
+}
+
+export function optionsClause(options: string[]): string {
+  if (options.length === 0) return "";
+  const parts = options.map((opt) => {
+    const [key, value] = splitOption(opt);
+    return `${qid(key)} ${lit(value)}`;
+  });
+  return ` OPTIONS (${parts.join(", ")})`;
+}
+
+/** ALTER … OPTIONS (ADD/SET/DROP …) clause from old vs new option lists. */
+export function alterOptionsClause(
+  oldOptions: string[],
+  newOptions: string[],
+): string {
+  const oldMap = new Map(oldOptions.map(splitOption));
+  const newMap = new Map(newOptions.map(splitOption));
+  const parts: string[] = [];
+  for (const [key, value] of newMap) {
+    if (!oldMap.has(key)) parts.push(`ADD ${qid(key)} ${lit(value)}`);
+    else if (oldMap.get(key) !== value) parts.push(`SET ${qid(key)} ${lit(value)}`);
+  }
+  for (const key of oldMap.keys()) {
+    if (!newMap.has(key)) parts.push(`DROP ${qid(key)}`);
+  }
+  return `OPTIONS (${parts.join(", ")})`;
 }
