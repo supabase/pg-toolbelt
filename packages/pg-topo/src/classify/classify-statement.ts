@@ -10,7 +10,9 @@ export type StatementClass =
   | "CREATE_TYPE"
   | "CREATE_ROLE"
   | "CREATE_PUBLICATION"
+  | "ALTER_PUBLICATION"
   | "CREATE_SUBSCRIPTION"
+  | "ALTER_SUBSCRIPTION"
   | "CREATE_DOMAIN"
   | "CREATE_COLLATION"
   | "CREATE_SEQUENCE"
@@ -39,10 +41,12 @@ export type StatementClass =
   | "UNKNOWN";
 
 const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
+  AlterPublicationStmt: "ALTER_PUBLICATION",
   AlterTableStmt: "ALTER_TABLE",
   AlterOwnerStmt: "ALTER_OWNER",
   AlterDefaultPrivilegesStmt: "ALTER_DEFAULT_PRIVILEGES",
   AlterSeqStmt: "ALTER_SEQUENCE",
+  AlterSubscriptionStmt: "ALTER_SUBSCRIPTION",
   CommentStmt: "COMMENT",
   CreatePLangStmt: "CREATE_LANGUAGE",
   CompositeTypeStmt: "CREATE_TYPE",
@@ -149,6 +153,7 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_INDEX: "post_data",
   CREATE_LANGUAGE: "bootstrap",
   CREATE_MATERIALIZED_VIEW: "post_data",
+  ALTER_PUBLICATION: "post_data",
   CREATE_PUBLICATION: "post_data",
   CREATE_POLICY: "post_data",
   CREATE_PROCEDURE: "routines",
@@ -156,6 +161,7 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_ROLE: "bootstrap",
   CREATE_SCHEMA: "bootstrap",
   CREATE_SEQUENCE: "pre_data",
+  ALTER_SUBSCRIPTION: "post_data",
   CREATE_SUBSCRIPTION: "post_data",
   CREATE_TABLE: "data_structures",
   CREATE_EVENT_TRIGGER: "post_data",

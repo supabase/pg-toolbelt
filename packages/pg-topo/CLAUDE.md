@@ -18,7 +18,7 @@ bun run format-and-lint     # oxfmt + oxlint check
 6-stage pipeline: Parse -> Classify -> Extract -> Build Graph -> Topo Sort -> Result
 
 - `src/ingest/parse.ts` -- SQL content parsing (plpgsql-parser), no filesystem
-- `src/classify/` -- Statement classification (38 types)
+- `src/classify/` -- Statement classification (40 types)
 - `src/extract/` -- Dependency extraction from AST
 - `src/graph/` -- Graph building and topological sort (Kahn's algorithm)
 - `src/annotations/` -- SQL comment annotation parsing (`-- pg-topo:` directives)
