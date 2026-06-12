@@ -82,6 +82,18 @@ describe("classifyStatement", () => {
     expect(classifyStatement({ GrantStmt: {} })).toBe("GRANT");
   });
 
+  test("returns ALTER_PUBLICATION for AlterPublicationStmt", () => {
+    expect(classifyStatement({ AlterPublicationStmt: {} })).toBe(
+      "ALTER_PUBLICATION",
+    );
+  });
+
+  test("returns ALTER_SUBSCRIPTION for AlterSubscriptionStmt", () => {
+    expect(classifyStatement({ AlterSubscriptionStmt: {} })).toBe(
+      "ALTER_SUBSCRIPTION",
+    );
+  });
+
   test("returns UNKNOWN for null or non-object", () => {
     expect(classifyStatement(null)).toBe("UNKNOWN");
     expect(classifyStatement(undefined)).toBe("UNKNOWN");

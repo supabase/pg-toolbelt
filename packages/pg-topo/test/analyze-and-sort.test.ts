@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { analyzeAndSort } from "../src/analyze-and-sort";
+import { validateAnalyzeResultWithPostgres } from "./support/postgres-validation";
 
 describe("analyzeAndSort", () => {
   test("orders table before dependent view deterministically", async () => {
@@ -90,6 +91,167 @@ describe("analyzeAndSort", () => {
         (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
       ),
     ).toHaveLength(0);
+  });
+
+  test("orders ALTER PUBLICATION ADD TABLE after referenced publication and table", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_orders add table public.orders;",
+      "create table public.orders(id int primary key);",
+      "create publication pub_orders;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_TABLE",
+      "CREATE_PUBLICATION",
+      "ALTER_PUBLICATION",
+    ]);
+    expect(hasUnknownClass).toBe(false);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    expect(validation.diagnostics).toHaveLength(0);
+  }, 120000);
+
+  test("orders ALTER PUBLICATION SET TABLES IN SCHEMA after referenced publication and schema", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_sales set tables in schema sales;",
+      "create publication pub_sales;",
+      "create schema sales;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_SCHEMA",
+      "CREATE_PUBLICATION",
+      "ALTER_PUBLICATION",
+    ]);
+    expect(hasUnknownClass).toBe(false);
+  });
+
+  test("orders ALTER PUBLICATION DROP TABLE after referenced publication and table", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_orders drop table public.orders;",
+      "create publication pub_orders;",
+      "create table public.orders(id int primary key);",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_TABLE",
+      "CREATE_PUBLICATION",
+      "ALTER_PUBLICATION",
+    ]);
+    expect(
+      result.graph.edges.some(
+        (edge) =>
+          edge.reason === "requires" &&
+          edge.objectRef?.kind === "table" &&
+          edge.objectRef.schema === "public" &&
+          edge.objectRef.name === "orders",
+      ),
+    ).toBe(true);
+    expect(hasUnknownClass).toBe(false);
+  });
+
+  test("orders ALTER PUBLICATION DROP TABLES IN SCHEMA after referenced publication and schema", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_sales drop tables in schema sales;",
+      "create publication pub_sales;",
+      "create schema sales;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_SCHEMA",
+      "CREATE_PUBLICATION",
+      "ALTER_PUBLICATION",
+    ]);
+    expect(
+      result.graph.edges.some(
+        (edge) =>
+          edge.reason === "requires" &&
+          edge.objectRef?.kind === "schema" &&
+          edge.objectRef.name === "sales",
+      ),
+    ).toBe(true);
+    expect(hasUnknownClass).toBe(false);
+  });
+
+  test("orders ALTER SUBSCRIPTION SET PUBLICATION after referenced subscription and publications", async () => {
+    const result = await analyzeAndSort([
+      "alter subscription sub_orders set publication pub_events;",
+      "create publication pub_events;",
+      "create subscription sub_orders connection 'host=localhost port=5432 dbname=postgres' publication pub_orders with (connect = false);",
+      "create publication pub_orders;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_PUBLICATION",
+      "CREATE_PUBLICATION",
+      "CREATE_SUBSCRIPTION",
+      "ALTER_SUBSCRIPTION",
+    ]);
+    expect(result.ordered[0]?.sql.toLowerCase()).toContain("pub_events");
+    expect(result.ordered[1]?.sql.toLowerCase()).toContain("pub_orders");
+    expect(hasUnknownClass).toBe(false);
+  });
+
+  test("orders ALTER SUBSCRIPTION ADD PUBLICATION after referenced subscription and publications", async () => {
+    const result = await analyzeAndSort([
+      "alter subscription sub_orders add publication pub_events;",
+      "create subscription sub_orders connection 'host=localhost port=5432 dbname=postgres' publication pub_orders with (connect = false);",
+      "create publication pub_orders;",
+      "create publication pub_events;",
+    ]);
+    const orderedClasses = result.ordered.map(
+      (statement) => statement.statementClass,
+    );
+    const hasUnknownClass = result.diagnostics.some(
+      (diagnostic) => diagnostic.code === "UNKNOWN_STATEMENT_CLASS",
+    );
+
+    expect(orderedClasses).toEqual([
+      "CREATE_PUBLICATION",
+      "CREATE_PUBLICATION",
+      "CREATE_SUBSCRIPTION",
+      "ALTER_SUBSCRIPTION",
+    ]);
+    expect(result.ordered[0]?.sql.toLowerCase()).toContain("pub_orders");
+    expect(result.ordered[1]?.sql.toLowerCase()).toContain("pub_events");
+    expect(
+      result.graph.edges.some(
+        (edge) =>
+          edge.reason === "requires" &&
+          edge.objectRef.kind === "publication" &&
+          edge.objectRef.name === "pub_events",
+      ),
+    ).toBe(true);
+    expect(hasUnknownClass).toBe(false);
   });
 
   test("statement ids include sourceOffset when parser provides location", async () => {

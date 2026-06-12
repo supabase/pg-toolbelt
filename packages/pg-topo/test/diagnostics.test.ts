@@ -40,6 +40,65 @@ describe("diagnostics", () => {
     );
   });
 
+  test("reports unresolved publication for ALTER SUBSCRIPTION ADD PUBLICATION", async () => {
+    const result = await analyzeAndSort([
+      "alter subscription sub_orders add publication pub_events;",
+      "create subscription sub_orders connection 'host=localhost port=5432 dbname=postgres' publication pub_orders with (connect = false);",
+      "create publication pub_orders;",
+    ]);
+    const unresolved = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.details?.requiredObjectKey === "publication::pub_events:",
+    );
+
+    expect(unresolved).toBeDefined();
+  });
+
+  test("reports unresolved table for ALTER PUBLICATION DROP TABLE", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_orders drop table public.orders;",
+      "create publication pub_orders;",
+    ]);
+    const unresolved = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.details?.requiredObjectKey === "table:public:orders:",
+    );
+
+    expect(unresolved).toBeDefined();
+  });
+
+  test("reports unresolved schema for ALTER PUBLICATION DROP TABLES IN SCHEMA", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_sales drop tables in schema sales;",
+      "create publication pub_sales;",
+    ]);
+    const unresolved = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.details?.requiredObjectKey === "schema::sales:",
+    );
+
+    expect(unresolved).toBeDefined();
+  });
+
+  test("reports unresolved row filter function for ALTER PUBLICATION ADD TABLE", async () => {
+    const result = await analyzeAndSort([
+      "alter publication pub_orders add table public.orders where (public.is_visible(id));",
+      "create table public.orders(id int primary key);",
+      "create publication pub_orders;",
+    ]);
+    const unresolved = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.details?.requiredObjectKey ===
+          "function:public:is_visible:(unknown)",
+    );
+
+    expect(unresolved).toBeDefined();
+  });
+
   test("cycle diagnostics include statement participants", async () => {
     const result = await analyzeAndSort([
       "create view public.v1 as select * from public.v2;",
