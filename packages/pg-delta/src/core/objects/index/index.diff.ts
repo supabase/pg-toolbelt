@@ -137,6 +137,9 @@ export function diffIndexes(
           indexableObject: branchIndexableObjects[branchIndex.tableStableId],
         }),
       );
+      if (branchIndex.comment !== null) {
+        changes.push(new CreateCommentOnIndex({ index: branchIndex }));
+      }
     } else {
       // Only alterable properties changed - check each one
 

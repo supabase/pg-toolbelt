@@ -4,6 +4,7 @@ import {
   AlterIndexSetStorageParams,
   AlterIndexSetTablespace,
 } from "./changes/index.alter.ts";
+import { CreateCommentOnIndex } from "./changes/index.comment.ts";
 import { CreateIndex } from "./changes/index.create.ts";
 import { DropIndex } from "./changes/index.drop.ts";
 import { diffIndexes } from "./index.diff.ts";
@@ -140,14 +141,16 @@ describe.concurrent("index.diff", () => {
       ...base,
       index_type: "hash",
       is_unique: true,
+      comment: "rebuilt index comment",
     });
     const changes = diffIndexes(
       { [main.stableId]: main },
       { [branch.stableId]: branch },
       {},
     );
-    expect(changes).toHaveLength(2);
+    expect(changes).toHaveLength(3);
     expect(changes[0]).toBeInstanceOf(DropIndex);
     expect(changes[1]).toBeInstanceOf(CreateIndex);
+    expect(changes[2]).toBeInstanceOf(CreateCommentOnIndex);
   });
 });

@@ -1029,21 +1029,17 @@ describe("expandReplaceDependencies", () => {
       definition: "CHECK (status_label <> '')",
       comment: "label guard",
     };
-    const mainTable = makeTable(
-      "accounts",
-      [baseColumn, generatedTextColumn],
-      {
-        constraints: [checkConstraint],
-        privileges: [
-          {
-            grantee: "generated_reader",
-            privilege: "SELECT",
-            grantable: false,
-            columns: ["status_label"],
-          },
-        ],
-      },
-    );
+    const mainTable = makeTable("accounts", [baseColumn, generatedTextColumn], {
+      constraints: [checkConstraint],
+      privileges: [
+        {
+          grantee: "generated_reader",
+          privilege: "SELECT",
+          grantable: false,
+          columns: ["status_label"],
+        },
+      ],
+    });
     const branchTable = makeTable(
       "accounts",
       [baseColumn, generatedVarcharColumn],
@@ -1130,7 +1126,9 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(
-      expanded.changes.some((change) => change instanceof CreateCommentOnColumn),
+      expanded.changes.some(
+        (change) => change instanceof CreateCommentOnColumn,
+      ),
     ).toBe(true);
     expect(
       expanded.changes.some(

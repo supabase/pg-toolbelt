@@ -1,6 +1,7 @@
 import type { Change } from "../change.types.ts";
 import { findConsumerIndexes } from "./graph-utils.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
+import { AlterTableDropConstraint } from "../objects/table/changes/table.alter.ts";
 import { stableId } from "../objects/utils.ts";
 import type {
   Constraint,
@@ -153,6 +154,21 @@ export function buildGraphData(
   phaseChanges: Change[],
   options: PhaseSortOptions,
 ): GraphData {
+  const droppedTableIds = new Set<string>();
+  const constraintDropTableIds = new Set<string>();
+  if (options.invert) {
+    for (const changeItem of phaseChanges) {
+      for (const droppedId of changeItem.drops ?? []) {
+        if (droppedId.startsWith("table:")) {
+          droppedTableIds.add(droppedId);
+        }
+      }
+      if (changeItem instanceof AlterTableDropConstraint) {
+        constraintDropTableIds.add(changeItem.table.stableId);
+      }
+    }
+  }
+
   const createdStableIdSets: Array<Set<string>> = phaseChanges.map(
     (changeItem) => {
       const createdIds = new Set<string>(changeItem.creates);
@@ -168,8 +184,20 @@ export function buildGraphData(
           createdIds.add(droppedId);
         }
         if (changeItem instanceof AlterPublicationDropTables) {
+          const publicationTableIds = changeItem.tables.map((table) =>
+            stableId.table(table.schema, table.name),
+          );
+          const dropsPublicationTable = publicationTableIds.some((tableId) =>
+            droppedTableIds.has(tableId),
+          );
           for (const table of changeItem.tables) {
-            createdIds.add(stableId.table(table.schema, table.name));
+            const tableId = stableId.table(table.schema, table.name);
+            if (
+              droppedTableIds.has(tableId) ||
+              (dropsPublicationTable && constraintDropTableIds.has(tableId))
+            ) {
+              createdIds.add(tableId);
+            }
           }
         }
       }

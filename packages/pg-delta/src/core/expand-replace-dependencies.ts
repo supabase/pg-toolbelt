@@ -2,6 +2,7 @@ import type { Catalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import type { ObjectDiffContext } from "./objects/diff-context.ts";
 import { diffAggregates } from "./objects/aggregate/aggregate.diff.ts";
+import { AlterAggregateChangeOwner } from "./objects/aggregate/changes/aggregate.alter.ts";
 import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
 import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
@@ -264,9 +265,19 @@ export function expandReplaceDependencies({
     list.add(dep.dependent_stable_id);
   }
 
+  const columnReplaceRoots = new Set(
+    [...replaceRoots].filter(
+      (id) =>
+        id.startsWith("column:") && createdIds.has(id) && droppedIds.has(id),
+    ),
+  );
+
   const visitedTargets = new Set<string>();
   const visitedRefs = new Set<string>(replaceRoots);
-  const refsReachedFromInvalidation = new Set<string>(invalidatedIds);
+  const refsReachedFromInvalidation = new Set([
+    ...invalidatedIds,
+    ...columnReplaceRoots,
+  ]);
   const queue: string[] = [...replaceRoots];
   // Tables being replaced by an expansion-added DropTable+CreateTable pair.
   // Any pre-existing targeted AlterTable*(T) object-scope change is superseded
@@ -277,10 +288,26 @@ export function expandReplaceDependencies({
   const rulesReplacedByExpansion = new Set<string>();
   const triggersReplacedByExpansion = new Set<string>();
   const generatedColumnsReplacedByExpansion = new Set<string>();
+  const restoredGeneratedColumnDependents = new Set<string>();
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
     const reachedFromInvalidation = refsReachedFromInvalidation.has(refId);
+    if (
+      columnReplaceRoots.has(refId) &&
+      !restoredGeneratedColumnDependents.has(refId) &&
+      isGeneratedColumnReplacementTarget(refId, mainCatalog, branchCatalog)
+    ) {
+      const replacementChanges =
+        buildGeneratedColumnDependentReplacementChanges(refId, branchCatalog, [
+          ...changes,
+          ...additions,
+        ]);
+      additions.push(...replacementChanges);
+      trackChangeIds(replacementChanges, createdIds, droppedIds);
+      restoredGeneratedColumnDependents.add(refId);
+    }
+
     const dependents = dependentsByReferenced.get(refId);
     if (!dependents) continue;
 
@@ -304,6 +331,7 @@ export function expandReplaceDependencies({
           [...changes, ...additions],
         );
         additions.push(...replacementChanges);
+        trackChangeIds(replacementChanges, createdIds, droppedIds);
         if (
           isGeneratedColumnReplacementTarget(
             dependentRaw,
@@ -312,9 +340,10 @@ export function expandReplaceDependencies({
           )
         ) {
           generatedColumnsReplacedByExpansion.add(dependentRaw);
+          columnReplaceRoots.add(dependentRaw);
+          refsReachedFromInvalidation.add(dependentRaw);
           if (!visitedRefs.has(dependentRaw)) {
             visitedRefs.add(dependentRaw);
-            refsReachedFromInvalidation.add(dependentRaw);
             queue.push(dependentRaw);
           }
         }
@@ -330,7 +359,14 @@ export function expandReplaceDependencies({
           ),
         );
       }
-      if (!reachedFromInvalidation && dependentRaw.startsWith("constraint:")) {
+      const isColumnReplacementRoot =
+        refId.startsWith("column:") &&
+        createdIds.has(refId) &&
+        droppedIds.has(refId);
+      if (
+        dependentRaw.startsWith("constraint:") &&
+        (!reachedFromInvalidation || isColumnReplacementRoot)
+      ) {
         const replacementChanges = buildConstraintReplacementChanges(
           dependentRaw,
           mainCatalog,
@@ -338,10 +374,7 @@ export function expandReplaceDependencies({
           [...changes, ...additions],
         );
         additions.push(...replacementChanges);
-        for (const change of replacementChanges) {
-          for (const id of change.creates ?? []) createdIds.add(id);
-          for (const id of change.drops ?? []) droppedIds.add(id);
-        }
+        trackChangeIds(replacementChanges, createdIds, droppedIds);
         continue;
       }
 
@@ -425,10 +458,7 @@ export function expandReplaceDependencies({
       }
 
       // Track new creates/drops so we don't duplicate work for downstream dependents.
-      for (const change of replacementChanges) {
-        for (const id of change.creates ?? []) createdIds.add(id);
-        for (const id of change.drops ?? []) droppedIds.add(id);
-      }
+      trackChangeIds(replacementChanges, createdIds, droppedIds);
     }
   }
 
@@ -522,6 +552,17 @@ function collectInvalidatedRlsPolicyReplacements({
   }
 
   return replacements;
+}
+
+function trackChangeIds(
+  changes: readonly Change[],
+  createdIds: Set<string>,
+  droppedIds: Set<string>,
+): void {
+  for (const change of changes) {
+    for (const id of change.creates ?? []) createdIds.add(id);
+    for (const id of change.drops ?? []) droppedIds.add(id);
+  }
 }
 
 function removeSupersededRlsPolicyAlters(
@@ -1066,6 +1107,24 @@ function buildConstraintReplacementChanges(
     );
   }
 
+  const backingIndex = Object.values(branchCatalog.indexes).find(
+    (index) =>
+      index.is_owned_by_constraint &&
+      index.schema === parsed.schema &&
+      index.table_name === parsed.table &&
+      index.name === parsed.constraint,
+  );
+  if (
+    backingIndex?.comment !== null &&
+    backingIndex?.comment !== undefined &&
+    !hasChangeCreating(
+      [...existingChanges, ...replacementChanges],
+      stableId.comment(backingIndex.stableId),
+    )
+  ) {
+    replacementChanges.push(new CreateCommentOnIndex({ index: backingIndex }));
+  }
+
   return replacementChanges;
 }
 
@@ -1581,7 +1640,13 @@ function buildReplaceChanges(
         ...(addDrop ? [new DropAggregate({ aggregate: resolved.main })] : []),
         ...(addCreate
           ? buildCreateAggregateReplacementChanges(resolved.branch, diffContext)
-          : []),
+          : addDrop
+            ? buildAggregateMetadataReplacementChanges(
+                resolved.branch,
+                diffContext,
+                existingChanges,
+              )
+            : []),
       ];
     case "rls_policy":
       return [
@@ -1697,6 +1762,63 @@ function buildCreateAggregateReplacementChanges(
   return diffContext
     ? diffAggregates(diffContext, {}, { [aggregate.stableId]: aggregate })
     : [new CreateAggregate({ aggregate })];
+}
+
+function buildAggregateMetadataReplacementChanges(
+  aggregate: Catalog["aggregates"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+  existingChanges: readonly Change[],
+): Change[] {
+  const candidateChanges = diffContext
+    ? diffAggregates(diffContext, {}, { [aggregate.stableId]: aggregate })
+    : [];
+  const changes: Change[] = [];
+
+  for (const candidate of candidateChanges) {
+    if (candidate instanceof CreateAggregate) continue;
+    if (
+      hasEquivalentAggregateMetadataChange(candidate, [
+        ...existingChanges,
+        ...changes,
+      ])
+    ) {
+      continue;
+    }
+    changes.push(candidate);
+  }
+
+  return changes;
+}
+
+function hasEquivalentAggregateMetadataChange(
+  candidate: Change,
+  changes: readonly Change[],
+): boolean {
+  if (candidate instanceof AlterAggregateChangeOwner) {
+    return changes.some(
+      (change) =>
+        change instanceof AlterAggregateChangeOwner &&
+        change.aggregate.stableId === candidate.aggregate.stableId &&
+        change.owner === candidate.owner,
+    );
+  }
+
+  const createdIds = candidate.creates ?? [];
+  if (createdIds.length > 0) {
+    return createdIds.every((id) => hasChangeCreating(changes, id));
+  }
+
+  const serialized = candidate.serialize();
+  return changes.some(
+    (change) =>
+      change.constructor === candidate.constructor &&
+      change.serialize() === serialized,
+  );
 }
 
 function buildCreateProcedureReplacementChanges(

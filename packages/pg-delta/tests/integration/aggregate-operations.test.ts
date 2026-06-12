@@ -181,7 +181,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               "COMMENT ON AGGREGATE test_schema.total_amount_metadata(integer) IS 'aggregate metadata'",
             );
             expect(sqlStatements).toContain(
-              "GRANT EXECUTE ON FUNCTION test_schema.total_amount_metadata(integer) TO aggregate_executor",
+              "GRANT ALL ON FUNCTION test_schema.total_amount_metadata(integer) TO aggregate_executor",
             );
           },
         });
