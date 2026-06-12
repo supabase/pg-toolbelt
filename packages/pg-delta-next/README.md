@@ -30,17 +30,26 @@ re-validation, shared-object leak detection, and parser-free DML rejection
 - **Extractor ring**: fixture DDL → asserted facts/payloads/edges,
   deterministic re-extraction, snapshot round-trip, clone fidelity.
 
-## Kind coverage (v1 slice)
+## Kind coverage
 
-schema, role, extension, table, column, default, constraint, index,
-sequence, view, materialized view, function/procedure, trigger, policy,
-comments (global rule), ACLs (global rule).
+schema, role (incl. configs), role memberships, default privileges,
+extension, table (incl. partitioned/partitions, INHERITS, replica
+identity), column, default, constraint (tables + domains), index,
+sequence (incl. OWNED BY), view, materialized view, function/procedure,
+aggregate, trigger, policy, rewrite rule, event trigger, domain,
+enum/composite/range types, collation, publication, subscription,
+FDW/server/user-mapping/foreign-table, comments (one global rule),
+ACLs (one global rule, REVOKE-first).
 
-Not yet covered (extend the rule table + extractor, then add corpus
-scenarios): domains, enums/composite/range types, collations, languages,
-event triggers, publications, subscriptions, FDW family, partitioned-table
-specifics (ATTACH/DETACH), `ALTER TYPE` segmentation, compaction,
-renames, the policy layer (stage 8), snapshots-as-frontend CLI.
+The corpus (`corpus/`, ~195 scenarios) is the port of the old pg-delta
+integration suite — see `PORTING.md` for the per-case ledger and the
+not-ported-with-reason list (Supabase-image, policy-layer/stage-8,
+dummy_seclabel, stage-9 renames/export).
+
+Not yet covered: compaction (plans are decomposed/verbose by design),
+renames (stage 9), the policy layer + provenance edges (stage 8),
+`ALTER TYPE ADD VALUE` same-transaction usage segmentation, security
+labels (needs dummy_seclabel image).
 
 Known v1 simplifications (each has a stage-doc home):
 
