@@ -9,6 +9,10 @@ import {
 } from "../objects/domain/changes/domain.alter.ts";
 import { DropDomain } from "../objects/domain/changes/domain.drop.ts";
 import { Domain } from "../objects/domain/domain.model.ts";
+import { CreateIndex } from "../objects/index/changes/index.create.ts";
+import { Index } from "../objects/index/index.model.ts";
+import { CreateMaterializedView } from "../objects/materialized-view/changes/materialized-view.create.ts";
+import { MaterializedView } from "../objects/materialized-view/materialized-view.model.ts";
 import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "../objects/procedure/procedure.model.ts";
@@ -218,6 +222,62 @@ function view(name: string, columns = [integerColumn("id", 1)]) {
   });
 }
 
+function materializedView(name: string) {
+  return new MaterializedView({
+    schema: "public",
+    name,
+    definition: "SELECT id FROM public.users",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: true,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    owner: "postgres",
+    comment: null,
+    columns: [integerColumn("id", 1)],
+    privileges: [],
+  });
+}
+
+function indexOnMaterializedView(viewName: string, indexName: string) {
+  return new Index({
+    schema: "public",
+    table_name: viewName,
+    name: indexName,
+    storage_params: [],
+    statistics_target: [0],
+    index_type: "btree",
+    tablespace: null,
+    is_unique: false,
+    is_primary: false,
+    is_exclusion: false,
+    nulls_not_distinct: false,
+    immediate: true,
+    is_clustered: false,
+    is_replica_identity: false,
+    key_columns: [1],
+    column_collations: [],
+    operator_classes: [],
+    column_options: [],
+    index_expressions: null,
+    partial_predicate: null,
+    is_owned_by_constraint: false,
+    table_relkind: "m",
+    is_partitioned_index: false,
+    is_index_partition: false,
+    parent_index_name: null,
+    definition: `CREATE INDEX ${indexName} ON public.${viewName} (id)`,
+    comment: null,
+    owner: "postgres",
+  });
+}
+
 function domain(defaultValue: string | null, name = "score") {
   return new Domain({
     schema: "public",
@@ -332,6 +392,30 @@ function changeLabel(change: Change) {
 }
 
 describe("sortChanges", () => {
+  test("orders materialized view indexes after recreated materialized views", async () => {
+    const branchMaterializedView = materializedView("user_ids_mv");
+    const branchIndex = indexOnMaterializedView(
+      "user_ids_mv",
+      "user_ids_mv_id_idx",
+    );
+    const changes: Change[] = [
+      new CreateIndex({
+        index: branchIndex,
+        indexableObject: branchMaterializedView,
+      }),
+      new CreateMaterializedView({ materializedView: branchMaterializedView }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.map(changeLabel)).toEqual([
+      "CreateMaterializedView",
+      "CreateIndex",
+    ]);
+  });
+
   test("orders dependent view drop before drop-phase column type rewrite", async () => {
     const branchTable = table("users");
     const mainColumn = {
