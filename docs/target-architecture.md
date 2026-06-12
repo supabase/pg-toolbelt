@@ -777,8 +777,14 @@ cutover). There are no byte-compatibility gates anywhere — every stage
 ships behind proof-based gates only. Repository discipline (changesets,
 RED→GREEN regressions) applies as usual.
 
+Each stage has a detailed implementation document —
+[stage-00-test-suite.md](./stage-00-test-suite.md) through
+[stage-10-cutover.md](./stage-10-cutover.md) — covering deliverables,
+old-codebase mining maps, pitfalls, and the gate in checkable form.
+
 | # | Stage | Builds | Gate |
 |---|---|---|---|
+| 0 | **The red test suite, first**: scenario corpus ported from the existing integration tests; target API as typed stubs; fixture-validity layer green from day one; engine tests red on `NotImplementedError`, pinned by an explicit list; old-engine baselines captured | §4.3 | Fixture validity green on all PG versions; 100% of old integration files accounted for; every red explained |
 | 1 | Identity codec + fact-base core: typed IDs, identity-free payload hashing, Merkle rollups (facts + edges), snapshot format v1 (version-tagged) | §3.1 | Property tests: codec round-trip, rollup algebra, hash stability |
 | 2 | Extractor port: re-key the extractor SQL corpus to return structured identity parts and fact rows + edges; snapshot-consistent parallel capture | §3.1–3.2 | Extractor fixture ring per PG version; pg_dump observer; content cross-check against old-engine catalogs |
 | 3 | Proof harness + corpus: `provePlan` (state + data-preservation checks, both materialization forms); port the integration scenarios as the seed corpus; stand up the differential runner against the old engine | §3.7, §4.3 | Harness proves extract → materialize → re-extract fidelity over the corpus |
@@ -790,10 +796,14 @@ RED→GREEN regressions) applies as usual.
 | 9 | Renames (leaf + structural-rollup matching, policy-gated); public API and CLI finalized | §4.1, §4.5 | Rename corpus; API review |
 | 10 | **Cutover at the parity bar**: full corpus green; differential clean-or-explained; generative soak quota met; extractor ring green on all supported PG versions. Old library enters maintenance; consumer migration guide ships | — | The parity bar itself |
 
-Stages 1–4 are bottom-up construction with no user-visible surface; 5–6 are
-the engine; 7–9 are the product; 10 is the switch. The old engine is never
-modified beyond what the differential runner needs. Consumers migrate once,
-at cutover, to a new major — there is no in-place compatibility layer.
+Stage 0 builds the definition of done before any engine code exists — the
+corpus is the contract, and "all red" is sound because red is pinned to
+mean *engine missing*, never *fixture broken* (the fixture layer is green
+from day one). Stages 1–4 are bottom-up construction with no user-visible
+surface; 5–6 are the engine; 7–9 are the product; 10 is the switch. The old
+engine is never modified beyond what the differential runner needs.
+Consumers migrate once, at cutover, to a new major — there is no in-place
+compatibility layer.
 
 ## 10. Guardrails for implementers
 
@@ -908,6 +918,13 @@ code.
   replaced by proof/differential/fixture gates; consumers migrate once, at
   the cutover parity bar (§7). Entries (a)–(e) above predate this and any
   in-place-migration framing in them is superseded.
+- **2026-06-12 (g)** — Per-stage implementation documents authored
+  (`docs/stage-00-test-suite.md` … `docs/stage-10-cutover.md`), and the
+  path gained **stage 0** at the maintainer's suggestion: the test suite is
+  built first — corpus ported from the existing integration tests, target
+  API stubs, old-engine baselines — with one refinement: red must mean
+  *engine missing* (pinned `NotImplementedError` list), never *fixture
+  broken* (the fixture-validity layer is green from day one).
 - Open questions intentionally left to their stages: compaction's default
   aggressiveness (stage 5), rename-policy default (stage 9), how
   aggressively to prune the ported corpus once generative coverage matures
