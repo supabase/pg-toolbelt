@@ -355,19 +355,34 @@ metadata (locks, rewrites, data loss).
 
 **The proof loop is the architecture's keystone.** Because any state can be
 materialized (template-cloned scratch DB) and re-extracted, the planner can
-certify its own output: apply the plan to a clone of the source, extract,
-hash-compare against the desired fact base. Zero diff = proven plan. This
-inverts the correctness economy of the whole project:
+certify its own output. The proof has two checks, because schema convergence
+alone has a blind spot:
 
-- **In CI**: property-based testing becomes the primary coverage engine —
-  generate schemas, generate mutations, roundtrip, assert fixpoint. The
-  hand-written per-type test matrix (127 test files / 18,505 LOC in
-  `objects/`, 63 integration files × 3 PG versions × 15 shards = 45 jobs)
-  shrinks to a thin integration ring around a generative core.
+1. **State proof.** Apply the plan to a clone of the source, extract,
+   hash-compare against the desired fact base. Zero diff = the plan produces
+   the right schema.
+2. **Data-preservation proof.** A plan that drop+creates a table instead of
+   altering it converges to an *identical schema* — and destroys every row.
+   State proof cannot see this. So the clone is seeded with rows before
+   applying, and the proof asserts they survive wherever the plan claims
+   `dataLoss: none`. The safety report stops being a report and becomes a
+   **verified claim**.
+
+One failure class remains invisible to any state-based proof: the
+**convergent-but-non-minimal** plan (rebuilding an index unnecessarily loses
+nothing and converges fine — it is merely catastrophic on a 2 TB table).
+Minimality is asserted at the plan level — semantic assertions on action
+kinds and budgets, never on SQL bytes — in the test architecture (§4.3).
+
+The proof loop inverts the correctness economy of the whole project:
+
+- **In CI**: it is the universal oracle behind both the scenario corpus and
+  the generative engine (§4.3).
 - **In production**: proof-on-shadow is an optional pre-apply step for
   high-stakes targets.
-- **For the rule table**: rules that misdeclare cascades or alterability are
-  caught as state mismatches the day they are written, not as field bugs.
+- **For the rule table**: rules that misdeclare cascades, alterability, or
+  data-loss classes are caught as proof failures the day they are written,
+  not as field bugs.
 
 ### 3.8 Execution
 
@@ -403,16 +418,55 @@ here they fall out of the state representation.
 
 ### 4.2 Proof-certified plans
 
-"This plan was applied to a clone and produced a hash-identical desired
-state" is a product claim no comparable tool makes. It also gives drift
+"This plan was applied to a clone, produced a hash-identical desired state,
+and preserved seeded data everywhere it claimed to" is a product claim no
+comparable tool makes. It also gives drift
 detection for free: comparing any environment against any snapshot is a
 rollup-hash walk.
 
-### 4.3 Generative testing as the safety net
+### 4.3 Tests as data: one harness, a seed corpus, a generative engine
 
-The oracle stops being "did a human anticipate this case in a test file" and
-becomes "does apply(plan(A→B), A) equal B" over generated A and B. Coverage
-grows with compute, not with test-authoring effort.
+The test architecture is P2 applied to testing itself: **one proof harness
+(machinery) + scenarios (data)**.
+
+- **The seed corpus.** Every scenario is a named
+  `(DDL_A, DDL_B[, seed rows][, plan assertions])` fixture run through the
+  proof harness. The existing integration suite ports into this corpus
+  nearly mechanically — its dominant pattern (set up two databases, plan,
+  apply, assert convergence) already *is* the proof loop, hand-rolled per
+  test. What the corpus preserves is not the old assertions but the
+  **problem corpus**: every field-discovered edge case and PostgreSQL
+  semantic the project has been burned by — publication/FK-cycle drops,
+  policy recreation chains, attnum drift, partition juggling. After the
+  extractor SQL, it is the second most valuable asset in the repository,
+  and it is exactly what a greenfield engine would otherwise silently
+  regress on. The RED→GREEN discipline carries over: every new field bug
+  becomes a corpus entry that fails before the fix and is pinned forever
+  after.
+- **The generative engine.** Property-based testing explores beyond the
+  corpus: generate schemas, generate mutations, roundtrip through the proof
+  loop — including the data-preservation check (§3.7) — and assert
+  fixpoint. Coverage grows with compute, not with test-authoring effort;
+  the corpus pins old ground so generation never re-loses it (the fuzzing
+  model: seed corpus + exploration).
+- **Semantic plan assertions.** Where a scenario's point is *how* the goal
+  is reached — minimality, in-place alteration, risk class — the fixture
+  asserts action kinds and budgets ("this delta yields an `alter`-class
+  action, not a replace"; "≤ N actions"), never SQL bytes. Byte snapshots
+  die with the old engine: they assert emission shape, which decomposition
+  (§3.5) intentionally changes and the compactor may change again.
+- **Differential testing during migration.** Until retired, the old engine
+  is itself an oracle: run both engines over the corpus and assert
+  state-equivalent plans. Every divergence is a bug in one of them — and
+  either finding is valuable.
+
+What this replaces: the hand-written per-type matrix as the primary safety
+net (127 unit-test files / 18,505 LOC in `objects/` die with the structures
+they assert; 63 integration files × 3 PG versions × 15 CI shards = 45 jobs
+collapse into corpus entries behind one harness). What survives unchanged:
+extraction tests and catalog baselines (the extractor corpus survives, so
+its tests do), and the Supabase integration tests (they assert filtering
+policy, not engine behavior).
 
 ### 4.4 An honest role for static analysis
 
@@ -445,6 +499,11 @@ over nearly verbatim:
   valuable asset in the repository. It becomes the fact producer; what
   changes is the keying of its output (fact rows instead of nested
   documents), not its content.
+- **The integration scenario corpus** — the distilled record of every
+  field-discovered failure, and the second most valuable asset after the
+  extractor SQL. The scenarios survive as seed-corpus fixtures for the
+  proof harness (§4.3); only their implementation-coupled assertions and
+  byte-level SQL snapshots are retired.
 - **The `pg_depend` doctrine** — deepened from "the diff path's source of
   truth" to "the only semantic engine, period" (P1).
 - **The normalization knowledge** in `stableSnapshot()` overrides (physical
@@ -473,7 +532,7 @@ over nearly verbatim:
 | pg-topo in the apply path | pg-topo as dev-experience layer (§4.4) |
 | String stable-ID re-parsing ([expand-replace-dependencies.ts:419-425](../packages/pg-delta/src/core/expand-replace-dependencies.ts)) | typed `StableId` (§3.1) |
 | `JSON.stringify` equality + triple extraction per apply | content hashes + single-snapshot extraction + proof-as-opt-in (§3.1, §3.2, §3.7) |
-| Hand-written per-type test matrix as primary safety net | generative roundtrip proof + thin integration ring (§4.3) |
+| Hand-written per-type test matrix as primary safety net; byte-level SQL snapshots | one proof harness over the seed scenario corpus + generative exploration + semantic plan assertions (§4.3) |
 
 ## 7. Honest costs
 
@@ -559,7 +618,7 @@ RED→GREEN regression test per repository policy.
 |---|---|---|---|
 | 1 | Single-snapshot parallel extraction; memoized content hashes on models; hash-based `equals`; post-apply verify becomes explicit proof opt-in | Fact base capture & hashing §3.1–3.2 | Fixes the consistency bug on day one; hashes later power fingerprints, renames, proof |
 | 2 | Typed `StableId` (frozen canonical string form, parse/format round-trip tested); kill regex re-parsing | Fact identity §3.1 | Wire format byte-frozen — persisted in plan fingerprints |
-| 3 | `provePlan(plan, source)` as a first-class API: template-cloned scratch, apply, extract, hash-compare. Adopt as CI oracle; begin generative roundtrip tests; shrink the hand-written integration matrix as proof coverage grows | Proof loop §3.7, §4.3 | **Do this before touching emission** — it is the safety net for phases 5–8 |
+| 3 | `provePlan(plan, source)` as a first-class API: template-cloned scratch, apply, extract, hash-compare — plus the data-preservation check (seeded rows). Port the integration scenarios into the seed corpus behind one harness; replace load-bearing SQL snapshots with semantic plan assertions; stand up old-vs-new differential runs; begin generative roundtrip tests | Proof loop §3.7, test architecture §4.3 | **Do this before touching emission** — it is the safety net for phases 5–8 |
 | 4 | Sort hygiene while the old sort still exists: depend-row pre-filtering to the change set, single graph build per phase, heap queue | Interim perf | Pure wins now; code is absorbed by phase 6 |
 | 5 | Decomposition-by-default emission + the compaction pass; delete cycle breakers by attrition as their cycle classes become unconstructible | §3.5–3.6 | First emission-changing phase; gated on state-proof + review |
 | 6 | One mixed graph (old-state edges + new-state edges + identity conflicts) replaces two-phase + `invalidates` + repair loop | §3.6 | A surviving cycle after 5+6 is a rule/emission bug — fix the rule, never add a breaker |
@@ -593,9 +652,19 @@ product payoff. Phases 1, 2, 4 can start immediately and in parallel.
   doctrine) is affirmed as correct; the reshaping concerns its keying, plus
   provenance (extension membership) captured as edge facts instead of
   extraction-time filtering.
+- **2026-06-12 (c)** — Following maintainer review ("should we keep the
+  current tests in some form?"), the test architecture is specified (§4.3):
+  the integration suite's *scenarios* are kept as the seed corpus of the
+  proof harness; their implementation-coupled assertions and byte-level SQL
+  snapshots are not ported. The proof loop gains a **data-preservation
+  check** (§3.7), closing the convergent-but-destructive blind spot of
+  schema-state proof; convergent-but-non-minimal plans are covered by
+  semantic plan assertions. The old engine serves as a differential oracle
+  until retired.
 - Open questions intentionally left to their phases: compaction's default
-  aggressiveness (phase 5), rename-policy default (phase 10), the minimum
-  integration-test ring kept alongside generative proof (phase 3).
+  aggressiveness (phase 5), rename-policy default (phase 10), how
+  aggressively to prune the ported corpus once generative coverage matures
+  (phase 3).
 
 ---
 
