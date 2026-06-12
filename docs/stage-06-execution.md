@@ -20,13 +20,31 @@ enabling proof against live sources.
    safetyReport, policyId?}`. Fingerprints are fact-base rollup digests
    (stage 1). Round-trips losslessly; `apply` accepts the artifact, never
    a bare SQL list.
-2. **Segmented executor**: group maximal runs of `transactional: true`
-   actions into transactions; isolate non-transactional actions
-   (`CREATE INDEX CONCURRENTLY`, `ALTER SYSTEM`, certain
-   `ALTER TYPE … ADD VALUE` cases) between them with explicit failure
-   semantics: on mid-plan failure, report exactly which actions are
+2. **Segmented executor.** Transactionality is three-valued, declared per
+   action by the rule table:
+   - `transactional` — the default; grouped into maximal transaction runs.
+   - `nonTransactional` — cannot run inside a transaction block at all:
+     `CREATE INDEX CONCURRENTLY`, `REINDEX CONCURRENTLY`,
+     `ALTER TABLE … DETACH PARTITION CONCURRENTLY`, `ALTER SYSTEM`,
+     `CREATE`/`DROP DATABASE`/`TABLESPACE`, subscription operations that
+     create/drop replication slots. Executed alone, between transaction
+     segments.
+   - `commitBoundaryAfter` — *runs* in a transaction but its effect is not
+     usable until commit: the canonical case is `ALTER TYPE … ADD VALUE`,
+     whose new enum value cannot be referenced later in the same
+     transaction. The executor forces a segment boundary between the
+     action and any consumer of what it produced (the dependency edges
+     already say who consumes it).
+
+   Segmentation changes **transaction boundaries only, never order** — the
+   topological order is global across segments. Failure semantics are
+   explicit: on mid-plan failure, report exactly which actions are
    applied/unapplied/in-doubt. Per-statement error attribution (statement,
-   action, underlying PG error) — no joined-string megaqueries.
+   action, underlying PG error) — no joined-string megaqueries. Executor
+   *options* (operational policy, not safety metadata): per-segment
+   `lock_timeout` / `statement_timeout`, and optional
+   retry-on-lock-timeout for actions whose declared lock class is
+   contention-prone.
 3. **Fingerprint gate on apply**: source fingerprint must match the live
    target's current fact-base digest (re-extract before apply);
    `--force`-style override is a CLI concern, not a library default.
