@@ -1541,7 +1541,7 @@ export const createExtractionContext = (
   return { enumTypeKeys, rangeTypeKeys, multirangeTypeKeys, domainBaseTypes };
 };
 
-const domainBaseTypeRef = (
+export const domainBaseTypeRef = (
   subtypeRef: ObjectRef,
   context: ExtractionContext,
 ): ObjectRef | null => {
@@ -1591,7 +1591,7 @@ export const omittedRangeSubtypeOperatorClassSubtypeRef = (
     }
   }
 
-  if (!subtypeRef || isBuiltInObjectRef(subtypeRef)) {
+  if (!subtypeRef) {
     return null;
   }
 
@@ -2160,9 +2160,10 @@ const extractCreateOperatorClassDependencies = (
   const requires: ObjectRef[] = [];
   const accessMethod =
     typeof statementNode.amname === "string" ? statementNode.amname : "";
+  const operatorFamilyNameParts = extractNameParts(statementNode.opfamilyname);
   const operatorFamilyRef = objectFromNameParts(
     "operator_family",
-    extractNameParts(statementNode.opfamilyname),
+    operatorFamilyNameParts,
   );
   const dataTypeRef = typeFromTypeNameNode(statementNode.datatype);
 
@@ -2199,14 +2200,19 @@ const extractCreateOperatorClassDependencies = (
   if (operatorFamilyRef) {
     // CREATE OPERATOR CLASS ... FAMILY requires the named family to exist for
     // the same access method before the class can be created.
-    requires.push(
-      createObjectRefFromAst(
-        "operator_family",
-        operatorFamilyRef.name,
-        operatorFamilyRef.schema,
-        accessMethod || undefined,
-      ),
+    const operatorFamilyRequirement = createObjectRefFromAst(
+      "operator_family",
+      operatorFamilyRef.name,
+      operatorFamilyRef.schema,
+      accessMethod || undefined,
     );
+    if (!isBuiltInBtreeOperatorFamilyName(operatorFamilyNameParts)) {
+      requires.push(
+        isUnqualifiedBuiltInBtreeOperatorFamilyName(operatorFamilyNameParts)
+          ? markOmitIfNoLocalProducerRef(operatorFamilyRequirement)
+          : operatorFamilyRequirement,
+      );
+    }
   }
 
   if (dataTypeRef) {

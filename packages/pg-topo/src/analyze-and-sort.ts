@@ -6,6 +6,7 @@ import {
 import {
   createExtractionContext,
   defaultBtreeOperatorClassProviderRefForSubtype,
+  domainBaseTypeRef,
   extractDependencies,
   hasPgCatalogDefaultBtreeOperatorClassForSubtype,
   omittedRangeSubtypeOperatorClassSubtypeRef,
@@ -118,6 +119,8 @@ const addImplicitRangeOperatorClassDependencies = (
     if (!subtypeRef) {
       continue;
     }
+    const effectiveSubtypeRef =
+      domainBaseTypeRef(subtypeRef, extractionContext) ?? subtypeRef;
 
     const rangeOperatorClassRefs = new Map<
       string,
@@ -126,7 +129,7 @@ const addImplicitRangeOperatorClassDependencies = (
     for (const providerStatement of parsedStatements) {
       const providerRef = defaultBtreeOperatorClassProviderRefForSubtype(
         providerStatement.ast,
-        subtypeRef,
+        effectiveSubtypeRef,
       );
       if (providerRef) {
         rangeOperatorClassRefs.set(objectRefKey(providerRef), providerRef);
@@ -141,7 +144,7 @@ const addImplicitRangeOperatorClassDependencies = (
 
     if (
       rangeOperatorClassRefs.size === 0 &&
-      !hasExternalDefaultBtreeOperatorClass(subtypeRef) &&
+      !hasExternalDefaultBtreeOperatorClass(effectiveSubtypeRef) &&
       !hasPgCatalogDefaultBtreeOperatorClassForSubtype(
         subtypeRef,
         extractionContext,

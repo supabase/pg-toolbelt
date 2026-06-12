@@ -437,6 +437,56 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("orders omitted range subtype defaults through domain base opclasses", async () => {
+    const result = await analyzeAndSort([
+      "create table app.measurements(id int primary key, value_span app.score_range not null);",
+      "create type app.score_range as range (subtype = app.score_domain);",
+      "create domain app.score_domain as app.score;",
+      "create operator class app.score_ops default for type app.score using btree as operator 1 app.< (app.score, app.score), operator 2 app.<= (app.score, app.score), operator 3 app.= (app.score, app.score), operator 4 app.>= (app.score, app.score), operator 5 app.> (app.score, app.score), function 1 app.score_cmp(app.score, app.score);",
+      "create operator app.> (function = app.score_gt, leftarg = app.score, rightarg = app.score);",
+      "create operator app.>= (function = app.score_gte, leftarg = app.score, rightarg = app.score);",
+      "create operator app.= (function = app.score_eq, leftarg = app.score, rightarg = app.score);",
+      "create operator app.<= (function = app.score_lte, leftarg = app.score, rightarg = app.score);",
+      "create operator app.< (function = app.score_lt, leftarg = app.score, rightarg = app.score);",
+      "create function app.score_cmp(a app.score, b app.score) returns int4 language sql immutable strict as $$ select case when (a).value < (b).value then -1 when (a).value > (b).value then 1 else 0 end $$;",
+      "create function app.score_gt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value > (b).value $$;",
+      "create function app.score_gte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value >= (b).value $$;",
+      "create function app.score_eq(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value = (b).value $$;",
+      "create function app.score_lte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value <= (b).value $$;",
+      "create function app.score_lt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value < (b).value $$;",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes("No default btree operator class provider"),
+    );
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const opclassIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator class app.score_ops"),
+    );
+    const domainIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create domain app.score_domain"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.score_range"),
+    );
+
+    expect(missingDefault).toHaveLength(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(opclassIndex).toBeGreaterThanOrEqual(0);
+    expect(domainIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(opclassIndex);
+    expect(rangeIndex).toBeGreaterThan(domainIndex);
+  }, 120000);
+
   test("orders custom operator classes after conventional support function names with custom types", async () => {
     const result = await analyzeAndSort([
       "create table app.measurements(id int primary key, value_span app.score_range not null);",
@@ -1607,6 +1657,41 @@ describe("range type dependencies", () => {
       signature: "(btree)",
     });
     expect(integerOperatorClassStatement?.requires).not.toContainEqual({
+      kind: "operator_family",
+      schema: "public",
+      name: "integer_ops",
+      signature: "(btree)",
+    });
+  });
+
+  test("does not require producer statements for unqualified built-in operator class families", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.score_ops for type app.score using btree family integer_ops as operator 1 app.< (app.score, app.score), operator 2 app.<= (app.score, app.score), operator 3 app.= (app.score, app.score), operator 4 app.>= (app.score, app.score), operator 5 app.> (app.score, app.score), function 1 app.score_cmp(app.score, app.score);",
+      "create operator app.> (function = app.score_gt, leftarg = app.score, rightarg = app.score);",
+      "create operator app.>= (function = app.score_gte, leftarg = app.score, rightarg = app.score);",
+      "create operator app.= (function = app.score_eq, leftarg = app.score, rightarg = app.score);",
+      "create operator app.<= (function = app.score_lte, leftarg = app.score, rightarg = app.score);",
+      "create operator app.< (function = app.score_lt, leftarg = app.score, rightarg = app.score);",
+      "create function app.score_cmp(a app.score, b app.score) returns int4 language sql immutable strict as $$ select case when (a).value < (b).value then -1 when (a).value > (b).value then 1 else 0 end $$;",
+      "create function app.score_gt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value > (b).value $$;",
+      "create function app.score_gte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value >= (b).value $$;",
+      "create function app.score_eq(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value = (b).value $$;",
+      "create function app.score_lte(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value <= (b).value $$;",
+      "create function app.score_lt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value < (b).value $$;",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const unresolvedCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    ).length;
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_ops"),
+    );
+
+    expect(unresolvedCount).toBe(0);
+    expect(operatorClassStatement?.requires).not.toContainEqual({
       kind: "operator_family",
       schema: "public",
       name: "integer_ops",
@@ -3324,6 +3409,26 @@ describe("range type dependencies", () => {
       kind: "type",
       schema: "app",
       name: "score",
+    });
+  });
+
+  test("reports missing default range opclasses for built-in subtypes without defaults", async () => {
+    const result = await analyzeAndSort([
+      "create type app.point_range as range (subtype = point);",
+      "create schema app;",
+    ]);
+    const missingDefaultOpclass = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes(
+          "default btree operator class provider found for range subtype",
+        ),
+    );
+
+    expect(missingDefaultOpclass?.objectRefs).toContainEqual({
+      kind: "type",
+      schema: "public",
+      name: "point",
     });
   });
 

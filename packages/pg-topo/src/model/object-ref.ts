@@ -290,6 +290,9 @@ export const isBuiltInObjectRef = (ref: ObjectRef): boolean => {
   }
 
   if (ref.kind === "type" && nameLower.endsWith("[]")) {
+    if (schemaLower) {
+      return false;
+    }
     return BUILTIN_TYPES.has(nameLower.slice(0, -"[]".length));
   }
 

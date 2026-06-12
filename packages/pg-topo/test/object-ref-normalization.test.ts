@@ -52,4 +52,18 @@ describe("object reference normalization", () => {
       false,
     );
   });
+
+  test("isBuiltInObjectRef preserves schema-qualified arrays that shadow built-ins", () => {
+    expect(isBuiltInObjectRef({ kind: "type", name: "int4[]" })).toBe(true);
+    expect(
+      isBuiltInObjectRef({
+        kind: "type",
+        schema: "pg_catalog",
+        name: "int4[]",
+      }),
+    ).toBe(true);
+    expect(
+      isBuiltInObjectRef({ kind: "type", schema: "app", name: "int4[]" }),
+    ).toBe(false);
+  });
 });
