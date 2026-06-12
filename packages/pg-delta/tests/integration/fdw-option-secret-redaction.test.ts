@@ -18,6 +18,7 @@ import { exportDeclarativeSchema } from "../../src/core/export/index.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbIsolated } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 const SECRET_VALUES = [
   "real-user-password",
@@ -67,7 +68,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const planResult = await createPlan(db.main, db.branch);
         expect(planResult).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: just asserted not null
-        const planSql = planResult!.plan.statements.join("\n");
+        const planSql = flattenPlanStatements(planResult!.plan).join("\n");
         for (const secret of SECRET_VALUES) {
           expect(planSql).not.toContain(secret);
         }

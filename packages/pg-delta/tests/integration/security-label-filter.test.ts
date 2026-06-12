@@ -3,6 +3,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { shouldSkipDummySeclabelBuild } from "../postgres-alpine.ts";
 import { withDb } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 const DUMMY_PROVIDER_SETUP = `CREATE EXTENSION IF NOT EXISTS dummy_seclabel;`;
 
@@ -31,7 +32,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             filter: { not: { scope: "security_label" } },
           });
 
-          const sql = result?.plan.statements.join(";\n") ?? "";
+          const sql = result
+            ? flattenPlanStatements(result.plan).join(";\n")
+            : "";
           expect(sql).not.toContain("SECURITY LABEL");
         }),
       );
@@ -55,7 +58,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             filter: { not: { scope: "security_label", provider: "dummy" } },
           });
 
-          const sql = result?.plan.statements.join(";\n") ?? "";
+          const sql = result
+            ? flattenPlanStatements(result.plan).join(";\n")
+            : "";
           expect(sql).not.toContain("SECURITY LABEL FOR dummy");
         }),
       );

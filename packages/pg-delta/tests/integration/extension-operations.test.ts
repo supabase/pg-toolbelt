@@ -6,6 +6,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { SUPABASE_POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbSupabaseIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
   describe(`extension operations (pg${pgVersion})`, () => {
@@ -130,7 +131,7 @@ for (const pgVersion of SUPABASE_POSTGRES_VERSIONS) {
 
         const planResult = await createPlan(db.main, db.branch);
         expect(planResult).not.toBeNull();
-        expect(planResult?.plan.statements).toMatchInlineSnapshot(`
+        expect(flattenPlanStatements(planResult!.plan)).toMatchInlineSnapshot(`
           [
             "ALTER TABLE test_schema.embeddings ADD COLUMN embedding_v2 test_schema.vector(768)",
           ]

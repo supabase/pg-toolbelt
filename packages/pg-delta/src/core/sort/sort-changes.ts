@@ -39,6 +39,7 @@ import {
   performStableTopologicalSort,
 } from "./topological-sort.ts";
 import type { PgDependRow, PhaseSortOptions } from "./types.ts";
+import { UnorderableCycleError } from "./unorderable-cycle-error.ts";
 import { getExecutionPhase, type Phase } from "./utils.ts";
 
 // `sortPhaseChanges` caps the change-injection breaker at one round per
@@ -238,7 +239,9 @@ function attemptSortRound(
 
   if (!topologicalOrder || topologicalOrder.length !== phaseChanges.length) {
     // This should never happen if findCycle returned null, but guard anyway
-    throw new Error("CycleError: dependency graph contains a cycle");
+    throw new UnorderableCycleError(
+      "CycleError: dependency graph contains a cycle",
+    );
   }
 
   return {
@@ -287,12 +290,13 @@ function sortPhaseChanges(
       phaseChanges,
     );
     if (broken === null) {
-      throw new Error(
+      throw new UnorderableCycleError(
         formatCycleError(
           result.cycleNodeIndexes,
           phaseChanges,
           result.cycleEdges,
         ),
+        result.cycleNodeIndexes.map((index) => phaseChanges[index]),
       );
     }
 
@@ -300,12 +304,13 @@ function sortPhaseChanges(
     // the breaker isn't making progress. Throw with full context.
     const signature = normalizeCycle(result.cycleNodeIndexes);
     if (breakerRoundSignatures.has(signature)) {
-      throw new Error(
+      throw new UnorderableCycleError(
         formatCycleError(
           result.cycleNodeIndexes,
           phaseChanges,
           result.cycleEdges,
         ),
+        result.cycleNodeIndexes.map((index) => phaseChanges[index]),
       );
     }
     breakerRoundSignatures.add(signature);
@@ -313,7 +318,7 @@ function sortPhaseChanges(
     phaseChanges = broken;
   }
 
-  throw new Error(
+  throw new UnorderableCycleError(
     `CycleError: change-injection breaker exceeded ${maxRounds} rounds (one per node in the phase) — likely a buggy breaker rule`,
   );
 }

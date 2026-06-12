@@ -23,6 +23,11 @@ export class CreateSubscription extends CreateSubscriptionChange {
     return [stableId.role(this.subscription.owner)];
   }
 
+  // No nonTransactional override: PostgreSQL's transaction-block gate for
+  // CREATE SUBSCRIPTION is on create_slot = true, and serialize() always
+  // emits create_slot = false (either reusing an existing slot or skipping
+  // the connect entirely).
+
   serialize(_options?: SerializeOptions): string {
     const parts: string[] = [
       "CREATE SUBSCRIPTION",
@@ -41,7 +46,11 @@ export class CreateSubscription extends CreateSubscriptionChange {
       optionEntries.map(({ key, value }) => [key, value]),
     );
 
-    if (!this.subscription.replication_slot_created) {
+    if (this.subscription.replication_slot_created) {
+      // The slot already exists on the publisher: keep the connect = true
+      // default so it is looked up, but never recreated.
+      optionsMap.set("create_slot", "false");
+    } else {
       optionsMap.set("create_slot", "false");
       optionsMap.set("connect", "false");
 

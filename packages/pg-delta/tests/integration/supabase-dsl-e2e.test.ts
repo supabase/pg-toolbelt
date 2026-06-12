@@ -6,6 +6,7 @@ import { supabase as supabaseIntegration } from "../../src/core/integrations/sup
 import { createPlan } from "../../src/core/plan/create.ts";
 import { withDbSupabaseIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 const pgVersion = 17;
 
@@ -55,7 +56,7 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      expect(planResult?.plan.statements).toMatchInlineSnapshot(`
+      expect(flattenPlanStatements(planResult!.plan)).toMatchInlineSnapshot(`
         [
           "SET check_function_bodies = false",
           
@@ -89,7 +90,7 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
       });
 
       expect(planResult).not.toBeNull();
-      expect(planResult?.plan.statements).toMatchInlineSnapshot(`
+      expect(flattenPlanStatements(planResult!.plan)).toMatchInlineSnapshot(`
         [
           "DROP EXTENSION pg_net",
         ]
@@ -167,7 +168,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
       // `CREATE FOREIGN DATA WRAPPER` for the Wasm-lookalike wrapper
       // should appear, since it depends on a handler that lives in the
       // managed `extensions` schema.
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       const fdwStatements = statements.filter((stmt) =>
         stmt.includes("FOREIGN DATA WRAPPER"),
       );
@@ -230,7 +233,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       const wasmDependentStatements = statements.filter(
         (stmt) =>
           /\bCREATE\s+SERVER\s+wasm_server\b/i.test(stmt) ||
@@ -281,7 +286,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       const hasServer = statements.some((stmt) =>
         /\bCREATE\s+SERVER\s+user_pg_server\b/i.test(stmt),
       );
@@ -333,7 +340,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       const fdwAclStatements = statements.filter((stmt) =>
         /\b(?:GRANT|REVOKE)\b[^;]*\bON\b[^;]*\bFOREIGN\s+DATA\s+WRAPPER\b/.test(
           stmt,
@@ -377,7 +386,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       // pg-delta serializes server ACL with the `ON SERVER` shorthand
       // rather than `ON FOREIGN SERVER` (both are equivalent in PG) and
       // collapses a complete privilege set to `ALL`.
@@ -431,7 +442,9 @@ describe(`supabase integration e2e (pg${pgVersion})`, () => {
         serialize: supabaseIntegration.serialize,
       });
 
-      const statements = planResult?.plan.statements ?? [];
+      const statements = planResult
+        ? flattenPlanStatements(planResult.plan)
+        : [];
       const queueTriggerStatements = statements.filter((stmt) =>
         /\bCREATE\s+TRIGGER\b[^;]*\bON\s+pgmq\.q_processed_milestones_queue\b/i.test(
           stmt,

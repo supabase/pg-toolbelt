@@ -31,6 +31,12 @@ export class AlterSubscriptionSetPublication extends AlterSubscriptionChange {
     this.subscription = props.subscription;
   }
 
+  // When the subscription is enabled, serialize() keeps the refresh = true
+  // default, which PostgreSQL rejects inside a transaction block.
+  override get nonTransactional() {
+    return this.subscription.enabled;
+  }
+
   serialize(_options?: SerializeOptions): string {
     const base = `ALTER SUBSCRIPTION ${this.subscription.name} SET PUBLICATION ${this.subscription.publications.join(", ")}`;
     if (!this.subscription.enabled) {

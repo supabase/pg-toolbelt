@@ -9,7 +9,7 @@
  * if (planResult) {
  *   const { plan, sortedChanges, ctx } = planResult;
  *   const hierarchy = groupChangesHierarchically(ctx, sortedChanges);
- *   console.log(plan.statements);
+ *   console.log(renderPlanSql(plan));
  * }
  * ```
  */

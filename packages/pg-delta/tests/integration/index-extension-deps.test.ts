@@ -11,6 +11,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`index extension dependencies (pg${pgVersion})`, () => {
@@ -66,7 +67,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result).not.toBeNull();
         if (!result) return;
 
-        const statements = result.plan.statements;
+        const statements = flattenPlanStatements(result.plan);
         const extIdx = statements.findIndex(
           (s) => s.includes("CREATE EXTENSION") && s.includes("pg_trgm"),
         );

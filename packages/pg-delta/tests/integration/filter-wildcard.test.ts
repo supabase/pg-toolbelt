@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/index.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`wildcard-based filter DSL (pg${pgVersion})`, () => {
@@ -23,7 +24,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         );
 
         const resultWithoutFilter = await createPlan(db.main, db.branch);
-        const stmts = resultWithoutFilter?.plan.statements ?? [];
+        const stmts = resultWithoutFilter
+          ? flattenPlanStatements(resultWithoutFilter.plan)
+          : [];
         expect(stmts).toHaveLength(4);
         expect(stmts[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
         expect(stmts[1]).toBe("CREATE TABLE app.app_t (id integer)");
@@ -39,7 +42,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        const filtered = result?.plan.statements ?? [];
+        const filtered = result ? flattenPlanStatements(result.plan) : [];
         expect(filtered).toHaveLength(3);
         expect(filtered[0]).toBe("CREATE SCHEMA app AUTHORIZATION postgres");
         expect(filtered[1]).toBe("CREATE TABLE app.app_t (id integer)");
@@ -63,7 +66,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements).toMatchInlineSnapshot(`
+        expect(flattenPlanStatements(result!.plan)).toMatchInlineSnapshot(`
           [
             "CREATE TABLE public.t1 (id integer)",
           ]
@@ -87,7 +90,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
 
         expect(result).not.toBeNull();
-        expect(result?.plan.statements).toMatchInlineSnapshot(`
+        expect(flattenPlanStatements(result!.plan)).toMatchInlineSnapshot(`
           [
             "CREATE TABLE public.visible (id integer)",
           ]

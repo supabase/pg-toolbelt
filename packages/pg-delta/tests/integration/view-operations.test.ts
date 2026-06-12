@@ -4,6 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/create.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb, withDbIsolated } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
@@ -153,7 +154,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         expect(result).not.toBeNull();
         if (!result) throw new Error("expected plan result");
 
-        const { statements } = result.plan;
+        const statements = flattenPlanStatements(result.plan);
         const dropViewIndex = statements.findIndex((statement) =>
           statement.startsWith("DROP VIEW test_schema.item_details"),
         );

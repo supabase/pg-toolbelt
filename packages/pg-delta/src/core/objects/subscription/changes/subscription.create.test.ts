@@ -45,8 +45,11 @@ describe("subscription.create", () => {
     expect(change.creates).toEqual([subscription.stableId]);
     expect(change.requires).toEqual([stableId.role(subscription.owner)]);
     await assertValidSql(change.serialize());
+    // The slot already exists on the publisher, so the statement must reuse
+    // it: create_slot defaults to true and would fail with "replication slot
+    // already exists" (and 25001 inside a transaction block).
     expect(change.serialize()).toBe(
-      "CREATE SUBSCRIPTION sub_base CONNECTION 'host=example dbname=postgres' PUBLICATION pub_base",
+      "CREATE SUBSCRIPTION sub_base CONNECTION 'host=example dbname=postgres' PUBLICATION pub_base WITH (create_slot = false)",
     );
   });
 

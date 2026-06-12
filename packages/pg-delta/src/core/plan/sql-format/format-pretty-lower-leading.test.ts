@@ -869,6 +869,7 @@ describe("sql formatting snapshots", () => {
               , synchronous_commit = 'remote_apply'
               , disable_on_error   = true
               , failover           = true
+              , create_slot        = false
           );
 
       -- subscription.drop

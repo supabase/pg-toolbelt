@@ -7,6 +7,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`sequence operations (pg${pgVersion})`, () => {
@@ -296,7 +297,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         if (!result) throw new Error("expected plan result");
-        const sql = result.plan.statements.join("\n");
+        const sql = flattenPlanStatements(result.plan).join("\n");
         expect(sql).toContain("ALTER SEQUENCE public.shrink_seq AS bigint");
         expect(sql).not.toContain("DROP SEQUENCE");
       }),
@@ -329,7 +330,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         if (!result) throw new Error("expected plan result");
-        const sql = result.plan.statements.join("\n");
+        const sql = flattenPlanStatements(result.plan).join("\n");
         expect(sql).toContain("ALTER SEQUENCE public.shrink_seq AS integer");
         expect(sql).not.toContain("DROP SEQUENCE");
 
@@ -340,7 +341,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         // form is just clearer about what we're asserting).
         let applyError: unknown;
         try {
-          for (const statement of result.plan.statements) {
+          for (const statement of flattenPlanStatements(result.plan)) {
             await db.main.query(statement);
           }
         } catch (err) {

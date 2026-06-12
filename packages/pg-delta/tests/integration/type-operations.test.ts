@@ -10,6 +10,7 @@ import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`type operations (pg${pgVersion})`, () => {
@@ -26,6 +27,71 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+    test(
+      "add enum value before setting default to the new value",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+          CREATE TYPE public.user_role AS ENUM ('admin', 'user');
+
+          CREATE TABLE public.profiles (
+            id integer PRIMARY KEY,
+            role public.user_role DEFAULT 'user'
+          );
+        `;
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        // The branch setup itself needs two separate queries: using the new
+        // value in the same implicit transaction would hit 55P04 — the exact
+        // behavior the generated plan has to avoid.
+        await db.branch.query("ALTER TYPE public.user_role ADD VALUE 'store'");
+        await db.branch.query(
+          "ALTER TABLE public.profiles ALTER COLUMN role SET DEFAULT 'store'",
+        );
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          assertPlan: (plan) => {
+            expect(plan.units).toHaveLength(2);
+            expect(plan.units[1].reason).toBe("enum_value_visibility");
+          },
+        });
+      }),
+    );
+
+    test(
+      "add enum value before adding check constraint that references it",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+          CREATE TYPE public.order_status AS ENUM ('pending', 'shipped');
+
+          CREATE TABLE public.orders (
+            id integer PRIMARY KEY,
+            status public.order_status DEFAULT 'pending'
+          );
+        `;
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        await db.branch.query(
+          "ALTER TYPE public.order_status ADD VALUE 'delivered'",
+        );
+        await db.branch.query(`
+          ALTER TABLE public.orders
+          ADD CONSTRAINT status_check
+          CHECK (status IN ('pending', 'shipped', 'delivered'))
+        `);
+
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          assertPlan: (plan) => {
+            expect(plan.units).toHaveLength(2);
+            expect(plan.units[1].reason).toBe("enum_value_visibility");
+          },
+        });
+      }),
+    );
+
     test(
       "create domain type with constraint",
       withDb(pgVersion, async (db) => {
@@ -69,7 +135,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           throw new Error("Expected planResult to be defined");
         }
 
-        const statements = planResult.plan.statements;
+        const statements = flattenPlanStatements(planResult.plan);
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );
@@ -156,7 +222,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           throw new Error("Expected planResult to be defined");
         }
 
-        const statements = planResult.plan.statements;
+        const statements = flattenPlanStatements(planResult.plan);
         const checkPrefixCreateIndex = statements.findIndex((statement) =>
           statement.includes("CREATE FUNCTION test_schema.check_prefix("),
         );

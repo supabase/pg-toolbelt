@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { createPlan } from "../../src/core/plan/create.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDbIsolated } from "../utils.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`role config GUC (pg${pgVersion})`, () => {
@@ -30,7 +31,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded above
-        const statements = result!.plan.statements;
+        const statements = flattenPlanStatements(result!.plan);
 
         const setStatements = statements.filter((s) =>
           s.includes("pgrst.db_aggregates_enabled"),
@@ -66,7 +67,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         const result = await createPlan(db.main, db.branch);
         expect(result).not.toBeNull();
         // biome-ignore lint/style/noNonNullAssertion: guarded above
-        const statements = result!.plan.statements;
+        const statements = flattenPlanStatements(result!.plan);
 
         const resetStatements = statements.filter(
           (s) => s === "ALTER ROLE api_role RESET statement_timeout",
