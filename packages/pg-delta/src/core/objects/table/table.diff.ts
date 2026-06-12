@@ -794,7 +794,8 @@ export function diffTables(
         (columnTypeChanged || columnCollationChanged) &&
         branchCol.is_generated &&
         (ctx.version < 170000 ||
-          mainCol.is_generated !== branchCol.is_generated);
+          mainCol.is_generated !== branchCol.is_generated ||
+          hasConstraintReferencingColumn(name, mainTable, branchTable));
 
       // TYPE or COLLATION change
       if (columnTypeChanged || columnCollationChanged) {
@@ -1055,4 +1056,14 @@ export function diffTables(
   }
 
   return changes;
+}
+
+function hasConstraintReferencingColumn(
+  columnName: string,
+  mainTable: Table,
+  branchTable: Table,
+): boolean {
+  return [...(mainTable.constraints ?? []), ...(branchTable.constraints ?? [])]
+    .filter((constraint) => !constraint.is_partition_clone)
+    .some((constraint) => constraint.key_columns.includes(columnName));
 }

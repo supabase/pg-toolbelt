@@ -365,7 +365,9 @@ export function expandReplaceDependencies({
         droppedIds.has(refId);
       if (
         dependentRaw.startsWith("constraint:") &&
-        (!reachedFromInvalidation || isColumnReplacementRoot)
+        (!reachedFromInvalidation ||
+          isColumnReplacementRoot ||
+          refId.startsWith("procedure:"))
       ) {
         const replacementChanges = buildConstraintReplacementChanges(
           dependentRaw,
@@ -1296,6 +1298,7 @@ function isRebuildableInvalidationDependent(dependentId: string): boolean {
     id.startsWith("materializedView:") ||
     id.startsWith("index:") ||
     id.startsWith("procedure:") ||
+    id.startsWith("aggregate:") ||
     id.startsWith("rlsPolicy:") ||
     id.startsWith("rule:") ||
     id.startsWith("trigger:")
