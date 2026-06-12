@@ -868,6 +868,7 @@ const builtInRangeOperatorClassSubtypes = new Map<string, string[]>([
   ["numeric_ops", ["numeric"]],
   ["oid_ops", ["oid"]],
   ["pg_lsn_ops", ["pg_lsn"]],
+  ["record_ops", ["record"]],
   ["text_ops", ["text"]],
   ["text_pattern_ops", ["text"]],
   ["time_ops", ["time"]],
@@ -1085,6 +1086,23 @@ const isUnqualifiedBuiltInBtreeOperatorFamilyName = (
     builtInBtreeOperatorFamilyNames.has(name)
   );
 };
+
+const isBtreeAccessMethod = (accessMethod: string): boolean =>
+  accessMethod.toLowerCase() === "btree";
+
+const isBuiltInOperatorFamilyNameForAccessMethod = (
+  nameParts: string[],
+  accessMethod: string,
+): boolean =>
+  isBtreeAccessMethod(accessMethod) &&
+  isBuiltInBtreeOperatorFamilyName(nameParts);
+
+const isUnqualifiedBuiltInOperatorFamilyNameForAccessMethod = (
+  nameParts: string[],
+  accessMethod: string,
+): boolean =>
+  isBtreeAccessMethod(accessMethod) &&
+  isUnqualifiedBuiltInBtreeOperatorFamilyName(nameParts);
 
 // Opclass items commonly reference pg_catalog support objects without schema
 // qualification. Keep PostgreSQL's built-in btree support routines out of
@@ -1321,10 +1339,6 @@ const isBuiltInOperatorClassSupportOperatorName = (
     );
   }
 
-  if (args.every((argRef) => argRef !== null && isBuiltInObjectRef(argRef))) {
-    return true;
-  }
-
   const leftArg = args[0] ?? null;
   const rightArg = args[1] ?? null;
   if (args.length !== 2 || !objectRefsSameObject(leftArg, rightArg)) {
@@ -1332,6 +1346,7 @@ const isBuiltInOperatorClassSupportOperatorName = (
   }
 
   return (
+    Boolean(leftArg && rightArg && isBuiltInObjectRef(leftArg)) ||
     typeRefMatchesPolymorphicBuiltInName(leftArg, "anyarray", context) ||
     typeRefMatchesPolymorphicBuiltInName(leftArg, "anyenum", context) ||
     typeRefMatchesPolymorphicBuiltInName(leftArg, "anyrange", context) ||
@@ -2211,6 +2226,7 @@ const extractCreateOperatorClassDependencies = (
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
+  const diagnostics: Diagnostic[] = [];
   const accessMethod =
     typeof statementNode.amname === "string" ? statementNode.amname : "";
   const operatorFamilyNameParts = extractNameParts(statementNode.opfamilyname);
@@ -2259,12 +2275,34 @@ const extractCreateOperatorClassDependencies = (
       operatorFamilyRef.schema,
       accessMethod || undefined,
     );
-    if (!isBuiltInBtreeOperatorFamilyName(operatorFamilyNameParts)) {
+    if (
+      !isBuiltInOperatorFamilyNameForAccessMethod(
+        operatorFamilyNameParts,
+        accessMethod,
+      )
+    ) {
       requires.push(
-        isUnqualifiedBuiltInBtreeOperatorFamilyName(operatorFamilyNameParts)
+        isUnqualifiedBuiltInOperatorFamilyNameForAccessMethod(
+          operatorFamilyNameParts,
+          accessMethod,
+        )
           ? markOmitIfNoLocalProducerRef(operatorFamilyRequirement)
           : operatorFamilyRequirement,
       );
+      if (
+        operatorFamilyRef.schema?.toLowerCase() === "pg_catalog" &&
+        builtInBtreeOperatorFamilyNames.has(
+          operatorFamilyRef.name.toLowerCase(),
+        )
+      ) {
+        diagnostics.push({
+          code: "UNRESOLVED_DEPENDENCY",
+          message: `No pg_catalog operator family '${operatorFamilyRef.name}' found for access method '${accessMethod || "unknown"}'.`,
+          objectRefs: [operatorFamilyRequirement],
+          suggestedFix:
+            "Use an operator family for the selected access method or create one explicitly.",
+        });
+      }
     }
   }
 
@@ -2387,7 +2425,7 @@ const extractCreateOperatorClassDependencies = (
     }
   }
 
-  return { provides, requires };
+  return { provides, requires, diagnostics };
 };
 
 const baseTypeFunctionArgAlternatives = (
