@@ -41,9 +41,14 @@ import {
   AlterTableAlterColumnSetDefault,
   AlterTableDropColumn,
 } from "./objects/table/changes/table.alter.ts";
-import { CreateCommentOnConstraint } from "./objects/table/changes/table.comment.ts";
+import {
+  CreateCommentOnColumn,
+  CreateCommentOnConstraint,
+} from "./objects/table/changes/table.comment.ts";
 import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
+import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
+import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
 import {
   ReplaceTrigger,
   SetTriggerEnabledState,
@@ -584,6 +589,13 @@ function buildColumnDefaultReplacementChanges(
         }),
       );
     }
+    replacementChanges.push(
+      ...buildGeneratedColumnDependentReplacementChanges(
+        columnStableId,
+        branchCatalog,
+        [...existingChanges, ...replacementChanges],
+      ),
+    );
     return replacementChanges;
   }
 
@@ -666,6 +678,237 @@ function hasColumnAddChange(
         change.column.name,
       ) === columnStableId,
   );
+}
+
+function buildGeneratedColumnDependentReplacementChanges(
+  columnStableId: string,
+  branchCatalog: Catalog,
+  existingChanges: readonly Change[],
+): Change[] {
+  const parsed = parseColumnStableId(columnStableId);
+  if (!parsed) return [];
+
+  const tableStableId = stableId.table(parsed.schema, parsed.table);
+  const branchTable = branchCatalog.tables[tableStableId];
+  if (!branchTable) return [];
+
+  const branchColumn = branchTable.columns.find(
+    (column) => column.name === parsed.column,
+  );
+  if (!branchColumn) return [];
+
+  const replacementChanges: Change[] = [];
+
+  if (
+    branchColumn.comment !== null &&
+    branchColumn.comment !== undefined &&
+    !hasChangeCreating(
+      [...existingChanges, ...replacementChanges],
+      stableId.comment(columnStableId),
+    )
+  ) {
+    replacementChanges.push(
+      new CreateCommentOnColumn({
+        table: branchTable,
+        column: branchColumn,
+      }),
+    );
+  }
+
+  for (const securityLabel of branchColumn.security_labels ?? []) {
+    const securityLabelStableId = stableId.securityLabel(
+      columnStableId,
+      securityLabel.provider,
+    );
+    if (
+      hasChangeCreating(
+        [...existingChanges, ...replacementChanges],
+        securityLabelStableId,
+      )
+    ) {
+      continue;
+    }
+    replacementChanges.push(
+      new CreateSecurityLabelOnColumn({
+        table: branchTable,
+        column: branchColumn,
+        securityLabel,
+      }),
+    );
+  }
+
+  const dependentConstraintIds = new Set(
+    branchCatalog.depends
+      .filter(
+        (dep) =>
+          dep.referenced_stable_id === columnStableId &&
+          dep.dependent_stable_id.startsWith("constraint:"),
+      )
+      .map((dep) => dep.dependent_stable_id),
+  );
+
+  for (const constraint of branchTable.constraints ?? []) {
+    if (constraint.is_partition_clone) continue;
+
+    const constraintStableId = stableId.constraint(
+      branchTable.schema,
+      branchTable.name,
+      constraint.name,
+    );
+    if (!dependentConstraintIds.has(constraintStableId)) continue;
+
+    if (
+      !hasChangeCreating(
+        [...existingChanges, ...replacementChanges],
+        constraintStableId,
+      )
+    ) {
+      replacementChanges.push(
+        new AlterTableAddConstraint({
+          table: branchTable,
+          constraint,
+        }),
+      );
+    }
+
+    const constraintCommentStableId = stableId.comment(constraintStableId);
+    if (
+      constraint.comment !== null &&
+      constraint.comment !== undefined &&
+      !hasChangeCreating(
+        [...existingChanges, ...replacementChanges],
+        constraintCommentStableId,
+      )
+    ) {
+      replacementChanges.push(
+        new CreateCommentOnConstraint({
+          table: branchTable,
+          constraint,
+        }),
+      );
+    }
+  }
+
+  replacementChanges.push(
+    ...buildGeneratedColumnPrivilegeReplacementChanges(
+      branchTable,
+      parsed.column,
+      existingChanges,
+      replacementChanges,
+    ),
+  );
+
+  return replacementChanges;
+}
+
+function buildGeneratedColumnPrivilegeReplacementChanges(
+  branchTable: Catalog["tables"][string],
+  columnName: string,
+  existingChanges: readonly Change[],
+  replacementChanges: readonly Change[],
+): Change[] {
+  const changes: Change[] = [];
+  const privilegesByKey = new Map<
+    string,
+    {
+      grantee: string;
+      grantable: boolean;
+      columns: string[];
+      privileges: Set<string>;
+    }
+  >();
+
+  for (const privilege of branchTable.privileges) {
+    if (privilege.grantee === branchTable.owner) continue;
+    if (!privilege.columns?.includes(columnName)) continue;
+
+    const columns = [...privilege.columns].sort();
+    const key = JSON.stringify({
+      grantee: privilege.grantee,
+      grantable: privilege.grantable,
+      columns,
+    });
+    let group = privilegesByKey.get(key);
+    if (!group) {
+      group = {
+        grantee: privilege.grantee,
+        grantable: privilege.grantable,
+        columns,
+        privileges: new Set<string>(),
+      };
+      privilegesByKey.set(key, group);
+    }
+    group.privileges.add(privilege.privilege);
+  }
+
+  for (const group of privilegesByKey.values()) {
+    const candidate = new GrantTablePrivileges({
+      table: branchTable,
+      grantee: group.grantee,
+      privileges: [...group.privileges].sort().map((privilege) => ({
+        privilege,
+        grantable: group.grantable,
+      })),
+      columns: group.columns,
+    });
+
+    if (
+      hasEquivalentColumnGrant(candidate, [
+        ...existingChanges,
+        ...replacementChanges,
+        ...changes,
+      ])
+    ) {
+      continue;
+    }
+    changes.push(candidate);
+  }
+
+  return changes;
+}
+
+function hasChangeCreating(
+  changes: readonly Change[],
+  createdStableId: string,
+): boolean {
+  return changes.some((change) =>
+    (change.creates as readonly string[]).includes(createdStableId),
+  );
+}
+
+function hasEquivalentColumnGrant(
+  candidate: GrantTablePrivileges,
+  changes: readonly Change[],
+): boolean {
+  return changes.some((change) => {
+    if (!(change instanceof GrantTablePrivileges)) return false;
+    if (change.table.stableId !== candidate.table.stableId) return false;
+    if (change.grantee !== candidate.grantee) return false;
+    if (!sameStringSet(change.columns ?? [], candidate.columns ?? [])) {
+      return false;
+    }
+    if (
+      !sameStringSet(
+        change.privileges.map((privilege) => privilege.privilege),
+        candidate.privileges.map((privilege) => privilege.privilege),
+      )
+    ) {
+      return false;
+    }
+    return change.privileges.every(
+      (privilege) => privilege.grantable === candidate.privileges[0]?.grantable,
+    );
+  });
+}
+
+function sameStringSet(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function buildPublicationTableReplacementChanges(
@@ -1368,8 +1611,11 @@ function hasEquivalentProcedureChange(
   candidate: Change,
   existingChanges: readonly Change[],
 ): boolean {
-  const candidateId = candidate.changeId;
-  return existingChanges.some((change) => change.changeId === candidateId);
+  return existingChanges.some(
+    (change) =>
+      change.constructor === candidate.constructor &&
+      change.serialize() === candidate.serialize(),
+  );
 }
 
 function buildCreateViewReplacementChanges(
