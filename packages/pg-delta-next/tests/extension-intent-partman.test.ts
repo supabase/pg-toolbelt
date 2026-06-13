@@ -165,6 +165,10 @@ describe("extension-intent: pg_partman managed partitions are not dropped (CLI-1
     expect(verdict.driftDeltas).toEqual([]);
     expect(verdict.dataViolations).toEqual([]);
     expect(verdict.ok).toBe(true);
+    // the proof reports honest coverage; the seeded child partition is checked.
+    // Its schema changed (the parent's new column propagated), so it is
+    // count-checked, not falsely flagged as a content violation.
+    expect(verdict.coverage.tablesChecked).toBeGreaterThan(0);
 
     // the seeded child row survived the migration on the clone
     const { rows } = await clone.pool.query<{ c: number }>(

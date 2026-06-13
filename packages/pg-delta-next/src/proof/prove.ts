@@ -22,12 +22,44 @@ export interface ProofVerdict {
   ok: boolean;
   applyError?: { actionIndex: number; sql: string; message: string };
   driftDeltas: Delta[];
-  /** a kept table whose row count changed — drop+recreate masquerading as
-   *  preservation, or an undeclared destructive operation */
-  dataViolations: Array<{ table: string; before: number; after: number }>;
+  /** a kept table whose data changed: row count differs, OR (on a table the
+   *  plan did NOT touch) content changed though the count held — drop+recreate
+   *  masquerading as preservation, or an undeclared destructive operation */
+  dataViolations: Array<{
+    table: string;
+    before: number;
+    after: number;
+    /** count held but row CONTENT changed on an untouched table (review #3) */
+    contentChanged?: boolean;
+  }>;
   /** a kept table that was physically rewritten (relfilenode changed)
    *  under no action declaring rewriteRisk — the rule under-declared */
   rewriteViolations: Array<{ table: string }>;
+  /** what the proof actually verified, per table — honest coverage instead of
+   *  a bare boolean (review #3). `ok` is backed by this. */
+  coverage: ProofCoverage;
+}
+
+export interface TableCoverage {
+  table: string;
+  /** how this table's data was checked:
+   *  - "fingerprint": non-empty + untouched by the plan → full content compared
+   *  - "count": non-empty but the plan alters it → only row count compared
+   *    (a schema change legitimately changes content)
+   *  - "none": empty before applying → nothing to check (seed it to get teeth) */
+  contentMode: "fingerprint" | "count" | "none";
+  recreated: boolean;
+  rewriteDeclared: boolean;
+  rowsBefore: number;
+  rowsAfter: number;
+}
+
+export interface ProofCoverage {
+  /** tables present before+after and actually compared */
+  tablesChecked: number;
+  /** tables not compared, with why (recreated/dropped by the plan) */
+  tablesSkipped: Array<{ table: string; reason: string }>;
+  perTable: TableCoverage[];
 }
 
 export interface ProveOptions {
@@ -47,6 +79,13 @@ export interface ProveOptions {
 interface TableStat {
   rows: number;
   relfilenode: string;
+  /** column signature (attname:atttypid, ordered) — content is only comparable
+   *  when this is unchanged; a schema change (incl. a column propagated from a
+   *  partitioned parent) legitimately changes whole-row text. */
+  schemaSig: string;
+  /** deterministic content fingerprint, present only for non-empty tables
+   *  (md5 over order-independent row text). Undefined ⇒ empty ⇒ not checked. */
+  content?: string;
 }
 
 const qte = (s: string): string => `"${s.replaceAll('"', '""')}"`;
@@ -57,9 +96,15 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
     schema: string;
     name: string;
     relfilenode: string;
+    schemasig: string | null;
   }>(`
     SELECT n.nspname AS schema, c.relname AS name,
-           c.relfilenode::text AS relfilenode
+           c.relfilenode::text AS relfilenode,
+           (SELECT string_agg(a.attname || ':' || a.atttypid::text, ','
+                              ORDER BY a.attnum)
+              FROM pg_attribute a
+             WHERE a.attrelid = c.oid AND a.attnum > 0
+               AND NOT a.attisdropped) AS schemasig
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relkind = 'r'
       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
@@ -82,8 +127,33 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
     stats.set(`${r.schema}.${r.name}`, {
       rows: Number(countRow[`c${i}`]),
       relfilenode: r.relfilenode,
+      schemaSig: r.schemasig ?? "",
     });
   });
+
+  // content fingerprints for NON-EMPTY tables only (bounds the cost: empty
+  // tables have nothing to fingerprint; large untouched tables are scanned
+  // once — proof is an opt-in extra apply+extract). Order-independent so the
+  // digest is deterministic regardless of physical row order.
+  const nonEmpty = rels.rows.filter((_r, i) => Number(countRow[`c${i}`]) > 0);
+  if (nonEmpty.length > 0) {
+    const fps = nonEmpty
+      .map(
+        (r, i) =>
+          `(SELECT md5(coalesce(string_agg(x, E'\\n'), '')) ` +
+          `FROM (SELECT t::text AS x FROM ${qte(r.schema)}.${qte(r.name)} t ORDER BY 1) q) AS f${i}`,
+      )
+      .join(", ");
+    const fpRow = (await pool.query(`SELECT ${fps}`)).rows[0] as Record<
+      string,
+      string
+    >;
+    nonEmpty.forEach((r, i) => {
+      const stat = stats.get(`${r.schema}.${r.name}`);
+      const fp = fpRow[`f${i}`];
+      if (stat && fp !== undefined) stat.content = fp;
+    });
+  }
   return stats;
 }
 
@@ -134,6 +204,99 @@ async function autoSeedEmptyTables(
 }
 
 /**
+ * Pure verdict logic over before/after table stats (testable without a DB).
+ *
+ * For every table present before applying:
+ *  - recreated/dropped by the plan → skipped (changes are expected), reported
+ *  - row count changed → data violation
+ *  - count held but CONTENT changed while the SCHEMA SIGNATURE is unchanged →
+ *    data violation (genuine data mutation; if the schema changed — e.g. a
+ *    column propagated from a partitioned parent — content is not comparable,
+ *    so only the count is trusted)
+ *  - relfilenode changed with no rewriteRisk-declaring action → rewrite
+ *    violation
+ * and emits an honest per-table coverage report (review #3).
+ */
+export function detectViolations(
+  before: Map<string, TableStat>,
+  after: Map<string, TableStat>,
+  ctx: {
+    recreatedTables: Set<string>;
+    declaredRewriteTables: Set<string>;
+  },
+): {
+  dataViolations: ProofVerdict["dataViolations"];
+  rewriteViolations: ProofVerdict["rewriteViolations"];
+  coverage: ProofCoverage;
+} {
+  const dataViolations: ProofVerdict["dataViolations"] = [];
+  const rewriteViolations: ProofVerdict["rewriteViolations"] = [];
+  const perTable: TableCoverage[] = [];
+  const tablesSkipped: ProofCoverage["tablesSkipped"] = [];
+
+  for (const [table, beforeStat] of before) {
+    const afterStat = after.get(table);
+    if (afterStat === undefined) {
+      tablesSkipped.push({ table, reason: "dropped by the plan" });
+      continue;
+    }
+    if (ctx.recreatedTables.has(table)) {
+      tablesSkipped.push({ table, reason: "recreated by the plan" });
+      continue;
+    }
+
+    const schemaStable = beforeStat.schemaSig === afterStat.schemaSig;
+    if (afterStat.rows !== beforeStat.rows) {
+      dataViolations.push({
+        table,
+        before: beforeStat.rows,
+        after: afterStat.rows,
+      });
+    } else if (
+      schemaStable &&
+      beforeStat.content !== undefined &&
+      afterStat.content !== undefined &&
+      beforeStat.content !== afterStat.content
+    ) {
+      dataViolations.push({
+        table,
+        before: beforeStat.rows,
+        after: afterStat.rows,
+        contentChanged: true,
+      });
+    }
+
+    if (
+      afterStat.relfilenode !== beforeStat.relfilenode &&
+      !ctx.declaredRewriteTables.has(table)
+    ) {
+      rewriteViolations.push({ table });
+    }
+
+    const contentMode: TableCoverage["contentMode"] =
+      beforeStat.content === undefined
+        ? "none"
+        : schemaStable
+          ? "fingerprint"
+          : "count";
+    perTable.push({
+      table,
+      contentMode,
+      recreated: false,
+      rewriteDeclared: ctx.declaredRewriteTables.has(table),
+      rowsBefore: beforeStat.rows,
+      rowsAfter: afterStat.rows,
+    });
+  }
+
+  return {
+    dataViolations,
+    rewriteViolations,
+    coverage: { tablesChecked: perTable.length, tablesSkipped, perTable },
+  };
+}
+
+/**
  * Prove a plan against a sacrificial clone of the source. The clone is
  * mutated; never pass a real target.
  */
@@ -181,6 +344,7 @@ export async function provePlan(
       driftDeltas: [],
       dataViolations: [],
       rewriteViolations: [],
+      coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
     };
   }
   const proven = await (options.reextract ?? extract)(clonePool);
@@ -190,28 +354,11 @@ export async function provePlan(
   const driftDeltas = diff(proven.factBase, target);
   const after = await tableStats(clonePool);
 
-  const dataViolations: ProofVerdict["dataViolations"] = [];
-  const rewriteViolations: ProofVerdict["rewriteViolations"] = [];
-  for (const [table, beforeStat] of before) {
-    const afterStat = after.get(table);
-    if (afterStat === undefined) continue; // table is gone — legitimately dropped
-    if (afterStat.rows !== beforeStat.rows) {
-      dataViolations.push({
-        table,
-        before: beforeStat.rows,
-        after: afterStat.rows,
-      });
-    }
-    // a kept table (not torn down by the plan) whose physical file changed
-    // under no rewriteRisk-declaring action: the rule under-declared
-    if (
-      afterStat.relfilenode !== beforeStat.relfilenode &&
-      !recreatedTables.has(table) &&
-      !declaredRewriteTables.has(table)
-    ) {
-      rewriteViolations.push({ table });
-    }
-  }
+  const { dataViolations, rewriteViolations, coverage } = detectViolations(
+    before,
+    after,
+    { recreatedTables, declaredRewriteTables },
+  );
 
   return {
     ok:
@@ -221,5 +368,6 @@ export async function provePlan(
     driftDeltas,
     dataViolations,
     rewriteViolations,
+    coverage,
   };
 }

@@ -24,7 +24,13 @@ re-validation, shared-object leak detection, and parser-free DML rejection
 
 - **Corpus proof loop**: every scenario in `corpus/` proven in BOTH
   directions (build and teardown) — state proof = zero drift deltas after
-  applying the plan to a clone; data proof = seeded rows survive.
+  applying the plan to a clone; data proof = seeded rows survive. The proof
+  reports honest per-table **coverage** (`tablesChecked`, `tablesSkipped`,
+  and a `contentMode` of `fingerprint` / `count` / `none`) rather than a bare
+  boolean: a non-empty table whose schema is unchanged is content-fingerprinted
+  (a count-preserving content change is caught); a table whose schema changed
+  is count-checked; an empty table is not checked (seed it for teeth). `ok` is
+  backed by that coverage — it is not a guarantee beyond what was checked.
 - **Fixture-validity layer**: green independently of the engine, so an
   engine failure can never be a broken fixture.
 - **Extractor ring**: fixture DDL → asserted facts/payloads/edges,
