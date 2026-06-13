@@ -1662,6 +1662,20 @@ const isBuiltInOperatorClassSupportOperatorName = (
   );
 };
 
+const isPgCatalogQualifiedKnownOperatorClassSupportOperatorName = (
+  nameParts: string[],
+): boolean => {
+  const name = nameParts.at(-1)?.toLowerCase();
+  return (
+    nameParts.length === 2 &&
+    nameParts[0]?.toLowerCase() === "pg_catalog" &&
+    name !== undefined &&
+    (builtInOperatorClassSupportOperatorNames.has(name) ||
+      builtInPatternOperatorClassSupportOperatorNames.has(name) ||
+      builtInRecordImageOperatorClassSupportOperatorNames.has(name))
+  );
+};
+
 const POSTGRES_IDENTIFIER_MAX_BYTES = 63;
 const textEncoder = new TextEncoder();
 
@@ -2564,6 +2578,18 @@ const isBuiltInOperatorImplementationFunctionName = (
   );
 };
 
+const isPgCatalogQualifiedKnownOperatorImplementationFunctionName = (
+  nameParts: string[],
+): boolean => {
+  const name = nameParts.at(-1)?.toLowerCase();
+  return (
+    nameParts.length === 2 &&
+    nameParts[0]?.toLowerCase() === "pg_catalog" &&
+    name !== undefined &&
+    builtInOperatorImplementationFunctionSignatures.has(name)
+  );
+};
+
 const extractCreateOperatorDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -2708,6 +2734,19 @@ const extractCreateOperatorDependencies = (
       }
     } else {
       requires.push(exactFunctionRef);
+      if (
+        isPgCatalogQualifiedKnownOperatorImplementationFunctionName(
+          functionNameParts,
+        )
+      ) {
+        diagnostics.push({
+          code: "UNRESOLVED_DEPENDENCY",
+          message: `No valid pg_catalog operator implementation function '${functionRef.name}' found for operator signature '${exactFunctionRef.signature ?? "unknown"}'.`,
+          objectRefs: [exactFunctionRef],
+          suggestedFix:
+            "Use a pg_catalog operator implementation function whose arguments match the declared operator arguments.",
+        });
+      }
     }
   }
 
@@ -2907,6 +2946,17 @@ const extractCreateOperatorClassDependencies = (
       const operatorRef = objectWithArgsRef("operator", itemName, operatorArgs);
       if (operatorRef) {
         requires.push(operatorRef);
+        if (
+          isPgCatalogQualifiedKnownOperatorClassSupportOperatorName(nameParts)
+        ) {
+          diagnostics.push({
+            code: "UNRESOLVED_DEPENDENCY",
+            message: `No valid pg_catalog support operator '${operatorRef.name}' found for access method '${accessMethod || "unknown"}' strategy number ${itemNumber}.`,
+            objectRefs: [operatorRef],
+            suggestedFix:
+              "Use a pg_catalog support operator that matches the selected access method, strategy number, and argument signature.",
+          });
+        }
       }
       continue;
     }
