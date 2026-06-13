@@ -13,6 +13,7 @@ const TriggerEnabledSchema = z.enum([
   "R", // REPLICA - trigger fires only in "replica" mode
   "A", // ALWAYS - trigger fires regardless of replication mode
 ]);
+export type TriggerEnabledState = z.infer<typeof TriggerEnabledSchema>;
 
 const TriggerTableRelkindSchema = z.enum([
   "r", // ordinary table

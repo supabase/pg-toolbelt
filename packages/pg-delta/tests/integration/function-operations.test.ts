@@ -157,6 +157,316 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "begin atomic sql function depending on rewritten column is recreated",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.accounts (
+              user_id int PRIMARY KEY,
+              balance int NOT NULL DEFAULT 0
+            );
+
+            CREATE FUNCTION test_schema.total_balance()
+            RETURNS bigint
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT sum(balance)::bigint FROM test_schema.accounts;
+            END;
+          `,
+          testSql: dedent`
+            DROP FUNCTION test_schema.total_balance();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN balance TYPE bigint
+              USING balance::bigint;
+
+            CREATE FUNCTION test_schema.total_balance()
+            RETURNS bigint
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT sum(balance)::bigint FROM test_schema.accounts;
+            END;
+          `,
+          assertSqlStatements: (statements) => {
+            const dropIndex = statements.findIndex((statement) =>
+              statement.startsWith("DROP FUNCTION test_schema.total_balance"),
+            );
+            const alterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN balance TYPE bigint",
+              ),
+            );
+            const createIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes("FUNCTION test_schema.total_balance()"),
+            );
+
+            expect(dropIndex).toBeGreaterThanOrEqual(0);
+            expect(alterIndex).toBeGreaterThan(dropIndex);
+            expect(createIndex).toBeGreaterThan(alterIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "begin atomic sql function returning rewritten custom column is recreated after the rewrite",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.accounts (
+              user_id int PRIMARY KEY,
+              status text NOT NULL DEFAULT 'active'
+            );
+
+            CREATE FUNCTION test_schema.current_account_status()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status FROM test_schema.accounts WHERE user_id = 1;
+            END;
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            DROP FUNCTION test_schema.current_account_status();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status DROP DEFAULT;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            CREATE FUNCTION test_schema.current_account_status()
+            RETURNS test_schema.account_status
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status FROM test_schema.accounts WHERE user_id = 1;
+            END;
+          `,
+          assertSqlStatements: (statements) => {
+            const createTypeIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE TYPE test_schema.account_status AS ENUM",
+              ),
+            );
+            const dropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.current_account_status",
+              ),
+            );
+            const alterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN status TYPE test_schema.account_status",
+              ),
+            );
+            const createIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes(
+                  "FUNCTION test_schema.current_account_status()",
+                ),
+            );
+
+            expect(dropIndex).toBeGreaterThanOrEqual(0);
+            expect(createTypeIndex).toBeGreaterThan(dropIndex);
+            expect(alterIndex).toBeGreaterThan(createTypeIndex);
+            expect(createIndex).toBeGreaterThan(alterIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "begin atomic sql function used by a column default is rebuilt with metadata after a column rewrite",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            DO $$
+            BEGIN
+              CREATE ROLE routine_owner;
+            EXCEPTION WHEN duplicate_object THEN
+              NULL;
+            END $$;
+            DO $$
+            BEGIN
+              CREATE ROLE routine_executor;
+            EXCEPTION WHEN duplicate_object THEN
+              NULL;
+            END $$;
+            GRANT USAGE, CREATE ON SCHEMA test_schema TO routine_owner;
+
+            CREATE TABLE test_schema.accounts (
+              id int PRIMARY KEY,
+              status text NOT NULL DEFAULT 'active'
+            );
+
+            CREATE FUNCTION test_schema.account_status_text()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text FROM test_schema.accounts WHERE id = 1;
+            END;
+
+            ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner;
+            COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper';
+            GRANT EXECUTE ON FUNCTION test_schema.account_status_text() TO routine_executor;
+
+            CREATE TABLE test_schema.account_audit (
+              id int,
+              label text DEFAULT test_schema.account_status_text()
+            );
+          `,
+          testSql: dedent`
+            CREATE TYPE test_schema.account_status AS ENUM ('active', 'blocked');
+
+            ALTER TABLE test_schema.account_audit
+              ALTER COLUMN label DROP DEFAULT;
+
+            DROP FUNCTION test_schema.account_status_text();
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status DROP DEFAULT;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status TYPE test_schema.account_status
+              USING status::test_schema.account_status;
+
+            ALTER TABLE test_schema.accounts
+              ALTER COLUMN status SET DEFAULT 'active'::test_schema.account_status;
+
+            CREATE FUNCTION test_schema.account_status_text()
+            RETURNS text
+            LANGUAGE SQL
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text FROM test_schema.accounts WHERE id = 1;
+            END;
+
+            ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner;
+            COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper';
+            GRANT EXECUTE ON FUNCTION test_schema.account_status_text() TO routine_executor;
+
+            ALTER TABLE test_schema.account_audit
+              ALTER COLUMN label SET DEFAULT test_schema.account_status_text();
+          `,
+          assertSqlStatements: (statements) => {
+            const auditDefaultDropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.account_audit ALTER COLUMN label DROP DEFAULT",
+              ),
+            );
+            const routineDropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.account_status_text",
+              ),
+            );
+            const accountAlterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN status TYPE test_schema.account_status",
+              ),
+            );
+            const routineCreateIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("CREATE") &&
+                statement.includes(
+                  "FUNCTION test_schema.account_status_text()",
+                ),
+            );
+            const routineOwnerIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER FUNCTION test_schema.account_status_text() OWNER TO routine_owner",
+              ),
+            );
+            const routineCommentIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON FUNCTION test_schema.account_status_text() IS 'account status helper'",
+              ),
+            );
+            const routineGrantIndex = statements.findIndex(
+              (statement) =>
+                statement.startsWith("GRANT ") &&
+                statement.includes(
+                  " ON FUNCTION test_schema.account_status_text() TO routine_executor",
+                ),
+            );
+            const auditDefaultSetIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.account_audit ALTER COLUMN label SET DEFAULT test_schema.account_status_text()",
+              ),
+            );
+
+            expect(auditDefaultDropIndex).toBeGreaterThanOrEqual(0);
+            expect(routineDropIndex).toBeGreaterThan(auditDefaultDropIndex);
+            expect(accountAlterIndex).toBeGreaterThan(routineDropIndex);
+            expect(routineCreateIndex).toBeGreaterThan(accountAlterIndex);
+            expect(routineOwnerIndex).toBeGreaterThan(routineCreateIndex);
+            expect(routineCommentIndex).toBeGreaterThan(routineCreateIndex);
+            expect(routineGrantIndex).toBeGreaterThan(routineCreateIndex);
+            expect(auditDefaultSetIndex).toBeGreaterThan(routineCreateIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "column default depending on replaced function signature is restored around the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_amount()
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT 1 $$;
+
+            CREATE TABLE test_schema.orders (
+              id integer PRIMARY KEY,
+              amount integer DEFAULT test_schema.default_amount()
+            );
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.orders
+              ALTER COLUMN amount DROP DEFAULT;
+
+            DROP FUNCTION test_schema.default_amount();
+
+            CREATE FUNCTION test_schema.default_amount(fallback integer DEFAULT 1)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT fallback $$;
+
+            ALTER TABLE test_schema.orders
+              ALTER COLUMN amount SET DEFAULT test_schema.default_amount();
+          `,
+        });
+      }),
+    );
+
+    test(
       "function signature: parameter type change",
       withDb(pgVersion, async (db) => {
         // Changes the IN parameter type (text -> uuid). stableId changes
@@ -344,6 +654,99 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE VIEW test_schema.items_formatted AS
               SELECT test_schema.format_id(id::bigint) AS formatted_id FROM test_schema.items;
           `,
+        });
+      }),
+    );
+
+    test(
+      "function signature change cascades through a dependent check constraint",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+            CREATE FUNCTION test_schema.is_valid_status(status text)
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT status <> '' $$;
+
+            CREATE TABLE test_schema.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL,
+              CONSTRAINT accounts_status_check CHECK (
+                test_schema.is_valid_status(status)
+              )
+            );
+
+            COMMENT ON CONSTRAINT accounts_status_check
+              ON test_schema.accounts
+              IS 'status guard';
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.accounts
+              DROP CONSTRAINT accounts_status_check;
+
+            DROP FUNCTION test_schema.is_valid_status(text);
+
+            CREATE FUNCTION test_schema.is_valid_status(
+              status text,
+              expected text DEFAULT 'active'
+            )
+            RETURNS boolean
+            LANGUAGE sql
+            IMMUTABLE
+            AS $$ SELECT status <> '' AND expected <> '' $$;
+
+            ALTER TABLE test_schema.accounts
+              ADD CONSTRAINT accounts_status_check CHECK (
+                test_schema.is_valid_status(status)
+              );
+
+            COMMENT ON CONSTRAINT accounts_status_check
+              ON test_schema.accounts
+              IS 'status guard';
+          `,
+          assertSqlStatements: (statements) => {
+            const dropTableIdx = statements.findIndex((statement) =>
+              statement.startsWith("DROP TABLE test_schema.accounts"),
+            );
+            const createTableIdx = statements.findIndex((statement) =>
+              statement.startsWith("CREATE TABLE test_schema.accounts"),
+            );
+            const dropConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.accounts DROP CONSTRAINT accounts_status_check",
+              ),
+            );
+            const dropFunctionIdx = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.is_valid_status(",
+              ),
+            );
+            const createFunctionIdx = statements.findIndex((statement) =>
+              statement.includes("CREATE FUNCTION test_schema.is_valid_status"),
+            );
+            const addConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER TABLE test_schema.accounts ADD CONSTRAINT accounts_status_check",
+              ),
+            );
+            const commentConstraintIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "COMMENT ON CONSTRAINT accounts_status_check ON test_schema.accounts",
+              ),
+            );
+
+            expect(dropTableIdx).toBe(-1);
+            expect(createTableIdx).toBe(-1);
+            expect(dropConstraintIdx).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIdx).toBeGreaterThan(dropConstraintIdx);
+            expect(createFunctionIdx).toBeGreaterThan(dropFunctionIdx);
+            expect(addConstraintIdx).toBeGreaterThan(createFunctionIdx);
+            expect(commentConstraintIdx).toBeGreaterThan(addConstraintIdx);
+          },
         });
       }),
     );

@@ -30,6 +30,92 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "publication row filter depending on rewritten column is recreated around ALTER COLUMN TYPE",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.filtered_accounts (
+            id integer NOT NULL,
+            status text NOT NULL,
+            amount integer
+          );
+
+          CREATE PUBLICATION pub_filtered_accounts
+            FOR TABLE pub_test.filtered_accounts
+            WHERE (status = 'active');
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_filtered_accounts
+            DROP TABLE pub_test.filtered_accounts;
+          ALTER TABLE pub_test.filtered_accounts
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER PUBLICATION pub_filtered_accounts
+            ADD TABLE pub_test.filtered_accounts
+            WHERE ((status)::text = 'active'::text);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER PUBLICATION pub_filtered_accounts DROP TABLE pub_test.filtered_accounts",
+                "ALTER TABLE pub_test.filtered_accounts ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER PUBLICATION pub_filtered_accounts ADD TABLE pub_test.filtered_accounts WHERE ((status)::text = 'active'::text)",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
+      "publication depending on rebuilt generated column is dropped before the column",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.generated_accounts (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          CREATE PUBLICATION pub_generated_accounts
+            FOR TABLE pub_test.generated_accounts
+            WHERE (status_label = 'ACTIVE');
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_generated_accounts
+            DROP TABLE pub_test.generated_accounts;
+          ALTER TABLE pub_test.generated_accounts
+            DROP COLUMN status_label;
+          ALTER TABLE pub_test.generated_accounts
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE pub_test.generated_accounts
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER PUBLICATION pub_generated_accounts
+            ADD TABLE pub_test.generated_accounts
+            WHERE (status_label = 'ACTIVE'::text);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropPublicationIndex = sqlStatements.indexOf(
+              "ALTER PUBLICATION pub_generated_accounts DROP TABLE pub_test.generated_accounts",
+            );
+            const dropColumnIndex = sqlStatements.indexOf(
+              "ALTER TABLE pub_test.generated_accounts DROP COLUMN status_label",
+            );
+            expect(dropPublicationIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropPublicationIndex).toBeLessThan(dropColumnIndex);
+          },
+        });
+      }),
+    );
+
+    test(
       "create publication for tables in schema",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -144,6 +230,32 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           ALTER PUBLICATION pub_tables ADD TABLE pub_test.sessions WHERE (active IS TRUE);
           ALTER PUBLICATION pub_tables DROP TABLE pub_test.users;
         `,
+        });
+      }),
+    );
+
+    test(
+      "remove table from publication without rebuilding surviving dependents",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA pub_test;
+          CREATE TABLE pub_test.accounts (id integer PRIMARY KEY);
+          CREATE VIEW pub_test.account_ids AS SELECT id FROM pub_test.accounts;
+          CREATE PUBLICATION pub_drop_member FOR TABLE pub_test.accounts;
+        `,
+          testSql: `
+          ALTER PUBLICATION pub_drop_member DROP TABLE pub_test.accounts;
+        `,
+          assertSqlStatements: (statements) => {
+            expect(statements).toMatchInlineSnapshot(`
+              [
+                "ALTER PUBLICATION pub_drop_member DROP TABLE pub_test.accounts",
+              ]
+            `);
+          },
         });
       }),
     );

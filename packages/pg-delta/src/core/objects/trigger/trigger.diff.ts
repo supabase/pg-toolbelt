@@ -1,7 +1,10 @@
 import { diffObjects } from "../base.diff.ts";
 import type { TableLikeObject } from "../base.model.ts";
 import { deepEqual, hasNonAlterableChanges, stableId } from "../utils.ts";
-import { ReplaceTrigger } from "./changes/trigger.alter.ts";
+import {
+  ReplaceTrigger,
+  SetTriggerEnabledState,
+} from "./changes/trigger.alter.ts";
 import {
   CreateCommentOnTrigger,
   DropCommentOnTrigger,
@@ -45,6 +48,9 @@ export function diffTriggers(
     if (trigger.comment !== null) {
       changes.push(new CreateCommentOnTrigger({ trigger: trigger }));
     }
+    if (trigger.enabled !== "O") {
+      changes.push(new SetTriggerEnabledState({ trigger }));
+    }
   }
 
   for (const triggerId of dropped) {
@@ -76,7 +82,6 @@ export function diffTriggers(
       "function_schema",
       "function_name",
       "trigger_type",
-      "enabled",
       "is_internal",
       "deferrable",
       "initially_deferred",
@@ -105,6 +110,12 @@ export function diffTriggers(
           indexableObject: branchIndexableObjects?.[tableStableId],
         }),
       );
+      if (branchTrigger.comment !== null) {
+        changes.push(new CreateCommentOnTrigger({ trigger: branchTrigger }));
+      }
+      if (branchTrigger.enabled !== "O") {
+        changes.push(new SetTriggerEnabledState({ trigger: branchTrigger }));
+      }
     } else {
       // COMMENT
       if (mainTrigger.comment !== branchTrigger.comment) {
@@ -113,6 +124,10 @@ export function diffTriggers(
         } else {
           changes.push(new CreateCommentOnTrigger({ trigger: branchTrigger }));
         }
+      }
+
+      if (mainTrigger.enabled !== branchTrigger.enabled) {
+        changes.push(new SetTriggerEnabledState({ trigger: branchTrigger }));
       }
     }
   }

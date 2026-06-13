@@ -1055,6 +1055,218 @@ describe.concurrent("table.diff", () => {
     ]);
   });
 
+  test("postgres before 17 rebuilds generated columns when their type changes", () => {
+    const generatedTextColumn = {
+      name: "status_label",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const generatedVarcharColumn = {
+      ...generatedTextColumn,
+      data_type: "character varying",
+      data_type_str: "character varying(64)",
+    };
+    const mainTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedTextColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedVarcharColumn],
+    });
+
+    const changes = diffTables(
+      testContext,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.map((change) => change.serialize())).toEqual([
+      "ALTER TABLE public.t_generated_type DROP COLUMN status_label",
+      "ALTER TABLE public.t_generated_type ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED",
+    ]);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(false);
+    expect(
+      changes.some((change) => change instanceof AlterTableAlterColumnType),
+    ).toBe(false);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(false);
+  });
+
+  test("postgres 17 rebuilds constrained generated columns when their type changes", () => {
+    const pg17Context = {
+      ...testContext,
+      version: 170000,
+    };
+    const generatedTextColumn = {
+      name: "status_label",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const generatedVarcharColumn = {
+      ...generatedTextColumn,
+      data_type: "character varying",
+      data_type_str: "character varying(64)",
+    };
+    const checkConstraint = {
+      name: "t_generated_type_status_label_check",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status_label"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "status_label <> ''",
+      owner: "o1",
+      definition: "CHECK (status_label <> '')",
+      comment: null,
+    };
+    const mainTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedTextColumn],
+      constraints: [checkConstraint],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "t_generated_type",
+      columns: [generatedVarcharColumn],
+      constraints: [checkConstraint],
+    });
+
+    const changes = diffTables(
+      pg17Context,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(
+      changes.some((change) => change instanceof AlterTableDropColumn),
+    ).toBe(true);
+    expect(
+      changes.some((change) => change instanceof AlterTableAddColumn),
+    ).toBe(true);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toBe(false);
+    expect(
+      changes.some((change) => change instanceof AlterTableAlterColumnType),
+    ).toBe(false);
+    expect(
+      changes.some(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toBe(false);
+  });
+
+  test("postgres 17 resets generated columns with the current type during incompatible own type changes", () => {
+    const pg17Context = {
+      ...testContext,
+      version: 170000,
+    };
+    const generatedIntegerColumn = {
+      name: "status_code",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "length(status)",
+      comment: null,
+    };
+    const generatedTextColumn = {
+      ...generatedIntegerColumn,
+      data_type: "text",
+      data_type_str: "text",
+      default: "upper(status)",
+    };
+    const mainTable = new Table({
+      ...base,
+      name: "t_generated_incompatible_type",
+      columns: [generatedIntegerColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "t_generated_incompatible_type",
+      columns: [generatedTextColumn],
+    });
+
+    const changes = diffTables(
+      pg17Context,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.map((change) => change.serialize())).toEqual([
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code SET EXPRESSION AS (NULL::integer)",
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code TYPE text USING status_code::text",
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code SET EXPRESSION AS (upper(status))",
+    ]);
+  });
+
   test("identity transitions emit drop/add/set-generated changes", () => {
     const serialColumn = {
       name: "id",

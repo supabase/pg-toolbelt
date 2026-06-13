@@ -108,6 +108,60 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "change column type with check constraint does not replace table",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE TABLE public.alter_column_type_check_constraint_accounts (
+            id integer PRIMARY KEY,
+            status text NOT NULL,
+            CONSTRAINT accounts_status_non_empty CHECK (status <> '')
+          );
+
+          INSERT INTO public.alter_column_type_check_constraint_accounts
+            (id, status)
+          VALUES
+            (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE public.alter_column_type_check_constraint_accounts
+            ALTER COLUMN status TYPE character varying(32);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "DROP TABLE public.alter_column_type_check_constraint_accounts",
+                ),
+              ),
+            ).toBe(false);
+            expect(sqlStatements).toContain(
+              "ALTER TABLE public.alter_column_type_check_constraint_accounts ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+            );
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "CREATE TABLE public.alter_column_type_check_constraint_accounts",
+                ),
+              ),
+            ).toBe(false);
+          },
+        });
+
+        const { rows } = await db.main.query<{
+          status: string;
+        }>(`
+          SELECT status
+          FROM public.alter_column_type_check_constraint_accounts
+          WHERE id = 1
+        `);
+        expect(rows).toEqual([{ status: "active" }]);
+      }),
+    );
+
+    test(
       "change column type after dropping dependent view",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({
@@ -483,6 +537,385 @@ for (const pgVersion of POSTGRES_VERSIONS) {
               return 2;
             };
             return priority(a) - priority(b);
+          },
+        });
+      }),
+    );
+
+    test(
+      "alter referenced column type rebuilds constrained generated expression",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_status (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          INSERT INTO test_schema.generated_status (id, status)
+          VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_status
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_status
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_status
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_status DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_status ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER TABLE test_schema.generated_status ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test.skipIf(pgVersion >= 17)(
+      "alter generated column type before postgres 17 rebuilds the column",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_own_type (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED
+          );
+
+          INSERT INTO test_schema.generated_own_type (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_own_type DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_own_type ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test.skipIf(pgVersion < 17)(
+      "postgres 17 rebuilds not-null generated column for own type changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_own_type_not_null (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          INSERT INTO test_schema.generated_own_type_not_null (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type_not_null
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type_not_null
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_own_type_not_null DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_own_type_not_null ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED NOT NULL",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test.skipIf(pgVersion < 17)(
+      "postgres 17 resets generated columns with the current type for incompatible own type changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_incompatible_own_type (
+            status text NOT NULL,
+            status_code integer GENERATED ALWAYS AS (length(status)) STORED
+          );
+
+          INSERT INTO test_schema.generated_incompatible_own_type (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_incompatible_own_type
+            DROP COLUMN status_code;
+          ALTER TABLE test_schema.generated_incompatible_own_type
+            ADD COLUMN status_code text
+              GENERATED ALWAYS AS (upper(status)) STORED;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code SET EXPRESSION AS (NULL::integer)",
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code TYPE text USING status_code::text",
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code SET EXPRESSION AS (upper(status))",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test.skipIf(pgVersion >= 17)(
+      "alter generated column type before postgres 17 restores rebuilt column metadata",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE ROLE generated_own_type_reader;
+
+          CREATE TABLE test_schema.generated_own_type_metadata (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_own_type_metadata_status_label_key UNIQUE (status_label),
+            CONSTRAINT generated_own_type_metadata_status_label_check CHECK (status_label <> '')
+          );
+
+          CREATE INDEX generated_own_type_metadata_status_label_idx
+            ON test_schema.generated_own_type_metadata (status_label)
+            WHERE status_label <> '';
+
+          COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label
+            IS 'generated status label';
+          COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx
+            IS 'generated status label lookup';
+
+          GRANT SELECT (status_label)
+            ON test_schema.generated_own_type_metadata
+            TO generated_own_type_reader;
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD CONSTRAINT generated_own_type_metadata_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_own_type_metadata
+            ADD CONSTRAINT generated_own_type_metadata_status_label_check CHECK (status_label <> '');
+          CREATE INDEX generated_own_type_metadata_status_label_idx
+            ON test_schema.generated_own_type_metadata (status_label)
+            WHERE status_label <> '';
+          COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label
+            IS 'generated status label';
+          COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx
+            IS 'generated status label lookup';
+          GRANT SELECT (status_label)
+            ON test_schema.generated_own_type_metadata
+            TO generated_own_type_reader;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toContain(
+              "COMMENT ON COLUMN test_schema.generated_own_type_metadata.status_label IS 'generated status label'",
+            );
+            expect(sqlStatements).toContain(
+              "COMMENT ON INDEX test_schema.generated_own_type_metadata_status_label_idx IS 'generated status label lookup'",
+            );
+            expect(sqlStatements).toContain(
+              "GRANT SELECT (status_label) ON test_schema.generated_own_type_metadata TO generated_own_type_reader",
+            );
+          },
+        });
+      }),
+    );
+
+    test(
+      "alter referenced column type restores generated column dependents",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE ROLE generated_column_metadata_reader;
+
+          CREATE TABLE test_schema.generated_metadata (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label),
+            CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> '')
+          );
+
+          COMMENT ON COLUMN test_schema.generated_metadata.status_label
+            IS 'generated status label';
+
+          GRANT SELECT (status_label)
+            ON test_schema.generated_metadata
+            TO generated_column_metadata_reader;
+
+          INSERT INTO test_schema.generated_metadata (id, status)
+          VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_metadata
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_metadata
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_metadata
+            ADD CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_metadata
+            ADD CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> '');
+          COMMENT ON COLUMN test_schema.generated_metadata.status_label
+            IS 'generated status label';
+          GRANT SELECT (status_label)
+            ON test_schema.generated_metadata
+            TO generated_column_metadata_reader;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_metadata DROP CONSTRAINT generated_metadata_status_label_check",
+                "ALTER TABLE test_schema.generated_metadata DROP CONSTRAINT generated_metadata_status_label_key",
+                "ALTER TABLE test_schema.generated_metadata DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_metadata ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER TABLE test_schema.generated_metadata ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
+                "COMMENT ON COLUMN test_schema.generated_metadata.status_label IS 'generated status label'",
+                "ALTER TABLE test_schema.generated_metadata ADD CONSTRAINT generated_metadata_status_label_check CHECK (status_label <> ''::text)",
+                "ALTER TABLE test_schema.generated_metadata ADD CONSTRAINT generated_metadata_status_label_key UNIQUE (status_label)",
+                "GRANT SELECT (status_label) ON test_schema.generated_metadata TO generated_column_metadata_reader",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
+    test(
+      "alter referenced column type drops cross-table FK before generated column rebuild",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+
+          CREATE TABLE test_schema.generated_fk_parent (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL,
+            CONSTRAINT generated_fk_parent_status_label_key UNIQUE (status_label)
+          );
+
+          CREATE TABLE test_schema.generated_fk_child (
+            status_label text NOT NULL,
+            CONSTRAINT generated_fk_child_status_label_fkey
+              FOREIGN KEY (status_label)
+              REFERENCES test_schema.generated_fk_parent(status_label)
+          );
+
+          INSERT INTO test_schema.generated_fk_parent (status)
+          VALUES ('active');
+          INSERT INTO test_schema.generated_fk_child (status_label)
+          VALUES ('ACTIVE');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_fk_child
+            DROP CONSTRAINT generated_fk_child_status_label_fkey;
+          ALTER TABLE test_schema.generated_fk_parent
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_fk_parent
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_fk_parent
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          ALTER TABLE test_schema.generated_fk_parent
+            ADD CONSTRAINT generated_fk_parent_status_label_key UNIQUE (status_label);
+          ALTER TABLE test_schema.generated_fk_child
+            ADD CONSTRAINT generated_fk_child_status_label_fkey
+              FOREIGN KEY (status_label)
+              REFERENCES test_schema.generated_fk_parent(status_label);
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            const dropFkIndex = sqlStatements.indexOf(
+              "ALTER TABLE test_schema.generated_fk_child DROP CONSTRAINT generated_fk_child_status_label_fkey",
+            );
+            const dropColumnIndex = sqlStatements.indexOf(
+              "ALTER TABLE test_schema.generated_fk_parent DROP COLUMN status_label",
+            );
+            expect(dropFkIndex).toBeGreaterThanOrEqual(0);
+            expect(dropColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFkIndex).toBeLessThan(dropColumnIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "alter referenced column type restores generated column dependent indexes",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_index_metadata (
+            id integer NOT NULL,
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          CREATE INDEX generated_index_metadata_status_label_idx
+            ON test_schema.generated_index_metadata (status_label)
+            WHERE status_label <> '';
+
+          INSERT INTO test_schema.generated_index_metadata (id, status)
+          VALUES (1, 'active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_index_metadata
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_index_metadata
+            ALTER COLUMN status TYPE character varying(32);
+          ALTER TABLE test_schema.generated_index_metadata
+            ADD COLUMN status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+          CREATE INDEX generated_index_metadata_status_label_idx
+            ON test_schema.generated_index_metadata (status_label)
+            WHERE status_label <> '';
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "DROP INDEX test_schema.generated_index_metadata_status_label_idx",
+                "ALTER TABLE test_schema.generated_index_metadata DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_index_metadata ALTER COLUMN status TYPE character varying(32) USING status::character varying(32)",
+                "ALTER TABLE test_schema.generated_index_metadata ADD COLUMN status_label text GENERATED ALWAYS AS (upper((status)::text)) STORED NOT NULL",
+                "CREATE INDEX generated_index_metadata_status_label_idx ON test_schema.generated_index_metadata (status_label) WHERE status_label <> ''::text",
+              ]
+            `);
           },
         });
       }),

@@ -280,5 +280,57 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         });
       }),
     );
+
+    test(
+      "index comment is preserved when a column rewrite rebuilds a dependent partial index",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.accounts (
+            id integer,
+            status text
+          );
+          CREATE INDEX accounts_status_partial_idx
+            ON test_schema.accounts (id)
+            WHERE status IS NOT NULL;
+          COMMENT ON INDEX test_schema.accounts_status_partial_idx IS 'status partial index';
+        `,
+          testSql: `
+          ALTER TABLE test_schema.accounts
+            ALTER COLUMN status TYPE varchar(32);
+        `,
+          assertSqlStatements: (statements) => {
+            const dropIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP INDEX test_schema.accounts_status_partial_idx",
+              ),
+            );
+            const alterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.accounts ALTER COLUMN status TYPE character varying(32)",
+              ),
+            );
+            const createIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE INDEX accounts_status_partial_idx ON test_schema.accounts",
+              ),
+            );
+            const commentIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON INDEX test_schema.accounts_status_partial_idx IS 'status partial index'",
+              ),
+            );
+
+            expect(dropIndex).toBeGreaterThanOrEqual(0);
+            expect(alterIndex).toBeGreaterThan(dropIndex);
+            expect(createIndex).toBeGreaterThan(alterIndex);
+            expect(commentIndex).toBeGreaterThan(createIndex);
+          },
+        });
+      }),
+    );
   });
 }

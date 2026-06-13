@@ -338,13 +338,27 @@ export class AlterTableAddConstraint extends AlterTableChange {
   }
 
   get creates() {
-    return [
+    const createdIds: string[] = [
       stableId.constraint(
         this.table.schema,
         this.table.name,
         this.constraint.name,
       ),
     ];
+    if (
+      this.constraint.constraint_type === "p" ||
+      this.constraint.constraint_type === "u" ||
+      this.constraint.constraint_type === "x"
+    ) {
+      createdIds.push(
+        stableId.index(
+          this.table.schema,
+          this.table.name,
+          this.constraint.name,
+        ),
+      );
+    }
+    return createdIds;
   }
 
   get requires() {
@@ -730,12 +744,18 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
 export class AlterTableAlterColumnDropDefault extends AlterTableChange {
   public readonly table: Table;
   public readonly column: ColumnProps;
+  public readonly previousColumn: ColumnProps | null;
   public readonly scope = "object" as const;
 
-  constructor(props: { table: Table; column: ColumnProps }) {
+  constructor(props: {
+    table: Table;
+    column: ColumnProps;
+    previousColumn?: ColumnProps | null;
+  }) {
     super();
     this.table = props.table;
     this.column = props.column;
+    this.previousColumn = props.previousColumn ?? null;
   }
 
   get requires() {
@@ -745,6 +765,18 @@ export class AlterTableAlterColumnDropDefault extends AlterTableChange {
   }
 
   serialize(_options?: SerializeOptions): string {
+    if (this.column.is_generated) {
+      const resetColumn = this.previousColumn ?? this.column;
+      return [
+        "ALTER TABLE",
+        `${this.table.schema}.${this.table.name}`,
+        "ALTER COLUMN",
+        this.column.name,
+        "SET EXPRESSION AS",
+        `(NULL::${resetColumn.data_type_str})`,
+      ].join(" ");
+    }
+
     return [
       "ALTER TABLE",
       `${this.table.schema}.${this.table.name}`,

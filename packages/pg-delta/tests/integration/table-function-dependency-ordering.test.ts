@@ -6,7 +6,7 @@
  * 2. Tables with function-based defaults need functions to exist first (handled by refinement)
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
@@ -63,6 +63,147 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             message text
           );
         `,
+        });
+      }),
+    );
+
+    test(
+      "aggregate depending on invalidated SQL function is rebuilt before the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA routine_rebuild;
+            CREATE TABLE routine_rebuild.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL
+            );
+
+            CREATE FUNCTION routine_rebuild.status_len_state(state integer, account_id integer)
+            RETURNS integer
+            LANGUAGE sql
+            STABLE
+            BEGIN ATOMIC
+              SELECT state + length(status::text)
+              FROM routine_rebuild.accounts
+              WHERE id = account_id;
+            END;
+
+            CREATE AGGREGATE routine_rebuild.status_len_sum(integer) (
+              SFUNC = routine_rebuild.status_len_state,
+              STYPE = integer,
+              INITCOND = '0'
+            );
+          `,
+          testSql: dedent`
+            DROP AGGREGATE routine_rebuild.status_len_sum(integer);
+            DROP FUNCTION routine_rebuild.status_len_state(integer, integer);
+            ALTER TABLE routine_rebuild.accounts
+              ALTER COLUMN status TYPE varchar(32);
+
+            CREATE FUNCTION routine_rebuild.status_len_state(state integer, account_id integer)
+            RETURNS integer
+            LANGUAGE sql
+            STABLE
+            BEGIN ATOMIC
+              SELECT state + length(status::text)
+              FROM routine_rebuild.accounts
+              WHERE id = account_id;
+            END;
+
+            CREATE AGGREGATE routine_rebuild.status_len_sum(integer) (
+              SFUNC = routine_rebuild.status_len_state,
+              STYPE = integer,
+              INITCOND = '0'
+            );
+          `,
+          assertSqlStatements: (statements) => {
+            const dropAggregateIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP AGGREGATE routine_rebuild.status_len_sum(integer)",
+              ),
+            );
+            const dropFunctionIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION routine_rebuild.status_len_state(",
+              ),
+            );
+
+            expect(dropAggregateIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThanOrEqual(0);
+            expect(dropAggregateIndex).toBeLessThan(dropFunctionIndex);
+          },
+        });
+      }),
+    );
+
+    test(
+      "constraint depending on invalidated SQL function is dropped before the function",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA routine_rebuild_constraint;
+            CREATE TABLE routine_rebuild_constraint.accounts (
+              id integer PRIMARY KEY,
+              status text NOT NULL
+            );
+
+            CREATE FUNCTION routine_rebuild_constraint.account_status_is_open(account_id integer)
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text = 'open'
+              FROM routine_rebuild_constraint.accounts
+              WHERE id = account_id;
+            END;
+
+            CREATE TABLE routine_rebuild_constraint.account_events (
+              account_id integer NOT NULL,
+              CONSTRAINT account_events_status_check
+                CHECK (routine_rebuild_constraint.account_status_is_open(account_id))
+            );
+          `,
+          testSql: dedent`
+            ALTER TABLE routine_rebuild_constraint.account_events
+              DROP CONSTRAINT account_events_status_check;
+            DROP FUNCTION routine_rebuild_constraint.account_status_is_open(integer);
+            ALTER TABLE routine_rebuild_constraint.accounts
+              ALTER COLUMN status TYPE varchar(32);
+
+            CREATE FUNCTION routine_rebuild_constraint.account_status_is_open(account_id integer)
+            RETURNS boolean
+            LANGUAGE sql
+            STABLE
+            BEGIN ATOMIC
+              SELECT status::text = 'open'
+              FROM routine_rebuild_constraint.accounts
+              WHERE id = account_id;
+            END;
+
+            ALTER TABLE routine_rebuild_constraint.account_events
+              ADD CONSTRAINT account_events_status_check
+              CHECK (routine_rebuild_constraint.account_status_is_open(account_id));
+          `,
+          assertSqlStatements: (statements) => {
+            const dropConstraintIndex = statements.findIndex(
+              (statement) =>
+                statement ===
+                "ALTER TABLE routine_rebuild_constraint.account_events DROP CONSTRAINT account_events_status_check",
+            );
+            const dropFunctionIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION routine_rebuild_constraint.account_status_is_open(",
+              ),
+            );
+
+            expect(dropConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThanOrEqual(0);
+            expect(dropConstraintIndex).toBeLessThan(dropFunctionIndex);
+          },
         });
       }),
     );

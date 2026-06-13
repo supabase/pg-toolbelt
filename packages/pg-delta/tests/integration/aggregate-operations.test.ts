@@ -2,7 +2,7 @@
  * Integration tests for PostgreSQL aggregate operations.
  */
 
-import { describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import dedent from "dedent";
 import type { Change } from "../../src/core/change.types.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
@@ -71,6 +71,119 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: dedent`
           DROP AGGREGATE test_schema.collect_text(text);
         `,
+        });
+      }),
+    );
+
+    test(
+      "aggregate depending on replaced transition function is recreated around the function",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+
+          CREATE FUNCTION test_schema.amount_transition(state bigint, value integer)
+          RETURNS bigint
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount(integer)
+          (
+            SFUNC = test_schema.amount_transition,
+            STYPE = bigint,
+            INITCOND = '0'
+          );
+        `,
+          testSql: dedent`
+          DROP AGGREGATE test_schema.total_amount(integer);
+          DROP FUNCTION test_schema.amount_transition(bigint, integer);
+
+          CREATE FUNCTION test_schema.amount_transition(state numeric, value integer)
+          RETURNS numeric
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount(integer)
+          (
+            SFUNC = test_schema.amount_transition,
+            STYPE = numeric,
+            INITCOND = '0'
+          );
+        `,
+        });
+      }),
+    );
+
+    test(
+      "aggregate metadata survives transition function replacement",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+          CREATE SCHEMA test_schema;
+          CREATE ROLE aggregate_owner;
+          CREATE ROLE aggregate_executor;
+
+          CREATE FUNCTION test_schema.amount_metadata_transition(state bigint, value integer)
+          RETURNS bigint
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount_metadata(integer)
+          (
+            SFUNC = test_schema.amount_metadata_transition,
+            STYPE = bigint,
+            INITCOND = '0'
+          );
+
+          ALTER AGGREGATE test_schema.total_amount_metadata(integer)
+            OWNER TO aggregate_owner;
+          COMMENT ON AGGREGATE test_schema.total_amount_metadata(integer)
+            IS 'aggregate metadata';
+          GRANT EXECUTE ON FUNCTION test_schema.total_amount_metadata(integer)
+            TO aggregate_executor;
+        `,
+          testSql: dedent`
+          DROP AGGREGATE test_schema.total_amount_metadata(integer);
+          DROP FUNCTION test_schema.amount_metadata_transition(bigint, integer);
+
+          CREATE FUNCTION test_schema.amount_metadata_transition(state numeric, value integer)
+          RETURNS numeric
+          LANGUAGE sql
+          IMMUTABLE
+          AS $$ SELECT state + value $$;
+
+          CREATE AGGREGATE test_schema.total_amount_metadata(integer)
+          (
+            SFUNC = test_schema.amount_metadata_transition,
+            STYPE = numeric,
+            INITCOND = '0'
+          );
+
+          ALTER AGGREGATE test_schema.total_amount_metadata(integer)
+            OWNER TO aggregate_owner;
+          COMMENT ON AGGREGATE test_schema.total_amount_metadata(integer)
+            IS 'aggregate metadata';
+          GRANT EXECUTE ON FUNCTION test_schema.total_amount_metadata(integer)
+            TO aggregate_executor;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toContain(
+              "ALTER AGGREGATE test_schema.total_amount_metadata(integer) OWNER TO aggregate_owner",
+            );
+            expect(sqlStatements).toContain(
+              "COMMENT ON AGGREGATE test_schema.total_amount_metadata(integer) IS 'aggregate metadata'",
+            );
+            expect(sqlStatements).toContain(
+              "GRANT ALL ON FUNCTION test_schema.total_amount_metadata(integer) TO aggregate_executor",
+            );
+          },
         });
       }),
     );

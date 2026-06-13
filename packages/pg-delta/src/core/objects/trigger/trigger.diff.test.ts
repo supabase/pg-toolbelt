@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ReplaceTrigger } from "./changes/trigger.alter.ts";
+import {
+  ReplaceTrigger,
+  SetTriggerEnabledState,
+} from "./changes/trigger.alter.ts";
 import { CreateTrigger } from "./changes/trigger.create.ts";
 import { DropTrigger } from "./changes/trigger.drop.ts";
 import { diffTriggers } from "./trigger.diff.ts";
@@ -80,5 +83,68 @@ describe.concurrent("trigger.diff", () => {
     );
     expect(changes).toHaveLength(1);
     expect(changes[0]).toBeInstanceOf(ReplaceTrigger);
+  });
+
+  test("handle enabled state changes", () => {
+    const main = new Trigger({
+      ...base,
+      function_name: "fn1",
+      column_numbers: null,
+      arguments: [],
+      when_condition: null,
+      old_table: null,
+      new_table: null,
+    });
+    const branch = new Trigger({
+      ...base,
+      function_name: "fn1",
+      enabled: "D",
+      column_numbers: null,
+      arguments: [],
+      when_condition: null,
+      old_table: null,
+      new_table: null,
+    });
+
+    const changes = diffTriggers(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(
+      changes.some((change) => change instanceof SetTriggerEnabledState),
+    ).toBe(true);
+  });
+
+  test("reapply enabled state when replacing trigger", () => {
+    const main = new Trigger({
+      ...base,
+      function_name: "fn1",
+      column_numbers: null,
+      arguments: [],
+      when_condition: null,
+      old_table: null,
+      new_table: null,
+    });
+    const branch = new Trigger({
+      ...base,
+      function_name: "fn2",
+      enabled: "D",
+      column_numbers: null,
+      arguments: [],
+      when_condition: null,
+      old_table: null,
+      new_table: null,
+    });
+
+    const changes = diffTriggers(
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    expect(changes.some((change) => change instanceof ReplaceTrigger)).toBe(
+      true,
+    );
+    expect(
+      changes.some((change) => change instanceof SetTriggerEnabledState),
+    ).toBe(true);
   });
 });
