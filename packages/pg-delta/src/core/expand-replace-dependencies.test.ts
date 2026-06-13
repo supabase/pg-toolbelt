@@ -46,6 +46,7 @@ import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import { Sequence } from "./objects/sequence/sequence.model.ts";
+import { sortChanges } from "./sort/sort-changes.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -905,6 +906,8 @@ describe("expandReplaceDependencies", () => {
       },
       {
         ...mainAccounts.columns[2],
+        data_type: "character varying",
+        data_type_str: "character varying(64)",
       },
     ]);
     const mainPublication = makePublication();
@@ -926,6 +929,11 @@ describe("expandReplaceDependencies", () => {
     const generatedExpressionChange = new AlterTableAlterColumnSetDefault({
       table: branchAccounts,
       column: branchAccounts.columns[2],
+    });
+    const generatedColumnTypeChange = new AlterTableAlterColumnType({
+      table: branchAccounts,
+      column: branchAccounts.columns[2],
+      previousColumn: mainAccounts.columns[2],
     });
     const mainCatalog = catalogWith(baseline, {
       tables: { [mainAccounts.stableId]: mainAccounts },
@@ -949,7 +957,11 @@ describe("expandReplaceDependencies", () => {
     });
 
     const expanded = expandReplaceDependencies({
-      changes: [columnTypeChange, generatedExpressionChange],
+      changes: [
+        columnTypeChange,
+        generatedExpressionChange,
+        generatedColumnTypeChange,
+      ],
       mainCatalog,
       branchCatalog,
     });
@@ -972,6 +984,13 @@ describe("expandReplaceDependencies", () => {
       expanded.changes.some(
         (change) =>
           change instanceof AlterTableAlterColumnSetDefault &&
+          change.column.name === "status_label",
+      ),
+    ).toBe(false);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterTableAlterColumnType &&
           change.column.name === "status_label",
       ),
     ).toBe(false);
@@ -3157,6 +3176,160 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("rebuilds FK-backed standalone indexes after dropping dependent foreign keys", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const statusColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const accounts = makeTable("accounts", [statusColumn]);
+    const accountEventsStatus = { ...statusColumn };
+    const accountEventsFk = {
+      name: "account_events_status_fkey",
+      constraint_type: "f" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: false,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status"],
+      foreign_key_columns: ["status"],
+      foreign_key_table: "accounts",
+      foreign_key_schema: "public",
+      foreign_key_table_is_partition: false,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: "public",
+      foreign_key_effective_table: "accounts",
+      on_update: "a" as const,
+      on_delete: "a" as const,
+      match_type: "s" as const,
+      check_expression: null,
+      owner: "postgres",
+      definition:
+        "FOREIGN KEY (status) REFERENCES public.accounts(status) NOT VALID",
+      comment: "account status reference",
+    };
+    const accountEvents = makeTable("account_events", [accountEventsStatus], {
+      constraints: [accountEventsFk],
+    });
+    const index = makeIndex({
+      name: "accounts_status_key_idx",
+      table_name: "accounts",
+      key_columns: [1],
+      index_expressions: null,
+      is_unique: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_key_idx ON public.accounts USING btree (status)",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: {
+        [accounts.stableId]: accounts,
+        [accountEvents.stableId]: accountEvents,
+      },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [accounts.stableId]: accounts },
+      depends: [
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+        {
+          dependent_stable_id:
+            "constraint:public.account_events.account_events_status_fkey",
+          referenced_stable_id: index.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: {
+        [accounts.stableId]: accounts,
+        [accountEvents.stableId]: accountEvents,
+      },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [accounts.stableId]: accounts },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const dropConstraintIdx = sorted.findIndex(
+      (change) =>
+        change instanceof AlterTableDropConstraint &&
+        change.table.name === "account_events",
+    );
+    const dropIndexIdx = sorted.findIndex(
+      (change) =>
+        change instanceof DropIndex &&
+        change.index.name === "accounts_status_key_idx",
+    );
+    const createIndexIdx = sorted.findIndex(
+      (change) =>
+        change instanceof CreateIndex &&
+        change.index.name === "accounts_status_key_idx",
+    );
+    const addConstraintIdx = sorted.findIndex(
+      (change) =>
+        change instanceof AlterTableAddConstraint &&
+        change.table.name === "account_events",
+    );
+
+    expect(dropConstraintIdx).toBeGreaterThanOrEqual(0);
+    expect(dropIndexIdx).toBeGreaterThanOrEqual(0);
+    expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+    expect(addConstraintIdx).toBeGreaterThanOrEqual(0);
+    expect(dropConstraintIdx).toBeLessThan(dropIndexIdx);
+    expect(createIndexIdx).toBeLessThan(addConstraintIdx);
+    expect(
+      sorted.some(
+        (change) =>
+          change instanceof CreateCommentOnConstraint &&
+          change.table.name === "account_events",
+      ),
+    ).toBe(true);
+    expect(
+      sorted.some(
+        (change) =>
+          change instanceof AlterTableAddConstraint &&
+          change.table.name === "account_events" &&
+          change.constraint.validated === false,
+      ),
+    ).toBe(true);
+  });
+
   test("replays matview indexes when a column invalidation rebuilds the matview", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const materializedView = makeMaterializedView();
@@ -3169,6 +3342,7 @@ describe("expandReplaceDependencies", () => {
       definition:
         "CREATE INDEX account_statuses_id_idx ON public.account_statuses USING btree (id)",
       comment: "matview id lookup",
+      statistics_target: [250],
     });
     const changes: Change[] = [
       mockChange({ invalidates: ["column:public.accounts.status"] }),
@@ -3220,6 +3394,9 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
     expect(
       expanded.changes.some((c) => c instanceof CreateCommentOnIndex),
+    ).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterIndexSetStatistics),
     ).toBe(true);
   });
 

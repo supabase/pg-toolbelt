@@ -300,6 +300,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             CREATE INDEX user_ages_constant_idx
               ON test_schema.user_ages ((1));
 
+            ALTER INDEX test_schema.user_ages_constant_idx
+              ALTER COLUMN 1 SET STATISTICS 250;
+
             COMMENT ON INDEX test_schema.user_ages_constant_idx
               IS 'user ages matview index';
           `,
@@ -317,6 +320,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
 
             CREATE INDEX user_ages_constant_idx
               ON test_schema.user_ages ((1));
+
+            ALTER INDEX test_schema.user_ages_constant_idx
+              ALTER COLUMN 1 SET STATISTICS 250;
 
             COMMENT ON INDEX test_schema.user_ages_constant_idx
               IS 'user ages matview index';
@@ -345,15 +351,22 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "COMMENT ON INDEX test_schema.user_ages_constant_idx",
               ),
             );
+            const setStatisticsIdx = statements.findIndex((statement) =>
+              statement.includes(
+                "ALTER INDEX test_schema.user_ages_constant_idx ALTER COLUMN 1 SET STATISTICS 250",
+              ),
+            );
 
             expect(dropMatviewIdx).toBeGreaterThanOrEqual(0);
             expect(alterColumnIdx).toBeGreaterThanOrEqual(0);
             expect(createMatviewIdx).toBeGreaterThanOrEqual(0);
             expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+            expect(setStatisticsIdx).toBeGreaterThanOrEqual(0);
             expect(commentIndexIdx).toBeGreaterThanOrEqual(0);
             expect(dropMatviewIdx).toBeLessThan(alterColumnIdx);
             expect(alterColumnIdx).toBeLessThan(createMatviewIdx);
             expect(createMatviewIdx).toBeLessThan(createIndexIdx);
+            expect(createIndexIdx).toBeLessThan(setStatisticsIdx);
             expect(createIndexIdx).toBeLessThan(commentIndexIdx);
           },
         });
