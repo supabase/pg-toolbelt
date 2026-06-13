@@ -10,6 +10,7 @@ import { GrantAggregatePrivileges } from "./objects/aggregate/changes/aggregate.
 import { CreateSecurityLabelOnAggregate } from "./objects/aggregate/changes/aggregate.security-label.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
+import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
@@ -73,8 +74,12 @@ import { Trigger } from "./objects/trigger/trigger.model.ts";
 import { CreateEnum } from "./objects/type/enum/changes/enum.create.ts";
 import { DropEnum } from "./objects/type/enum/changes/enum.drop.ts";
 import { Enum } from "./objects/type/enum/enum.model.ts";
+import { AlterViewChangeOwner } from "./objects/view/changes/view.alter.ts";
+import { CreateCommentOnView } from "./objects/view/changes/view.comment.ts";
 import { CreateView } from "./objects/view/changes/view.create.ts";
 import { DropView } from "./objects/view/changes/view.drop.ts";
+import { GrantViewPrivileges } from "./objects/view/changes/view.privilege.ts";
+import { CreateSecurityLabelOnView } from "./objects/view/changes/view.security-label.ts";
 import { View } from "./objects/view/view.model.ts";
 
 function mockChange(overrides: {
@@ -344,6 +349,34 @@ function makeIndex(
       "CREATE INDEX accounts_status_expr_idx ON public.accounts USING btree (lower(status))",
     comment: null,
     owner: "postgres",
+    ...overrides,
+  });
+}
+
+function makeView(
+  overrides: Partial<ConstructorParameters<typeof View>[0]> = {},
+): View {
+  return new View({
+    schema: "public",
+    name: "account_statuses",
+    definition:
+      "SELECT id, status::text AS status_text FROM public.accounts WHERE status IS NOT NULL",
+    row_security: false,
+    force_row_security: false,
+    has_indexes: false,
+    has_rules: false,
+    has_triggers: false,
+    has_subclasses: false,
+    is_populated: true,
+    replica_identity: "d",
+    is_partition: false,
+    options: null,
+    partition_bound: null,
+    owner: "postgres",
+    comment: null,
+    columns: [],
+    privileges: [],
+    security_labels: [],
     ...overrides,
   });
 }
@@ -1652,6 +1685,72 @@ describe("expandReplaceDependencies", () => {
     });
 
     expect(expanded.changes.some((c) => c instanceof DropView)).toBe(true);
+  });
+
+  test("replays view metadata when column invalidation adds only a view drop", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainView = makeView({
+      owner: "view_owner",
+      comment: "status view",
+      security_labels: [{ provider: "dummy", label: "classified" }],
+      privileges: [
+        { grantee: "view_reader", privilege: "SELECT", grantable: false },
+      ],
+    });
+    const branchView = makeView({
+      owner: mainView.owner,
+      definition:
+        "SELECT id, status::text AS status_text FROM public.accounts WHERE status <> 'archived'::text",
+      comment: mainView.comment,
+      security_labels: mainView.security_labels,
+      privileges: mainView.privileges,
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+      new CreateView({ view: branchView, orReplace: true }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      views: { [mainView.stableId]: mainView },
+      depends: [
+        {
+          dependent_stable_id: mainView.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      views: { [branchView.stableId]: branchView },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropView)).toBe(true);
+    expect(
+      expanded.changes.filter((c) => c instanceof CreateView),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterViewChangeOwner),
+    ).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateCommentOnView)).toBe(
+      true,
+    );
+    expect(
+      expanded.changes.some((c) => c instanceof CreateSecurityLabelOnView),
+    ).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof GrantViewPrivileges)).toBe(
+      true,
+    );
   });
 
   test("replaces dependent constraints without replacing their table when a procedure signature changes", async () => {
@@ -3021,6 +3120,40 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
     expect(
       expanded.changes.some((c) => c instanceof CreateCommentOnIndex),
+    ).toBe(true);
+  });
+
+  test("replays index statistics when a column invalidation rebuilds an index", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const index = makeIndex({ statistics_target: [250] });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      indexes: { [index.stableId]: index },
+      depends: [
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      indexes: { [index.stableId]: index },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes.some((c) => c instanceof DropIndex)).toBe(true);
+    expect(expanded.changes.some((c) => c instanceof CreateIndex)).toBe(true);
+    expect(
+      expanded.changes.some((c) => c instanceof AlterIndexSetStatistics),
     ).toBe(true);
   });
 

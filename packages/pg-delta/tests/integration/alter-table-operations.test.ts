@@ -615,6 +615,41 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion < 17)(
+      "postgres 17 rebuilds not-null generated column for own type changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_own_type_not_null (
+            status text NOT NULL,
+            status_label text GENERATED ALWAYS AS (upper(status)) STORED NOT NULL
+          );
+
+          INSERT INTO test_schema.generated_own_type_not_null (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_own_type_not_null
+            DROP COLUMN status_label;
+          ALTER TABLE test_schema.generated_own_type_not_null
+            ADD COLUMN status_label character varying(64)
+              GENERATED ALWAYS AS (upper(status)) STORED NOT NULL;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_own_type_not_null DROP COLUMN status_label",
+                "ALTER TABLE test_schema.generated_own_type_not_null ADD COLUMN status_label character varying(64) GENERATED ALWAYS AS (upper(status)) STORED NOT NULL",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
     test.skipIf(pgVersion >= 17)(
       "alter generated column type before postgres 17 restores rebuilt column metadata",
       withDbIsolated(pgVersion, async (db) => {
