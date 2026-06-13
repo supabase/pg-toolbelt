@@ -10,6 +10,7 @@ import {
   type SequenceProps,
 } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableChangeOwner,
   AlterTableDropColumn,
@@ -218,6 +219,49 @@ describe("normalizePostDiffChanges", () => {
     );
 
     expect(ownerRestores).toEqual([replacementOwnerRestore]);
+  });
+
+  test("prunes same-table add-column ALTERs for replaced tables only", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1), integerColumn("slug", 2)],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other_items",
+      columns: [integerColumn("id", 1), integerColumn("slug", 2)],
+    });
+
+    const replacedTableAddColumn = new AlterTableAddColumn({
+      table: branchTable,
+      column: branchTable.columns[1],
+    });
+    const unrelatedAddColumn = new AlterTableAddColumn({
+      table: otherTable,
+      column: otherTable.columns[1],
+    });
+
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacedTableAddColumn,
+        unrelatedAddColumn,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+
+    expect(normalized).not.toContain(replacedTableAddColumn);
+    expect(normalized).toContain(unrelatedAddColumn);
+    expect(
+      normalized.filter((change) => change instanceof AlterTableAddColumn),
+    ).toEqual([unrelatedAddColumn]);
   });
 
   test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {
