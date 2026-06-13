@@ -101,7 +101,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "float8mi",
-      signature: "(public.float8,public.float8)",
+      signature: "(float8,float8)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -145,7 +145,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "int4range_subdiff",
-      signature: "(public.int4,public.int4)",
+      signature: "(int4,int4)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -1238,7 +1238,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "btint4cmp",
-      signature: "(public.uuid,public.uuid)",
+      signature: "(uuid,uuid)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -1341,7 +1341,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "btint48cmp",
-      signature: "(public.int4,public.int8)",
+      signature: "(int4,int8)",
     });
   });
 
@@ -1399,14 +1399,14 @@ describe("range type dependencies", () => {
   test("orders custom btree skip support functions before operator classes", async () => {
     const result = await analyzeAndSort([
       "create operator class app.score_skip_ops for type int4 using btree as operator 1 < (int4, int4), function 1 btint4cmp(int4, int4), function 6 btscore_skipsupport(internal);",
-      "create function app.btscore_skipsupport(internal) returns void language internal immutable strict as 'btint4skipsupport';",
+      "create function btscore_skipsupport(internal) returns void language internal immutable strict as 'btint4skipsupport';",
       "create schema app;",
     ]);
     const orderedSql = result.ordered.map((statement) =>
       statement.sql.toLowerCase(),
     );
     const supportFunctionIndex = orderedSql.findIndex((sql) =>
-      sql.includes("create function app.btscore_skipsupport"),
+      sql.includes("create function btscore_skipsupport"),
     );
     const operatorClassIndex = orderedSql.findIndex((sql) =>
       sql.includes("create operator class app.score_skip_ops"),
@@ -1421,7 +1421,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "btscore_skipsupport",
-      signature: "(public.internal)",
+      signature: "(internal)",
     });
     expect(supportFunctionIndex).toBeGreaterThanOrEqual(0);
     expect(operatorClassIndex).toBeGreaterThan(supportFunctionIndex);
@@ -2053,7 +2053,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "<",
-      signature: "(public.int4,public.int4)",
+      signature: "(int4,int4)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -2105,7 +2105,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "uuid_cmp",
-      signature: "(public.uuid,public.uuid)",
+      signature: "(uuid,uuid)",
     });
     expect(supportFunctionIndex).toBeGreaterThanOrEqual(0);
     expect(operatorClassIndex).toBeGreaterThan(supportFunctionIndex);
@@ -2505,7 +2505,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "public" &&
             ref.name === "hashint4" &&
-            ref.signature === "(public.int4)",
+            ref.signature === "(int4)",
         ) === true,
     );
     const compareFunctionInBtreeSortSupportSlot = result.diagnostics.filter(
@@ -2516,7 +2516,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "public" &&
             ref.name === "btint4cmp" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const operatorClassStatement = result.ordered.find((statement) =>
@@ -2531,13 +2531,13 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "hashint4",
-      signature: "(public.int4)",
+      signature: "(int4)",
     });
     expect(operatorClassStatement?.requires).toContainEqual({
       kind: "function",
       schema: "public",
       name: "btint4cmp",
-      signature: "(public.int4,public.int4)",
+      signature: "(int4,int4)",
     });
   });
 
@@ -2653,7 +2653,7 @@ describe("range type dependencies", () => {
           (ref) =>
             ref.kind === "function" &&
             ref.name === "int4um" &&
-            ref.signature === "(public.int4)",
+            ref.signature === "(int4)",
         ) === true,
     );
     const executionErrors = validation.diagnostics.filter(
@@ -2668,7 +2668,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "int4um",
-      signature: "(public.int4)",
+      signature: "(int4)",
     });
     expect(executionErrors).toHaveLength(0);
   }, 120000);
@@ -2920,7 +2920,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ref.name === "<" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const operatorClassStatement = result.ordered.find((statement) =>
@@ -2934,7 +2934,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "<",
-      signature: "(public.int4,public.int4)",
+      signature: "(int4,int4)",
     });
   });
 
@@ -2952,7 +2952,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ["<", "<=", "=", ">=", ">"].includes(ref.name) &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const executionErrors = validation.diagnostics.filter(
@@ -2969,7 +2969,7 @@ describe("range type dependencies", () => {
       expect.objectContaining({
         kind: "operator",
         schema: "public",
-        signature: "(public.int4,public.int4)",
+        signature: "(int4,int4)",
       }),
     );
     expect(executionErrors).toHaveLength(0);
@@ -2989,7 +2989,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ref.name === "=" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const executionErrors = validation.diagnostics.filter(
@@ -3006,7 +3006,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "=",
-      signature: "(public.int4,public.int4)",
+      signature: "(int4,int4)",
     });
     expect(executionErrors).toHaveLength(0);
   }, 120000);
@@ -3025,7 +3025,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ref.name === "<" &&
-            ref.signature === "(public.point,public.point)",
+            ref.signature === "(point,point)",
         ) === true,
     );
     const operatorClassStatement = result.ordered.find((statement) =>
@@ -3039,7 +3039,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "<",
-      signature: "(public.point,public.point)",
+      signature: "(point,point)",
     });
   });
 
@@ -3056,7 +3056,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ref.name === "~<~" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -3076,7 +3076,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "public" &&
             ref.name === "<" &&
-            ref.signature === "(public.int4,public.text)",
+            ref.signature === "(int4,text)",
         ) === true,
     );
 
@@ -4375,7 +4375,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "hashint4" &&
-            ref.signature === "(public.int4)",
+            ref.signature === "(int4)",
         ) === true,
     );
 
@@ -4395,7 +4395,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "date_lt" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -4415,7 +4415,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "pg_catalog" &&
             ref.name === "<" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -4663,7 +4663,7 @@ describe("range type dependencies", () => {
           (ref) =>
             ref.kind === "function" &&
             ref.name === "int4pl" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const operatorStatement = result.ordered.find((statement) =>
@@ -4691,7 +4691,7 @@ describe("range type dependencies", () => {
           (ref) =>
             ref.kind === "function" &&
             ref.name === "int4mi" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const operatorStatement = result.ordered.find((statement) =>
@@ -4726,7 +4726,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "eq" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const aggregateImplementation = aggregateResult.diagnostics.filter(
@@ -4737,7 +4737,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "eq" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -4895,7 +4895,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "daterange_subdiff" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -4962,7 +4962,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "*<",
-      signature: "(public.record,public.record)",
+      signature: "(record,record)",
     });
   });
 
@@ -5025,7 +5025,7 @@ describe("range type dependencies", () => {
       kind: "operator",
       schema: "public",
       name: "=",
-      signature: "(public.aclitem,public.aclitem)",
+      signature: "(aclitem,aclitem)",
     });
   });
 
@@ -5124,7 +5124,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "public" &&
             ref.name === "btint48cmp" &&
-            ref.signature === "(public.int4,public.int8)",
+            ref.signature === "(int4,int8)",
         ) === true,
     );
 
@@ -5167,7 +5167,7 @@ describe("range type dependencies", () => {
             ["brin_bloom_opcinfo", "brin_minmax_multi_opcinfo"].includes(
               ref.name,
             ) &&
-            ref.signature === "(public.internal)",
+            ref.signature === "(internal)",
         ) === true,
     );
 
@@ -5314,7 +5314,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "diff" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const opclassCallback = opclassResult.diagnostics.filter(
@@ -5348,7 +5348,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "diff" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const executionErrors = validation.diagnostics.filter(
@@ -5467,7 +5467,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "no_such" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -5487,7 +5487,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "no_such" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
 
@@ -5507,7 +5507,7 @@ describe("range type dependencies", () => {
             ref.kind === "operator" &&
             ref.schema === "pg_catalog" &&
             ref.name === "@#@" &&
-            ref.signature === "(public.int4,public.int4)",
+            ref.signature === "(int4,int4)",
         ) === true,
     );
     const missingSupportRoutine = result.diagnostics.filter(
@@ -5518,7 +5518,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "no_such" &&
-            ref.signature === "(public.internal)",
+            ref.signature === "(internal)",
         ) === true,
     );
     const missingStorageType = result.diagnostics.filter(

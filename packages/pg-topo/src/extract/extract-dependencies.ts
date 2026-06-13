@@ -1549,12 +1549,18 @@ const builtInBrinSupportFunctionNames = new Set([
   "brin_minmax_multi_opcinfo",
 ]);
 
+const builtInBtreeSkipSupportFunctionNames = new Set([
+  "btint2skipsupport",
+  "btint4skipsupport",
+  "btint8skipsupport",
+  "btoidskipsupport",
+]);
+
 const isBuiltInBtreeSkipSupportFunctionName = (
   name: string,
   signature: string[],
 ): boolean =>
-  name.startsWith("bt") &&
-  name.endsWith("skipsupport") &&
+  builtInBtreeSkipSupportFunctionNames.has(name) &&
   signature.length === 1 &&
   signature[0] === "internal";
 
@@ -2090,6 +2096,7 @@ const isRangeSelfTypeReference = (
     requiredTypeRef.schema === explicitMultirangeRef.schema &&
     requiredTypeRef.name === explicitMultirangeRef.name) ||
   (requiredTypeRef.kind === "type" &&
+    !explicitMultirangeRef &&
     requiredTypeRef.schema === rangeRef.schema &&
     requiredTypeRef.name === defaultMultirangeTypeName(rangeRef.name));
 
@@ -2130,7 +2137,11 @@ const isBuiltInBaseTypeCallbackName = (
 const baseTypeTypeOptionNames = new Set(["like", "element"]);
 
 const typeSignaturePart = (typeRef: ObjectRef): string =>
-  typeRef.schema ? `${typeRef.schema}.${typeRef.name}` : typeRef.name;
+  isBuiltInObjectRef(typeRef)
+    ? typeRef.name
+    : typeRef.schema
+      ? `${typeRef.schema}.${typeRef.name}`
+      : typeRef.name;
 
 const operatorClassTypeSignaturePart = (typeRef: ObjectRef): string =>
   isBuiltInObjectRef(typeRef) ? typeRef.name : typeSignaturePart(typeRef);
@@ -2567,6 +2578,18 @@ const extractCreateRangeDependencies = (
       const typeRef = typeFromTypeNameNode(typeName);
       if (typeRef) {
         requires.push(typeRef);
+        if (
+          typeRef.schema?.toLowerCase() === "pg_catalog" &&
+          !isKnownBuiltInTypeName(typeRef.name)
+        ) {
+          diagnostics.push({
+            code: "UNRESOLVED_DEPENDENCY",
+            message: `No valid pg_catalog range subtype '${typeRef.name}' found.`,
+            objectRefs: [typeRef],
+            suggestedFix:
+              "Use a valid pg_catalog type or create the referenced range subtype explicitly in a user schema.",
+          });
+        }
         if (
           rangeRef &&
           isRangeSelfTypeReference(rangeRef, typeRef, explicitMultirangeRef)

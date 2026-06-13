@@ -110,9 +110,6 @@ const signatureArgSchema = (value: string): string | undefined => {
   return normalizeSignatureArg(parts.slice(0, -1).join("."));
 };
 
-const isBuiltInSignatureSchema = (schema: string | undefined): boolean =>
-  schema === "pg_catalog" || schema === "public";
-
 const isKnownBuiltInSignatureType = (value: string): boolean =>
   isKnownBuiltInTypeName(signatureArgBase(value));
 
@@ -123,8 +120,8 @@ const schemaQualifiedBuiltInArgsCompatible = (
   signatureArgBase(requiredArg) === signatureArgBase(providedArg) &&
   isKnownBuiltInSignatureType(requiredArg) &&
   isKnownBuiltInSignatureType(providedArg) &&
-  isBuiltInSignatureSchema(signatureArgSchema(requiredArg)) &&
-  isBuiltInSignatureSchema(signatureArgSchema(providedArg));
+  signatureArgSchema(requiredArg) === "pg_catalog" &&
+  signatureArgSchema(providedArg) === "pg_catalog";
 
 const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
   "any",

@@ -91,21 +91,21 @@ describe("signaturesCompatible", () => {
 
     expect(
       signaturesCompatible(
-        "(public.text,public.text)",
+        "(text,text)",
         "(pg_catalog.text,pg_catalog.text)",
         options,
       ),
     ).toBe(true);
     expect(
       signaturesCompatible(
-        "(public.numeric,public.numeric)",
+        "(numeric,numeric)",
         "(pg_catalog.numeric,pg_catalog.numeric)",
         options,
       ),
     ).toBe(true);
     expect(
       signaturesCompatible(
-        "(public.uuid,public.uuid)",
+        "(uuid,uuid)",
         "(pg_catalog.uuid,pg_catalog.uuid)",
         options,
       ),
