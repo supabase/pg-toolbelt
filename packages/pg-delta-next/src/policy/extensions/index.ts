@@ -20,6 +20,7 @@ import {
   type FactSource,
 } from "../../core/fact.ts";
 import { extract, type ExtractResult } from "../../extract/extract.ts";
+import { excludeManaged } from "../managed.ts";
 import type { ExtensionHandler } from "./handler.ts";
 import { pgPartmanHandler } from "./pg-partman.ts";
 
@@ -61,4 +62,22 @@ export async function extractWithHandlers(
     pgVersion: base.pgVersion,
     diagnostics: [...base.diagnostics, ...factBase.diagnostics],
   };
+}
+
+/**
+ * Integration extraction for diffing AND for the proof re-extract: core +
+ * handlers, then `excludeManaged` so operationally-created objects are gone on
+ * BOTH sides and in the proof clone (docs/extension-intent.md §4.3, §6). Use
+ * this — not bare `extract` — wherever a managed-extension integration is
+ * active, including as `provePlan`'s `reextract`, so the proof stays
+ * consistent (the plan you prove == the plan you run == the data-preserving
+ * plan).
+ */
+export async function extractManaged(
+  pool: Pool,
+  handlers: readonly ExtensionHandler[] = SUPABASE_EXTENSION_HANDLERS,
+  options: { source?: FactSource } = {},
+): Promise<ExtractResult> {
+  const result = await extractWithHandlers(pool, handlers, options);
+  return { ...result, factBase: excludeManaged(result.factBase) };
 }

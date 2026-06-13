@@ -35,6 +35,12 @@ export interface ProveOptions {
    *  that ship no seed.sql. Default false (opt-in): enabling it surfaces
    *  populated-table migration hazards, which is a separate audit. */
   autoSeed?: boolean;
+  /** how to re-extract the clone after applying. Defaults to the core
+   *  `extract`. An integration with extension handlers MUST pass its
+   *  managed-aware extractor (e.g. `extractManaged`) so the proof compares the
+   *  SAME view of state it diffed — otherwise operationally-managed objects
+   *  (pg_partman children, …) reappear as drift (docs/extension-intent.md §6). */
+  reextract?: (pool: Pool) => Promise<{ factBase: FactBase }>;
 }
 
 interface TableStat {
@@ -176,7 +182,7 @@ export async function provePlan(
       rewriteViolations: [],
     };
   }
-  const proven = await extract(clonePool);
+  const proven = await (options.reextract ?? extract)(clonePool);
   const driftDeltas = diff(proven.factBase, desired);
   const after = await tableStats(clonePool);
 
