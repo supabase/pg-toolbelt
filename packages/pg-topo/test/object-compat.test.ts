@@ -122,6 +122,15 @@ describe("signaturesCompatible with allowVariadicProviderTail", () => {
     expect(signaturesCompatible("()", "(int, VARIADIC any)", opts)).toBe(false);
   });
 
+  test("exact arity disables variadic tail expansion", () => {
+    expect(
+      signaturesCompatible("(int,int)", "(int, VARIADIC int)", {
+        ...opts,
+        requireExactArity: true,
+      }),
+    ).toBe(false);
+  });
+
   test("polymorphic last arg without VARIADIC does NOT enable variadic matching", () => {
     // anyelement is polymorphic but NOT variadic — should not match 2 args
     expect(signaturesCompatible("(int,text)", "(anyelement)", opts)).toBe(

@@ -2752,6 +2752,38 @@ describe("range type dependencies", () => {
     });
   });
 
+  test("requires built-in support operators only when PostgreSQL has the signature", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.point_ops for type point using btree as operator 1 < (point, point), function 1 app.point_cmp(point, point);",
+      "create function app.point_cmp(a point, b point) returns int4 language sql immutable as $$ select 0 $$;",
+      "create schema app;",
+    ]);
+    const unresolvedPointOperator = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator" &&
+            ref.schema === "public" &&
+            ref.name === "<" &&
+            ref.signature === "(public.point,public.point)",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.point_ops"),
+    );
+
+    expect(unresolvedPointOperator).toHaveLength(1);
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "operator",
+      schema: "public",
+      name: "<",
+      signature: "(public.point,public.point)",
+    });
+  });
+
   test("requires non-pattern support operators with pattern names", async () => {
     const result = await analyzeAndSort([
       "create operator class app.int4_pattern_ops for type int4 using btree as operator 1 ~<~ (int4, int4), function 1 btint4cmp(int4, int4);",
@@ -2826,6 +2858,37 @@ describe("range type dependencies", () => {
     });
     expect(operatorClassIndex).toBeGreaterThanOrEqual(0);
     expect(rangeIndex).toBeGreaterThan(operatorClassIndex);
+  });
+
+  test("reports local range opclasses that shadow built-ins with incompatible subtypes", async () => {
+    const result = await analyzeAndSort([
+      "set search_path = public, pg_catalog;",
+      "create type app.int4_range as range (subtype = int4, subtype_opclass = int4_ops);",
+      "create operator class int4_ops for type text using btree as function 1 bttextcmp(text, text);",
+      "create schema app;",
+    ]);
+    const missingInt4Opclass = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_class" &&
+            ref.schema === "public" &&
+            ref.name === "int4_ops" &&
+            ref.signature === "(btree,int4)",
+        ) === true,
+    );
+    const rangeStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create type app.int4_range"),
+    );
+
+    expect(missingInt4Opclass).toHaveLength(1);
+    expect(rangeStatement?.requires).toContainEqual({
+      kind: "operator_class",
+      schema: "public",
+      name: "int4_ops",
+      signature: "(btree,int4)",
+    });
   });
 
   test("requires explicit range opclasses for the range subtype", async () => {
