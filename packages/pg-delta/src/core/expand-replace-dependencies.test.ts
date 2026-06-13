@@ -4506,6 +4506,91 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
+  test("restores procedure metadata when an existing procedure create is converted from orReplace", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDependent = procedureWithArgs(["integer"], "uses_normalize");
+    const branchDependent = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainDependent,
+      source_code: "SELECT public.normalize_value(arg1::bigint)",
+      definition:
+        "CREATE FUNCTION public.uses_normalize(arg1 integer) RETURNS integer",
+      owner: "routine_owner",
+      comment: "dependent routine comment",
+      security_labels: [{ provider: "dummy", label: "routine label" }],
+      privileges: [
+        {
+          grantee: "routine_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateProcedure({ procedure: branchDependent, orReplace: true }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainProcedure.stableId]: mainProcedure,
+        [mainDependent.stableId]: mainDependent,
+      },
+      depends: [
+        {
+          dependent_stable_id: mainDependent.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchProcedure.stableId]: branchProcedure,
+        [branchDependent.stableId]: branchDependent,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(serialized).toContain(
+      "DROP FUNCTION public.uses_normalize(arg1 integer)",
+    );
+    expect(serialized).toContain(
+      "CREATE OR REPLACE FUNCTION public.uses_normalize(arg1 integer) RETURNS integer",
+    );
+    expect(serialized).toContain(
+      "ALTER FUNCTION public.uses_normalize(integer) OWNER TO routine_owner",
+    );
+    expect(serialized).toContain(
+      "COMMENT ON FUNCTION public.uses_normalize(integer) IS 'dependent routine comment'",
+    );
+    expect(serialized).toContain(
+      "SECURITY LABEL FOR dummy ON FUNCTION public.uses_normalize(integer) IS 'routine label'",
+    );
+    expect(serialized).toContain(
+      "GRANT ALL ON FUNCTION public.uses_normalize(integer) TO routine_executor",
+    );
+  });
+
   test("synthesizes a table check constraint replacement for an unchanged expression that depends on a replaced procedure", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
