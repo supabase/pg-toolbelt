@@ -47,6 +47,7 @@ import {
   AlterTableAlterColumnType,
   AlterTableDropConstraint,
   AlterTableDropColumn,
+  AlterTableSetReplicaIdentity,
 } from "./objects/table/changes/table.alter.ts";
 import {
   CreateCommentOnColumn,
@@ -863,6 +864,15 @@ function buildGeneratedColumnDependentReplacementChanges(
         }),
       );
     }
+
+    replacementChanges.push(
+      ...buildConstraintBackingIndexMetadataReplacementChanges(
+        branchCatalog,
+        branchTable,
+        constraint.name,
+        [...existingChanges, ...replacementChanges],
+      ),
+    );
   }
 
   replacementChanges.push(
@@ -1112,25 +1122,53 @@ function buildConstraintReplacementChanges(
     );
   }
 
+  replacementChanges.push(
+    ...buildConstraintBackingIndexMetadataReplacementChanges(
+      branchCatalog,
+      branchTable,
+      parsed.constraint,
+      [...existingChanges, ...replacementChanges],
+    ),
+  );
+
+  return replacementChanges;
+}
+
+function buildConstraintBackingIndexMetadataReplacementChanges(
+  branchCatalog: Catalog,
+  branchTable: Catalog["tables"][string],
+  constraintName: string,
+  existingChanges: readonly Change[],
+): Change[] {
   const backingIndex = Object.values(branchCatalog.indexes).find(
     (index) =>
       index.is_owned_by_constraint &&
-      index.schema === parsed.schema &&
-      index.table_name === parsed.table &&
-      index.name === parsed.constraint,
+      index.schema === branchTable.schema &&
+      index.table_name === branchTable.name &&
+      index.name === constraintName,
   );
+  if (!backingIndex) return [];
+
+  const changes: Change[] = [];
   if (
-    backingIndex?.comment !== null &&
-    backingIndex?.comment !== undefined &&
+    backingIndex.comment !== null &&
+    backingIndex.comment !== undefined &&
     !hasChangeCreating(
-      [...existingChanges, ...replacementChanges],
+      [...existingChanges, ...changes],
       stableId.comment(backingIndex.stableId),
     )
   ) {
-    replacementChanges.push(new CreateCommentOnIndex({ index: backingIndex }));
+    changes.push(new CreateCommentOnIndex({ index: backingIndex }));
   }
 
-  return replacementChanges;
+  changes.push(
+    ...buildIndexStatisticsReplacementChanges(backingIndex, [
+      ...existingChanges,
+      ...changes,
+    ]),
+  );
+
+  return changes;
 }
 
 function parseConstraintStableId(
@@ -1639,6 +1677,11 @@ function buildReplaceChanges(
                 resolved.branch,
                 existingChanges,
               ),
+              ...buildIndexReplicaIdentityReplacementChanges(
+                resolved.branch,
+                branchCatalog,
+                existingChanges,
+              ),
             ]
           : []),
       ];
@@ -2056,6 +2099,31 @@ function buildIndexStatisticsReplacementChanges(
   if (columnTargets.length === 0) return [];
 
   const change = new AlterIndexSetStatistics({ index, columnTargets });
+  return hasEquivalentReplacementMetadataChange(change, existingChanges)
+    ? []
+    : [change];
+}
+
+function buildIndexReplicaIdentityReplacementChanges(
+  index: Catalog["indexes"][string],
+  branchCatalog: Catalog | undefined,
+  existingChanges: readonly Change[],
+): Change[] {
+  if (!branchCatalog) return [];
+  const branchTable = branchCatalog.tables[index.tableStableId];
+  if (!branchTable) return [];
+  if (
+    branchTable.replica_identity !== "i" ||
+    branchTable.replica_identity_index !== index.name
+  ) {
+    return [];
+  }
+
+  const change = new AlterTableSetReplicaIdentity({
+    table: branchTable,
+    mode: "i",
+    indexName: branchTable.replica_identity_index,
+  });
   return hasEquivalentReplacementMetadataChange(change, existingChanges)
     ? []
     : [change];

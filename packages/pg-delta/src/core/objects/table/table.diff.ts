@@ -821,6 +821,7 @@ export function diffTables(
               new AlterTableAlterColumnDropDefault({
                 table: branchTable,
                 column: branchCol,
+                previousColumn: mainCol,
               }),
             );
           }
