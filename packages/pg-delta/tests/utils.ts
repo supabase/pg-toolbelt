@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pool } from "pg";
-import { createPool } from "../src/core/postgres-config.ts";
+import { createPool, endPool } from "../src/core/postgres-config.ts";
 import {
   POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG,
   type PostgresVersion,
@@ -15,7 +15,7 @@ import { SupabasePostgreSqlContainer } from "./supabase-postgres.js";
  * 57P01 = admin_shutdown (container stopped while connection open)
  * 53100 = disk_full (container out of disk under heavy concurrent tests)
  */
-function suppressShutdownError(err: Error & { code?: string }) {
+export function suppressShutdownError(err: Error & { code?: string }) {
   if (err.code === "57P01" || err.code === "53100") return;
   console.error("Pool error:", err);
 }
@@ -117,6 +117,56 @@ export async function waitForPool(
   }
 }
 
+/** Bootstrap pool for an isolated Supabase test container (no per-connection `SET ROLE`). */
+export function createSupabaseIsolatedBootstrapPool(
+  connectionUri: string,
+): Pool {
+  return createPool(connectionUri, {
+    onError: suppressShutdownError,
+    connectionTimeoutMillis: 20_000,
+  });
+}
+
+export type SupabaseIsolatedBootstrapContext = {
+  image: string;
+  mainUri: string;
+  branchUri: string;
+  main: Pool;
+  branch: Pool;
+};
+
+/**
+ * Start two isolated Supabase containers, run the generated fullstack base-init
+ * SQL on both, then call `fn` with connection URIs and bootstrap pools.
+ * Callback may create additional pools to the same URIs (e.g. `SET ROLE` for
+ * `createPlan`); it must `end` those in a `try` / `finally` before returning.
+ * This function ends the bootstrap pools and stops containers in its own `finally`.
+ */
+export async function runWithSupabaseIsolatedBaseInit<T>(
+  postgresVersion: SupabasePostgresVersion,
+  fn: (ctx: SupabaseIsolatedBootstrapContext) => Promise<T>,
+): Promise<T> {
+  const image = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`;
+  const [containerMain, containerBranch] = await Promise.all([
+    new SupabasePostgreSqlContainer(image).start(),
+    new SupabasePostgreSqlContainer(image).start(),
+  ]);
+  const mainUri = containerMain.getConnectionUri();
+  const branchUri = containerBranch.getConnectionUri();
+  const main = createSupabaseIsolatedBootstrapPool(mainUri);
+  const branch = createSupabaseIsolatedBootstrapPool(branchUri);
+
+  await Promise.all([waitForPool(main), waitForPool(branch)]);
+
+  try {
+    await applySupabaseBaseInitToFixture({ main, branch }, postgresVersion);
+    return await fn({ image, mainUri, branchUri, main, branch });
+  } finally {
+    await Promise.all([endPool(main), endPool(branch)]);
+    await Promise.all([containerMain.stop(), containerBranch.stop()]);
+  }
+}
+
 /**
  * Default test utility using Alpine PostgreSQL containers with single container per version.
  * Uses CREATE/DROP DATABASE for isolation instead of creating new containers.
@@ -172,32 +222,12 @@ export function withDbSupabaseIsolated(
   fn: (db: DbFixture) => Promise<void>,
 ): () => Promise<void> {
   return async () => {
-    const image = `supabase/postgres:${POSTGRES_VERSION_TO_SUPABASE_POSTGRES_TAG[postgresVersion]}`;
-    const [containerMain, containerBranch] = await Promise.all([
-      new SupabasePostgreSqlContainer(image).start(),
-      new SupabasePostgreSqlContainer(image).start(),
-    ]);
-    const main = createPool(containerMain.getConnectionUri(), {
-      onError: suppressShutdownError,
-      connectionTimeoutMillis: 20_000,
-    });
-    const branch = createPool(containerBranch.getConnectionUri(), {
-      onError: suppressShutdownError,
-      connectionTimeoutMillis: 20_000,
-    });
-
-    await Promise.all([waitForPool(main), waitForPool(branch)]);
-
-    try {
-      // The raw image is no longer the intended Supabase test baseline. Before
-      // running test code, replay the generated base-init SQL onto both
-      // databases so service-owned objects such as `auth`, `storage`, and
-      // `realtime` match what `supabase start` would have initialized.
-      await applySupabaseBaseInitToFixture({ main, branch }, postgresVersion);
-      await fn({ main, branch });
-    } finally {
-      await Promise.all([main.end(), branch.end()]);
-      await Promise.all([containerMain.stop(), containerBranch.stop()]);
-    }
+    // The raw image is no longer the intended Supabase test baseline. Before
+    // running test code, replay the generated base-init SQL onto both
+    // databases so service-owned objects such as `auth`, `storage`, and
+    // `realtime` match what `supabase start` would have initialized.
+    await runWithSupabaseIsolatedBaseInit(postgresVersion, async (ctx) =>
+      fn({ main: ctx.main, branch: ctx.branch }),
+    );
   };
 }
