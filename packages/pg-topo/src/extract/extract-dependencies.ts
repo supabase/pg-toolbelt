@@ -1334,11 +1334,21 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
     "in_range",
     [
       ["float8", "float8", "float8", "bool", "bool"],
+      ["float4", "float4", "float8", "bool", "bool"],
+      ["date", "date", "interval", "bool", "bool"],
       ["int2", "int2", "int2", "bool", "bool"],
+      ["int2", "int2", "int4", "bool", "bool"],
+      ["int2", "int2", "int8", "bool", "bool"],
       ["int4", "int4", "int4", "bool", "bool"],
+      ["int4", "int4", "int2", "bool", "bool"],
+      ["int4", "int4", "int8", "bool", "bool"],
       ["int8", "int8", "int8", "bool", "bool"],
       ["interval", "interval", "interval", "bool", "bool"],
       ["numeric", "numeric", "numeric", "bool", "bool"],
+      ["time", "time", "interval", "bool", "bool"],
+      ["timetz", "timetz", "interval", "bool", "bool"],
+      ["timestamp", "timestamp", "interval", "bool", "bool"],
+      ["timestamptz", "timestamptz", "interval", "bool", "bool"],
     ],
   ],
   ["interval_cmp", [["interval", "interval"]]],
@@ -1441,11 +1451,82 @@ const builtInOperatorClassSupportFunctionMatchesSlot = (
   return false;
 };
 
+const builtInOperatorClassSupportFunctionMatchesTypes = (
+  signature: string[],
+  accessMethod: string,
+  supportNumber: number,
+  operatorClassDataTypeRef: ObjectRef | null,
+  supportClassArgRefs: ObjectRef[],
+  context: ExtractionContext,
+): boolean => {
+  const expectedRefs =
+    supportClassArgRefs.length > 0
+      ? supportClassArgRefs
+      : operatorClassDataTypeRef
+        ? [operatorClassDataTypeRef]
+        : [];
+  if (expectedRefs.length === 0) {
+    return true;
+  }
+
+  const matches = (typeRef: ObjectRef | undefined, typeName: string): boolean =>
+    typeRefMatchesBuiltInSupportTypeName(typeRef ?? null, typeName, context);
+  const normalizedAccessMethod = accessMethod.toLowerCase();
+
+  if (normalizedAccessMethod === "btree") {
+    if (supportNumber === 1 && signature.length === 2) {
+      if (expectedRefs.length === 1) {
+        return signature.every((typeName) =>
+          matches(expectedRefs[0], typeName),
+        );
+      }
+
+      return (
+        expectedRefs.length === 2 &&
+        signature.every((typeName, index) =>
+          matches(expectedRefs[index], typeName),
+        )
+      );
+    }
+
+    if (supportNumber === 3 && signature.length === 5) {
+      if (expectedRefs.length === 1) {
+        return signature
+          .slice(0, 3)
+          .every((typeName) => matches(expectedRefs[0], typeName));
+      }
+
+      return (
+        expectedRefs.length === 2 &&
+        matches(expectedRefs[0], signature[0] ?? "") &&
+        matches(expectedRefs[0], signature[1] ?? "") &&
+        matches(expectedRefs[1], signature[2] ?? "")
+      );
+    }
+  }
+
+  if (normalizedAccessMethod === "hash") {
+    if (
+      (supportNumber === 1 && signature.length === 1) ||
+      (supportNumber === 2 && signature.length === 2)
+    ) {
+      return (
+        expectedRefs.length === 1 &&
+        matches(expectedRefs[0], signature[0] ?? "")
+      );
+    }
+  }
+
+  return true;
+};
+
 const isBuiltInOperatorClassSupportFunctionName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
   accessMethod: string,
   supportNumber: number,
+  operatorClassDataTypeRef: ObjectRef | null,
+  supportClassArgRefs: ObjectRef[] = [],
   context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): boolean => {
   const name = nameParts.at(-1)?.toLowerCase();
@@ -1479,6 +1560,14 @@ const isBuiltInOperatorClassSupportFunctionName = (
           typeName,
           context,
         ),
+      ) &&
+      builtInOperatorClassSupportFunctionMatchesTypes(
+        signature,
+        accessMethod,
+        supportNumber,
+        operatorClassDataTypeRef,
+        supportClassArgRefs,
+        context,
       ),
   );
 };
@@ -1565,6 +1654,17 @@ const builtInHashOnlySupportOperatorTypeNames = new Set([
   "xid",
 ]);
 
+const builtInBtreeCrossTypeSupportOperatorTypePairs = new Set([
+  "float4,float8",
+  "float8,float4",
+  "int2,int4",
+  "int2,int8",
+  "int4,int2",
+  "int4,int8",
+  "int8,int2",
+  "int8,int4",
+]);
+
 const typeRefMatchesBuiltInSupportOperatorType = (
   typeRef: ObjectRef | null,
   context: ExtractionContext,
@@ -1580,6 +1680,28 @@ const typeRefMatchesBuiltInSupportOperatorType = (
   typeRefMatchesPolymorphicBuiltInName(typeRef, "anyenum", context) ||
   typeRefMatchesPolymorphicBuiltInName(typeRef, "anyrange", context) ||
   typeRefMatchesPolymorphicBuiltInName(typeRef, "anymultirange", context);
+
+const typeRefsMatchBuiltInCrossTypeSupportOperator = (
+  leftArg: ObjectRef | null,
+  rightArg: ObjectRef | null,
+  accessMethod: string,
+): boolean => {
+  if (
+    accessMethod.toLowerCase() !== "btree" ||
+    !leftArg ||
+    !rightArg ||
+    leftArg.kind !== "type" ||
+    rightArg.kind !== "type" ||
+    !isBuiltInObjectRef(leftArg) ||
+    !isBuiltInObjectRef(rightArg)
+  ) {
+    return false;
+  }
+
+  return builtInBtreeCrossTypeSupportOperatorTypePairs.has(
+    `${leftArg.name.toLowerCase()},${rightArg.name.toLowerCase()}`,
+  );
+};
 
 const isBuiltInOperatorClassSupportOperatorName = (
   nameParts: string[],
@@ -1651,8 +1773,15 @@ const isBuiltInOperatorClassSupportOperatorName = (
 
   const leftArg = args[0] ?? null;
   const rightArg = args[1] ?? null;
-  if (args.length !== 2 || !objectRefsSameObject(leftArg, rightArg)) {
+  if (args.length !== 2) {
     return false;
+  }
+  if (!objectRefsSameObject(leftArg, rightArg)) {
+    return typeRefsMatchBuiltInCrossTypeSupportOperator(
+      leftArg,
+      rightArg,
+      accessMethod,
+    );
   }
 
   return typeRefMatchesBuiltInSupportOperatorType(
@@ -2963,9 +3092,11 @@ const extractCreateOperatorClassDependencies = (
 
     if (item.itemtype === OPCLASS_ITEM_FUNCTION) {
       const classArgs = Array.isArray(item.class_args) ? item.class_args : [];
+      const classArgRefs: ObjectRef[] = [];
       for (const classArg of classArgs) {
         const classArgRef = typeFromTypeNameNode(asRecord(classArg)?.TypeName);
         if (classArgRef) {
+          classArgRefs.push(classArgRef);
           requires.push(classArgRef);
         }
       }
@@ -2977,6 +3108,8 @@ const extractCreateOperatorClassDependencies = (
           functionArgs,
           accessMethod,
           itemNumber,
+          dataTypeRef,
+          classArgRefs,
           context,
         )
       ) {
