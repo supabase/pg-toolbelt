@@ -437,6 +437,29 @@ function getRelatedViewStableIds(change: Change): Set<string> {
   ) {
     viewIds.add(change.view.stableId);
   }
+  if (
+    "trigger" in change &&
+    change.trigger &&
+    typeof change.trigger === "object" &&
+    "table_relkind" in change.trigger &&
+    change.trigger.table_relkind === "v" &&
+    "schema" in change.trigger &&
+    typeof change.trigger.schema === "string" &&
+    "table_name" in change.trigger &&
+    typeof change.trigger.table_name === "string"
+  ) {
+    viewIds.add(`view:${change.trigger.schema}.${change.trigger.table_name}`);
+  }
+  if (
+    "rule" in change &&
+    change.rule &&
+    typeof change.rule === "object" &&
+    "relationStableId" in change.rule &&
+    typeof change.rule.relationStableId === "string" &&
+    change.rule.relationStableId.startsWith("view:")
+  ) {
+    viewIds.add(change.rule.relationStableId);
+  }
   for (const id of [
     ...change.creates,
     ...change.drops,
@@ -446,8 +469,26 @@ function getRelatedViewStableIds(change: Change): Set<string> {
     if (id.startsWith("view:")) {
       viewIds.add(id);
     }
+    if (id.startsWith("comment:")) {
+      const viewId = parseViewStableIdFromStableId(id.slice("comment:".length));
+      if (viewId) viewIds.add(viewId);
+    }
+    if (id.startsWith("securityLabel:")) {
+      const objectId = id
+        .slice("securityLabel:".length)
+        .split("::provider:")[0];
+      const viewId = parseViewStableIdFromStableId(objectId);
+      if (viewId) viewIds.add(viewId);
+    }
   }
   return viewIds;
+}
+
+function parseViewStableIdFromStableId(id: string): string | null {
+  if (id.startsWith("view:")) {
+    return id;
+  }
+  return null;
 }
 
 function generateViewOwnerRestoreLastConstraints(

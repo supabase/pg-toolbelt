@@ -56,6 +56,8 @@ import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
 import { CreateRule } from "./objects/rule/changes/rule.create.ts";
 import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { SetRuleEnabledState } from "./objects/rule/changes/rule.alter.ts";
+import { AlterSequenceChangeOwner } from "./objects/sequence/changes/sequence.alter.ts";
+import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
 import {
   AlterTableAddColumn,
@@ -294,6 +296,7 @@ export function expandReplaceDependencies({
   const tablesReplacedByExpansion = new Set<string>();
   const routinesReplacedByExpansion = new Set<string>();
   const triggersReplacedByExpansion = new Set<string>();
+  const sequencesRecreatedByPromotedTableReplay = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
   const columnsRecreatedByOriginalDiff =
@@ -594,6 +597,11 @@ export function expandReplaceDependencies({
               diffContext,
             })
           : [];
+      for (const change of retainedOwnedSequenceChanges) {
+        if (change instanceof CreateSequence) {
+          sequencesRecreatedByPromotedTableReplay.add(change.sequence.stableId);
+        }
+      }
       const retainedPublicationMembershipChanges =
         resolved.kind === "table" && addDrop && addCreate
           ? buildRetainedPublicationMembershipChanges({
@@ -679,12 +687,15 @@ export function expandReplaceDependencies({
   return {
     changes: [
       ...removeSupersededGeneratedColumnSetExpressions(
-        removeSupersededTriggerAlters(
-          removeSupersededRoutineAlters(
-            removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
-            routinesReplacedByExpansion,
+        removeSupersededSequenceAlters(
+          removeSupersededTriggerAlters(
+            removeSupersededRoutineAlters(
+              removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+              routinesReplacedByExpansion,
+            ),
+            triggersReplacedByExpansion,
           ),
-          triggersReplacedByExpansion,
+          sequencesRecreatedByPromotedTableReplay,
         ),
         generatedColumnsRecreatedByExpressionFallback,
       ),
@@ -811,6 +822,17 @@ function removeSupersededTriggerAlters(
       return true;
     }
     return !promotedTriggerIds.has(change.trigger.stableId);
+  });
+}
+
+function removeSupersededSequenceAlters(
+  changes: Change[],
+  recreatedSequenceIds: ReadonlySet<string>,
+): Change[] {
+  if (recreatedSequenceIds.size === 0) return changes;
+  return changes.filter((change) => {
+    if (!(change instanceof AlterSequenceChangeOwner)) return true;
+    return !recreatedSequenceIds.has(change.sequence.stableId);
   });
 }
 
