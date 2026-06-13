@@ -9,6 +9,7 @@ import {
   markAlternativeRef,
   markExactKindRef,
   markExactSignatureRef,
+  markExplicitSchemaRef,
   markImplicitProviderRef,
   markOmitIfNoLocalProducerRef,
   objectRefKey,
@@ -2407,6 +2408,13 @@ const typeSignaturePart = (typeRef: ObjectRef): string =>
         ? `${typeRef.schema}.${typeRef.name}`
         : typeRef.name;
 
+const catalogQualifiedBuiltInTypeRef = (typeRef: ObjectRef): ObjectRef =>
+  typeRef.kind === "type" && isBuiltInObjectRef(typeRef)
+    ? markExplicitSchemaRef(
+        createObjectRefFromAst("type", typeRef.name, "pg_catalog"),
+      )
+    : typeRef;
+
 const operatorClassTypeSignaturePart = (typeRef: ObjectRef): string =>
   isBuiltInObjectRef(typeRef) ? typeRef.name : typeSignaturePart(typeRef);
 
@@ -2515,7 +2523,11 @@ const rangeFunctionArgs = (
   }
 
   if (optionName === "subtype_diff") {
-    return subtypeRef ? [subtypeRef, subtypeRef] : [];
+    if (!subtypeRef) {
+      return [];
+    }
+    const signatureSubtypeRef = catalogQualifiedBuiltInTypeRef(subtypeRef);
+    return [signatureSubtypeRef, signatureSubtypeRef];
   }
 
   return [];

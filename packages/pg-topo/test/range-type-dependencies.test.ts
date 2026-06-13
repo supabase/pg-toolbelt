@@ -121,7 +121,7 @@ describe("range type dependencies", () => {
       kind: "function",
       schema: "public",
       name: "float8mi",
-      signature: "(float8,float8)",
+      signature: "(pg_catalog.float8,pg_catalog.float8)",
     });
 
     const validation = await validateAnalyzeResultWithPostgres(result);
@@ -4944,7 +4944,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "daterange_subdiff" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
 
@@ -5383,7 +5383,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "diff" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
     const opclassCallback = opclassResult.diagnostics.filter(
@@ -5883,7 +5883,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "no_such" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
 
