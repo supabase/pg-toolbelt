@@ -1554,6 +1554,106 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test(
+      "regular-to-generated column recreation restores retained column grants",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_regular_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.regular_invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer DEFAULT test_schema.compute_regular_total(1)
+            );
+
+            DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT FROM pg_catalog.pg_roles
+                WHERE rolname = 'regular_total_reader'
+              ) THEN
+                CREATE ROLE regular_total_reader;
+              END IF;
+            END
+            $$;
+
+            GRANT SELECT (total)
+              ON TABLE test_schema.regular_invoice_totals
+              TO regular_total_reader;
+
+            INSERT INTO test_schema.regular_invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.regular_invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_regular_total(integer);
+
+            CREATE FUNCTION test_schema.compute_regular_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.regular_invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_regular_total(subtotal)) STORED;
+
+            GRANT SELECT (total)
+              ON TABLE test_schema.regular_invoice_totals
+              TO regular_total_reader;
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.regular_invoice_totals ADD COLUMN total",
+              ),
+            );
+            const grantColumnIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.includes("SELECT (total)") &&
+                statement.includes("test_schema.regular_invoice_totals") &&
+                statement.includes("regular_total_reader"),
+            );
+
+            expect(addColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(grantColumnIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.regular_invoice_totals",
+          1,
+        );
+        const { rows } = await db.main.query(dedent`
+          SELECT has_column_privilege(
+            'regular_total_reader',
+            'test_schema.regular_invoice_totals',
+            'total',
+            'SELECT'
+          ) AS can_select
+        `);
+        expect(rows[0]?.can_select).toBe(true);
+      }),
+    );
+
     test.skipIf(pgVersion < 18)(
       "unchanged generated column in publication column list does not recreate table",
       withDb(pgVersion, async (db) => {
@@ -1843,6 +1943,8 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             VALUES (1, 20);
           `,
           testSql: dedent`
+            CREATE ROLE filtered_pub_owner;
+
             ALTER PUBLICATION filtered_total_pub
               DROP TABLE test_schema.filtered_invoice_totals;
 
@@ -1866,6 +1968,9 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             ALTER PUBLICATION filtered_total_pub
               ADD TABLE test_schema.filtered_invoice_totals
               WHERE (total > 0);
+
+            ALTER PUBLICATION filtered_total_pub
+              OWNER TO filtered_pub_owner;
           `,
           assertSqlStatements: (sqlStatements) => {
             expectNoTableReplacement(sqlStatements);
@@ -1900,6 +2005,11 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "ALTER PUBLICATION filtered_total_pub ADD TABLE test_schema.filtered_invoice_totals WHERE (total > 0)",
               ),
             );
+            const publicationOwnerIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER PUBLICATION filtered_total_pub OWNER TO filtered_pub_owner",
+              ),
+            );
 
             expect(publicationDropIndex).toBeGreaterThanOrEqual(0);
             expect(dropColumnIndex).toBeGreaterThan(publicationDropIndex);
@@ -1907,6 +2017,7 @@ for (const pgVersion of POSTGRES_VERSIONS) {
             expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
             expect(addColumnIndex).toBeGreaterThan(createFunctionIndex);
             expect(publicationAddIndex).toBeGreaterThan(addColumnIndex);
+            expect(publicationOwnerIndex).toBeGreaterThan(publicationAddIndex);
           },
         });
 
@@ -1929,6 +2040,12 @@ for (const pgVersion of POSTGRES_VERSIONS) {
         `);
         expect(rows[0]?.row_filter).toBe("(total > 0)");
         expect(rows[0]?.all_columns).toBe(true);
+        const { rows: ownerRows } = await db.main.query(dedent`
+          SELECT pg_get_userbyid(p.pubowner) AS owner
+          FROM pg_catalog.pg_publication p
+          WHERE p.pubname = 'filtered_total_pub'
+        `);
+        expect(ownerRows[0]?.owner).toBe("filtered_pub_owner");
       }),
     );
 

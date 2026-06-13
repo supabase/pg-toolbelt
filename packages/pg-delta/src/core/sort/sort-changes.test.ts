@@ -16,7 +16,11 @@ import { MaterializedView } from "../objects/materialized-view/materialized-view
 import { CreateProcedure } from "../objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "../objects/procedure/procedure.model.ts";
-import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
+import {
+  AlterPublicationAddTables,
+  AlterPublicationDropTables,
+  AlterPublicationSetOwner,
+} from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
 import { AlterSequenceChangeOwner } from "../objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
@@ -34,8 +38,11 @@ import { DropTable } from "../objects/table/changes/table.drop.ts";
 import { Table } from "../objects/table/table.model.ts";
 import { CreateCommentOnTrigger } from "../objects/trigger/changes/trigger.comment.ts";
 import { Trigger } from "../objects/trigger/trigger.model.ts";
+import { AlterViewChangeOwner } from "../objects/view/changes/view.alter.ts";
+import { CreateCommentOnView } from "../objects/view/changes/view.comment.ts";
 import { CreateView } from "../objects/view/changes/view.create.ts";
 import { DropView } from "../objects/view/changes/view.drop.ts";
+import { GrantViewPrivileges } from "../objects/view/changes/view.privilege.ts";
 import { View } from "../objects/view/view.model.ts";
 import { sortChanges } from "./sort-changes.ts";
 
@@ -547,6 +554,110 @@ describe("sortChanges", () => {
 
     expect(commentIndex).toBeGreaterThan(-1);
     expect(ownerIndex).toBeGreaterThan(commentIndex);
+  });
+
+  test("orders view metadata replay before view owner restore", async () => {
+    const retainedView = new View({
+      schema: "public",
+      name: "active_users",
+      definition: "SELECT id FROM users",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: true,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      owner: "app_owner",
+      comment: "retained view comment",
+      columns: [integerColumn("id", 1)],
+      privileges: [
+        {
+          grantee: "app_reader",
+          privilege: "SELECT",
+          grantable: false,
+        },
+      ],
+    });
+    const changes: Change[] = [
+      new CreateView({ view: retainedView }),
+      new AlterViewChangeOwner({ view: retainedView, owner: "app_owner" }),
+      new CreateCommentOnView({ view: retainedView }),
+      new GrantViewPrivileges({
+        view: retainedView,
+        grantee: "app_reader",
+        privileges: [{ privilege: "SELECT", grantable: false }],
+        version: 170000,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const commentIndex = sorted.findIndex(
+      (change) => change instanceof CreateCommentOnView,
+    );
+    const grantIndex = sorted.findIndex(
+      (change) => change instanceof GrantViewPrivileges,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterViewChangeOwner,
+    );
+
+    expect(commentIndex).toBeGreaterThan(-1);
+    expect(grantIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(commentIndex);
+    expect(ownerIndex).toBeGreaterThan(grantIndex);
+  });
+
+  test("orders publication table replay before publication owner restore", async () => {
+    const publication = new Publication({
+      name: "items_pub",
+      owner: "app_owner",
+      comment: null,
+      all_tables: false,
+      publish_insert: true,
+      publish_update: true,
+      publish_delete: true,
+      publish_truncate: true,
+      publish_via_partition_root: false,
+      tables: [
+        {
+          schema: "public",
+          name: "items",
+          columns: null,
+          row_filter: "(value > 0)",
+        },
+      ],
+      schemas: [],
+    });
+    const changes: Change[] = [
+      new AlterPublicationSetOwner({
+        publication,
+        owner: "app_owner",
+      }),
+      new AlterPublicationAddTables({
+        publication,
+        tables: publication.tables,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const addTablesIndex = sorted.findIndex(
+      (change) => change instanceof AlterPublicationAddTables,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterPublicationSetOwner,
+    );
+
+    expect(addTablesIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(addTablesIndex);
   });
 
   test("orders materialized view indexes after recreated materialized views", async () => {

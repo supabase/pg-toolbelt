@@ -43,6 +43,7 @@ import {
 import {
   AlterPublicationAddTables,
   AlterPublicationDropTables,
+  AlterPublicationSetOwner,
 } from "./objects/publication/changes/publication.alter.ts";
 import { CreatePublication } from "./objects/publication/changes/publication.create.ts";
 import { DropPublication } from "./objects/publication/changes/publication.drop.ts";
@@ -3427,6 +3428,91 @@ describe("expandReplaceDependencies", () => {
     expect(grants[0]?.columns).toEqual(["value"]);
   });
 
+  test("replays retained grants for covered regular-to-generated column recreation", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const retainedPrivileges = [
+      {
+        grantee: "value_reader",
+        privilege: "SELECT",
+        grantable: false,
+        columns: ["value"],
+      },
+    ];
+    const mainTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithDefault("public.normalize_value(value)"),
+      privileges: retainedPrivileges,
+    });
+    const branchTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithDefault("public.normalize_value(value)", {
+        is_generated: true,
+      }),
+      privileges: retainedPrivileges,
+    });
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterTableDropColumn({
+        table: mainTable,
+        column: mainTable.columns[0],
+      }),
+      new AlterTableAddColumn({
+        table: branchTable,
+        column: branchTable.columns[0],
+      }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const grants = expanded.changes.filter(
+      (change): change is GrantTablePrivileges =>
+        change instanceof GrantTablePrivileges,
+    );
+
+    expect(grants).toHaveLength(1);
+    expect(grants[0]?.grantee).toBe("value_reader");
+    expect(grants[0]?.columns).toEqual(["value"]);
+  });
+
   test("restores retained security labels without replacing the table when recreating a generated column", async () => {
     const baseline = await createEmptyCatalog(150000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -4401,6 +4487,77 @@ describe("expandReplaceDependencies", () => {
         (change) => change instanceof AlterPublicationAddTables,
       ),
     ).toHaveLength(1);
+  });
+
+  test("orders replayed publication row filters before publication owner restore", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainPublication = publicationOnItemsValue(
+      "(public.normalize_value(value) > 0)",
+    );
+    const branchPublication = new Publication({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...publicationOnItemsValue("(public.normalize_value(value) > 0)"),
+      owner: "app_owner",
+    });
+    const table = tableWithDefault(null);
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterPublicationSetOwner({
+        publication: branchPublication,
+        owner: "app_owner",
+      }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      publications: { [mainPublication.stableId]: mainPublication },
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: mainPublication.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      publications: { [branchPublication.stableId]: branchPublication },
+      tables: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addTablesIndex = sorted.findIndex(
+      (change) => change instanceof AlterPublicationAddTables,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterPublicationSetOwner,
+    );
+
+    expect(addTablesIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(addTablesIndex);
   });
 
   test("refreshes publication row filters that depend on recreated generated columns without column lists", async () => {
