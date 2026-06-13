@@ -100,8 +100,31 @@ async function tableStats(pool: Pool): Promise<Map<string, TableStat>> {
   }>(`
     SELECT n.nspname AS schema, c.relname AS name,
            c.relfilenode::text AS relfilenode,
-           (SELECT string_agg(a.attname || ':' || a.atttypid::text, ','
-                              ORDER BY a.attnum)
+           (SELECT string_agg(
+                     -- atttypmod captures precision/scale/length (numeric(p,s),
+                     -- varchar(n)): a typmod change rewrites stored text
+                     -- (9.9 → 9.9000) without changing atttypid, so fold it in
+                     -- too — an intentional ALTER COLUMN … TYPE is a schema
+                     -- change, not a data mutation.
+                     a.attname || ':' || a.atttypid::text || ':'
+                       || a.atttypmod::text || ':' || COALESCE((
+                       -- a column of a COMPOSITE type changes stored
+                       -- representation when the type gains/drops/retypes an
+                       -- attribute, even though atttypid is unchanged. Fold the
+                       -- composite's attribute signature in so such a change
+                       -- flips content to count-only — an additive ALTER TYPE …
+                       -- ADD ATTRIBUTE is lossless, not a data mutation (one
+                       -- level deep; nested composites are a known gap).
+                       SELECT string_agg(
+                                ca.attname || ':' || ca.atttypid::text, ','
+                                ORDER BY ca.attnum)
+                         FROM pg_type ct
+                         JOIN pg_class crel ON crel.oid = ct.typrelid
+                         JOIN pg_attribute ca ON ca.attrelid = crel.oid
+                              AND ca.attnum > 0 AND NOT ca.attisdropped
+                        WHERE ct.oid = a.atttypid AND ct.typtype = 'c'
+                     ), ''),
+                     ',' ORDER BY a.attnum)
               FROM pg_attribute a
              WHERE a.attrelid = c.oid AND a.attnum > 0
                AND NOT a.attisdropped) AS schemasig
