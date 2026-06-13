@@ -194,7 +194,14 @@ export const signaturesCompatible = (
     return false;
   }
   if (
+    options.requireExactArity &&
+    requiredArgs.length !== providedArgs.length
+  ) {
+    return false;
+  }
+  if (
     options.allowVariadicProviderTail &&
+    !options.requireExactArity &&
     providedArgs.length > 0 &&
     isVariadicProviderArg(providedArgs[providedArgs.length - 1] ?? "")
   ) {
@@ -227,12 +234,6 @@ export const signaturesCompatible = (
       }
     }
     return true;
-  }
-  if (
-    options.requireExactArity &&
-    requiredArgs.length !== providedArgs.length
-  ) {
-    return false;
   }
 
   // Allow fewer required args than provided: PostgreSQL functions with default

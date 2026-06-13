@@ -1525,6 +1525,22 @@ const typeRefMatchesBuiltInPatternOperatorType = (
 ): boolean =>
   typeRefMatchesBuiltInNames(typeRef, ["bpchar", "text", "varchar"]);
 
+const builtInBtreeSupportOperatorTypeNames = new Set(
+  [...builtInRangeOperatorClassSubtypes.values()].flat(),
+);
+
+const typeRefMatchesBuiltInSupportOperatorType = (
+  typeRef: ObjectRef | null,
+  context: ExtractionContext,
+): boolean =>
+  typeRefMatchesBuiltInNames(typeRef, [
+    ...builtInBtreeSupportOperatorTypeNames,
+  ]) ||
+  typeRefMatchesPolymorphicBuiltInName(typeRef, "anyarray", context) ||
+  typeRefMatchesPolymorphicBuiltInName(typeRef, "anyenum", context) ||
+  typeRefMatchesPolymorphicBuiltInName(typeRef, "anyrange", context) ||
+  typeRefMatchesPolymorphicBuiltInName(typeRef, "anymultirange", context);
+
 const isBuiltInOperatorClassSupportOperatorName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
@@ -1571,8 +1587,9 @@ const isBuiltInOperatorClassSupportOperatorName = (
   }
 
   if (args.length === 0) {
-    return Boolean(
-      operatorClassDataTypeRef && isBuiltInObjectRef(operatorClassDataTypeRef),
+    return typeRefMatchesBuiltInSupportOperatorType(
+      operatorClassDataTypeRef,
+      context,
     );
   }
 
@@ -1582,13 +1599,7 @@ const isBuiltInOperatorClassSupportOperatorName = (
     return false;
   }
 
-  return (
-    Boolean(leftArg && rightArg && isBuiltInObjectRef(leftArg)) ||
-    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyarray", context) ||
-    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyenum", context) ||
-    typeRefMatchesPolymorphicBuiltInName(leftArg, "anyrange", context) ||
-    typeRefMatchesPolymorphicBuiltInName(leftArg, "anymultirange", context)
-  );
+  return typeRefMatchesBuiltInSupportOperatorType(leftArg, context);
 };
 
 const POSTGRES_IDENTIFIER_MAX_BYTES = 63;

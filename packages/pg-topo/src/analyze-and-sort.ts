@@ -33,6 +33,7 @@ import type {
   ObjectRef,
   StatementNode,
 } from "./model/types.ts";
+import { splitTopLevel } from "./utils/split-top-level.ts";
 
 const dedupeDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   const map = new Map<string, Diagnostic>();
@@ -178,11 +179,65 @@ const omitRequirementsWithoutLocalProducers = (
     }
   }
 
+  const operatorClassAccessMethod = (
+    signature?: string,
+  ): string | undefined => {
+    if (!signature?.startsWith("(") || !signature.endsWith(")")) {
+      return undefined;
+    }
+
+    const accessMethod = splitTopLevel(signature.slice(1, -1), ",")
+      .at(0)
+      ?.trim()
+      .toLowerCase();
+    return accessMethod && accessMethod.length > 0 ? accessMethod : undefined;
+  };
+
+  const hasLocalOperatorClassShadow = (requiredRef: ObjectRef): boolean => {
+    if (requiredRef.kind !== "operator_class") {
+      return false;
+    }
+
+    const requiredAccessMethod = operatorClassAccessMethod(
+      requiredRef.signature,
+    );
+    if (!requiredAccessMethod) {
+      return false;
+    }
+
+    for (const statementNode of statementNodes) {
+      for (const providedRef of statementNode.provides) {
+        if (providedRef.kind !== "operator_class") {
+          continue;
+        }
+        if (providedRef.name !== requiredRef.name) {
+          continue;
+        }
+        if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
+          continue;
+        }
+        if (
+          operatorClassAccessMethod(providedRef.signature) !==
+          requiredAccessMethod
+        ) {
+          continue;
+        }
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const hasLocalProducer = (
     requiredRef: NonNullable<StatementNode["requires"][number]>,
   ): boolean => {
     const requiredKey = objectRefKey(requiredRef);
     if (providerKeys.has(requiredKey)) {
+      return true;
+    }
+
+    if (hasLocalOperatorClassShadow(requiredRef)) {
       return true;
     }
 
