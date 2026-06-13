@@ -27,12 +27,47 @@ import {
   type FactSource,
 } from "../core/fact.ts";
 
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 
 export interface ExtractResult {
   factBase: FactBase;
   pgVersion: string;
   diagnostics: Diagnostic[];
+}
+
+/**
+ * Consistency invariant (hardening Item 4a; review #1): a metadata satellite
+ * (comment / acl / securityLabel) must never outlive its target. Most are
+ * pushed via `pushWithMeta` alongside their object, so a filtered object never
+ * emits them — but standalone satellite extraction (security labels) can emit
+ * one whose target was filtered (e.g. an extension-member object). Such a
+ * satellite would make `buildFactBase` throw on a missing parent, or — if it
+ * survived — yield an orphan GRANT/COMMENT at plan time (CLI-1471). Drop them
+ * here with an `info` diagnostic so the exclusion is visible, never silent.
+ */
+export function pruneOrphanedSatellites(facts: Fact[]): {
+  facts: Fact[];
+  diagnostics: Diagnostic[];
+} {
+  const present = new Set(facts.map((f) => encodeId(f.id)));
+  const kept: Fact[] = [];
+  const diagnostics: Diagnostic[] = [];
+  for (const fact of facts) {
+    if ("target" in fact.id) {
+      const targetKey = encodeId(fact.id.target);
+      if (!present.has(targetKey)) {
+        diagnostics.push({
+          code: "orphaned_satellite",
+          severity: "info",
+          subject: fact.id,
+          message: `dropped ${fact.id.kind} whose target ${targetKey} was not extracted (filtered)`,
+        });
+        continue;
+      }
+    }
+    kept.push(fact);
+  }
+  return { facts: kept, diagnostics };
 }
 
 /** Schemas never treated as user state. */
@@ -1712,7 +1747,11 @@ async function extractOnClient(
     edges.push({ from, to, kind: "depends" });
   }
 
-  const factBase = buildFactBase(facts, edges, source);
+  // drop metadata satellites whose target was filtered (Item 4a) before
+  // building — a satellite with a missing target would otherwise throw
+  const pruned = pruneOrphanedSatellites(facts);
+  diagnostics.push(...pruned.diagnostics);
+  const factBase = buildFactBase(pruned.facts, edges, source);
   // dangling edges (e.g. references to unextracted kinds) become diagnostics
   diagnostics.push(...factBase.diagnostics);
   return { factBase, pgVersion, diagnostics };
