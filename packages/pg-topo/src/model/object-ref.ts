@@ -93,6 +93,17 @@ const BUILTIN_TYPES = new Set([
   "xid8",
 ]);
 
+const BUILTIN_INDEX_ACCESS_METHODS = new Set([
+  "brin",
+  "btree",
+  "gin",
+  "gist",
+  "hash",
+  "spgist",
+]);
+
+const BUILTIN_TABLE_ACCESS_METHODS = new Set(["heap"]);
+
 export const isKnownBuiltInTypeName = (name: string): boolean =>
   BUILTIN_TYPES.has(name.toLowerCase());
 
@@ -309,6 +320,22 @@ export const isBuiltInObjectRef = (ref: ObjectRef): boolean => {
 
   if (ref.kind === "role") {
     return true;
+  }
+
+  if (ref.kind === "access_method") {
+    const signature = ref.signature?.trim().toLowerCase();
+    if (!signature) {
+      return (
+        BUILTIN_INDEX_ACCESS_METHODS.has(nameLower) ||
+        BUILTIN_TABLE_ACCESS_METHODS.has(nameLower)
+      );
+    }
+    if (signature === "(index)") {
+      return BUILTIN_INDEX_ACCESS_METHODS.has(nameLower);
+    }
+    if (signature === "(table)") {
+      return BUILTIN_TABLE_ACCESS_METHODS.has(nameLower);
+    }
   }
 
   if (

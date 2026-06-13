@@ -1440,19 +1440,72 @@ const builtInAccessMethodNames = new Set([
   "spgist",
 ]);
 
+const builtInIndexAccessMethodNames = new Set([
+  "brin",
+  "btree",
+  "gin",
+  "gist",
+  "hash",
+  "spgist",
+]);
+
+const builtInTableAccessMethodNames = new Set(["heap"]);
+
+type AccessMethodKind = "index" | "table";
+
+const accessMethodSignature = (kind: AccessMethodKind): string => `(${kind})`;
+
+const accessMethodKindFromAmType = (
+  amtype: unknown,
+): AccessMethodKind | null => {
+  if (amtype === "i") {
+    return "index";
+  }
+  if (amtype === "t") {
+    return "table";
+  }
+  return null;
+};
+
+const isBuiltInAccessMethodForKind = (
+  accessMethod: string,
+  kind?: AccessMethodKind,
+): boolean => {
+  const normalizedAccessMethod = accessMethod.toLowerCase();
+  if (!kind) {
+    return builtInAccessMethodNames.has(normalizedAccessMethod);
+  }
+  if (kind === "index") {
+    return builtInIndexAccessMethodNames.has(normalizedAccessMethod);
+  }
+  return builtInTableAccessMethodNames.has(normalizedAccessMethod);
+};
+
+const accessMethodRef = (
+  accessMethod: string,
+  kind?: AccessMethodKind,
+): ObjectRef =>
+  createObjectRefFromAst(
+    "access_method",
+    accessMethod,
+    undefined,
+    kind ? accessMethodSignature(kind) : undefined,
+  );
+
 const addAccessMethodDependencyIfNeeded = (
   accessMethod: string,
   requires: ObjectRef[],
+  kind?: AccessMethodKind,
 ): void => {
   const normalizedAccessMethod = accessMethod.toLowerCase();
   if (
     normalizedAccessMethod.length === 0 ||
-    builtInAccessMethodNames.has(normalizedAccessMethod)
+    isBuiltInAccessMethodForKind(normalizedAccessMethod, kind)
   ) {
     return;
   }
 
-  requires.push(createObjectRefFromAst("access_method", accessMethod));
+  requires.push(accessMethodRef(accessMethod, kind));
 };
 
 const builtInOperatorFamilyNamesForAccessMethod = (
@@ -3926,7 +3979,7 @@ const extractCreateOperatorFamilyDependencies = (
       requires.push(createObjectRefFromAst("schema", operatorFamilyRef.schema));
     }
   }
-  addAccessMethodDependencyIfNeeded(accessMethod, requires);
+  addAccessMethodDependencyIfNeeded(accessMethod, requires, "index");
 
   return { provides, requires };
 };
@@ -3937,9 +3990,10 @@ const extractCreateAccessMethodDependencies = (
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
 
+  const accessMethodKind = accessMethodKindFromAmType(statementNode.amtype);
   if (typeof statementNode.amname === "string") {
     provides.push(
-      createObjectRefFromAst("access_method", statementNode.amname),
+      accessMethodRef(statementNode.amname, accessMethodKind ?? undefined),
     );
   }
 
@@ -3948,7 +4002,18 @@ const extractCreateAccessMethodDependencies = (
     extractNameParts(statementNode.handler_name),
   );
   if (handlerRef) {
-    requires.push(markExactKindRef(handlerRef));
+    requires.push(
+      markExactKindRef(
+        markExactSignatureRef(
+          createObjectRefFromAst(
+            "function",
+            handlerRef.name,
+            handlerRef.schema,
+            typeRefsSignature([createObjectRefFromAst("type", "internal")]),
+          ),
+        ),
+      ),
+    );
     if (handlerRef.schema) {
       requires.push(createObjectRefFromAst("schema", handlerRef.schema));
     }
@@ -3972,7 +4037,7 @@ const extractCreateOperatorClassDependencies = (
     operatorFamilyNameParts,
   );
   const dataTypeRef = typeFromTypeNameNode(statementNode.datatype);
-  addAccessMethodDependencyIfNeeded(accessMethod, requires);
+  addAccessMethodDependencyIfNeeded(accessMethod, requires, "index");
 
   const operatorClassRef = objectFromNameParts(
     "operator_class",

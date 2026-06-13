@@ -143,6 +143,21 @@ const schemaQualifiedBuiltInArgsConflict = (
   );
 };
 
+const builtInArgResolvesToCatalog = (arg: string): boolean => {
+  const schema = signatureArgSchema(arg);
+  return schema === undefined || schema === "pg_catalog";
+};
+
+const builtInArgsCatalogResolutionConflict = (
+  requiredArg: string,
+  providedArg: string,
+): boolean =>
+  signatureArgBase(requiredArg) === signatureArgBase(providedArg) &&
+  isKnownBuiltInSignatureType(requiredArg) &&
+  isKnownBuiltInSignatureType(providedArg) &&
+  builtInArgResolvesToCatalog(requiredArg) !==
+    builtInArgResolvesToCatalog(providedArg);
+
 const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
   "any",
   "anyarray",
@@ -181,6 +196,12 @@ const signatureArgCompatible = (
 
   if (normalizedRequired === normalizedProvided) {
     return true;
+  }
+
+  if (
+    builtInArgsCatalogResolutionConflict(normalizedRequired, normalizedProvided)
+  ) {
+    return false;
   }
 
   const requiredHasSchema = signatureArgHasSchema(normalizedRequired);
