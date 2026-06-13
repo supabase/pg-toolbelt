@@ -4,6 +4,7 @@ import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
 } from "../objects/role/changes/role.privilege.ts";
+import { AlterMaterializedViewChangeOwner } from "../objects/materialized-view/changes/materialized-view.alter.ts";
 import {
   AlterSequenceChangeOwner,
   AlterSequenceSetOwnedBy,
@@ -331,12 +332,96 @@ function generateTableOwnerRestoreLastConstraints(
   return constraints;
 }
 
+function parseMaterializedViewStableIdFromStableId(id: string): string | null {
+  if (id.startsWith("materializedView:")) {
+    return id;
+  }
+  return null;
+}
+
+function getRelatedMaterializedViewStableIds(change: Change): Set<string> {
+  const materializedViewIds = new Set<string>();
+  if (
+    "materializedView" in change &&
+    change.materializedView &&
+    typeof change.materializedView === "object" &&
+    "stableId" in change.materializedView &&
+    typeof change.materializedView.stableId === "string"
+  ) {
+    materializedViewIds.add(change.materializedView.stableId);
+  }
+  if (
+    "index" in change &&
+    change.index &&
+    typeof change.index === "object" &&
+    "tableStableId" in change.index &&
+    typeof change.index.tableStableId === "string" &&
+    change.index.tableStableId.startsWith("materializedView:")
+  ) {
+    materializedViewIds.add(change.index.tableStableId);
+  }
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    const materializedViewId = parseMaterializedViewStableIdFromStableId(id);
+    if (materializedViewId) materializedViewIds.add(materializedViewId);
+  }
+  return materializedViewIds;
+}
+
+function generateMaterializedViewOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; materializedViewId: string }> = [];
+  const changesByMaterializedView = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (!(change instanceof AlterMaterializedViewChangeOwner)) {
+      const materializedViewIds = getRelatedMaterializedViewStableIds(change);
+      for (const materializedViewId of materializedViewIds) {
+        const indexes = changesByMaterializedView.get(materializedViewId) ?? [];
+        indexes.push(index);
+        changesByMaterializedView.set(materializedViewId, indexes);
+      }
+    } else {
+      ownerChanges.push({
+        index,
+        materializedViewId: change.materializedView.stableId,
+      });
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes =
+      changesByMaterializedView.get(ownerChange.materializedViewId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function generateOwnedSequenceAttachmentConstraints(
   changes: Change[],
 ): Constraint[] {
   const constraints: Constraint[] = [];
   const tableOwnerChanges = new Map<string, number[]>();
   const sequenceOwnerChanges = new Map<string, number[]>();
+  const ownedSequenceOwnerChanges: Array<{
+    index: number;
+    tableId: string;
+  }> = [];
   const ownedByChanges: Array<{
     index: number;
     sequenceId: string;
@@ -353,6 +438,12 @@ function generateOwnedSequenceAttachmentConstraints(
       const entries = sequenceOwnerChanges.get(change.sequence.stableId) ?? [];
       entries.push(index);
       sequenceOwnerChanges.set(change.sequence.stableId, entries);
+      if (change.sequence.owned_by_schema && change.sequence.owned_by_table) {
+        ownedSequenceOwnerChanges.push({
+          index,
+          tableId: `table:${change.sequence.owned_by_schema}.${change.sequence.owned_by_table}`,
+        });
+      }
     } else if (
       change instanceof AlterSequenceSetOwnedBy &&
       change.ownedBy !== null
@@ -361,6 +452,19 @@ function generateOwnedSequenceAttachmentConstraints(
         index,
         sequenceId: change.sequence.stableId,
         tableId: `table:${change.ownedBy.schema}.${change.ownedBy.table}`,
+      });
+    }
+  }
+
+  for (const sequenceOwnerChange of ownedSequenceOwnerChanges) {
+    for (const sourceChangeIndex of tableOwnerChanges.get(
+      sequenceOwnerChange.tableId,
+    ) ?? []) {
+      if (sourceChangeIndex === sequenceOwnerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex,
+        targetChangeIndex: sequenceOwnerChange.index,
+        source: "custom",
       });
     }
   }
@@ -389,6 +493,7 @@ const customConstraintGenerators: ConstraintGenerator[] = [
   generateDefaultPrivilegeConstraints,
   generateIdentityTransitionConstraints,
   generateTableOwnerRestoreLastConstraints,
+  generateMaterializedViewOwnerRestoreLastConstraints,
   generateOwnedSequenceAttachmentConstraints,
 ];
 

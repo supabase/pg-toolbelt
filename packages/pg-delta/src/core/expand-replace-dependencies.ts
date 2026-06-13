@@ -778,6 +778,7 @@ function collectExpressionDependentCoverage(
     if (
       change instanceof AlterTableAlterColumnDropDefault ||
       change instanceof AlterTableDropConstraint ||
+      change instanceof AlterDomainDropConstraint ||
       change instanceof AlterDomainDropDefault
     ) {
       for (const id of change.requires ?? []) {
