@@ -86,6 +86,105 @@ describe("signaturesCompatible", () => {
     expect(signaturesCompatible(callSig, overload5)).toBe(false);
   });
 
+  test("matches exact callbacks with canonical pg_catalog type signatures", () => {
+    const options = { requireExactArity: true };
+
+    expect(
+      signaturesCompatible(
+        "(text,text)",
+        "(pg_catalog.text,pg_catalog.text)",
+        options,
+      ),
+    ).toBe(true);
+    expect(
+      signaturesCompatible(
+        "(numeric,numeric)",
+        "(pg_catalog.numeric,pg_catalog.numeric)",
+        options,
+      ),
+    ).toBe(true);
+    expect(
+      signaturesCompatible(
+        "(uuid,uuid)",
+        "(pg_catalog.uuid,pg_catalog.uuid)",
+        options,
+      ),
+    ).toBe(true);
+  });
+
+  test("does not match explicit public shadow types to pg_catalog signatures", () => {
+    const options = { requireExactArity: true };
+
+    expect(signaturesCompatible("(int4)", "(pg_catalog.int4)", options)).toBe(
+      true,
+    );
+    expect(
+      signaturesCompatible("(pg_catalog.int4)", "(public.int4)", options),
+    ).toBe(false);
+    expect(
+      signaturesCompatible("(public.int4)", "(pg_catalog.int4)", options),
+    ).toBe(false);
+  });
+
+  test("does not match explicit public shadow types to bare built-in signatures", () => {
+    const options = { requireExactArity: true };
+
+    expect(signaturesCompatible("(int4)", "(public.int4)", options)).toBe(
+      false,
+    );
+    expect(signaturesCompatible("(public.int4)", "(int4)", options)).toBe(
+      false,
+    );
+    expect(
+      signaturesCompatible("(cstring,oid,int4)", "(cstring,oid,public.int4)", {
+        requireExactArity: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("matches unqualified built-in providers for pg_catalog requirements", () => {
+    const options = { requireExactArity: true };
+
+    expect(
+      signaturesCompatible(
+        "(pg_catalog.int4,pg_catalog.int4)",
+        "(int4,int4)",
+        options,
+      ),
+    ).toBe(true);
+    expect(
+      signaturesCompatible(
+        "(pg_catalog.int4,pg_catalog.int4)",
+        "(public.int4,public.int4)",
+        options,
+      ),
+    ).toBe(false);
+  });
+
+  test("requires provider return types when the requirement specifies one", () => {
+    const options = { requireExactArity: true };
+
+    expect(
+      signaturesCompatible(
+        "(int4,int4)->float8",
+        "(int4,int4)->float8",
+        options,
+      ),
+    ).toBe(true);
+    expect(
+      signaturesCompatible("(int4,int4)->float8", "(int4,int4)->int4", options),
+    ).toBe(false);
+    expect(
+      signaturesCompatible("(int4,int4)->float8", "(int4,int4)", options),
+    ).toBe(false);
+  });
+
+  test("ignores provider return types when the requirement omits one", () => {
+    expect(signaturesCompatible("(int4,int4)", "(int4,int4)->float8")).toBe(
+      true,
+    );
+  });
+
   test("single-arg unknown matches any single-param or multi-param provider", () => {
     expect(signaturesCompatible("(unknown)", "(bigint)")).toBe(true);
     expect(signaturesCompatible("(unknown)", "(bigint,text)")).toBe(true);
@@ -120,6 +219,15 @@ describe("signaturesCompatible with allowVariadicProviderTail", () => {
 
   test("fixed args + VARIADIC tail rejects too few required args", () => {
     expect(signaturesCompatible("()", "(int, VARIADIC any)", opts)).toBe(false);
+  });
+
+  test("exact arity disables variadic tail expansion", () => {
+    expect(
+      signaturesCompatible("(int,int)", "(int, VARIADIC int)", {
+        ...opts,
+        requireExactArity: true,
+      }),
+    ).toBe(false);
   });
 
   test("polymorphic last arg without VARIADIC does NOT enable variadic matching", () => {
