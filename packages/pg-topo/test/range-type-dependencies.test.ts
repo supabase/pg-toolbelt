@@ -1319,6 +1319,45 @@ describe("range type dependencies", () => {
     });
   }, 120000);
 
+  test("infers omitted opclass support function signatures", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.score_ops for type app.score using btree as operator 1 app.< (app.score, app.score), function 1 app.score_cmp;",
+      "create operator app.< (function = app.score_lt, leftarg = app.score, rightarg = app.score);",
+      "create function app.score_cmp(a app.score, b app.score, extra int4 default 0) returns int4 language sql immutable strict as $$ select (a).value - (b).value + extra $$;",
+      "create function app.score_lt(a app.score, b app.score) returns boolean language sql immutable strict as $$ select (a).value < (b).value $$;",
+      "create type app.score as (value int4);",
+      "create schema app;",
+    ]);
+    const unresolvedSupportFunction = result.diagnostics.find(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "app" &&
+            ref.name === "score_cmp",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_ops"),
+    );
+
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "score_cmp",
+      signature: "(app.score,app.score)",
+    });
+    expect(unresolvedSupportFunction?.objectRefs).toContainEqual({
+      kind: "function",
+      schema: "app",
+      name: "score_cmp",
+      signature: "(app.score,app.score)",
+    });
+  }, 120000);
+
   test("does not require producer statements for built-in opclass sortsupport functions", async () => {
     const result = await analyzeAndSort([
       "create operator class app.int4_sort_ops for type int4 using btree as operator 1 < (int4, int4), operator 2 <= (int4, int4), operator 3 = (int4, int4), operator 4 >= (int4, int4), operator 5 > (int4, int4), function 1 btint4cmp(int4, int4), function 2 btint4sortsupport(internal);",
@@ -3821,6 +3860,48 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("orders concrete range types after their shell definitions", async () => {
+    const result = await analyzeAndSort([
+      "create table app.events(id int primary key, during app.int_range not null);",
+      "create type app.int_range as range (subtype = int4);",
+      "create type app.int_range;",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const duplicateCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+    ).length;
+    const cycleCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "CYCLE_DETECTED",
+    ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const schemaIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create schema app"),
+    );
+    const shellTypeIndex = orderedSql.findIndex(
+      (sql) => sql.trim() === "create type app.int_range;",
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.int_range as range"),
+    );
+    const tableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.events"),
+    );
+
+    expect(duplicateCount).toBe(0);
+    expect(cycleCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(schemaIndex).toBeGreaterThanOrEqual(0);
+    expect(shellTypeIndex).toBeGreaterThan(schemaIndex);
+    expect(rangeIndex).toBeGreaterThan(shellTypeIndex);
+    expect(tableIndex).toBeGreaterThan(rangeIndex);
+  }, 120000);
+
   test("orders unqualified public canonical range functions through shell types", async () => {
     const result = await analyzeAndSort([
       "create table events(id int primary key, during int_range not null);",
@@ -4570,6 +4651,44 @@ describe("range type dependencies", () => {
     expect(typeIndex).toBeGreaterThanOrEqual(0);
     expect(tableIndex).toBeGreaterThan(typeIndex);
   });
+
+  test("orders explicit types before colliding implicit array names", async () => {
+    const result = await analyzeAndSort([
+      "create type app.foo as enum ('one', 'two');",
+      "create table app.events(id int primary key, value app._foo not null);",
+      "create type app._foo as enum ('one', 'two');",
+      "create schema app;",
+    ]);
+    const validation = await validateAnalyzeResultWithPostgres(result);
+    const duplicateCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "DUPLICATE_PRODUCER",
+    ).length;
+    const executionErrors = validation.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "RUNTIME_EXECUTION_ERROR",
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const schemaIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create schema app"),
+    );
+    const explicitArrayTypeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app._foo"),
+    );
+    const baseTypeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.foo"),
+    );
+    const tableIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create table app.events"),
+    );
+
+    expect(duplicateCount).toBe(0);
+    expect(executionErrors).toHaveLength(0);
+    expect(schemaIndex).toBeGreaterThanOrEqual(0);
+    expect(explicitArrayTypeIndex).toBeGreaterThan(schemaIndex);
+    expect(baseTypeIndex).toBeGreaterThan(explicitArrayTypeIndex);
+    expect(tableIndex).toBeGreaterThan(explicitArrayTypeIndex);
+  }, 120000);
 
   test("provides generated array typname aliases for custom types", async () => {
     const result = await analyzeAndSort([
