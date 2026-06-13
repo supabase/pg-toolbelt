@@ -412,6 +412,78 @@ function generateMaterializedViewOwnerRestoreLastConstraints(
   return constraints;
 }
 
+function parseSequenceStableIdFromStableId(id: string): string | null {
+  if (id.startsWith("sequence:")) {
+    return id;
+  }
+  return null;
+}
+
+function getRelatedSequenceStableIds(change: Change): Set<string> {
+  const sequenceIds = new Set<string>();
+  if (
+    "sequence" in change &&
+    change.sequence &&
+    typeof change.sequence === "object" &&
+    "stableId" in change.sequence &&
+    typeof change.sequence.stableId === "string"
+  ) {
+    sequenceIds.add(change.sequence.stableId);
+  }
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    const sequenceId = parseSequenceStableIdFromStableId(id);
+    if (sequenceId) sequenceIds.add(sequenceId);
+  }
+  return sequenceIds;
+}
+
+function generateSequenceOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; sequenceId: string }> = [];
+  const changesBySequence = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (change instanceof AlterSequenceChangeOwner) {
+      ownerChanges.push({
+        index,
+        sequenceId: change.sequence.stableId,
+      });
+      continue;
+    }
+    if (change instanceof AlterSequenceSetOwnedBy && change.ownedBy !== null) {
+      continue;
+    }
+    const sequenceIds = getRelatedSequenceStableIds(change);
+    for (const sequenceId of sequenceIds) {
+      const indexes = changesBySequence.get(sequenceId) ?? [];
+      indexes.push(index);
+      changesBySequence.set(sequenceId, indexes);
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes = changesBySequence.get(ownerChange.sequenceId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function generateOwnedSequenceAttachmentConstraints(
   changes: Change[],
 ): Constraint[] {
@@ -494,6 +566,7 @@ const customConstraintGenerators: ConstraintGenerator[] = [
   generateIdentityTransitionConstraints,
   generateTableOwnerRestoreLastConstraints,
   generateMaterializedViewOwnerRestoreLastConstraints,
+  generateSequenceOwnerRestoreLastConstraints,
   generateOwnedSequenceAttachmentConstraints,
 ];
 

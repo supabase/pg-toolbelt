@@ -319,8 +319,24 @@ export function diffSequences(
         mainSequence.owned_by_schema !== branchSequence.owned_by_schema ||
         mainSequence.owned_by_table !== branchSequence.owned_by_table ||
         mainSequence.owned_by_column !== branchSequence.owned_by_column;
+      const ownerChanged = mainSequence.owner !== branchSequence.owner;
+      const mainOwnedBy =
+        mainSequence.owned_by_schema !== null ||
+        mainSequence.owned_by_table !== null ||
+        mainSequence.owned_by_column !== null;
+      const detachBeforeOwnerChange =
+        ownerChanged && ownedByChanged && mainOwnedBy;
 
-      if (mainSequence.owner !== branchSequence.owner) {
+      if (detachBeforeOwnerChange) {
+        changes.push(
+          new AlterSequenceSetOwnedBy({
+            sequence: mainSequence,
+            ownedBy: null,
+          }),
+        );
+      }
+
+      if (ownerChanged) {
         changes.push(
           new AlterSequenceChangeOwner({
             sequence: mainSequence,
@@ -340,9 +356,11 @@ export function diffSequences(
                 column: branchSequence.owned_by_column,
               }
             : null;
-        changes.push(
-          new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
-        );
+        if (!(detachBeforeOwnerChange && ownedBy === null)) {
+          changes.push(
+            new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
+          );
+        }
       }
 
       // COMMENT
