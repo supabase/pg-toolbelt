@@ -34,6 +34,41 @@ describe.concurrent("table.create", () => {
     expect(change.serialize()).toBe("CREATE TABLE public.t ()");
   });
 
+  test("partition create preserves child-specific generated expressions", async () => {
+    const t = new Table({
+      ...base,
+      name: "t_2026",
+      is_partition: true,
+      parent_schema: "public",
+      parent_name: "parent",
+      partition_bound: "FOR VALUES FROM (2026) TO (2027)",
+      columns: [
+        {
+          name: "total",
+          position: 1,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: true,
+          collation: null,
+          default: "public.compute_child_total(subtotal)",
+          comment: null,
+        },
+      ],
+    });
+    const change = new CreateTable({ table: t });
+    expect(change.serialize()).toBe(
+      "CREATE TABLE public.t_2026 PARTITION OF public.parent (total GENERATED ALWAYS AS (public.compute_child_total(subtotal)) STORED) FOR VALUES FROM (2026) TO (2027)",
+    );
+  });
+
   test("TEMPORARY with columns, inherits and options", async () => {
     const t = new Table({
       ...base,

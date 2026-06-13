@@ -98,6 +98,90 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "replace materialized view definition preserves retained indexes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE TABLE test_schema.mv_inputs (
+              id integer NOT NULL,
+              subtotal integer NOT NULL
+            );
+
+            CREATE MATERIALIZED VIEW test_schema.invoice_total_mv AS
+              SELECT id, subtotal AS total
+              FROM test_schema.mv_inputs;
+
+            CREATE INDEX invoice_total_mv_total_idx
+              ON test_schema.invoice_total_mv (total);
+
+            ALTER MATERIALIZED VIEW test_schema.invoice_total_mv
+              CLUSTER ON invoice_total_mv_total_idx;
+          `,
+          testSql: dedent`
+            DROP MATERIALIZED VIEW test_schema.invoice_total_mv;
+
+            CREATE MATERIALIZED VIEW test_schema.invoice_total_mv AS
+              SELECT id, subtotal + 1 AS total
+              FROM test_schema.mv_inputs;
+
+            CREATE INDEX invoice_total_mv_total_idx
+              ON test_schema.invoice_total_mv (total);
+
+            ALTER MATERIALIZED VIEW test_schema.invoice_total_mv
+              CLUSTER ON invoice_total_mv_total_idx;
+          `,
+          assertSqlStatements: (statements) => {
+            const dropIndexIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP INDEX test_schema.invoice_total_mv_total_idx",
+              ),
+            );
+            const dropMatviewIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP MATERIALIZED VIEW test_schema.invoice_total_mv",
+              ),
+            );
+            const createMatviewIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE MATERIALIZED VIEW test_schema.invoice_total_mv",
+              ),
+            );
+            const createIndexIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE INDEX invoice_total_mv_total_idx ON test_schema.invoice_total_mv",
+              ),
+            );
+            const restoreClusterIndex = statements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER MATERIALIZED VIEW test_schema.invoice_total_mv CLUSTER ON invoice_total_mv_total_idx",
+              ),
+            );
+
+            expect(dropIndexIndex).toBeGreaterThanOrEqual(0);
+            expect(dropMatviewIndex).toBeGreaterThan(dropIndexIndex);
+            expect(createMatviewIndex).toBeGreaterThan(dropMatviewIndex);
+            expect(createIndexIndex).toBeGreaterThan(createMatviewIndex);
+            expect(restoreClusterIndex).toBeGreaterThan(createIndexIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(dedent`
+          SELECT i.indisclustered
+          FROM pg_catalog.pg_index i
+          JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = idx.relnamespace
+          WHERE n.nspname = 'test_schema'
+            AND idx.relname = 'invoice_total_mv_total_idx'
+        `);
+        expect(rows[0]?.indisclustered).toBe(true);
+      }),
+    );
+
+    test(
       "replace materialized view with dependent index and view",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

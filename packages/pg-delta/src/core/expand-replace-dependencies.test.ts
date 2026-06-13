@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { Catalog, createEmptyCatalog } from "./catalog.model.ts";
 import type { Change } from "./change.types.ts";
 import { expandReplaceDependencies } from "./expand-replace-dependencies.ts";
+import { AlterAggregateChangeOwner } from "./objects/aggregate/changes/aggregate.alter.ts";
+import { CreateCommentOnAggregate } from "./objects/aggregate/changes/aggregate.comment.ts";
 import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts";
 import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
+import { GrantAggregatePrivileges } from "./objects/aggregate/changes/aggregate.privilege.ts";
+import { CreateSecurityLabelOnAggregate } from "./objects/aggregate/changes/aggregate.security-label.ts";
 import { Aggregate } from "./objects/aggregate/aggregate.model.ts";
 import { DefaultPrivilegeState } from "./objects/base.default-privileges.ts";
 import {
@@ -25,6 +29,8 @@ import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index, type IndexProps } from "./objects/index/index.model.ts";
 import { AlterMaterializedViewClusterOn } from "./objects/materialized-view/changes/materialized-view.alter.ts";
+import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
+import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import {
   MaterializedView,
   type MaterializedViewProps,
@@ -448,7 +454,10 @@ function materializedViewOnItemsValue(
   });
 }
 
-function aggregateWithArgs(argumentTypes: string[]): Aggregate {
+function aggregateWithArgs(
+  argumentTypes: string[],
+  overrides: Partial<ConstructorParameters<typeof Aggregate>[0]> = {},
+): Aggregate {
   return new Aggregate({
     schema: "public",
     name: "total_value",
@@ -491,6 +500,7 @@ function aggregateWithArgs(argumentTypes: string[]): Aggregate {
     owner: "postgres",
     comment: null,
     privileges: [],
+    ...overrides,
   });
 }
 
@@ -3261,6 +3271,80 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
+  test("restores retained indexes when materialized views are already replace roots", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainMaterializedView = materializedViewOnItemsValue({
+      definition: " SELECT items.value AS value FROM public.items;",
+    });
+    const branchMaterializedView = materializedViewOnItemsValue({
+      definition: " SELECT items.value + 1 AS value FROM public.items;",
+    });
+    const mainIndex = indexOnItemsValue({
+      table_name: "items_value_mv",
+      name: "items_value_mv_value_idx",
+      table_relkind: "m",
+      is_clustered: true,
+      definition:
+        "CREATE INDEX items_value_mv_value_idx ON public.items_value_mv (value)",
+    });
+    const branchIndex = indexOnItemsValue({
+      table_name: "items_value_mv",
+      name: "items_value_mv_value_idx",
+      table_relkind: "m",
+      is_clustered: true,
+      definition:
+        "CREATE INDEX items_value_mv_value_idx ON public.items_value_mv (value)",
+    });
+
+    const changes: Change[] = [
+      new DropMaterializedView({ materializedView: mainMaterializedView }),
+      new CreateMaterializedView({
+        materializedView: branchMaterializedView,
+      }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      materializedViews: {
+        [mainMaterializedView.stableId]: mainMaterializedView,
+      },
+      indexableObjects: {
+        [mainMaterializedView.stableId]: mainMaterializedView,
+      },
+      indexes: { [mainIndex.stableId]: mainIndex },
+      depends: [],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      materializedViews: {
+        [branchMaterializedView.stableId]: branchMaterializedView,
+      },
+      indexableObjects: {
+        [branchMaterializedView.stableId]: branchMaterializedView,
+      },
+      indexes: { [branchIndex.stableId]: branchIndex },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(
+      expanded.changes.filter((change) => change instanceof DropIndex),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof CreateIndex),
+    ).toHaveLength(1);
+    expect(serialized).toContain(
+      "ALTER MATERIALIZED VIEW public.items_value_mv CLUSTER ON items_value_mv_value_idx",
+    );
+  });
+
   test("skips partition-cloned trigger dependents during routine replacement", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -3381,6 +3465,7 @@ describe("expandReplaceDependencies", () => {
         defaultPrivilegeState: new DefaultPrivilegeState({}),
       },
     });
+    const serialized = expanded.changes.map((change) => change.serialize());
 
     expect(
       expanded.changes.filter(
@@ -3410,12 +3495,12 @@ describe("expandReplaceDependencies", () => {
     ).toHaveLength(1);
     expect(
       expanded.changes.filter(
-        (change) =>
-          change instanceof AlterTableAlterColumnSetDefault &&
-          change.table.name === "items_2026" &&
-          change.column.name === "value",
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
+    expect(serialized).toContain(
+      "CREATE TABLE public.items_2026 PARTITION OF public.items (value GENERATED ALWAYS AS (public.normalize_value(value)) STORED) FOR VALUES FROM (2026) TO (2027)",
+    );
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
       true,
     );
@@ -4044,6 +4129,105 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter((change) => change instanceof CreateAggregate),
     ).toHaveLength(1);
+  });
+
+  test("restores aggregate metadata when an existing aggregate create is converted from orReplace", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"], "sum_state");
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.sum_state(renamed integer) RETURNS integer",
+    });
+    const mainAggregate = aggregateWithArgs(["integer"]);
+    const branchAggregate = aggregateWithArgs(["integer"], {
+      owner: "aggregate_owner",
+      comment: "aggregate comment",
+      security_labels: [{ provider: "dummy", label: "aggregate label" }],
+      privileges: [
+        {
+          grantee: "aggregate_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateAggregate({ aggregate: branchAggregate, orReplace: true }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      aggregates: { [mainAggregate.stableId]: mainAggregate },
+      depends: [
+        {
+          dependent_stable_id: mainAggregate.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      aggregates: { [branchAggregate.stableId]: branchAggregate },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const serialized = expanded.changes.map((change) => change.serialize());
+
+    expect(
+      expanded.changes.filter((change) => change instanceof DropAggregate),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterAggregateChangeOwner,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof CreateCommentOnAggregate,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof CreateSecurityLabelOnAggregate,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof GrantAggregatePrivileges,
+      ),
+    ).toHaveLength(1);
+    expect(serialized).toContain(
+      "ALTER AGGREGATE public.total_value(integer) OWNER TO aggregate_owner",
+    );
+    expect(serialized).toContain(
+      "COMMENT ON AGGREGATE public.total_value(integer) IS 'aggregate comment'",
+    );
+    expect(serialized).toContain(
+      "SECURITY LABEL FOR dummy ON AGGREGATE public.total_value(integer) IS 'aggregate label'",
+    );
+    expect(serialized).toContain(
+      "GRANT ALL ON FUNCTION public.total_value(integer) TO aggregate_executor",
+    );
   });
 
   test("restores promoted routine metadata after dependent routine replacement", async () => {

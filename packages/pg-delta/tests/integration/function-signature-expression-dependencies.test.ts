@@ -2139,10 +2139,20 @@ for (const pgVersion of POSTGRES_VERSIONS) {
                 "CREATE TABLE test_schema.partitioned_child_only_totals_2026",
               ),
             );
+            const childSetExpressionIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_child_only_totals_2026 ALTER COLUMN total SET EXPRESSION",
+                ),
+            );
 
             expect(childDropTableIndex).toBeGreaterThanOrEqual(0);
             expect(dropFunctionIndex).toBeGreaterThan(childDropTableIndex);
             expect(childCreateTableIndex).toBeGreaterThan(createFunctionIndex);
+            expect(sqlStatements[childCreateTableIndex]).toContain(
+              "total GENERATED ALWAYS AS (test_schema.compute_child_total(subtotal)) STORED",
+            );
+            expect(childSetExpressionIndex).toBe(-1);
           },
         });
       }),
