@@ -661,6 +661,47 @@ describe("sortChanges", () => {
     ]);
   });
 
+  test("orders parent partition default restore before child default restore", async () => {
+    const parentTable = table("partitioned_scores");
+    const childTable = new Table({
+      ...baseTableProps,
+      name: "partitioned_scores_2026",
+      columns: [
+        { ...integerColumn("id", 1), not_null: true },
+        integerColumn("post_id", 2),
+        integerColumn("lab_id", 3),
+      ],
+      constraints: [],
+      is_partition: true,
+      parent_schema: "public",
+      parent_name: "partitioned_scores",
+      partition_bound: "FOR VALUES FROM (2026) TO (2027)",
+    });
+    const parentSetDefault = new AlterTableAlterColumnSetDefault({
+      table: parentTable,
+      column: {
+        ...integerColumn("lab_id", 3),
+        default: "public.normalize_value(1)",
+      },
+    });
+    const childSetDefault = new AlterTableAlterColumnSetDefault({
+      table: childTable,
+      column: {
+        ...integerColumn("lab_id", 3),
+        default: "public.normalize_value(3)",
+      },
+    });
+    const changes: Change[] = [childSetDefault, parentSetDefault];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+
+    expect(sorted.indexOf(parentSetDefault)).toBeLessThan(
+      sorted.indexOf(childSetDefault),
+    );
+  });
+
   test("orders domain default removal before dropping the referenced function", async () => {
     const mainProcedure = procedure(["integer"]);
     const mainDomain = domain("public.normalize_value(1)");

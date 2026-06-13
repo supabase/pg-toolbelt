@@ -719,7 +719,6 @@ function collectExpressionDependentCoverage(
     }
 
     if (
-      change instanceof AlterTableAddConstraint ||
       change instanceof AlterDomainSetDefault ||
       change instanceof AlterDomainAddConstraint
     ) {
@@ -731,15 +730,16 @@ function collectExpressionDependentCoverage(
     }
 
     if (change instanceof AlterTableAlterColumnSetDefault) {
-      for (const id of change.requires ?? []) {
-        if (isExpressionContainerStableId(id)) {
-          // SET EXPRESSION installs the branch expression in the create/alter
-          // phase; it does not release the old pg_depend edge before DROP
-          // FUNCTION runs, so generated columns still need a drop-phase
-          // fallback when a replaced procedure keeps the same stable id.
-          restore.add(id);
-        }
-      }
+      // SET DEFAULT / SET EXPRESSION restores only the column being altered.
+      // Partition child changes may require the parent column for ordering, but
+      // that parent requirement is not itself parent expression restore coverage.
+      restore.add(
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ),
+      );
     }
   }
 

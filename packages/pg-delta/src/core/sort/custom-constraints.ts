@@ -157,6 +157,10 @@ function generateIdentityTransitionConstraints(
   const dropIdentityByColumn = new Map<string, number[]>();
   const addIdentityByColumn = new Map<string, number[]>();
   const setDefaultByColumn = new Map<string, number[]>();
+  const setDefaultChanges: Array<{
+    index: number;
+    change: AlterTableAlterColumnSetDefault;
+  }> = [];
 
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i];
@@ -182,6 +186,7 @@ function generateIdentityTransitionConstraints(
       const entries = setDefaultByColumn.get(columnKey) ?? [];
       entries.push(i);
       setDefaultByColumn.set(columnKey, entries);
+      setDefaultChanges.push({ index: i, change });
     }
   }
 
@@ -210,6 +215,22 @@ function generateIdentityTransitionConstraints(
           source: "custom",
         });
       }
+    }
+  }
+
+  for (const { index: targetIndex, change } of setDefaultChanges) {
+    if (!change.table.parent_schema || !change.table.parent_name) continue;
+
+    const parentColumnKey = `${change.table.parent_schema}.${change.table.parent_name}.${change.column.name}`;
+    const parentSetDefaultIndexes =
+      setDefaultByColumn.get(parentColumnKey) ?? [];
+    for (const sourceIndex of parentSetDefaultIndexes) {
+      if (sourceIndex === targetIndex) continue;
+      constraints.push({
+        sourceChangeIndex: sourceIndex,
+        targetChangeIndex: targetIndex,
+        source: "custom",
+      });
     }
   }
 
