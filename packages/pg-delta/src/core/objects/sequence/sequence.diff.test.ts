@@ -142,6 +142,35 @@ describe.concurrent("sequence.diff", () => {
     expect(changes[1]).toBeInstanceOf(CreateSequence);
   });
 
+  test("restores owner after replacing a sequence", () => {
+    const main = new Sequence({
+      ...base,
+      persistence: "u",
+      owner: "old_owner",
+    });
+    const branch = new Sequence({
+      ...base,
+      persistence: "p",
+      owner: "app_owner",
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    const createIndex = changes.findIndex(
+      (change) => change instanceof CreateSequence,
+    );
+    const ownerIndex = changes.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(createIndex);
+  });
+
   test("replacing an owned sequence re-emits the owning column default", () => {
     // Use `persistence` (UNLOGGED → LOGGED) to trigger the
     // non-alterable replace path: it's the only field still in
@@ -211,11 +240,12 @@ describe.concurrent("sequence.diff", () => {
       { [branchTable.stableId]: branchTable },
     );
 
-    expect(changes).toHaveLength(4);
+    expect(changes).toHaveLength(5);
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
-    expect(changes[2]).toBeInstanceOf(AlterSequenceSetOwnedBy);
-    expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
+    expect(changes[2]).toBeInstanceOf(AlterSequenceChangeOwner);
+    expect(changes[3]).toBeInstanceOf(AlterSequenceSetOwnedBy);
+    expect(changes[4]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
   });
 
   test("skip DROP SEQUENCE when owned by table being dropped", () => {

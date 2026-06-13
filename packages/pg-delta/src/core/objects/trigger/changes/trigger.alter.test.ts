@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { assertValidSql } from "../../../test-utils/assert-valid-sql.ts";
+import { stableId } from "../../utils.ts";
 import { Trigger, type TriggerProps } from "../trigger.model.ts";
-import { ReplaceTrigger } from "./trigger.alter.ts";
+import { ReplaceTrigger, SetTriggerEnabledState } from "./trigger.alter.ts";
 
 describe.concurrent("trigger", () => {
   describe("alter", () => {
@@ -45,6 +46,42 @@ describe.concurrent("trigger", () => {
       expect(change.serialize()).toBe(
         "CREATE OR REPLACE TRIGGER test_trigger AFTER UPDATE ON public.test_table EXECUTE FUNCTION public.test_function()",
       );
+    });
+
+    test("enabled-state restore requires the owning table", () => {
+      const trigger = new Trigger({
+        schema: "public",
+        name: "test_trigger",
+        table_name: "test_table",
+        table_relkind: "r",
+        function_schema: "public",
+        function_name: "test_function",
+        trigger_type: 1 << 4,
+        enabled: "D",
+        is_internal: false,
+        deferrable: false,
+        initially_deferred: false,
+        argument_count: 0,
+        column_numbers: null,
+        arguments: [],
+        when_condition: null,
+        old_table: null,
+        new_table: null,
+        is_partition_clone: false,
+        parent_trigger_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        is_on_partitioned_table: false,
+        owner: "test",
+        definition:
+          "CREATE TRIGGER test_trigger AFTER UPDATE ON public.test_table EXECUTE FUNCTION public.test_function()",
+        comment: null,
+      });
+
+      const change = new SetTriggerEnabledState({ trigger });
+
+      expect(change.requires).toContain(trigger.stableId);
+      expect(change.requires).toContain(stableId.table("public", "test_table"));
     });
   });
 });

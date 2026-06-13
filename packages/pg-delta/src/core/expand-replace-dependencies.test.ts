@@ -5240,6 +5240,71 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("replays sequences cascaded by main-side promoted table ownership", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const columnDefault = "nextval('public.items_value_seq'::regclass)";
+    const mainTable = tableWithDefault(columnDefault);
+    const branchTable = tableWithDefault(columnDefault);
+    const mainSequence = sequenceOwnedByItemsValue();
+    const branchSequence = new Sequence({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainSequence,
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      sequences: { [mainSequence.stableId]: mainSequence },
+      depends: [
+        {
+          dependent_stable_id: mainTable.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      sequences: { [branchSequence.stableId]: branchSequence },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    const createSequences = expanded.changes.filter(
+      (change) => change instanceof CreateSequence,
+    );
+    const ownedByChanges = expanded.changes.filter(
+      (change) => change instanceof AlterSequenceSetOwnedBy,
+    );
+
+    expect(createSequences).toHaveLength(1);
+    expect(ownedByChanges).toHaveLength(0);
+  });
+
   test("defers promoted table owner restore until after table-local replay", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
