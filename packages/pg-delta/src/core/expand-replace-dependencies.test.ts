@@ -1221,6 +1221,246 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("reapplies replica identity after a generated column rebuild restores its index", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const baseColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const generatedColumn = {
+      name: "status_label",
+      position: 2,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const table = makeTable("accounts", [baseColumn, generatedColumn], {
+      replica_identity: "i",
+      replica_identity_index: "accounts_status_label_key",
+    });
+    const index = makeIndex({
+      name: "accounts_status_label_key",
+      key_columns: [2],
+      index_expressions: null,
+      is_unique: true,
+      is_replica_identity: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_label_key ON public.accounts USING btree (status_label)",
+    });
+    const columnId = "column:public.accounts.status_label";
+    const changes: Change[] = [
+      new AlterTableDropColumn({
+        table,
+        column: table.columns[1],
+      }),
+      new AlterTableAddColumn({
+        table,
+        column: table.columns[1],
+      }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [table.stableId]: table },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const createIndexIdx = sorted.findIndex(
+      (change) => change instanceof CreateIndex,
+    );
+    const replicaIdentityIdx = sorted.findIndex(
+      (change) => change instanceof AlterTableSetReplicaIdentity,
+    );
+
+    expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+    expect(replicaIdentityIdx).toBeGreaterThan(createIndexIdx);
+    expect(
+      sorted.filter((change) => change instanceof AlterTableSetReplicaIdentity),
+    ).toHaveLength(1);
+  });
+
+  test("replays constraint-owned index statistics after a generated column rebuild restores a constraint", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const baseColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const generatedColumn = {
+      name: "status_label",
+      position: 2,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "upper(status)",
+      comment: null,
+    };
+    const uniqueConstraint = {
+      name: "accounts_status_label_key",
+      constraint_type: "u" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status_label"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: null,
+      owner: "postgres",
+      definition: "UNIQUE (status_label)",
+      comment: null,
+    };
+    const table = makeTable("accounts", [baseColumn, generatedColumn], {
+      constraints: [uniqueConstraint],
+    });
+    const backingIndex = makeIndex({
+      name: "accounts_status_label_key",
+      key_columns: [2],
+      index_expressions: null,
+      is_unique: true,
+      is_owned_by_constraint: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_label_key ON public.accounts USING btree (status_label)",
+      statistics_target: [250],
+    });
+    const columnId = "column:public.accounts.status_label";
+    const constraintId = "constraint:public.accounts.accounts_status_label_key";
+    const changes: Change[] = [
+      new AlterTableDropColumn({
+        table,
+        column: table.columns[1],
+      }),
+      new AlterTableAddColumn({
+        table,
+        column: table.columns[1],
+      }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      depends: [
+        {
+          dependent_stable_id: constraintId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addConstraintIdx = sorted.findIndex(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    const statisticsIdx = sorted.findIndex(
+      (change) =>
+        change instanceof AlterIndexSetStatistics &&
+        change.index.stableId === backingIndex.stableId &&
+        change.columnTargets.some(
+          (target) => target.columnNumber === 1 && target.statistics === 250,
+        ),
+    );
+
+    expect(addConstraintIdx).toBeGreaterThanOrEqual(0);
+    expect(statisticsIdx).toBeGreaterThan(addConstraintIdx);
+  });
+
   test("drops cross-table constraints before rebuilding generated columns reached from invalidation", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const statusColumn = {
@@ -1980,6 +2220,7 @@ describe("expandReplaceDependencies", () => {
       definition:
         "CREATE UNIQUE INDEX accounts_status_key ON public.accounts USING btree (status)",
       comment: "constraint-owned index comment",
+      statistics_target: [250],
     });
     const changes: Change[] = [
       new DropProcedure({ procedure: mainProcedure }),
@@ -2001,7 +2242,7 @@ describe("expandReplaceDependencies", () => {
       procedures: { [branchProcedure.stableId]: branchProcedure },
       tables: { [table.stableId]: table },
       indexes: { [backingIndex.stableId]: backingIndex },
-      depends: [],
+      depends: mainCatalog.depends,
     });
 
     const expanded = expandReplaceDependencies({
@@ -2012,6 +2253,16 @@ describe("expandReplaceDependencies", () => {
 
     expect(
       expanded.changes.some((change) => change instanceof CreateCommentOnIndex),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) =>
+          change instanceof AlterIndexSetStatistics &&
+          change.index.stableId === backingIndex.stableId &&
+          change.columnTargets.some(
+            (target) => target.columnNumber === 1 && target.statistics === 250,
+          ),
+      ),
     ).toBe(true);
   });
 
@@ -3174,6 +3425,102 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some((c) => c instanceof AlterIndexSetStatistics),
     ).toBe(true);
+  });
+
+  test("reapplies replica identity after a column invalidation rebuilds an index", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const statusColumn = {
+      name: "status",
+      position: 1,
+      data_type: "text",
+      data_type_str: "text",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: true,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: false,
+      collation: null,
+      default: null,
+      comment: null,
+    };
+    const table = makeTable("accounts", [statusColumn], {
+      replica_identity: "i",
+      replica_identity_index: "accounts_status_key",
+    });
+    const index = makeIndex({
+      name: "accounts_status_key",
+      key_columns: [1],
+      index_expressions: null,
+      is_unique: true,
+      is_replica_identity: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_key ON public.accounts USING btree (status)",
+    });
+    const changes: Change[] = [
+      mockChange({ invalidates: ["column:public.accounts.status"] }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: index.stableId,
+          referenced_stable_id: "column:public.accounts.status",
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      tables: { [table.stableId]: table },
+      indexes: { [index.stableId]: index },
+      indexableObjects: { [table.stableId]: table },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const createIndexIdx = sorted.findIndex(
+      (change) => change instanceof CreateIndex,
+    );
+    const replicaIdentityChanges = sorted.filter(
+      (change) => change instanceof AlterTableSetReplicaIdentity,
+    );
+    const replicaIdentityIdx = sorted.findIndex(
+      (change) => change instanceof AlterTableSetReplicaIdentity,
+    );
+
+    expect(createIndexIdx).toBeGreaterThanOrEqual(0);
+    expect(replicaIdentityChanges).toHaveLength(1);
+    expect(replicaIdentityIdx).toBeGreaterThan(createIndexIdx);
+
+    const preExistingReplicaIdentity = new AlterTableSetReplicaIdentity({
+      table,
+      mode: "i",
+      indexName: "accounts_status_key",
+    });
+    const expandedWithExisting = expandReplaceDependencies({
+      changes: [...changes, preExistingReplicaIdentity],
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expandedWithExisting.changes.filter(
+        (change) => change instanceof AlterTableSetReplicaIdentity,
+      ),
+    ).toHaveLength(1);
   });
 
   test("rebuilds FK-backed standalone indexes after dropping dependent foreign keys", async () => {

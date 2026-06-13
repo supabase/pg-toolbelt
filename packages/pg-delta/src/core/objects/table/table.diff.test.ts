@@ -1214,6 +1214,59 @@ describe.concurrent("table.diff", () => {
     ).toBe(false);
   });
 
+  test("postgres 17 resets generated columns with the current type during incompatible own type changes", () => {
+    const pg17Context = {
+      ...testContext,
+      version: 170000,
+    };
+    const generatedIntegerColumn = {
+      name: "status_code",
+      position: 1,
+      data_type: "integer",
+      data_type_str: "integer",
+      is_custom_type: false,
+      custom_type_type: null,
+      custom_type_category: null,
+      custom_type_schema: null,
+      custom_type_name: null,
+      not_null: false,
+      is_identity: false,
+      is_identity_always: false,
+      is_generated: true,
+      collation: null,
+      default: "length(status)",
+      comment: null,
+    };
+    const generatedTextColumn = {
+      ...generatedIntegerColumn,
+      data_type: "text",
+      data_type_str: "text",
+      default: "upper(status)",
+    };
+    const mainTable = new Table({
+      ...base,
+      name: "t_generated_incompatible_type",
+      columns: [generatedIntegerColumn],
+    });
+    const branchTable = new Table({
+      ...base,
+      name: "t_generated_incompatible_type",
+      columns: [generatedTextColumn],
+    });
+
+    const changes = diffTables(
+      pg17Context,
+      { [mainTable.stableId]: mainTable },
+      { [branchTable.stableId]: branchTable },
+    );
+
+    expect(changes.map((change) => change.serialize())).toEqual([
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code SET EXPRESSION AS (NULL::integer)",
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code TYPE text USING status_code::text",
+      "ALTER TABLE public.t_generated_incompatible_type ALTER COLUMN status_code SET EXPRESSION AS (upper(status))",
+    ]);
+  });
+
   test("identity transitions emit drop/add/set-generated changes", () => {
     const serialColumn = {
       name: "id",

@@ -650,6 +650,42 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion < 17)(
+      "postgres 17 resets generated columns with the current type for incompatible own type changes",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: `
+          CREATE SCHEMA test_schema;
+          CREATE TABLE test_schema.generated_incompatible_own_type (
+            status text NOT NULL,
+            status_code integer GENERATED ALWAYS AS (length(status)) STORED
+          );
+
+          INSERT INTO test_schema.generated_incompatible_own_type (status)
+          VALUES ('active');
+        `,
+          testSql: `
+          ALTER TABLE test_schema.generated_incompatible_own_type
+            DROP COLUMN status_code;
+          ALTER TABLE test_schema.generated_incompatible_own_type
+            ADD COLUMN status_code text
+              GENERATED ALWAYS AS (upper(status)) STORED;
+        `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(sqlStatements).toMatchInlineSnapshot(`
+              [
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code SET EXPRESSION AS (NULL::integer)",
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code TYPE text USING status_code::text",
+                "ALTER TABLE test_schema.generated_incompatible_own_type ALTER COLUMN status_code SET EXPRESSION AS (upper(status))",
+              ]
+            `);
+          },
+        });
+      }),
+    );
+
     test.skipIf(pgVersion >= 17)(
       "alter generated column type before postgres 17 restores rebuilt column metadata",
       withDbIsolated(pgVersion, async (db) => {
