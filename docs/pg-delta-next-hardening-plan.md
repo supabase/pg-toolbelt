@@ -1,0 +1,334 @@
+# pg-delta-next hardening plan: make the boundary semantics explicit
+
+- **Status**: Ready to execute. Remediation plan responding to
+  `pg-delta-next-architecture-implementation-review.md` (external review) and my
+  per-point assessment of it.
+- **Date**: 2026-06-13
+- **Branch / baseline**: `feat/pg-delta-next` @ `c9c322a`.
+- **Governing doc**: `docs/target-architecture.md` (the north star). **This plan
+  does not amend it.** Almost every item here *closes a gap between the
+  implementation and what the north star already specifies* — explicit
+  projection (§3.9), proof tiers proven/observed/vetted (§3.7),
+  provenance-as-edges (§3.1), typed predicates over provenance edges (§3.9). Two
+  items (enum boundary, SQL-file txn) are robustness fixes within §3.8/§3.2.
+
+## Guiding principle
+
+The review's thesis is correct and is the organizing idea of this plan: **the
+core diff/planner machinery is sound; the risk is safety semantics becoming
+implicit at the boundaries** — extraction policy, proof coverage, frontend
+loading. Every item below makes one boundary *explicit and auditable*.
+
+A note on what already converges: Phase A's `excludeManaged`
+(`src/policy/managed.ts`) is a **fact-level** transform applied symmetrically to
+source/desired/proof — chosen precisely because delta-level filtering drifts the
+proof. That is the same conclusion the review reaches in finding #2. So Phase A
+is not rework; it becomes one input to the projection layer (Item 1).
+
+---
+
+## Work items
+
+Each item: the problem (with the review finding # and my verdict), the fix
+*within the architecture*, files, tests/gates, dependencies, and effort/risk.
+All work follows repo discipline: RED→GREEN, no SQL-byte assertions
+(guardrail 6), corpus + differential gates, `private:true` so no changeset.
+
+### Item 1 — Explicit projection + projected target fingerprint  (review #2, **strong agree**)
+
+**Problem.** `filterDeltas` removes deltas, but the plan's target fingerprint is
+the *full, unprojected* `desired`. `provePlan` then diffs the clone against full
+`desired` with no policy, so a policy-hidden delta makes the plan intentionally
+not converge while the metadata still claims the unprojected target. Ambiguous
+target = both a correctness risk and an explainability gap.
+
+**Fix (within §3.9 "baselines = fact-base subtraction; policy decides
+visibility").** Introduce an explicit projection step that produces the state
+the plan *actually targets*, and fingerprint/prove against that:
+
+```ts
+interface Projection {
+  projectedSource: FactBase;
+  projectedDesired: FactBase;       // == the honest plan target
+  ledger: ProjectionEntry[];        // every fact/delta removed, with reason
+}
+```
+
+Two distinct, clearly-named mechanisms (the review collapses them; keeping them
+separate is what makes the semantics crisp):
+
+- **Projection (fact-level, both sides, affects the fingerprint)** — "out of my
+  universe." Subtract facts from *both* source and desired so they never diff.
+  This is the home for: baseline (`subtractBaseline`), managed/operational
+  objects (`excludeManaged`, Phase A), system schemas/roles, and extension
+  members (Item 4). The target fingerprint reflects the subtraction.
+- **Filtering (delta-level, "I see it, I won't act on this change")** — for
+  *verb-specific* suppression (the Supabase policy uses `verb` predicates). A
+  filtered delta MUST be reflected in the target: `projectedDesired` is the
+  fact base reached by applying only the **kept** deltas to `projectedSource`
+  (equivalently, `desired` with each filtered fact reverted to its source
+  value). So `fingerprint(projectedDesired)` is honest and
+  `diff(proven, projectedDesired) == ∅` is the real proof obligation.
+
+`plan()` computes `projectedDesired` and uses it for fingerprints; `provePlan`
+targets it; both surface the `ledger` so "what was intentionally excluded, and
+why" is reportable.
+
+**Files.** new `src/policy/project.ts` (compose baseline + managed + policy
+projection + filtered-delta reversion → `Projection`); `src/plan/plan.ts`
+(target fingerprint from `projectedDesired`; expose `ledger`);
+`src/proof/prove.ts` (diff against `projectedDesired`); `src/plan/artifact.ts`
+(serialize the ledger); public API in `src/index.ts`.
+
+**Tests/gates.** Unit: a fact-level projection rule removes a fact from both
+sides → no delta + fingerprint reflects it; a verb-filtered delta → that fact
+reverts to source in `projectedDesired`; the ledger records both with reasons.
+Integration: a Supabase-style policy (exclude system schema + filter a `remove`)
+→ `provePlan` converges to `projectedDesired`, not full desired. Full corpus
+regression.
+
+**Depends on:** nothing. **Enables:** Items 2, 4b. **Effort/risk:** medium /
+medium (touches the plan→prove contract; well-bounded by the proof gate).
+
+### Item 2 — Proof reports coverage; content fingerprints for seeded tables  (review #3, **agree**)
+
+**Problem.** `provePlan` verifies drift deltas + row **counts** + `relfilenode`.
+`autoSeed` is off by default and few scenarios ship `seed.sql`. Row-count
+preservation ≠ content preservation (a lossy type change or truncate+reinsert
+passes). The README overstates the guarantee.
+
+**Fix (within §3.7 proven/observed/vetted tiers).** Stop reporting a broad
+boolean; report **what was actually checked**:
+
+```ts
+interface ProofCoverage {
+  tablesChecked: number; tablesSkipped: Array<{ table: string; reason: string }>;
+  perTable: Array<{
+    table: string;
+    contentMode: "fingerprint" | "count" | "none";
+    recreated: boolean; rewriteDeclared: boolean;
+    rowsBefore: number; rowsAfter: number;
+  }>;
+}
+```
+
+Add **deterministic content fingerprints** for seeded/non-empty kept tables
+(`md5(string_agg(t::text, '\n' ORDER BY t::text))` before vs after) — a content
+change on a `dataLoss:"none"` table is a violation, not just a count change.
+Keep `autoSeed` opt-in (it is an audit mode), but the coverage report makes
+"0 rows checked" honest so the verdict can't be misread. The verdict's `ok`
+stays, but is now backed by an auditable coverage object.
+
+**Files.** `src/proof/prove.ts` (coverage + content fingerprint); README.md +
+`API-REVIEW.md` (proof described as tiers + coverage — see Item 8); expand
+`seed.sql` for the destructive corpus scenarios that most need content proof.
+
+**Tests/gates.** RED: a scenario that preserves row count but mutates content
+(e.g. a column type change with a lossy `USING`) → today's proof says `ok`; with
+content fingerprints it must FAIL. GREEN after the fingerprint check.
+
+**Depends on:** Item 1 (proof must target `projectedDesired`). **Effort/risk:**
+medium / low.
+
+### Item 3 — Typed policy predicates + edge-kind in `edgeTo`  (review #7, **agree, independently confirmed**)
+
+**Problem.** `idField` is stringly-typed (a typo silently never matches), and
+`edgeTo` matches only the edge *target*'s kind/schema — **not** the edge's
+`EdgeKind`. The latter is exactly why Phase A's `managedBy` filtering had to be a
+fact-level transform instead of a policy rule.
+
+**Fix (this is literally §3.9: "typed predicates over fact kinds, identities,
+provenance edges, and delta verbs").** Add `edgeKind?: EdgeKind` to
+`EdgeToPredicate` and match it in `factMatches`. Add per-kind field-name
+**validation** in `validatePolicy` (an `idField` naming a field the kind doesn't
+have is a config error, not a silent no-match). Prefer typed identity-field
+predicates where the kind is known.
+
+**Files.** `src/policy/policy.ts` (`EdgeToPredicate`, `factMatches`,
+`validatePolicy`); `src/policy/policy.test.ts`.
+
+**Tests/gates.** `edgeTo: { edgeKind: "memberOfExtension" }` matches only those
+edges; an `idField` typo throws in `validatePolicy`. **Depends on:** nothing.
+**Enables:** Item 4 (provenance filtering as policy). **Effort/risk:** small /
+low. *Good early win.*
+
+### Item 4 — Provenance as edges; filtering as projection  (review #1, **agree; it's the documented end-state**)
+
+**Problem.** Extension-member objects are removed at extraction by
+`notExtensionMember` anti-joins. This is the documented v1 stand-in
+(`COVERAGE.md`), but it is **inconsistent** — a member object is filtered while
+its ACL/comment satellite is not — which is the root of CLI-1471 (orphan `GRANT`
+on an extension aggregate). Note: `managedBy` (Phase A) is a *sibling* of
+`memberOfExtension`, not the same thing; this item is specifically about
+extension **members**.
+
+**Fix — phased**, because the full flip has a large blast radius (every
+extractor query) and a real cost (fact-base inflation):
+
+- **4a — extraction consistency (small, immediate correctness).** A satellite
+  (acl/comment/securityLabel) of a filtered object must itself be filtered.
+  Kills the orphan-satellite bug class (CLI-1471) now, independent of the flip.
+  Add a corpus scenario for the extension-member-aggregate GRANT.
+- **4b — provenance edges (large, the north-star end-state, §3.1 "provenance is
+  data, an edge fact, not an extraction-time filter").** Stop anti-joining
+  members; extract them WITH `memberOfExtension` edges to the extension fact.
+  Projection (Item 1) + an edge-kind policy rule (Item 3) then excludes them.
+  This is the "observe everything, project intentionally" pillar.
+
+**Files.** 4a: `src/extract/extract.ts` (satellite emission gated on target
+presence) — or rely on the existing missing-requirement guard and assert it.
+4b: `src/extract/extract.ts` (remove `notExtensionMember`, emit
+`memberOfExtension` edges across all extractor queries); `src/policy/supabase.ts`
+(projection rule for `memberOfExtension`); `COVERAGE.md`.
+
+**Tests/gates.** 4a: CLI-1471 scenario — the aggregate's ACL is excluded with
+its extension-member target; no orphan GRANT. 4b: extension-member objects
+appear as facts with `memberOfExtension` edges; Supabase projection removes
+them; full corpus + differential regression (this changes what enters the fact
+base, so the differential oracle is the safety net). **Depends on:** Item 1 +
+Item 3 (for 4b). **Effort/risk:** 4a small/low; **4b large/high** — recommend
+landing 4a immediately and scheduling 4b as its own gated effort (it may even
+be staged per extractor family).
+
+### Item 5 — `commitBoundaryAfter` becomes an unconditional segment boundary  (review #6, **agree the concern; refine the fix**)
+
+**Problem.** `plan.ts:727` inserts the boundary "before the FIRST graph
+successor" of a `commitBoundaryAfter` action. An `ALTER TYPE … ADD VALUE` is an
+in-place `set` that *consumes* the type fact; a same-plan consumer of the new
+value (e.g. a new column `DEFAULT 'newval'::myenum`) *also* consumes the type —
+they are **siblings with no edge between them**, so the consumer may not be a
+graph successor → no boundary → both land in one segment → `55P04`.
+
+**Fix.** The review's first option ("model enum labels as facts") **does not
+help** — `pg_depend` never records per-label dependencies (everything points at
+the type), so no finer edge would ever exist; this is not a granularity-is-one
+violation. The correct, cheap fix is the review's second option: in
+`segmentActions` (`apply.ts`), treat `commitBoundaryAfter` as an
+**unconditional** close-the-current-segment boundary *after* the action,
+independent of graph-successor shape. Simplify/remove the successor-search
+boundary logic in `plan.ts`. Cost: at most one extra segment.
+
+**Files.** `src/apply/apply.ts` (`segmentActions`); `src/plan/plan.ts` (drop the
+conditional boundary insertion); a new corpus scenario: a new enum value used by
+a **new column default in the same plan**.
+
+**Tests/gates.** RED: the new corpus scenario fails under proof (or apply) today
+if the consumer shares the segment; GREEN with the unconditional boundary.
+**Depends on:** nothing. **Effort/risk:** small / low.
+
+### Item 6 — SQL-file shadow loading robustness  (review #5, **partially disagree; narrower fix**)
+
+**Problem (corrected).** The review claims a multi-statement file can *partially*
+apply. It mostly cannot: `client.query(file.sql)` uses the **simple** protocol,
+which Postgres runs as a **single implicit transaction** — statement 2 failing
+rolls statement 1 back, and the whole-file retry is clean. The *real* (narrower)
+gaps are files containing **explicit `BEGIN/COMMIT`** (breaks the implicit
+atomicity) or **non-transactional statements** (`CREATE INDEX CONCURRENTLY`
+*errors* "cannot run inside a transaction block" and can never load).
+
+**Fix (hardening).** Wrap each file attempt in an explicit transaction/savepoint
+and `ROLLBACK` on failure (makes the implicit guarantee explicit and robust to
+embedded `COMMIT`). Detect non-transactional statements and either classify the
+file with a clear diagnostic or strip/rewrite them — in a throwaway shadow,
+`CONCURRENTLY` is pointless, so dropping the keyword is safe and lets such files
+load.
+
+**Files.** `src/frontends/load-sql-files.ts`; loader tests (a mid-file failure
+retries cleanly; a `CONCURRENTLY` file is handled, not stuck-forever).
+**Depends on:** nothing. **Effort/risk:** small / low.
+
+### Item 7 — Planner internal module split  (review #4, **partial agree; do last**)
+
+**Problem.** `plan.ts` carries many responsibilities in one module. This is
+organization hygiene, **not** a locality violation — per-kind knowledge is
+correctly in the rule table (guardrail 3); the planner is the generic machinery.
+
+**Fix.** Behind the **unchanged** public `plan()` API, extract internal modules
+(`TransitionClassifier`, `RenameApplier`, `DependentRebuildExpander`,
+`ActionEmitter`, `RequirementChecker`, `PlanGraphBuilder`, `Segmenter`,
+`Compactor`, `SafetyReporter`). Pure refactor.
+
+**Files.** `src/plan/plan.ts` → split. **Tests/gates.** Full corpus +
+differential must show **state-equivalent plans** (zero behavior change).
+**Depends on:** Items 1, 2, 5, 6 ("after semantics settle"). **Effort/risk:**
+medium / medium — defer until the semantic items land so we refactor a stable
+target. **Lowest priority.**
+
+### Item 8 — Docs normalization (continuous)  (review #8, **agree**)
+
+**Fix.** Normalize README / `API-REVIEW.md` / `COVERAGE.md` into three buckets:
+**implemented & proven**, **implemented with known simplification**,
+**deliberately out of the modeled universe**. `COVERAGE.md` is the source of
+truth for exclusions. Fix the README proof overstatement (ties to Item 2). Do
+this *as part of* each item above (each item updates the relevant bucket) rather
+than as a separate pass.
+
+---
+
+## Sequencing
+
+```
+Item 3 (typed predicates) ─┐
+                           ├─▶ Item 4b (provenance flip, large)
+Item 1 (projection) ───────┘
+        │
+        └─▶ Item 2 (proof coverage)
+
+Item 4a (extraction consistency, CLI-1471)  ── independent, quick win
+Item 5 (enum boundary)                       ── independent, cheap
+Item 6 (SQL-file robustness)                 ── independent, cheap
+Item 7 (planner split)  ── after 1,2,5,6
+Item 8 (docs)           ── continuous, folded into each item
+```
+
+**Recommended order:**
+
+1. **Item 1 + Item 2** — the coupled, highest-leverage pair (explicit target +
+   honest proof). Proof is the architecture's arbiter; everything else trusts it.
+2. **Item 3** — small; unblocks expressing provenance as policy.
+3. **Item 4a** — quick correctness win (CLI-1471), independent.
+4. **Item 5 + Item 6** — independent robustness, land anytime (good parallel work).
+5. **Item 4b** — the large provenance flip, gated by the differential oracle;
+   may be staged per extractor family.
+6. **Item 7** — planner split, last.
+
+## Relationship to the extension-intent work
+
+- **Phase A (shipped)** — `excludeManaged` becomes a projection input under
+  Item 1 (no rework; integration only). `managedBy` stays the operational-object
+  signal; Item 4 adds the parallel `memberOfExtension` signal for extension
+  members.
+- **Phase B (intent replay, planned in `extension-intent-phase-b-plan.md`)**
+  should land **after** Items 1–4: intent proof depends on explicit projection
+  (Item 1) and honest proof (Item 2); intent facts ride the same provenance
+  model (Item 4) and benefit from edge-kind predicates (Item 3). Sequencing:
+  hardening first, then resume Phase B.
+
+## Risk register (accepted honest-costs, not work items)
+
+The review did not raise these; they are documented north-star costs and belong
+on the same "implicit safety at the boundary" register — monitored, not fixed:
+
+- **`pg_depend` routine-body blind spot** (§7): PL/pgSQL and string-literal SQL
+  bodies are not dependency-tracked, so body-referenced ordering relies on
+  `check_function_bodies=off` + the proof loop catching gaps. No body parsing in
+  the trusted path (P1).
+- **Rename cross-reference caveat** (§4.1): a rename of an object referenced *by
+  name* in another payload (an FK naming its table) degrades silently to
+  drop+create, never the reverse.
+
+## Done-when
+
+- Projection is an explicit, reported step; `provePlan` targets
+  `projectedDesired`; "what was excluded and why" is in the plan artifact.
+- Proof emits a coverage report; seeded tables are content-fingerprinted; a
+  count-preserving content mutation is caught; README/API docs match.
+- Policy predicates are typed and validated; `edgeTo` filters by `EdgeKind`.
+- Extension-member satellites can no longer orphan (CLI-1471 scenario green);
+  (4b) members are facts with `memberOfExtension` edges, projected by policy.
+- `commitBoundaryAfter` always closes its segment; the same-plan enum-consumer
+  scenario is green.
+- SQL-file attempts are transactional; non-transactional statements are
+  classified/handled, never silently stuck.
+- Full corpus green on PG 15 + 17; differential clean; lint/types/knip clean at
+  every commit.
