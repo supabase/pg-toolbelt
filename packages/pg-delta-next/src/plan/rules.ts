@@ -77,10 +77,19 @@ export type AttributeRule =
         view: FactView,
         sourceView: FactView,
       ) => ActionSpec | ActionSpec[];
-      /** when true for a given transition, surviving dependents are force-
-       *  rebuilt (drop + recreate) around this alter — the enum value-set
-       *  migration needs views/defaults/routines out of the way */
-      rebuildsDependents?: (from: PayloadValue, to: PayloadValue) => boolean;
+      /** When this transition force-rebuilds surviving dependents (drop +
+       *  recreate around the alter):
+       *   - `true`  → every rebuildable dependent (enum value-set migration:
+       *     views/defaults/routines must be out of the way)
+       *   - `string[]` → only dependents of these kinds (ALTER COLUMN TYPE is
+       *     blocked by views/rules/policies but NOT indexes/constraints,
+       *     which PostgreSQL rebuilds itself — force-dropping a PK with
+       *     dependent FKs would cascade harmfully)
+       *   - `false`/absent → none */
+      rebuildsDependents?: (
+        from: PayloadValue,
+        to: PayloadValue,
+      ) => boolean | readonly string[];
     }
   | "replace";
 
@@ -932,6 +941,17 @@ export const RULES: Record<string, KindRules> = {
           }
           return specs;
         },
+        // PostgreSQL rejects ALTER COLUMN … TYPE while a view, rule, or
+        // policy references the column (0A000). Those dependents must be
+        // dropped before the alter and recreated after; indexes and
+        // constraints are NOT force-rebuilt (PG rebuilds them itself, and
+        // dropping a PK with dependent FKs would cascade harmfully).
+        rebuildsDependents: () => [
+          "view",
+          "materializedView",
+          "rule",
+          "policy",
+        ],
       },
       notNull: {
         alter: (fact, _from, to) => {

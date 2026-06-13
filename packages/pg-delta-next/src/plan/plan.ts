@@ -196,9 +196,11 @@ export function plan(
 
   // ── classify set-deltas: in-place alter vs replace ────────────────────
   const replaceIds = new Set<string>();
-  // alters that invalidate dependents (e.g. an enum value-set replacement)
-  // seed the forced-rebuild pass without replacing the fact itself
-  const rebuildSeeds = new Set<string>();
+  // alters that invalidate dependents (e.g. an enum value-set replacement,
+  // or an ALTER COLUMN TYPE that views/policies reference) seed the forced-
+  // rebuild pass without replacing the fact itself. The value is the set of
+  // dependent kinds to rebuild (null = all rebuildable kinds).
+  const rebuildSeeds = new Map<string, ReadonlySet<string> | null>();
   for (const [key, sets] of setsByFact) {
     const kind = (desired.get(sets[0]!.id) as Fact).id.kind;
     const rules = rulesFor(kind);
@@ -209,9 +211,13 @@ export function plan(
           `rule table: kind '${kind}' has no rule for attribute '${s.attr}' (${key}) — extend the rule vocabulary (guardrail 3)`,
         );
       }
-      if (attrRule === "replace") replaceIds.add(key);
-      else if (attrRule.rebuildsDependents?.(s.from, s.to))
-        rebuildSeeds.add(key);
+      if (attrRule === "replace") {
+        replaceIds.add(key);
+        continue;
+      }
+      const rebuild = attrRule.rebuildsDependents?.(s.from, s.to);
+      if (rebuild === true) rebuildSeeds.set(key, null);
+      else if (Array.isArray(rebuild)) rebuildSeeds.set(key, new Set(rebuild));
     }
   }
 
@@ -220,23 +226,31 @@ export function plan(
   // and recreated from the desired state — recursively. Which kinds are
   // rebuildable is declared per-kind in the rule table (`rebuildable`).
   {
-    const destroyedIds = new Set([
-      ...removed.keys(),
-      ...replaceIds,
-      ...rebuildSeeds,
-    ]);
+    // `fullDestroy` ids rebuild EVERY rebuildable dependent; `rebuildSeeds`
+    // (an in-place alter that invalidates only some dependent kinds) rebuild
+    // only their declared kinds. Once a dependent is rebuilt it joins
+    // `fullDestroy`, so its own subtree rebuilds completely.
+    const fullDestroy = new Set([...removed.keys(), ...replaceIds]);
+    const targets = new Set([...fullDestroy, ...rebuildSeeds.keys()]);
     let grew = true;
     while (grew) {
       grew = false;
       for (const edge of source.edges) {
-        if (!destroyedIds.has(encodeId(edge.to))) continue;
+        const toKey = encodeId(edge.to);
+        if (!targets.has(toKey)) continue;
         const fromKey = encodeId(edge.from);
-        if (destroyedIds.has(fromKey)) continue;
+        if (targets.has(fromKey)) continue;
         const dependent = source.get(edge.from);
         if (!dependent || !desired.has(edge.from)) continue;
         if (!isRebuildable(dependent.id.kind)) continue;
+        // reached only via a kind-restricted seed: honor the allowed kinds
+        if (!fullDestroy.has(toKey)) {
+          const allowed = rebuildSeeds.get(toKey);
+          if (allowed && !allowed.has(dependent.id.kind)) continue;
+        }
         replaceIds.add(fromKey);
-        destroyedIds.add(fromKey);
+        fullDestroy.add(fromKey);
+        targets.add(fromKey);
         grew = true;
       }
     }

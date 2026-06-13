@@ -43,6 +43,44 @@ describe("loadSqlFiles (shadow frontend)", () => {
     }
   }, 60_000);
 
+  test("range type used by a table orders correctly from shuffled files (#282)", async () => {
+    const shadow = await createTestDb("shadow");
+    try {
+      // the exact shuffle from supabase/pg-toolbelt#282: a table using a
+      // RANGE type before the type, before the schema. pg-topo classified
+      // CREATE TYPE AS RANGE as UNKNOWN and could not order it; the new
+      // engine's shadow loader resolves it by bounded rounds (no parser).
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "0_bookings.sql",
+            sql: "CREATE TABLE app.bookings (id int PRIMARY KEY, span app.int_range NOT NULL);",
+          },
+          {
+            name: "1_range.sql",
+            sql: "CREATE TYPE app.int_range AS RANGE (subtype = int4);",
+          },
+          { name: "2_schema.sql", sql: "CREATE SCHEMA app;" },
+        ],
+        shadow.pool,
+      );
+      expect(result.rounds).toBeGreaterThan(1);
+      expect(
+        result.factBase.has({ kind: "type", schema: "app", name: "int_range" }),
+      ).toBe(true);
+      expect(
+        result.factBase.has({ kind: "table", schema: "app", name: "bookings" }),
+      ).toBe(true);
+      // the column→type dependency edge resolved (span references int_range)
+      const edges = result.factBase.edges.map(
+        (e) => `${e.from.kind}->${e.to.kind}`,
+      );
+      expect(edges).toContain("column->type");
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
   test("unorderable input fails loudly with stuck statements, before extraction", async () => {
     const shadow = await createTestDb("shadow");
     try {
