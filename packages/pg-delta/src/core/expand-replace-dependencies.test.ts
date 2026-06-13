@@ -22,6 +22,7 @@ import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
 import { Domain } from "./objects/domain/domain.model.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
+import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
 import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
@@ -4823,6 +4824,151 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
+  test("de-duplicates superseded owner alters for promoted routine replacements", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDependent = procedureWithArgs(["integer"], "uses_normalize");
+    const branchDependent = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainDependent,
+      owner: "routine_owner",
+    });
+    const ownerAlter = new AlterProcedureChangeOwner({
+      procedure: mainDependent,
+      owner: branchDependent.owner,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      ownerAlter,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainProcedure.stableId]: mainProcedure,
+        [mainDependent.stableId]: mainDependent,
+      },
+      depends: [
+        {
+          dependent_stable_id: mainDependent.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchProcedure.stableId]: branchProcedure,
+        [branchDependent.stableId]: branchDependent,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterProcedureChangeOwner,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("defers promoted routine owner restore until after routine metadata replay", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDependent = procedureWithArgs(["integer"], "uses_normalize");
+    const branchDependent = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainDependent,
+      owner: "routine_owner",
+      comment: "dependent routine comment",
+      security_labels: [{ provider: "dummy", label: "routine label" }],
+      privileges: [
+        {
+          grantee: "routine_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainProcedure.stableId]: mainProcedure,
+        [mainDependent.stableId]: mainDependent,
+      },
+      depends: [
+        {
+          dependent_stable_id: mainDependent.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchProcedure.stableId]: branchProcedure,
+        [branchDependent.stableId]: branchDependent,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    ).map((change) => change.serialize());
+
+    const ownerIndex = sorted.indexOf(
+      "ALTER FUNCTION public.uses_normalize(integer) OWNER TO routine_owner",
+    );
+    const commentIndex = sorted.indexOf(
+      "COMMENT ON FUNCTION public.uses_normalize(integer) IS 'dependent routine comment'",
+    );
+    const securityLabelIndex = sorted.indexOf(
+      "SECURITY LABEL FOR dummy ON FUNCTION public.uses_normalize(integer) IS 'routine label'",
+    );
+    const grantIndex = sorted.indexOf(
+      "GRANT ALL ON FUNCTION public.uses_normalize(integer) TO routine_executor",
+    );
+
+    expect(ownerIndex).toBeGreaterThan(commentIndex);
+    expect(ownerIndex).toBeGreaterThan(securityLabelIndex);
+    expect(ownerIndex).toBeGreaterThan(grantIndex);
+  });
+
   test("restores procedure metadata when an existing procedure create is converted from orReplace", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -5561,6 +5707,97 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
     expect(
       expanded.changes.some((change) => change instanceof CreateDomain),
+    ).toBe(false);
+  });
+
+  test("does not count domain constraint drops as domain default releases", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainDomain = new Domain({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...domainWithConstraint("VALUE > 0"),
+      default_bin: "public.normalize_value(1)",
+      default_value: "public.normalize_value(1)",
+    });
+    const branchDomain = domainWithDefault("public.normalize_value(1)");
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+    const dropConstraint = new AlterDomainDropConstraint({
+      domain: mainDomain,
+      constraint: mainDomain.constraints[0] as Domain["constraints"][number],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      dropConstraint,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: mainDomain.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(dropConstraint);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainDropConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainDropDefault,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((change) => change instanceof DropDomain),
     ).toBe(false);
   });
 
