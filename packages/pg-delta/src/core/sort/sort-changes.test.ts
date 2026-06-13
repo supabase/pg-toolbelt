@@ -32,6 +32,8 @@ import {
 } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
 import { Table } from "../objects/table/table.model.ts";
+import { CreateCommentOnTrigger } from "../objects/trigger/changes/trigger.comment.ts";
+import { Trigger } from "../objects/trigger/trigger.model.ts";
 import { CreateView } from "../objects/view/changes/view.create.ts";
 import { DropView } from "../objects/view/changes/view.drop.ts";
 import { View } from "../objects/view/view.model.ts";
@@ -305,6 +307,36 @@ function sequenceOwnedBy(tableName: string, columnName: string) {
   });
 }
 
+function triggerOnTable(tableName: string) {
+  return new Trigger({
+    schema: "public",
+    name: `${tableName}_audit_trigger`,
+    table_name: tableName,
+    table_relkind: "r",
+    function_schema: "public",
+    function_name: "audit_row",
+    trigger_type: 16,
+    enabled: "O",
+    is_internal: false,
+    deferrable: false,
+    initially_deferred: false,
+    argument_count: 0,
+    column_numbers: [],
+    arguments: [],
+    when_condition: null,
+    old_table: null,
+    new_table: null,
+    is_partition_clone: false,
+    parent_trigger_name: null,
+    parent_table_schema: null,
+    parent_table_name: null,
+    is_on_partitioned_table: false,
+    owner: "postgres",
+    definition: `CREATE TRIGGER ${tableName}_audit_trigger AFTER UPDATE ON public.${tableName} FOR EACH ROW EXECUTE FUNCTION public.audit_row()`,
+    comment: "retained trigger comment",
+  });
+}
+
 function domain(defaultValue: string | null, name = "score") {
   return new Domain({
     schema: "public",
@@ -493,6 +525,28 @@ describe("sortChanges", () => {
 
     expect(grantIndex).toBeGreaterThan(-1);
     expect(ownerIndex).toBeGreaterThan(grantIndex);
+  });
+
+  test("orders trigger comment replay before table owner restore", async () => {
+    const owningTable = table("items");
+    const trigger = triggerOnTable("items");
+    const changes: Change[] = [
+      new AlterTableChangeOwner({ table: owningTable, owner: "app_owner" }),
+      new CreateCommentOnTrigger({ trigger }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const commentIndex = sorted.findIndex(
+      (change) => change instanceof CreateCommentOnTrigger,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableChangeOwner,
+    );
+
+    expect(commentIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(commentIndex);
   });
 
   test("orders materialized view indexes after recreated materialized views", async () => {
