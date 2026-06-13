@@ -1695,6 +1695,114 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
   });
 
+  test("does not count unrelated constraint column requirements as column default restore coverage", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault("public.normalize_value(1)");
+    const branchTable = tableWithDefault("public.normalize_value(1)");
+    const referencedTable = tableNamedWithDefault("parents", null, {
+      name: "id",
+      not_null: true,
+    });
+    const addForeignKey = new AlterTableAddConstraint({
+      table: branchTable,
+      constraint: {
+        name: "items_value_fkey",
+        constraint_type: "f",
+        deferrable: false,
+        initially_deferred: false,
+        validated: true,
+        is_local: true,
+        no_inherit: false,
+        is_temporal: false,
+        is_partition_clone: false,
+        parent_constraint_schema: null,
+        parent_constraint_name: null,
+        parent_table_schema: null,
+        parent_table_name: null,
+        key_columns: ["value"],
+        foreign_key_columns: ["id"],
+        foreign_key_table: "parents",
+        foreign_key_schema: "public",
+        foreign_key_table_is_partition: false,
+        foreign_key_parent_schema: null,
+        foreign_key_parent_table: null,
+        foreign_key_effective_schema: "public",
+        foreign_key_effective_table: "parents",
+        on_update: "a",
+        on_delete: "a",
+        match_type: "s",
+        check_expression: null,
+        owner: "postgres",
+        definition: "FOREIGN KEY (value) REFERENCES public.parents(id)",
+        comment: null,
+      },
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      addForeignKey,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: {
+        [mainTable.stableId]: mainTable,
+        [referencedTable.stableId]: referencedTable,
+      },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: {
+        [branchTable.stableId]: branchTable,
+        [referencedTable.stableId]: referencedTable,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(addForeignKey);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnDropDefault,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+    expect(
+      expanded.changes.some((change) => change instanceof CreateTable),
+    ).toBe(false);
+  });
+
   test("synthesizes a generated column fallback before PostgreSQL 17 for an unchanged expression that depends on a same-signature procedure replacement", async () => {
     const baseline = await createEmptyCatalog(150000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -2112,6 +2220,99 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter(
         (change) => change instanceof AlterTableAlterColumnSetDefault,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
+  });
+
+  test("does not count child partition default changes as parent default restore coverage", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainParentTable = tableWithDefault("public.normalize_value(1)");
+    const branchParentTable = tableWithDefault("public.normalize_value(1)");
+    const mainPartition = partitionTableWithDefault(
+      "public.normalize_value(2)",
+    );
+    const branchPartition = partitionTableWithDefault(
+      "public.normalize_value(3)",
+    );
+    const childSetDefault = new AlterTableAlterColumnSetDefault({
+      table: branchPartition,
+      column: branchPartition.columns[0],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      childSetDefault,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: {
+        [mainParentTable.stableId]: mainParentTable,
+        [mainPartition.stableId]: mainPartition,
+      },
+      depends: [
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items_2026.value",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: {
+        [branchParentTable.stableId]: branchParentTable,
+        [branchPartition.stableId]: branchPartition,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(childSetDefault);
+    expect(
+      expanded.changes.filter(
+        (change) =>
+          change instanceof AlterTableAlterColumnDropDefault &&
+          change.table.name === "items",
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) =>
+          change instanceof AlterTableAlterColumnSetDefault &&
+          change.table.name === "items",
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter(
+        (change) =>
+          change instanceof AlterTableAlterColumnSetDefault &&
+          change.table.name === "items_2026",
       ),
     ).toHaveLength(1);
     expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(

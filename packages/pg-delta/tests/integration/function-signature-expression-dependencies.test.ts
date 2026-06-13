@@ -420,6 +420,103 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test(
+      "unchanged column default with added foreign key for replaced function argument name is restored",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_form_value(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.form_value_parents (
+              id integer PRIMARY KEY
+            );
+
+            CREATE TABLE test_schema.form_values (
+              id integer NOT NULL,
+              value integer DEFAULT test_schema.default_form_value(1)
+            );
+
+            INSERT INTO test_schema.form_value_parents (id) VALUES (2);
+            INSERT INTO test_schema.form_values (id) VALUES (1);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.form_values
+              ALTER COLUMN value DROP DEFAULT;
+
+            DROP FUNCTION test_schema.default_form_value(integer);
+
+            CREATE FUNCTION test_schema.default_form_value(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.form_values
+              ALTER COLUMN value
+              SET DEFAULT test_schema.default_form_value(1);
+
+            ALTER TABLE test_schema.form_values
+              ADD CONSTRAINT form_values_value_fkey
+              FOREIGN KEY (value) REFERENCES test_schema.form_value_parents(id);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropDefaultIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.form_values ALTER COLUMN value DROP DEFAULT",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.default_form_value",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.default_form_value",
+              ),
+            );
+            const restoreDefaultIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.form_values ALTER COLUMN value SET DEFAULT",
+              ),
+            );
+            const addForeignKeyIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.form_values ADD CONSTRAINT form_values_value_fkey",
+              ),
+            );
+
+            expect(dropDefaultIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(dropDefaultIndex);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(restoreDefaultIndex).toBeGreaterThan(createFunctionIndex);
+            expect(addForeignKeyIndex).toBeGreaterThanOrEqual(0);
+          },
+        });
+
+        const { rows } = await db.main.query(
+          "SELECT pg_get_expr(adbin, adrelid) AS expression FROM pg_attrdef WHERE adrelid = 'test_schema.form_values'::regclass AND adnum = 2",
+        );
+        expect(rows[0]?.expression).toContain(
+          "test_schema.default_form_value(1)",
+        );
+      }),
+    );
+
     test.skipIf(pgVersion < 17)(
       "generated column update for replaced function signature does not recreate table",
       withDb(pgVersion, async (db) => {
@@ -2368,6 +2465,127 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           db.main.query.bind(db.main),
           "test_schema.partitioned_scores",
           1,
+        );
+      }),
+    );
+
+    test(
+      "parent partition default is restored when only child default changes for replaced function argument name",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.default_partition_score(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_scores_with_parent_default (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              score integer DEFAULT test_schema.default_partition_score(1)
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_scores_with_parent_default_2026
+              PARTITION OF test_schema.partitioned_scores_with_parent_default
+              FOR VALUES FROM (2026) TO (2027);
+
+            ALTER TABLE test_schema.partitioned_scores_with_parent_default_2026
+              ALTER COLUMN score
+              SET DEFAULT test_schema.default_partition_score(2);
+
+            INSERT INTO test_schema.partitioned_scores_with_parent_default
+              (id, period)
+            VALUES (1, 2026);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.partitioned_scores_with_parent_default_2026
+              ALTER COLUMN score DROP DEFAULT;
+
+            ALTER TABLE test_schema.partitioned_scores_with_parent_default
+              ALTER COLUMN score DROP DEFAULT;
+
+            DROP FUNCTION test_schema.default_partition_score(integer);
+
+            CREATE FUNCTION test_schema.default_partition_score(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.partitioned_scores_with_parent_default
+              ALTER COLUMN score
+              SET DEFAULT test_schema.default_partition_score(1);
+
+            ALTER TABLE test_schema.partitioned_scores_with_parent_default_2026
+              ALTER COLUMN score
+              SET DEFAULT test_schema.default_partition_score(3);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const parentDropDefaultIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_scores_with_parent_default ALTER COLUMN score DROP DEFAULT",
+                ),
+            );
+            const childDropDefaultIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.partitioned_scores_with_parent_default_2026 ALTER COLUMN score DROP DEFAULT",
+              ),
+            );
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.default_partition_score",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.default_partition_score",
+              ),
+            );
+            const parentRestoreDefaultIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_scores_with_parent_default ALTER COLUMN score SET DEFAULT",
+                ),
+            );
+            const childRestoreDefaultIndex = sqlStatements.findIndex(
+              (statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_scores_with_parent_default_2026 ALTER COLUMN score SET DEFAULT",
+                ),
+            );
+
+            expect(parentDropDefaultIndex).toBeGreaterThanOrEqual(0);
+            expect(childDropDefaultIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(
+              Math.max(parentDropDefaultIndex, childDropDefaultIndex),
+            );
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+            expect(parentRestoreDefaultIndex).toBeGreaterThan(
+              createFunctionIndex,
+            );
+            expect(childRestoreDefaultIndex).toBeGreaterThan(
+              createFunctionIndex,
+            );
+          },
+        });
+
+        const { rows } = await db.main.query(
+          "SELECT pg_get_expr(adbin, adrelid) AS expression FROM pg_attrdef WHERE adrelid = 'test_schema.partitioned_scores_with_parent_default'::regclass AND adnum = 3",
+        );
+        expect(rows[0]?.expression).toContain(
+          "test_schema.default_partition_score(1)",
         );
       }),
     );
