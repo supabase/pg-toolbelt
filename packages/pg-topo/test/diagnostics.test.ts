@@ -197,6 +197,30 @@ describe("diagnostics", () => {
     expect(unrelatedDomainArray).toHaveLength(1);
   });
 
+  test("external relation providers satisfy generated row type array requirements", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create table app.children(parents app.events[]);",
+      ],
+      {
+        externalProviders: [{ kind: "table", schema: "app", name: "events" }],
+      },
+    );
+    const unresolvedRowTypeArray = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "events[]",
+        ) === true,
+    );
+
+    expect(unresolvedRowTypeArray).toHaveLength(0);
+  });
+
   test("reports self references through generated array types", async () => {
     const tableResult = await analyzeAndSort([
       "create schema app;",

@@ -4482,6 +4482,33 @@ describe("range type dependencies", () => {
     expect(rangeIndex).toBeGreaterThan(enumIndex);
   });
 
+  test("normalizes public range subtype keys for omitted range opclasses", async () => {
+    const result = await analyzeAndSort([
+      "create type period_wrapper as range (subtype = period);",
+      "create type period as range (subtype = date);",
+    ]);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes(
+          "No default btree operator class provider found for range subtype 'period'",
+        ),
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const subtypeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type period as range"),
+    );
+    const wrapperIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type period_wrapper as range"),
+    );
+
+    expect(missingDefault).toHaveLength(0);
+    expect(subtypeIndex).toBeGreaterThanOrEqual(0);
+    expect(wrapperIndex).toBeGreaterThan(subtypeIndex);
+  });
+
   test("diagnoses invalid pg_catalog range collations", async () => {
     const result = await analyzeAndSort([
       "create type app.bad_text_range as range (subtype = text, collation = pg_catalog.nope);",
@@ -4525,6 +4552,34 @@ describe("range type dependencies", () => {
       expect.objectContaining({
         kind: "function",
         name: "int4pl",
+      }),
+    );
+  });
+
+  test("does not require producers for built-in subtraction operator callbacks", async () => {
+    const result = await analyzeAndSort([
+      "create operator app.- (function = int4mi, leftarg = int4, rightarg = int4);",
+      "create schema app;",
+    ]);
+    const int4miUnresolved = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.name === "int4mi" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+    const operatorStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create operator app.-"),
+    );
+
+    expect(int4miUnresolved).toHaveLength(0);
+    expect(operatorStatement?.requires).not.toContainEqual(
+      expect.objectContaining({
+        kind: "function",
+        name: "int4mi",
       }),
     );
   });
@@ -4640,6 +4695,37 @@ describe("range type dependencies", () => {
     );
 
     expect(unresolved).toHaveLength(0);
+  });
+
+  test("accepts built-in brin minmax operator families", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4_brin_ops for type int4 using brin family pg_catalog.integer_minmax_ops as operator 1 < (int4, int4), operator 2 <= (int4, int4), operator 3 = (int4, int4), operator 4 >= (int4, int4), operator 5 > (int4, int4), function 1 brin_minmax_opcinfo(internal);",
+      "create schema app;",
+    ]);
+    const unresolvedFamily = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_family" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "integer_minmax_ops" &&
+            ref.signature === "(brin)",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.int4_brin_ops"),
+    );
+
+    expect(unresolvedFamily).toHaveLength(0);
+    expect(operatorClassStatement?.requires).not.toContainEqual({
+      kind: "operator_family",
+      schema: "pg_catalog",
+      name: "integer_minmax_ops",
+      signature: "(brin)",
+    });
   });
 
   test("diagnoses btree-only pattern families used by hash opclasses", async () => {
@@ -5287,5 +5373,35 @@ describe("range type dependencies", () => {
 
     expect(selfRowType).toHaveLength(1);
     expect(selfRangeSubtype).toHaveLength(1);
+  });
+
+  test("diagnoses base types that copy themselves through type options", async () => {
+    const likeResult = await analyzeAndSort([
+      "create type app.foo (input = app.foo_in, output = app.foo_out, like = app.foo);",
+      "create schema app;",
+    ]);
+    const elementResult = await analyzeAndSort([
+      "create type app.foo (input = app.foo_in, output = app.foo_out, element = app.foo[]);",
+      "create schema app;",
+    ]);
+    const selfLike = likeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" && ref.schema === "app" && ref.name === "foo",
+        ) === true,
+    );
+    const selfElement = elementResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" && ref.schema === "app" && ref.name === "foo[]",
+        ) === true,
+    );
+
+    expect(selfLike).toHaveLength(1);
+    expect(selfElement).toHaveLength(1);
   });
 });
