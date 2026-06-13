@@ -5,6 +5,7 @@
 import { diff, type Delta } from "../core/diff.ts";
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import { excludeExtensionMembers } from "../policy/extension-members.ts";
 import {
   factMatches,
   filterDeltas,
@@ -131,6 +132,13 @@ export function plan(
   desired: FactBase,
   options?: PlanOptions,
 ): Plan {
+  // default projection (4b): extension-owned objects (carrying a
+  // `memberOfExtension` edge) are out of the managed universe — subtract them
+  // from BOTH sides so they never diff, the same fact-level treatment as
+  // `excludeManaged` (src/policy/extension-members.ts). No-op until extractors
+  // emit the edges (Stage 2); the fingerprints below reflect the projection.
+  source = excludeExtensionMembers(source);
+  desired = excludeExtensionMembers(desired);
   if (options?.policy) validatePolicy(options.policy);
   const params: PlanParams = options?.params ?? {};
   for (const name of Object.keys(params)) {

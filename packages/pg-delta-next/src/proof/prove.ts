@@ -17,6 +17,7 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
+import { excludeExtensionMembers } from "../policy/extension-members.ts";
 
 export interface ProofVerdict {
   ok: boolean;
@@ -371,10 +372,17 @@ export async function provePlan(
     };
   }
   const proven = await (options.reextract ?? extract)(clonePool);
+  // default projection (4b): extension members are out of the managed universe.
+  // The post-flip re-extract observes them, so subtract them from BOTH the
+  // proven state and the target — otherwise an extension's internals read as
+  // drift. Mirrors plan()'s projection (src/policy/extension-members.ts).
+  const provenFb = excludeExtensionMembers(proven.factBase);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = projectTarget(desired, thePlan.filteredDeltas);
-  const driftDeltas = diff(proven.factBase, target);
+  const target = excludeExtensionMembers(
+    projectTarget(desired, thePlan.filteredDeltas),
+  );
+  const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);
 
   const { dataViolations, rewriteViolations, coverage } = detectViolations(
