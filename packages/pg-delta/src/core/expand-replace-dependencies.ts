@@ -311,8 +311,16 @@ export function expandReplaceDependencies({
         isMetadataDependentStableId(dependentRaw)
       ) {
         // Column comments and security labels are metadata for the recreated
-        // column itself. The drop/add fallback restores them directly, so
-        // walking those edges must not promote metadata into object replacement.
+        // column itself. The drop/add fallback restores them directly; when the
+        // drop/add pair came from the original diff, restore retained metadata
+        // here instead of promoting metadata into object replacement.
+        maybeAddRecreatedColumnMetadataRestore({
+          columnId: refId,
+          dependentRaw,
+          branchCatalog,
+          additions,
+          createdIds,
+        });
         continue;
       }
       if (
@@ -518,8 +526,21 @@ export function expandReplaceDependencies({
               diffContext,
             })
           : [];
+      const partitionGeneratedColumnRestoreChanges =
+        resolved.kind === "table"
+          ? buildPartitionGeneratedColumnTableReplacementRestoreChanges({
+              dependentRaw,
+              branchCatalog,
+              diffContext,
+              addCreate,
+            })
+          : [];
 
-      additions.push(...replacementChanges, ...retainedIndexChanges);
+      additions.push(
+        ...replacementChanges,
+        ...retainedIndexChanges,
+        ...partitionGeneratedColumnRestoreChanges,
+      );
       if (resolved.kind === "rls_policy") {
         promotedRlsPolicyIds.add(targetId);
       }
@@ -532,7 +553,11 @@ export function expandReplaceDependencies({
       }
 
       // Track new creates/drops so we don't duplicate work for downstream dependents.
-      for (const change of [...replacementChanges, ...retainedIndexChanges]) {
+      for (const change of [
+        ...replacementChanges,
+        ...retainedIndexChanges,
+        ...partitionGeneratedColumnRestoreChanges,
+      ]) {
         for (const id of change.creates ?? []) createdIds.add(id);
         for (const id of change.drops ?? []) droppedIds.add(id);
       }
@@ -857,6 +882,83 @@ function isGeneratedColumnNotNullConstraintDependent({
       `${columnRef.table}_${columnRef.column}_not_null` &&
     generatedColumnNotNull
   );
+}
+
+function maybeAddRecreatedColumnMetadataRestore({
+  columnId,
+  dependentRaw,
+  branchCatalog,
+  additions,
+  createdIds,
+}: {
+  columnId: string;
+  dependentRaw: string;
+  branchCatalog: Catalog;
+  additions: Change[];
+  createdIds: Set<string>;
+}): void {
+  if (createdIds.has(dependentRaw)) {
+    return;
+  }
+
+  const columnRef = parseColumnStableId(columnId);
+  if (!columnRef) {
+    return;
+  }
+
+  const branchTable =
+    branchCatalog.tables[stableId.table(columnRef.schema, columnRef.table)];
+  const branchColumn = branchTable?.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  if (!branchTable || !branchColumn) {
+    return;
+  }
+
+  if (dependentRaw === stableId.comment(columnId)) {
+    if (branchColumn.comment !== null) {
+      const change = new CreateCommentOnColumn({
+        table: branchTable,
+        column: branchColumn,
+      });
+      additions.push(change);
+      for (const id of change.creates ?? []) createdIds.add(id);
+    }
+    return;
+  }
+
+  const provider = parseSecurityLabelProvider(dependentRaw, columnId);
+  if (!provider) {
+    return;
+  }
+
+  const securityLabel = branchColumn.security_labels?.find(
+    (label) => label.provider === provider,
+  );
+  if (!securityLabel) {
+    return;
+  }
+
+  const change = new CreateSecurityLabelOnColumn({
+    table: branchTable,
+    column: branchColumn,
+    securityLabel,
+  });
+  additions.push(change);
+  for (const id of change.creates ?? []) createdIds.add(id);
+}
+
+function parseSecurityLabelProvider(
+  dependentRaw: string,
+  columnId: string,
+): string | null {
+  const prefix = stableId.securityLabel(columnId, "");
+  if (!dependentRaw.startsWith(prefix)) {
+    return null;
+  }
+
+  const provider = dependentRaw.slice(prefix.length);
+  return provider.length > 0 ? provider : null;
 }
 
 function shouldTraverseExpressionReplacementDependent({
@@ -1218,6 +1320,10 @@ function buildColumnExpressionReplacementChanges({
       return null;
     }
 
+    if (mainTable.is_partition || branchTable.is_partition) {
+      return null;
+    }
+
     const canRecreateGeneratedColumn =
       mainColumn.is_generated &&
       branchColumn.is_generated &&
@@ -1318,6 +1424,60 @@ function buildColumnExpressionReplacementChanges({
   }
 
   return changes;
+}
+
+function buildPartitionGeneratedColumnTableReplacementRestoreChanges({
+  dependentRaw,
+  branchCatalog,
+  diffContext,
+  addCreate,
+}: {
+  dependentRaw: string;
+  branchCatalog: Catalog;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+  addCreate: boolean;
+}): Change[] {
+  if (!addCreate || (diffContext?.version ?? 0) < 170000) {
+    return [];
+  }
+
+  const columnRef = parseColumnStableId(dependentRaw);
+  if (!columnRef) {
+    return [];
+  }
+
+  const branchTable =
+    branchCatalog.tables[stableId.table(columnRef.schema, columnRef.table)];
+  if (!branchTable?.is_partition) {
+    return [];
+  }
+
+  const branchColumn = branchTable.columns.find(
+    (column) => column.name === columnRef.column,
+  );
+  if (
+    !branchColumn?.is_generated ||
+    branchColumn.default === null ||
+    partitionGeneratedColumnExpressionsMatchParent({
+      mainTable: branchTable,
+      branchTable,
+      columnName: branchColumn.name,
+      mainCatalog: branchCatalog,
+      branchCatalog,
+    })
+  ) {
+    return [];
+  }
+
+  return [
+    new AlterTableAlterColumnSetDefault({
+      table: branchTable,
+      column: branchColumn,
+    }),
+  ];
 }
 
 function buildPublicationColumnListReplacement({
