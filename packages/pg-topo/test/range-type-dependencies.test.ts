@@ -4519,7 +4519,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "date_lt" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
 
@@ -5007,7 +5007,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "eq" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
     const aggregateImplementation = aggregateResult.diagnostics.filter(
@@ -5018,7 +5018,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "app" &&
             ref.name === "eq" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
 
@@ -6226,7 +6226,7 @@ describe("range type dependencies", () => {
             ref.kind === "function" &&
             ref.schema === "pg_catalog" &&
             ref.name === "no_such" &&
-            ref.signature === "(int4,int4)",
+            ref.signature === "(pg_catalog.int4,pg_catalog.int4)",
         ) === true,
     );
 

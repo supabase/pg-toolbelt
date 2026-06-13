@@ -1430,6 +1430,31 @@ const builtInOperatorFamilyNamesByAccessMethod = new Map([
   ["spgist", builtInSpgistOperatorFamilyNames],
 ]);
 
+const builtInAccessMethodNames = new Set([
+  "brin",
+  "btree",
+  "gin",
+  "gist",
+  "hash",
+  "heap",
+  "spgist",
+]);
+
+const addAccessMethodDependencyIfNeeded = (
+  accessMethod: string,
+  requires: ObjectRef[],
+): void => {
+  const normalizedAccessMethod = accessMethod.toLowerCase();
+  if (
+    normalizedAccessMethod.length === 0 ||
+    builtInAccessMethodNames.has(normalizedAccessMethod)
+  ) {
+    return;
+  }
+
+  requires.push(createObjectRefFromAst("access_method", accessMethod));
+};
+
 const builtInOperatorFamilyNamesForAccessMethod = (
   accessMethod: string,
 ): ReadonlySet<string> | undefined =>
@@ -3254,15 +3279,16 @@ const extractCreateRangeDependencies = (
     // PostgreSQL creates a default multirange type alongside every range type.
     // The name is derived from the range type unless MULTIRANGE_TYPE_NAME is
     // present, in which case the explicit option above is the only provider.
-    provides.push(
-      ...typeProviderRefs(
-        createObjectRefFromAst(
-          "type",
-          defaultMultirangeTypeName(rangeRef.name),
-          rangeRef.schema,
-        ),
-        context,
-      ),
+    const defaultMultirangeRef = createObjectRefFromAst(
+      "type",
+      defaultMultirangeTypeName(rangeRef.name),
+      rangeRef.schema,
+    );
+    provides.push(...typeProviderRefs(defaultMultirangeRef, context));
+    addImplicitArrayCollisionDependency(
+      defaultMultirangeRef,
+      requires,
+      context,
     );
   }
 
@@ -3324,6 +3350,11 @@ const builtInOperatorImplementationFunctionSignatures = new Map<
   ["boolle", [["bool", "bool"]]],
   ["boollt", [["bool", "bool"]]],
   ["boolne", [["bool", "bool"]]],
+  ["array_eq", [["anyarray", "anyarray"]]],
+  ["array_ne", [["anyarray", "anyarray"]]],
+  ["arraycontained", [["anyarray", "anyarray"]]],
+  ["arraycontains", [["anyarray", "anyarray"]]],
+  ["arrayoverlap", [["anyarray", "anyarray"]]],
   ["biteq", [["bit", "bit"]]],
   ["bitge", [["bit", "bit"]]],
   ["bitgt", [["bit", "bit"]]],
@@ -3799,9 +3830,10 @@ const extractCreateOperatorDependencies = (
     }
   }
 
-  const functionArgRefs = [leftArgRef, rightArgRef].filter(
+  const operatorArgRefs = [leftArgRef, rightArgRef].filter(
     (argRef): argRef is ObjectRef => argRef !== null,
   );
+  const functionArgRefs = operatorArgRefs.map(catalogQualifiedBuiltInTypeRef);
   const functionSignatureParts = functionArgRefs.map(typeSignaturePart);
   const operatorSignatureParts =
     leftArgRef || rightArgRef
@@ -3874,14 +3906,14 @@ const extractCreateOperatorFamilyDependencies = (
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
+  const accessMethod =
+    typeof statementNode.amname === "string" ? statementNode.amname : "";
 
   const operatorFamilyRef = objectFromNameParts(
     "operator_family",
     extractNameParts(statementNode.opfamilyname),
   );
   if (operatorFamilyRef) {
-    const accessMethod =
-      typeof statementNode.amname === "string" ? statementNode.amname : "";
     provides.push(
       createObjectRefFromAst(
         "operator_family",
@@ -3892,6 +3924,33 @@ const extractCreateOperatorFamilyDependencies = (
     );
     if (operatorFamilyRef.schema) {
       requires.push(createObjectRefFromAst("schema", operatorFamilyRef.schema));
+    }
+  }
+  addAccessMethodDependencyIfNeeded(accessMethod, requires);
+
+  return { provides, requires };
+};
+
+const extractCreateAccessMethodDependencies = (
+  statementNode: Record<string, unknown>,
+): ExtractDependenciesResult => {
+  const provides: ObjectRef[] = [];
+  const requires: ObjectRef[] = [];
+
+  if (typeof statementNode.amname === "string") {
+    provides.push(
+      createObjectRefFromAst("access_method", statementNode.amname),
+    );
+  }
+
+  const handlerRef = objectFromNameParts(
+    "function",
+    extractNameParts(statementNode.handler_name),
+  );
+  if (handlerRef) {
+    requires.push(markExactKindRef(handlerRef));
+    if (handlerRef.schema) {
+      requires.push(createObjectRefFromAst("schema", handlerRef.schema));
     }
   }
 
@@ -3913,6 +3972,7 @@ const extractCreateOperatorClassDependencies = (
     operatorFamilyNameParts,
   );
   const dataTypeRef = typeFromTypeNameNode(statementNode.datatype);
+  addAccessMethodDependencyIfNeeded(accessMethod, requires);
 
   const operatorClassRef = objectFromNameParts(
     "operator_class",
@@ -4911,6 +4971,10 @@ const extractDependencyRefs = (
     case "CREATE_OPERATOR_FAMILY":
       return extractCreateOperatorFamilyDependencies(
         asRecord(astNode.CreateOpFamilyStmt) ?? {},
+      );
+    case "CREATE_ACCESS_METHOD":
+      return extractCreateAccessMethodDependencies(
+        asRecord(astNode.CreateAmStmt) ?? {},
       );
     case "CREATE_FUNCTION":
       return extractCreateFunctionDependencies(

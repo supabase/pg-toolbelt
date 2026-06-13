@@ -6,6 +6,7 @@ export const OBJECT_KINDS = [
   "extension",
   "foreign_data_wrapper",
   "foreign_server",
+  "access_method",
   "type",
   "domain",
   "collation",

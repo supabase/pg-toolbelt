@@ -134,6 +134,7 @@ export const objectFromNameParts = (
       kind === "extension" ||
       kind === "foreign_data_wrapper" ||
       kind === "foreign_server" ||
+      kind === "access_method" ||
       kind === "publication" ||
       kind === "subscription" ||
       kind === "role"

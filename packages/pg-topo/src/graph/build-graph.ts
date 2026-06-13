@@ -61,6 +61,9 @@ const defaultMultirangeTypeName = (rangeTypeName: string): string =>
           textEncoder.encode("_multirange").length,
       )}_multirange`;
 
+const generatedArrayTypeName = (typeName: string): string =>
+  clipPostgresIdentifier(`_${typeName}`);
+
 const edgeKey = (fromIndex: number, toIndex: number): string =>
   `${fromIndex}->${toIndex}`;
 
@@ -428,6 +431,11 @@ export const buildGraph = (
           schema: ref.schema,
           name: `${ref.name}[]`,
         });
+        addExternalProvider({
+          kind: "type",
+          schema: ref.schema,
+          name: generatedArrayTypeName(ref.name),
+        });
       }
       if (
         ref.kind === "type" &&
@@ -444,6 +452,11 @@ export const buildGraph = (
           kind: "type",
           schema: ref.schema,
           name: `${multirangeTypeName}[]`,
+        });
+        addExternalProvider({
+          kind: "type",
+          schema: ref.schema,
+          name: generatedArrayTypeName(multirangeTypeName),
         });
       }
     }

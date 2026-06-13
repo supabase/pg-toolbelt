@@ -7,6 +7,7 @@ export type StatementClass =
   | "CREATE_EXTENSION"
   | "CREATE_FOREIGN_DATA_WRAPPER"
   | "CREATE_FOREIGN_SERVER"
+  | "CREATE_ACCESS_METHOD"
   | "CREATE_TYPE"
   | "CREATE_ROLE"
   | "CREATE_PUBLICATION"
@@ -51,6 +52,7 @@ const CLASS_BY_AST_NODE: Record<string, StatementClass> = {
   AlterSeqStmt: "ALTER_SEQUENCE",
   AlterSubscriptionStmt: "ALTER_SUBSCRIPTION",
   CommentStmt: "COMMENT",
+  CreateAmStmt: "CREATE_ACCESS_METHOD",
   CreatePLangStmt: "CREATE_LANGUAGE",
   CompositeTypeStmt: "CREATE_TYPE",
   CreateEnumStmt: "CREATE_TYPE",
@@ -160,6 +162,7 @@ const PHASE_BY_CLASS: Record<Exclude<StatementClass, "UNKNOWN">, PhaseTag> = {
   CREATE_EXTENSION: "bootstrap",
   CREATE_FOREIGN_DATA_WRAPPER: "bootstrap",
   CREATE_FOREIGN_SERVER: "bootstrap",
+  CREATE_ACCESS_METHOD: "pre_data",
   CREATE_FUNCTION: "routines",
   CREATE_AGGREGATE: "routines",
   CREATE_INDEX: "post_data",
