@@ -46,24 +46,48 @@ integration suite — see `PORTING.md` for the per-case ledger and the
 not-ported-with-reason list (Supabase-image, policy-layer/stage-8,
 dummy_seclabel, stage-9 renames/export).
 
-Not yet covered: compaction (plans are decomposed/verbose by design),
-renames (stage 9), the policy layer + provenance edges (stage 8),
-`ALTER TYPE ADD VALUE` same-transaction usage segmentation (one corpus
-direction is pinned in `tests/expected-red.ts` for this), security
-labels (needs dummy_seclabel image).
+## Stage coverage (target-architecture)
 
-Enum value removal/reorder IS covered: the `values` rule renames the old
-type aside, creates the desired value set, walks every dependent column
-through a `::text` cast, and drops the renamed type — while
-`rebuildsDependents` forces views/defaults/routines that reference the
-type through a drop + recreate around the migration.
+All engineering stages are implemented:
 
-Known v1 simplifications (each has a stage-doc home):
+- **Stages 0–4** — corpus + EXPECTED_RED ledger, fact core (Merkle
+  rollups, snapshots), extractors (one consistent txn, acldefault-
+  normalized ACLs), proof harness (state + data preservation), diff.
+- **Stage 5** — the rule table, one mixed graph, deterministic sort,
+  compaction (column clauses fold into `CREATE TABLE` when no edge
+  crosses the merge — cosmetic by contract, proof-stability asserted),
+  the vetted lock-class table, the 10k-object benchmark fixture +
+  timing harness (`scripts/benchmark.ts`, in CI), the generative engine
+  + soak (`tests/generative.test.ts`, scale with `PGDELTA_NEXT_SOAK`).
+- **Stage 6** — plan artifact v1 (engineVersion, safetyReport, lossless
+  round-trip), segmented executor (three-valued transactionality:
+  `CREATE INDEX CONCURRENTLY` runs alone, `ALTER TYPE … ADD VALUE`
+  forces a commit boundary before its first consumer), per-action
+  applied/unapplied/inDoubt failure reporting, the fingerprint gate,
+  session preamble as metadata, render-from-fact-base materialization.
+- **Stage 7** — shadow-DB SQL loader + snapshot frontend.
+- **Stage 8** — policy DSL v2 (typed serializable predicates,
+  first-match-wins, extends with cycle detection), delta filtering with
+  reported (never silent) filtered deltas, serialize parameters declared
+  by the rule table, baseline subtraction, the Supabase policy package.
+- **Stage 9** — rename detection over structural rollups
+  (`renames: "auto" | "prompt" | "off"`, ambiguity/near-miss verdicts,
+  data preservation proven down to column values), declarative export
+  with the `load(export(fb)) ≡ fb` gate (+ an "ordered" layout that
+  loads in a single pass), drift, finalized public API (subpath
+  exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
 
-- extension-member objects are filtered at extraction (stage 8 turns this
-  into provenance edges + policy)
-- executor is single-transaction (three-valued segmentation arrives with
-  the kinds that need it — `CREATE INDEX CONCURRENTLY` etc.)
+Environment-gated leftovers: security labels (needs the dummy_seclabel
+image) and the real-Supabase-image baseline proof (the mechanism and
+generation script exist; run `scripts/generate-supabase-baseline.ts`
+against a Supabase container). Stage 10 (cutover) is a product decision
+gated on the parity bar — the differential harness, soak quota at scale,
+and naming are deliberately not unilateral engineering calls.
+
+Known v1 simplifications:
+
+- extension-member objects are filtered at extraction (full provenance
+  edges remain stage-8 follow-up work)
 - capture is serial on one snapshot connection (parallel
   `pg_export_snapshot()` workers are a measured optimization)
 - a surviving dependent of a destroyed fact is force-rebuilt when its kind
@@ -74,10 +98,14 @@ Known v1 simplifications (each has a stage-doc home):
 ## Running
 
 ```bash
-bun test src/        # unit: codec, hashing, fact base, snapshot, diff
+bun test src/        # unit: codec, hashing, fact base, snapshot, diff, policy
 bun test tests/      # integration: Docker required (postgres:17-alpine)
 bun run check-types
 PGDELTA_TEST_IMAGE=postgres:15-alpine bun test tests/   # other PG versions
+PGDELTA_NEXT_ONLY=enum bun test tests/engine.test.ts    # corpus subset
+PGDELTA_NEXT_SHARD=0/4 bun test tests/engine.test.ts    # parallel shard
+PGDELTA_NEXT_SOAK=200 bun test tests/generative.test.ts # bigger soak
+bun scripts/benchmark.ts                                # timing numbers
 ```
 
 ## Guardrails

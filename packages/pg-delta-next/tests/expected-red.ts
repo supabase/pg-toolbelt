@@ -7,11 +7,4 @@
  * Entries are scenario directory names; a `:reverse` suffix pins only the
  * teardown direction.
  */
-export const EXPECTED_RED: ReadonlySet<string> = new Set<string>([
-  // PostgreSQL forbids USING a value added by ALTER TYPE … ADD VALUE inside
-  // the same transaction ("unsafe use of new value"). This direction adds
-  // enum values AND rebuilds a view referencing them — it needs the
-  // three-valued execution-context segmentation (target-architecture §3.7,
-  // not yet implemented; the executor is single-transaction today).
-  "mixed-objects--enum-replace-with-dependents:reverse",
-]);
+export const EXPECTED_RED: ReadonlySet<string> = new Set<string>([]);

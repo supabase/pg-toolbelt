@@ -1,7 +1,10 @@
 /**
  * @supabase/pg-delta-next — clean-room rebuild per docs/target-architecture.md.
- * Public API per §4.5; stubs throw NotImplementedError until their stage lands.
+ * Public API per §4.5; the complete vocabulary is listed here and reviewed
+ * in API-REVIEW.md (stage-9 deliverable 8).
  */
+
+// ── core primitives ──────────────────────────────────────────────────────────
 export { NotImplementedError, type Diagnostic } from "./core/diagnostic.ts";
 export {
   encodeId,
@@ -24,13 +27,57 @@ export {
 } from "./core/fact.ts";
 export { serializeSnapshot, deserializeSnapshot } from "./core/snapshot.ts";
 export { diff, type Delta } from "./core/diff.ts";
+
+// ── extract ──────────────────────────────────────────────────────────────────
 export { extract, type ExtractResult } from "./extract/extract.ts";
-export { plan, type Plan, type Action } from "./plan/plan.ts";
-export { apply, type ApplyReport } from "./apply/apply.ts";
+
+// ── plan ─────────────────────────────────────────────────────────────────────
+export {
+  plan,
+  ENGINE_VERSION,
+  type Plan,
+  type Action,
+  type PlanOptions,
+  type SafetyReport,
+} from "./plan/plan.ts";
+export { serializePlan, parsePlan } from "./plan/artifact.ts";
+export { type RenameCandidate, type RenameMode } from "./plan/renames.ts";
+export { type LockClass } from "./plan/locks.ts";
+
+// ── apply ────────────────────────────────────────────────────────────────────
+export {
+  apply,
+  type ApplyReport,
+  type ApplyOptions,
+  type ActionStatus,
+} from "./apply/apply.ts";
+
+// ── proof ────────────────────────────────────────────────────────────────────
 export { provePlan, type ProofVerdict } from "./proof/prove.ts";
+
+// ── frontends ────────────────────────────────────────────────────────────────
 export {
   loadSqlFiles,
   ShadowLoadError,
   type SqlFile,
   type LoadResult,
 } from "./frontends/load-sql-files.ts";
+export {
+  exportSqlFiles,
+  type ExportOptions,
+} from "./frontends/export-sql-files.ts";
+export { saveSnapshot, loadSnapshot } from "./frontends/snapshot-file.ts";
+export {
+  factMatches,
+  deltaMatches,
+  filterDeltas,
+  flattenPolicy,
+  serializeParams,
+  validatePolicy,
+  type Policy,
+  type Predicate,
+  type FilterRule,
+  type SerializeRule,
+} from "./policy/policy.ts";
+export { subtractBaseline, loadBaseline } from "./policy/baseline.ts";
+export { supabasePolicy } from "./policy/supabase.ts";

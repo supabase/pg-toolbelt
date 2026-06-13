@@ -7,6 +7,7 @@
 import type { Fact } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import type { LockClass } from "./locks.ts";
 import {
   alterOptionsClause,
   commentTarget,
@@ -33,7 +34,39 @@ export interface ActionSpec {
   releases?: StableId[];
   dataLoss?: "none" | "destructive";
   rewriteRisk?: boolean;
+  /** lock-class override for this specific DDL form (defaults come from
+   *  the vetted (kind, verb) table in locks.ts) */
+  lockClass?: LockClass;
+  /** three-valued transactionality (§3.8). Default: "transactional".
+   *  - nonTransactional: cannot run inside a transaction block at all
+   *    (CREATE INDEX CONCURRENTLY, DROP SUBSCRIPTION with a slot)
+   *  - commitBoundaryAfter: runs in a transaction but its effect is not
+   *    usable before commit (ALTER TYPE … ADD VALUE) — the executor forces
+   *    a segment boundary before any consumer of what it touched */
+  transactionality?:
+    | "transactional"
+    | "nonTransactional"
+    | "commitBoundaryAfter";
+  /** compaction (§3.6): this statement is a clause that may fold into the
+   *  CREATE of `foldInto` when no graph edge crosses the merge */
+  compaction?: { foldInto: StableId; clause: string };
+  /** this CREATE accepts column-clause folds (bare CREATE TABLE only) */
+  acceptsColumnFolds?: boolean;
 }
+
+/** Named serialize parameters the rule table consumes. Policies (stage 8)
+ *  set them; referencing an unknown name is a plan-time error, not a
+ *  silent no-op. */
+export const KNOWN_PARAMS: ReadonlySet<string> = new Set([
+  "concurrentIndexes",
+  // CREATE SCHEMA without AUTHORIZATION (platform roles a non-superuser
+  // applier cannot impersonate)
+  "skipAuthorization",
+  // CREATE EXTENSION without SCHEMA (self-installing extensions that
+  // refuse an explicit schema)
+  "skipSchema",
+]);
+export type PlanParams = Record<string, unknown>;
 
 export type AttributeRule =
   | {
@@ -42,6 +75,7 @@ export type AttributeRule =
         from: PayloadValue,
         to: PayloadValue,
         view: FactView,
+        sourceView: FactView,
       ) => ActionSpec | ActionSpec[];
       /** when true for a given transition, surviving dependents are force-
        *  rebuilt (drop + recreate) around this alter — the enum value-set
@@ -59,11 +93,24 @@ export interface FactView {
 }
 
 export interface KindRules {
-  create(fact: Fact, view: FactView): ActionSpec[];
+  create(fact: Fact, view: FactView, params?: PlanParams): ActionSpec[];
   drop(fact: Fact): ActionSpec;
+  /** rename support (stage 9): render the in-place rename from the old
+   *  fact to the new id. Kinds without this member never become rename
+   *  candidates (their changes stay drop+create). */
+  rename?: (fact: Fact, to: StableId) => ActionSpec;
   attributes: Record<string, AttributeRule>;
   /** kind weight for deterministic tie-breaking (pg_dump-inspired) */
   weight: number;
+}
+
+/** Most renames are `<ALTER prefix> RENAME TO <new name>`. */
+function renameRule(
+  alterPrefix: (fact: Fact) => string,
+): (fact: Fact, to: StableId) => ActionSpec {
+  return (fact, to) => ({
+    sql: `${alterPrefix(fact)} RENAME TO ${qid((to as { name: string }).name)}`,
+  });
 }
 
 const str = (v: PayloadValue): string => {
@@ -429,6 +476,9 @@ function publicationSetObjects(fact: Fact): ActionSpec {
 export const RULES: Record<string, KindRules> = {
   role: {
     weight: 0,
+    rename: renameRule(
+      (fact) => `ALTER ROLE ${qid((fact.id as { name: string }).name)}`,
+    ),
     create: (fact) => [
       {
         sql: `CREATE ROLE ${qid((fact.id as { name: string }).name)} WITH ${roleFlagSql(fact.payload)}`,
@@ -481,11 +531,16 @@ export const RULES: Record<string, KindRules> = {
 
   schema: {
     weight: 1,
-    create: (fact) => [
-      {
-        sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)} AUTHORIZATION ${qid(str(p(fact, "owner")))}`,
-        consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-      },
+    rename: renameRule(
+      (fact) => `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,
+    ),
+    create: (fact, _view, params) => [
+      params?.["skipAuthorization"] === true
+        ? { sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)}` }
+        : {
+            sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)} AUTHORIZATION ${qid(str(p(fact, "owner")))}`,
+            consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
+          },
     ],
     drop: (fact) => ({
       sql: `DROP SCHEMA ${qid((fact.id as { name: string }).name)}`,
@@ -499,11 +554,13 @@ export const RULES: Record<string, KindRules> = {
 
   extension: {
     weight: 2,
-    create: (fact) => [
-      {
-        sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)} SCHEMA ${qid(str(p(fact, "schema")))}`,
-        consumes: [{ kind: "schema", name: str(p(fact, "schema")) }],
-      },
+    create: (fact, _view, params) => [
+      params?.["skipSchema"] === true
+        ? { sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)}` }
+        : {
+            sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)} SCHEMA ${qid(str(p(fact, "schema")))}`,
+            consumes: [{ kind: "schema", name: str(p(fact, "schema")) }],
+          },
     ],
     drop: (fact) => ({
       sql: `DROP EXTENSION ${qid((fact.id as { name: string }).name)}`,
@@ -520,6 +577,10 @@ export const RULES: Record<string, KindRules> = {
 
   sequence: {
     weight: 3,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return [
@@ -607,6 +668,10 @@ export const RULES: Record<string, KindRules> = {
 
   table: {
     weight: 4,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER TABLE ${rel(id.schema, id.name)}`;
+    }),
     create: (fact, view) => {
       const id = fact.id as { schema: string; name: string };
       const relName = rel(id.schema, id.name);
@@ -656,7 +721,17 @@ export const RULES: Record<string, KindRules> = {
         if (partKey != null) createSql += ` PARTITION BY ${str(partKey)}`;
       }
 
-      const specs: ActionSpec[] = [{ sql: createSql, consumes, alsoProduces }];
+      // only the bare shape (no partition machinery, no INHERITS suffix)
+      // can absorb folded column clauses without SQL surgery ambiguity
+      const foldable = bound == null && partKey == null && parentT == null;
+      const specs: ActionSpec[] = [
+        {
+          sql: createSql,
+          consumes,
+          alsoProduces,
+          ...(foldable ? { acceptsColumnFolds: true } : {}),
+        },
+      ];
       if (p(fact, "rowSecurity")) {
         specs.push({ sql: `ALTER TABLE ${relName} ENABLE ROW LEVEL SECURITY` });
       }
@@ -724,6 +799,12 @@ export const RULES: Record<string, KindRules> = {
 
   column: {
     weight: 5,
+    rename: (fact, to) => {
+      const { schema, table, column } = columnRef(fact);
+      return {
+        sql: `ALTER TABLE ${rel(schema, table)} RENAME COLUMN ${qid(column)} TO ${qid((to as { name: string }).name)}`,
+      };
+    },
     create: (fact, view) => {
       const { schema, table, column } = columnRef(fact);
       // delta-set inlining (§3.4): a column arriving WITH a default must
@@ -732,13 +813,20 @@ export const RULES: Record<string, KindRules> = {
       const defaultChild = view
         .childrenOf(fact.id)
         .find((c) => c.id.kind === "default" && c.id.name === column);
-      let sql = `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${columnClause(fact)}`;
+      let clause = columnClause(fact);
       const alsoProduces: StableId[] = [];
       if (defaultChild) {
-        sql += ` DEFAULT ${str(defaultChild.payload["expr"])}`;
+        clause += ` DEFAULT ${str(defaultChild.payload["expr"])}`;
         alsoProduces.push(defaultChild.id);
       }
-      return [{ sql, alsoProduces }];
+      const spec: ActionSpec = {
+        sql: `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${clause}`,
+        alsoProduces,
+      };
+      if (fact.parent !== undefined && fact.parent.kind === "table") {
+        spec.compaction = { foldInto: fact.parent, clause };
+      }
+      return [spec];
     },
     drop: (fact) => {
       const { schema, table, column } = columnRef(fact);
@@ -861,6 +949,9 @@ export const RULES: Record<string, KindRules> = {
 
   procedure: {
     weight: 8,
+    rename: (fact, to) => ({
+      sql: `ALTER ROUTINE ${routineSig(fact.id as { schema: string; name: string; args: string[] })} RENAME TO ${qid((to as { name: string }).name)}`,
+    }),
     create: (fact) => [
       {
         sql: str(p(fact, "def")),
@@ -898,6 +989,12 @@ export const RULES: Record<string, KindRules> = {
 
   constraint: {
     weight: 10,
+    rename: (fact, to) => {
+      const id = fact.id as { name: string };
+      return {
+        sql: `${constraintTarget(fact)} RENAME CONSTRAINT ${qid(id.name)} TO ${qid((to as { name: string }).name)}`,
+      };
+    },
     create: (fact) => {
       const id = fact.id as { schema: string; table: string; name: string };
       const target = constraintTarget(fact);
@@ -905,7 +1002,16 @@ export const RULES: Record<string, KindRules> = {
       if (!p(fact, "validated") && !str(p(fact, "def")).includes("NOT VALID")) {
         sql += " NOT VALID";
       }
-      return [{ sql }];
+      // ADD FOREIGN KEY takes SHARE ROW EXCLUSIVE (both tables), weaker
+      // than the ACCESS EXCLUSIVE default for other constraint forms
+      return [
+        {
+          sql,
+          ...(p(fact, "type") === "f"
+            ? { lockClass: "shareRowExclusive" as const }
+            : {}),
+        },
+      ];
     },
     drop: (fact) => {
       const id = fact.id as { schema: string; table: string; name: string };
@@ -923,6 +1029,7 @@ export const RULES: Record<string, KindRules> = {
             throw new Error("constraint cannot be de-validated in place");
           return {
             sql: `${constraintTarget(fact)} VALIDATE CONSTRAINT ${qid(id.name)}`,
+            lockClass: "shareUpdateExclusive",
           };
         },
       },
@@ -931,6 +1038,10 @@ export const RULES: Record<string, KindRules> = {
 
   view: {
     weight: 12,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER VIEW ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       const specs: ActionSpec[] = [
@@ -960,6 +1071,10 @@ export const RULES: Record<string, KindRules> = {
 
   materializedView: {
     weight: 13,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER MATERIALIZED VIEW ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return [
@@ -991,7 +1106,28 @@ export const RULES: Record<string, KindRules> = {
 
   index: {
     weight: 14,
-    create: (fact) => [{ sql: str(p(fact, "def")) }],
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER INDEX ${rel(id.schema, id.name)}`;
+    }),
+    create: (fact, _view, params) => {
+      const def = str(p(fact, "def"));
+      if (params?.["concurrentIndexes"] === true) {
+        // pg_get_indexdef never includes CONCURRENTLY (an execution choice,
+        // not state); splice it into the canonical def
+        return [
+          {
+            sql: def.replace(
+              /^CREATE (UNIQUE )?INDEX /,
+              "CREATE $1INDEX CONCURRENTLY ",
+            ),
+            lockClass: "shareUpdateExclusive",
+            transactionality: "nonTransactional",
+          },
+        ];
+      }
+      return [{ sql: def }];
+    },
     drop: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP INDEX ${rel(id.schema, id.name)}` };
@@ -1001,6 +1137,12 @@ export const RULES: Record<string, KindRules> = {
 
   trigger: {
     weight: 15,
+    rename: (fact, to) => {
+      const id = fact.id as { schema: string; table: string; name: string };
+      return {
+        sql: `ALTER TRIGGER ${qid(id.name)} ON ${rel(id.schema, id.table)} RENAME TO ${qid((to as { name: string }).name)}`,
+      };
+    },
     create: (fact) => {
       const id = fact.id as { schema: string; table: string; name: string };
       const specs: ActionSpec[] = [{ sql: str(p(fact, "def")) }];
@@ -1033,6 +1175,12 @@ export const RULES: Record<string, KindRules> = {
 
   policy: {
     weight: 16,
+    rename: (fact, to) => {
+      const id = fact.id as { schema: string; table: string; name: string };
+      return {
+        sql: `ALTER POLICY ${qid(id.name)} ON ${rel(id.schema, id.table)} RENAME TO ${qid((to as { name: string }).name)}`,
+      };
+    },
     create: (fact) => {
       const roles = (p(fact, "roles") as string[])
         .filter((r) => r !== "PUBLIC")
@@ -1106,6 +1254,10 @@ export const RULES: Record<string, KindRules> = {
 
   domain: {
     weight: 7,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       let sql = `CREATE DOMAIN ${rel(id.schema, id.name)} AS ${str(p(fact, "baseType"))}`;
@@ -1157,6 +1309,10 @@ export const RULES: Record<string, KindRules> = {
 
   type: {
     weight: 7,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER TYPE ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       const relName = rel(id.schema, id.name);
@@ -1203,7 +1359,7 @@ export const RULES: Record<string, KindRules> = {
         return `ALTER TYPE ${rel(id.schema, id.name)}`;
       }),
       values: {
-        alter: (fact, from, to, view) => {
+        alter: (fact, from, to, view, sourceView) => {
           const id = fact.id as { schema: string; name: string };
           const relName = rel(id.schema, id.name);
           const oldValues = (from as string[] | null) ?? [];
@@ -1228,6 +1384,9 @@ export const RULES: Record<string, KindRules> = {
                       : "";
               specs.push({
                 sql: `ALTER TYPE ${relName} ADD VALUE ${lit(value)}${anchor ? ` ${anchor}` : ""}`,
+                // the new value is unusable before COMMIT: the executor
+                // must place a segment boundary before any consumer (§3.8)
+                transactionality: "commitBoundaryAfter",
               });
             }
             return specs;
@@ -1249,7 +1408,11 @@ export const RULES: Record<string, KindRules> = {
               (e) =>
                 e.from.kind === "column" &&
                 encodeId(e.to) === enumKey &&
-                view.get(e.from) !== undefined,
+                view.get(e.from) !== undefined &&
+                // a column that exists only in the DESIRED state is being
+                // created by this same plan (already with the new type) —
+                // there is nothing to migrate
+                sourceView.get(e.from) !== undefined,
             )
             .map(
               (e) =>
@@ -1634,6 +1797,10 @@ export const RULES: Record<string, KindRules> = {
 
   foreignTable: {
     weight: 5,
+    rename: renameRule((fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER FOREIGN TABLE ${rel(id.schema, id.name)}`;
+    }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return [
@@ -1750,6 +1917,11 @@ export const RULES: Record<string, KindRules> = {
     },
     drop: (fact) => ({
       sql: `DROP SUBSCRIPTION ${qid((fact.id as { name: string }).name)}`,
+      // with an associated replication slot the drop cannot run inside a
+      // transaction block; slotless subscriptions drop transactionally
+      ...(p(fact, "slotName") == null
+        ? {}
+        : { transactionality: "nonTransactional" as const }),
     }),
     attributes: {
       owner: ownerRule(

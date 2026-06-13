@@ -50,7 +50,9 @@ async function proveOn(
       const cloneState = await extract(clone.pool);
       if (cloneState.factBase.rootHash !== sourceState.factBase.rootHash) {
         const presync = plan(cloneState.factBase, sourceState.factBase);
-        const presyncReport = await apply(presync, clone.pool);
+        const presyncReport = await apply(presync, clone.pool, {
+          fingerprintGate: false,
+        });
         if (presyncReport.status !== "applied") {
           throw new Error(
             `[${name}] clone presync failed: ${presyncReport.error?.message}`,

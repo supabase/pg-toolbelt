@@ -45,7 +45,9 @@ export async function provePlan(
   desired: FactBase,
 ): Promise<ProofVerdict> {
   const before = await tableRowCounts(clonePool);
-  const report = await apply(thePlan, clonePool);
+  // the proof re-extracts after applying anyway; the fingerprint gate's
+  // extra extraction is redundant here (it has its own execution tests)
+  const report = await apply(thePlan, clonePool, { fingerprintGate: false });
   if (report.status !== "applied") {
     return {
       ok: false,

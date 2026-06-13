@@ -12,9 +12,9 @@ on:
 
 jobs:
   test:
-    name: Test (PG ${{ matrix.postgres_version }})
+    name: Unit + integration (PG ${{ matrix.postgres_version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +31,44 @@ jobs:
       - name: Unit tests
         working-directory: packages/pg-delta-next
         run: bun test src/
-      - name: Integration tests (extractor ring, corpus proof loop, shadow loader)
+      - name: Integration tests (everything except the corpus proof loop)
         working-directory: packages/pg-delta-next
         env:
           PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
-        run: bun test tests/
+        run: bun test $(ls tests/*.test.ts | grep -v engine.test.ts)
+
+  corpus:
+    name: Corpus proof loop (PG ${{ matrix.postgres_version }}, shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ["15", "17", "18"]
+        shard: ["0/4", "1/4", "2/4", "3/4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Corpus proof loop (both directions)
+        working-directory: packages/pg-delta-next
+        env:
+          PGDELTA_TEST_IMAGE: postgres:${{ matrix.postgres_version }}-alpine
+          PGDELTA_NEXT_SHARD: ${{ matrix.shard }}
+        run: bun test tests/engine.test.ts
+
+  benchmark:
+    name: Benchmark (informational, PG 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: extract/diff/plan wall-times on the 10k-object fixture
+        working-directory: packages/pg-delta-next
+        run: bun scripts/benchmark.ts

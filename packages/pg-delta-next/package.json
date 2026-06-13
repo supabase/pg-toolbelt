@@ -3,9 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "description": "Clean-room rebuild of pg-delta per docs/target-architecture.md (working name; final naming is a stage-10 decision)",
+  "bin": {
+    "pg-delta-next": "./src/cli/main.ts"
+  },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./extract": "./src/extract/extract.ts",
+    "./plan": "./src/plan/plan.ts",
+    "./apply": "./src/apply/apply.ts",
+    "./proof": "./src/proof/prove.ts",
+    "./frontends": "./src/frontends/index.ts",
+    "./core": "./src/core/index.ts",
+    "./policy": "./src/policy/policy.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

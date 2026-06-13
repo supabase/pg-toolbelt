@@ -13,5 +13,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "corpus"]
+  "include": ["src", "tests", "corpus", "scripts"]
 }

@@ -1,0 +1,124 @@
+#!/usr/bin/env bun
+/**
+ * pg-delta-next CLI v2 — thin consumer of the public API.
+ * Zero new dependencies; manual argv parsing; exits 1 on failure, 2 on
+ * usage errors.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │  Old → New command mapping (old commands from pg-delta/src/cli/)    │
+ * ├──────────────────────────┬──────────────────────────────────────────┤
+ * │  plan                    │  plan                                    │
+ * │  apply                   │  apply                                   │
+ * │  sync                    │  plan + apply  (or: schema apply)        │
+ * │  catalog-export          │  snapshot                                │
+ * │  declarative-apply       │  schema apply                            │
+ * │  declarative-export      │  schema export                           │
+ * └──────────────────────────┴──────────────────────────────────────────┘
+ *
+ * Commands:
+ *   plan           --source <pg-url> --desired <pg-url>
+ *                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+ *   apply          --plan <plan.json> --target <pg-url> [--force]
+ *   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
+ *   diff           --source <pg-url> --desired <pg-url>
+ *   drift          --env <pg-url> --snapshot <file>
+ *   snapshot       --source <pg-url> --out <file>
+ *   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+ *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+ *                  [--renames auto|prompt|off] [--force]
+ */
+
+import { cmdPlan } from "./commands/plan.ts";
+import { cmdApply } from "./commands/apply.ts";
+import { cmdProve } from "./commands/prove.ts";
+import { cmdDiff } from "./commands/diff.ts";
+import { cmdDrift } from "./commands/drift.ts";
+import { cmdSnapshot } from "./commands/snapshot.ts";
+import { cmdSchemaExport, cmdSchemaApply } from "./commands/schema.ts";
+
+const USAGE = `
+pg-delta-next <command> [options]
+
+Commands:
+  plan           --source <pg-url> --desired <pg-url>
+                 [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+  apply          --plan <plan.json> --target <pg-url> [--force]
+  prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
+  diff           --source <pg-url> --desired <pg-url>
+  drift          --env <pg-url> --snapshot <file>
+  snapshot       --source <pg-url> --out <file>
+  schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
+  schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
+                 [--renames auto|prompt|off] [--force]
+
+Old → New mapping:
+  plan              -> plan
+  apply             -> apply
+  sync              -> plan + apply  (or: schema apply)
+  catalog-export    -> snapshot
+  declarative-apply -> schema apply
+  declarative-export-> schema export
+`.trimStart();
+
+async function main(): Promise<void> {
+  // Bun populates process.argv as: ["bun", "main.ts", ...userArgs]
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const rest = args.slice(1);
+
+  try {
+    switch (command) {
+      case "plan":
+        await cmdPlan(rest);
+        break;
+      case "apply":
+        await cmdApply(rest);
+        break;
+      case "prove":
+        await cmdProve(rest);
+        break;
+      case "diff":
+        await cmdDiff(rest);
+        break;
+      case "drift":
+        await cmdDrift(rest);
+        break;
+      case "snapshot":
+        await cmdSnapshot(rest);
+        break;
+      case "schema": {
+        const sub = rest[0];
+        const subArgs = rest.slice(1);
+        if (sub === "export") {
+          await cmdSchemaExport(subArgs);
+        } else if (sub === "apply") {
+          await cmdSchemaApply(subArgs);
+        } else {
+          process.stderr.write(
+            `Unknown schema subcommand: ${sub ?? "(none)"}\n` +
+              "Available: export, apply\n",
+          );
+          process.exit(2);
+        }
+        break;
+      }
+      case "--help":
+      case "-h":
+      case "help":
+        process.stdout.write(USAGE);
+        break;
+      default:
+        process.stderr.write(
+          `Unknown command: ${command ?? "(none)"}\n\n${USAGE}`,
+        );
+        process.exit(2);
+    }
+  } catch (error) {
+    process.stderr.write(
+      `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
+}
+
+void main();
