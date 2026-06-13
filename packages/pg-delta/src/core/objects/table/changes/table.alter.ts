@@ -370,13 +370,27 @@ export class AlterTableAddConstraint extends AlterTableChange {
   }
 
   get creates() {
-    return [
+    const creates: string[] = [
       stableId.constraint(
         this.table.schema,
         this.table.name,
         this.constraint.name,
       ),
     ];
+    if (
+      this.constraint.constraint_type === "p" ||
+      this.constraint.constraint_type === "u" ||
+      this.constraint.constraint_type === "x"
+    ) {
+      creates.push(
+        stableId.index(
+          this.table.schema,
+          this.table.name,
+          this.constraint.name,
+        ),
+      );
+    }
+    return creates;
   }
 
   get requires() {

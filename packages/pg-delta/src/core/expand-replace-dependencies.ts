@@ -46,6 +46,8 @@ import {
   AlterPublicationAddTables,
   AlterPublicationDropTables,
 } from "./objects/publication/changes/publication.alter.ts";
+import { CreatePublication } from "./objects/publication/changes/publication.create.ts";
+import { DropPublication } from "./objects/publication/changes/publication.drop.ts";
 import type { PublicationTableProps } from "./objects/publication/publication.model.ts";
 import { CreateCommentOnRlsPolicy } from "./objects/rls-policy/changes/rls-policy.comment.ts";
 import { CreateRlsPolicy } from "./objects/rls-policy/changes/rls-policy.create.ts";
@@ -54,9 +56,7 @@ import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
 import { CreateRule } from "./objects/rule/changes/rule.create.ts";
 import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { SetRuleEnabledState } from "./objects/rule/changes/rule.alter.ts";
-import { AlterSequenceSetOwnedBy } from "./objects/sequence/changes/sequence.alter.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
-import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -1682,6 +1682,20 @@ function publicationTableChangeCovered({
   const tableStableId = stableId.table(table.schema, table.name);
 
   return changes.some((change) => {
+    if (
+      changeType === "add" &&
+      change instanceof CreatePublication &&
+      change.publication.stableId === publicationId
+    ) {
+      return change.requires.includes(tableStableId);
+    }
+    if (
+      changeType === "drop" &&
+      change instanceof DropPublication &&
+      change.publication.stableId === publicationId
+    ) {
+      return true;
+    }
     if (!(change instanceof changeClass)) return false;
     if (change.publication.stableId !== publicationId) return false;
 
@@ -2443,7 +2457,15 @@ function buildRetainedIndexReplacementChanges({
       addCreate,
       diffContext,
     });
-    if (!replacementChanges) continue;
+    if (!replacementChanges) {
+      const retainedConstraintBackedIndexChanges =
+        buildRetainedConstraintBackedIndexMetadataChanges(resolved);
+      if (retainedConstraintBackedIndexChanges.length > 0) {
+        changes.push(...retainedConstraintBackedIndexChanges);
+        visitedTargets.add(indexId);
+      }
+      continue;
+    }
 
     changes.push(...replacementChanges);
     visitedTargets.add(indexId);
@@ -2536,44 +2558,14 @@ function buildRetainedOwnedSequenceReplacementChanges({
     const ownedByColumn = branchSequence.owned_by_column;
     if (ownedByColumn === null) continue;
 
-    const unownedSequence = new Sequence({
-      schema: branchSequence.schema,
-      name: branchSequence.name,
-      data_type: branchSequence.data_type,
-      start_value: branchSequence.start_value,
-      minimum_value: branchSequence.minimum_value,
-      maximum_value: branchSequence.maximum_value,
-      increment: branchSequence.increment,
-      cycle_option: branchSequence.cycle_option,
-      cache_size: branchSequence.cache_size,
-      persistence: branchSequence.persistence,
-      owned_by_schema: null,
-      owned_by_table: null,
-      owned_by_column: null,
-      comment: branchSequence.comment,
-      privileges: branchSequence.privileges,
-      owner: branchSequence.owner,
-      security_labels: branchSequence.security_labels,
-    });
     changes.push(
       ...(diffSequences(
         diffContext,
         {},
-        { [unownedSequence.stableId]: unownedSequence },
+        { [branchSequence.stableId]: branchSequence },
         branchCatalog.tables,
         mainCatalog.tables,
       ) as Change[]),
-    );
-
-    changes.push(
-      new AlterSequenceSetOwnedBy({
-        sequence: branchSequence,
-        ownedBy: {
-          schema: table.schema,
-          table: table.name,
-          column: ownedByColumn,
-        },
-      }),
     );
 
     const ownedColumn = table.columns.find(
@@ -2690,6 +2682,15 @@ function buildRetainedClusterChange(
         }),
       ]
     : [];
+}
+
+function buildRetainedConstraintBackedIndexMetadataChanges(
+  resolved: Extract<ResolvedObject, { kind: "index" }>,
+): Change[] {
+  if (!(resolved.branch.is_owned_by_constraint || resolved.branch.is_primary)) {
+    return [];
+  }
+  return buildRetainedClusterChange(resolved);
 }
 
 function buildReplaceChanges(
