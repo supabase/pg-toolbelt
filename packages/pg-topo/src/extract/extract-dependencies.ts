@@ -1141,7 +1141,6 @@ const builtInHashOperatorFamilyNames = new Set([
   "array_ops",
   "bool_ops",
   "bpchar_ops",
-  "bpchar_pattern_ops",
   "bytea_ops",
   "char_ops",
   "cid_ops",
@@ -1163,7 +1162,6 @@ const builtInHashOperatorFamilyNames = new Set([
   "range_ops",
   "record_ops",
   "text_ops",
-  "text_pattern_ops",
   "tid_ops",
   "time_ops",
   "timestamp_ops",
@@ -1653,6 +1651,10 @@ const builtInOperatorClassSupportOperatorMatchesSlot = (
     return name === "=" && strategyNumber === 1;
   }
 
+  if (normalizedAccessMethod === "brin") {
+    return builtInBtreeOperatorStrategies.get(name) === strategyNumber;
+  }
+
   return false;
 };
 
@@ -1863,6 +1865,29 @@ const baseTypeFunctionOptionNames = new Set([
   "analyze",
   "subscript",
 ]);
+
+const builtInBaseTypeCallbackNamesByOption = new Map([
+  ["analyze", new Set(["array_typanalyze"])],
+  ["subscript", new Set(["array_subscript_handler"])],
+]);
+
+const isBuiltInBaseTypeCallbackName = (
+  optionName: string,
+  nameParts: string[],
+): boolean => {
+  const name = nameParts.at(-1)?.toLowerCase();
+  if (
+    !name ||
+    (nameParts.length !== 1 &&
+      !(nameParts.length === 2 && nameParts[0]?.toLowerCase() === "pg_catalog"))
+  ) {
+    return false;
+  }
+
+  return (
+    builtInBaseTypeCallbackNamesByOption.get(optionName)?.has(name) === true
+  );
+};
 
 const baseTypeTypeOptionNames = new Set(["like", "element"]);
 
@@ -2122,7 +2147,11 @@ export const domainBaseTypeRef = (
 
   while (currentRef) {
     const key = objectRefKey(
-      createObjectRefFromAst("type", currentRef.name, currentRef.schema),
+      createObjectRefFromAst(
+        "type",
+        currentRef.name,
+        currentRef.schema ?? DEFAULT_SCHEMA,
+      ),
     );
     if (seenKeys.has(key)) {
       return null;
@@ -3345,10 +3374,8 @@ const extractCreateBaseTypeDependencies = (
     }
 
     const functionTypeName = asRecord(asRecord(defElem.arg)?.TypeName);
-    const functionRef = objectFromNameParts(
-      "function",
-      extractNameParts(functionTypeName?.names),
-    );
+    const functionNameParts = extractNameParts(functionTypeName?.names);
+    const functionRef = objectFromNameParts("function", functionNameParts);
     if (functionRef) {
       const alternatives = baseTypeFunctionArgAlternatives(optionName, typeRef);
       for (const args of alternatives) {
@@ -3362,6 +3389,13 @@ const extractCreateBaseTypeDependencies = (
             ),
           ),
         );
+        if (isBuiltInBaseTypeCallbackName(optionName, functionNameParts)) {
+          if (functionNameParts.length === 1) {
+            requires.push(markOmitIfNoLocalProducerRef(callbackRef));
+          }
+          continue;
+        }
+
         requires.push(
           alternatives.length > 1
             ? markAlternativeRef(
