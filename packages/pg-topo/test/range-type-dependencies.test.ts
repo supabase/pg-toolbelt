@@ -4215,6 +4215,187 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(typeIndex);
   });
 
+  test("accepts explicit pg_catalog enum_ops for external enum range subtypes", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.mood_range as range (subtype = app.mood, subtype_opclass = pg_catalog.enum_ops);",
+      ],
+      {
+        externalProviders: [
+          { kind: "type", schema: "app", name: "mood", signature: "(enum)" },
+        ],
+      },
+    );
+    const enumOpsUnresolved = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_class" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "enum_ops" &&
+            ref.signature === "(btree,app.mood)",
+        ) === true,
+    );
+
+    expect(enumOpsUnresolved).toHaveLength(0);
+  });
+
+  test("normalizes public enum subtype keys for omitted range opclasses", async () => {
+    const result = await analyzeAndSort([
+      "create type mood_range as range (subtype = mood);",
+      "create type mood as enum ('sad', 'ok');",
+    ]);
+    const missingDefault = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message.includes(
+          "No default btree operator class provider found for range subtype 'mood'",
+        ),
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const enumIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type mood as enum"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type mood_range as range"),
+    );
+
+    expect(missingDefault).toHaveLength(0);
+    expect(enumIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(enumIndex);
+  });
+
+  test("diagnoses invalid pg_catalog range collations", async () => {
+    const result = await analyzeAndSort([
+      "create type app.bad_text_range as range (subtype = text, collation = pg_catalog.nope);",
+      "create schema app;",
+    ]);
+    const invalidCollation = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "collation" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "nope",
+        ) === true,
+    );
+
+    expect(invalidCollation).toHaveLength(1);
+  });
+
+  test("does not require producers for built-in arithmetic operator callbacks", async () => {
+    const result = await analyzeAndSort([
+      "create operator app.+ (function = int4pl, leftarg = int4, rightarg = int4);",
+      "create schema app;",
+    ]);
+    const int4plUnresolved = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.name === "int4pl" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+    const operatorStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create operator app.+"),
+    );
+
+    expect(int4plUnresolved).toHaveLength(0);
+    expect(operatorStatement?.requires).not.toContainEqual(
+      expect.objectContaining({
+        kind: "function",
+        name: "int4pl",
+      }),
+    );
+  });
+
+  test("requires operator implementation callbacks to be functions", async () => {
+    const procedureResult = await analyzeAndSort([
+      "create operator app.=== (function = app.eq, leftarg = int4, rightarg = int4);",
+      "create procedure app.eq(a int4, b int4) language sql as $$ select 1 $$;",
+      "create schema app;",
+    ]);
+    const aggregateResult = await analyzeAndSort([
+      "create operator app.### (function = app.eq, leftarg = int4, rightarg = int4);",
+      "create aggregate app.eq(int4, int4) (sfunc = int4pl, stype = int4);",
+      "create schema app;",
+    ]);
+    const procedureImplementation = procedureResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "app" &&
+            ref.name === "eq" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+    const aggregateImplementation = aggregateResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "app" &&
+            ref.name === "eq" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+
+    expect(procedureImplementation).toHaveLength(1);
+    expect(aggregateImplementation).toHaveLength(1);
+  });
+
+  test("tracks schemas used only by operator commutator and negator refs", async () => {
+    const result = await analyzeAndSort([
+      "create operator public.=== (function = int4eq, leftarg = int4, rightarg = int4, commutator = operator(app.===), negator = operator(app.<>));",
+    ]);
+    const operatorStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create operator public.==="),
+    );
+    const missingSchema = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) => ref.kind === "schema" && ref.name === "app",
+        ) === true,
+    );
+
+    expect(operatorStatement?.requires).toContainEqual({
+      kind: "schema",
+      name: "app",
+    });
+    expect(missingSchema).toHaveLength(1);
+  });
+
+  test("diagnoses invalid pg_catalog order families", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4_brin_ops for type int4 using brin as operator 1 < (int4, int4) for order by pg_catalog.nope, function 1 brin_minmax_opcinfo(internal);",
+      "create schema app;",
+    ]);
+    const invalidOrderFamily = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator_family" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "nope" &&
+            ref.signature === "(btree)",
+        ) === true,
+    );
+
+    expect(invalidOrderFamily).toHaveLength(1);
+  });
+
   test("reports duplicate operator class names per schema and access method", async () => {
     const result = await analyzeAndSort([
       "create operator class app.shared_ops for type int4 using btree as operator 1 < (int4, int4), function 1 btint4cmp(int4, int4);",
