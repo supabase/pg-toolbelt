@@ -246,6 +246,13 @@ function generateIdentityTransitionConstraints(
 }
 
 function parseTableStableIdFromStableId(id: string): string | null {
+  if (id.startsWith("comment:")) {
+    return parseTableStableIdFromStableId(id.slice("comment:".length));
+  }
+  if (id.startsWith("securityLabel:")) {
+    const objectId = id.slice("securityLabel:".length).split("::provider:")[0];
+    return parseTableStableIdFromStableId(objectId);
+  }
   if (id.startsWith("table:")) {
     return id;
   }
@@ -258,7 +265,10 @@ function parseTableStableIdFromStableId(id: string): string | null {
   return (
     parseSubEntity("column:") ??
     parseSubEntity("constraint:") ??
-    parseSubEntity("index:")
+    parseSubEntity("index:") ??
+    parseSubEntity("trigger:") ??
+    parseSubEntity("rule:") ??
+    parseSubEntity("rlsPolicy:")
   );
 }
 

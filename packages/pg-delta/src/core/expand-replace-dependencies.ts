@@ -296,6 +296,8 @@ export function expandReplaceDependencies({
   const triggersReplacedByExpansion = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
+  const columnsRecreatedByOriginalDiff =
+    collectCoveredColumnRecreations(changes);
   const generatedColumnGrantRestoresAdded = new Set<string>();
   for (const columnId of generatedColumnsRecreatedByExpressionFallback) {
     maybeAddCoveredGeneratedColumnGrantRestores({
@@ -408,6 +410,8 @@ export function expandReplaceDependencies({
               existingChanges: [...changes, ...additions],
               diffContext,
             });
+          }
+          if (columnsRecreatedByOriginalDiff.has(dependentRaw)) {
             queueRefForTraversal(dependentRaw, visitedRefs, queue);
           }
           continue;
@@ -892,6 +896,36 @@ function collectCoveredGeneratedColumnRecreations(
       );
     }
     if (change instanceof AlterTableAddColumn && change.column.is_generated) {
+      restore.add(
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ),
+      );
+    }
+  }
+
+  return new Set([...release].filter((columnId) => restore.has(columnId)));
+}
+
+function collectCoveredColumnRecreations(
+  changes: readonly Change[],
+): Set<string> {
+  const release = new Set<string>();
+  const restore = new Set<string>();
+
+  for (const change of changes) {
+    if (change instanceof AlterTableDropColumn) {
+      release.add(
+        stableId.column(
+          change.table.schema,
+          change.table.name,
+          change.column.name,
+        ),
+      );
+    }
+    if (change instanceof AlterTableAddColumn) {
       restore.add(
         stableId.column(
           change.table.schema,

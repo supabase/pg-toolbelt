@@ -6,6 +6,7 @@ import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
   AlterTableAlterColumnAddIdentity,
+  AlterTableAlterColumnDropIdentity,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -30,6 +31,7 @@ function isSupersededByTableReplacement(
   if (
     change instanceof AlterTableAddColumn ||
     change instanceof AlterTableAlterColumnAddIdentity ||
+    change instanceof AlterTableAlterColumnDropIdentity ||
     change instanceof AlterTableDropColumn ||
     change instanceof AlterTableDropConstraint
   ) {
