@@ -795,6 +795,8 @@ export function diffTables(
         branchCol.is_generated &&
         (ctx.version < 170000 ||
           mainCol.is_generated !== branchCol.is_generated ||
+          mainCol.not_null ||
+          branchCol.not_null ||
           hasConstraintReferencingColumn(name, mainTable, branchTable));
 
       // TYPE or COLLATION change

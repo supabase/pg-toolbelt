@@ -7,6 +7,7 @@ import { CreateAggregate } from "./objects/aggregate/changes/aggregate.create.ts
 import { DropAggregate } from "./objects/aggregate/changes/aggregate.drop.ts";
 import { CreateDomain } from "./objects/domain/changes/domain.create.ts";
 import { DropDomain } from "./objects/domain/changes/domain.drop.ts";
+import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
@@ -1561,7 +1562,13 @@ function buildReplaceChanges(
         ...(addDrop ? [new DropView({ view: resolved.main })] : []),
         ...(addCreate
           ? buildCreateViewReplacementChanges(resolved.branch, diffContext)
-          : []),
+          : addDrop
+            ? buildViewMetadataReplacementChanges(
+                resolved.branch,
+                diffContext,
+                existingChanges,
+              )
+            : []),
       ];
     case "materialized_view":
       return [
@@ -1618,6 +1625,10 @@ function buildReplaceChanges(
               ...(resolved.branch.comment !== null
                 ? [new CreateCommentOnIndex({ index: resolved.branch })]
                 : []),
+              ...buildIndexStatisticsReplacementChanges(
+                resolved.branch,
+                existingChanges,
+              ),
             ]
           : []),
       ];
@@ -1990,4 +2001,68 @@ function buildCreateViewReplacementChanges(
   return diffContext
     ? buildCreateViewChanges(diffContext, view)
     : [new CreateView({ view })];
+}
+
+function buildViewMetadataReplacementChanges(
+  view: Catalog["views"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+  existingChanges: readonly Change[],
+): Change[] {
+  if (!diffContext) return [];
+
+  const changes: Change[] = [];
+  const candidateChanges = buildCreateViewChanges(diffContext, view).filter(
+    (change) => !(change instanceof CreateView),
+  );
+
+  for (const candidate of candidateChanges) {
+    if (
+      hasEquivalentReplacementMetadataChange(candidate, [
+        ...existingChanges,
+        ...changes,
+      ])
+    ) {
+      continue;
+    }
+    changes.push(candidate);
+  }
+
+  return changes;
+}
+
+function buildIndexStatisticsReplacementChanges(
+  index: Catalog["indexes"][string],
+  existingChanges: readonly Change[],
+): Change[] {
+  const columnTargets = index.statistics_target.flatMap(
+    (statistics, columnIndex) =>
+      statistics >= 0 ? [{ columnNumber: columnIndex + 1, statistics }] : [],
+  );
+  if (columnTargets.length === 0) return [];
+
+  const change = new AlterIndexSetStatistics({ index, columnTargets });
+  return hasEquivalentReplacementMetadataChange(change, existingChanges)
+    ? []
+    : [change];
+}
+
+function hasEquivalentReplacementMetadataChange(
+  candidate: Change,
+  existingChanges: readonly Change[],
+): boolean {
+  const createdIds = candidate.creates ?? [];
+  if (createdIds.length > 0) {
+    return createdIds.every((id) => hasChangeCreating(existingChanges, id));
+  }
+
+  return existingChanges.some(
+    (change) =>
+      change.constructor === candidate.constructor &&
+      change.serialize() === candidate.serialize(),
+  );
 }
