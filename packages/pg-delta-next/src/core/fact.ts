@@ -27,7 +27,7 @@ export interface Fact {
  *  regardless of source. Policy (§3.9) and frontends use it for routing. */
 export type FactSource = "liveDb" | "sqlFiles" | "snapshot";
 
-export type EdgeKind = "depends" | "owner" | "memberOfExtension";
+export type EdgeKind = "depends" | "owner" | "memberOfExtension" | "managedBy";
 
 export interface DependencyEdge {
   /** The dependent object (must be torn down before / built after `to`). */

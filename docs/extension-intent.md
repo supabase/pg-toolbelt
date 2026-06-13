@@ -324,18 +324,40 @@ of one fact base over a parallel relation.
 
 `capture` attaches a `managedBy(<ext>)` edge to every operationally-created
 object (partman children, pgmq `q_*`/`a_*` tables) — provenance as data (§3.1).
-The Supabase policy adds one rule:
+`excludeManaged(factBase)` (`src/policy/managed.ts`) then removes every
+`managedBy`-tagged fact **and its descendant subtree** (the child table's
+columns/constraints), pruning edges with a removed endpoint — a fact-base
+transform mirroring `subtractBaseline`.
 
-```ts
-{ match: { edgeTo: { /* managedBy: partman | pgmq */ } }, action: "exclude" }
-```
+**Exclusion is at the FACT level, not the delta level — and this matters for
+the proof.** A tempting alternative is a policy *filter rule* over deltas
+(`{ edgeTo: managedBy } → exclude`). It is wrong here: `provePlan` re-extracts
+the clone and diffs against `desired` with **no policy applied** (`prove.ts`),
+so a delta-only filter would make the proof **drift** — the clone keeps the
+children, `desired` lacks them. Removing the facts from the base on **both
+sides + the proof re-extract** keeps the invariant "the plan you prove == the
+plan you run == the data-preserving plan" (§6). (A second reason it cannot be a
+filter rule today: the policy DSL's `edgeTo` predicate matches the edge
+*target*, not the edge's `EdgeKind`, so `managedBy` is not expressible as a
+rule — confirming it belongs as a transform.)
 
-This drops `add`/`set`/`remove` deltas on managed objects, so they are never
-created, altered, or dropped by the schema plan. A **user-declared** `PARTITION
-OF` carries no `managedBy` edge, so its intended drop still fires — the #5491
-false-suppression regression cannot recur by construction. The signal is sourced
-exactly where CLI-1591 requires it — the extension's own catalog, in the
-integration layer, never `src/core`.
+A **user-declared** `PARTITION OF` carries no `managedBy` edge, so its intended
+drop still fires — the #5491 false-suppression regression cannot recur by
+construction (regression-tested in `src/policy/managed.test.ts`). The signal is
+sourced exactly where CLI-1591 requires it — the extension's own catalog, in
+the integration layer, never `src/core`.
+
+> **Implemented (Phase A).** `EdgeKind += "managedBy"` (`src/core/fact.ts`);
+> `excludeManaged` (`src/policy/managed.ts`); the `ExtensionHandler` interface +
+> `extractWithHandlers` (`src/policy/extensions/`); the **pg_partman** handler
+> reading `part_config` + a recursive `pg_inherits` walk
+> (`src/policy/extensions/pg-partman.ts`). Proven end-to-end against a real
+> pg_partman DB on the Supabase image
+> (`tests/extension-intent-partman.test.ts`): the raw diff drops the children;
+> the handler + `excludeManaged` stop it and preserve the parent. **Remaining
+> for production:** compose the handlers + `excludeManaged` into the CLI plan
+> path and the `provePlan` re-extract (so the live proof loop stays consistent),
+> then Phase B (intent replay).
 
 ### 4.4 One intent reader, three doors (the hybrid sourcing, made uniform)
 

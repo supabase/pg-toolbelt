@@ -14,6 +14,11 @@ import pg from "pg";
 
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
 
+/** Supabase image (ships pg_partman / pgmq / pg_cron) for extension-intent
+ *  integration tests (docs/extension-intent.md). */
+const SUPABASE_IMAGE =
+  process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.135";
+
 let dbCounter = 0;
 
 export interface TestDb {
@@ -173,4 +178,38 @@ export async function isolatedClusterPair(): Promise<[Cluster, Cluster]> {
 
 export async function createTestDb(prefix = "t"): Promise<TestDb> {
   return (await sharedCluster()).createDb(prefix);
+}
+
+/**
+ * Start a Supabase-image cluster (`supabase/postgres`, which ships pg_partman /
+ * pgmq / pg_cron). Used by extension-intent integration tests; the image is
+ * heavy, so this is a separate lazy singleton from the stock alpine cluster.
+ * Connects as `supabase_admin`; databases are the isolation unit, as usual.
+ */
+async function startSupabaseCluster(): Promise<Cluster> {
+  const container = await new GenericContainer(SUPABASE_IMAGE)
+    .withEnvironment({
+      POSTGRES_USER: "supabase_admin",
+      POSTGRES_PASSWORD: "postgres",
+      POSTGRES_DB: "postgres",
+    })
+    .withExposedPorts(5432)
+    .withWaitStrategy(Wait.forHealthCheck())
+    .withStartupTimeout(180_000)
+    .withTmpFs({ "/var/lib/postgresql/data": "rw,noexec,nosuid,size=512m" })
+    .start();
+  const uriFor = (db: string) =>
+    `postgres://supabase_admin:postgres@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
+  const adminPool = new pg.Pool({
+    connectionString: uriFor("postgres"),
+    max: 3,
+  });
+  adminPool.on("error", () => {});
+  return new Cluster(container, adminPool, uriFor);
+}
+
+let supabaseShared: Promise<Cluster> | null = null;
+export async function supabaseCluster(): Promise<Cluster> {
+  supabaseShared ??= startSupabaseCluster();
+  return supabaseShared;
 }
