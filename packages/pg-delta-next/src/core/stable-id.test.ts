@@ -159,6 +159,16 @@ describe("parseId round-trips", () => {
     },
     { kind: "membership", role: "r1", member: "r2" },
     { kind: "userMapping", server: "srv", role: "rl" },
+    { kind: "typeAttribute", schema: "s", type: "addr", name: "city" },
+    { kind: "typeAttribute", schema: "a.b", type: "weird type", name: "x,y" },
+    { kind: "publicationRel", publication: "pub", schema: "s", table: "t" },
+    {
+      kind: "publicationRel",
+      publication: "p.b",
+      schema: "weird s",
+      table: 't"q',
+    },
+    { kind: "publicationSchema", publication: "pub", schema: "analytics" },
     {
       kind: "defaultPrivilege",
       role: "owner",

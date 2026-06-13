@@ -303,6 +303,25 @@ function constraintTarget(fact: Fact): string {
   return `ALTER ${keyword} ${rel(id.schema, id.table)}`;
 }
 
+/** A composite type attribute's `name type [COLLATE …]` clause. */
+function typeAttributeClause(fact: Fact): string {
+  const name = (fact.id as { name: string }).name;
+  const collation = p(fact, "collation");
+  return `${qid(name)} ${str(p(fact, "type"))}${collation != null ? ` COLLATE ${str(collation)}` : ""}`;
+}
+
+/** Table columns that USE a given composite type (via the column→type
+ *  dependency edge). ALTER TYPE … ATTRIBUTE … CASCADE rewrites those
+ *  tables; referencing the columns lets the proof's rewrite attribution
+ *  map the type-scoped action to the tables it actually touches. */
+function compositeUserColumns(view: FactView, typeId: StableId): StableId[] {
+  const key = encodeId(typeId);
+  return view.edges
+    .filter((e) => e.from.kind === "column" && encodeId(e.to) === key)
+    .map((e) => e.from)
+    .filter((id) => view.get(id) !== undefined);
+}
+
 /** O/D/R/A enabled-state chars → ALTER … ENABLE/DISABLE phrases. */
 function enabledPhrase(state: string): string {
   switch (state) {
@@ -452,52 +471,43 @@ function defaultPrivilegeActions(fact: Fact, verb: "GRANT"): ActionSpec[] {
   return specs;
 }
 
-interface PublicationTableEntry {
-  schema: string;
-  name: string;
-  columns: string[] | null;
-  where: string | null;
+/** The `TABLE rel [(cols)] [WHERE (…)]` clause for a publicationRel fact. */
+function publicationRelClause(fact: Fact): string {
+  const id = fact.id as { schema: string; table: string };
+  let clause = `TABLE ${rel(id.schema, id.table)}`;
+  const cols = p(fact, "columns") as string[] | null;
+  if (cols != null && cols.length > 0) {
+    clause += ` (${cols.map((c) => qid(c)).join(", ")})`;
+  }
+  const where = p(fact, "where");
+  if (where != null) clause += ` WHERE (${str(where)})`;
+  return clause;
 }
 
-/** FOR/SET object list for publications, plus the table/schema ids consumed. */
-function publicationObjects(fact: Fact): {
-  clauses: string[];
-  consumes: StableId[];
-} {
-  const tables =
-    (p(fact, "tables") as unknown as PublicationTableEntry[]) ?? [];
-  const schemas = (p(fact, "schemas") as string[]) ?? [];
+/** Inlined FOR-clause object list for a fresh publication, gathered from its
+ *  publicationRel / publicationSchema children, with the ids consumed and
+ *  the child facts produced (delta-set inlining). */
+function publicationObjects(
+  fact: Fact,
+  view: FactView,
+): { clauses: string[]; consumes: StableId[]; produced: StableId[] } {
   const clauses: string[] = [];
   const consumes: StableId[] = [];
-  for (const t of tables) {
-    let clause = `TABLE ${rel(t.schema, t.name)}`;
-    if (t.columns != null && t.columns.length > 0) {
-      clause += ` (${t.columns.map((c) => qid(c)).join(", ")})`;
+  const produced: StableId[] = [];
+  for (const child of view.childrenOf(fact.id)) {
+    if (child.id.kind === "publicationRel") {
+      const cid = child.id as { schema: string; table: string };
+      clauses.push(publicationRelClause(child));
+      consumes.push({ kind: "table", schema: cid.schema, name: cid.table });
+      produced.push(child.id);
+    } else if (child.id.kind === "publicationSchema") {
+      const cid = child.id as { schema: string };
+      clauses.push(`TABLES IN SCHEMA ${qid(cid.schema)}`);
+      consumes.push({ kind: "schema", name: cid.schema });
+      produced.push(child.id);
     }
-    if (t.where != null) clause += ` WHERE (${t.where})`;
-    clauses.push(clause);
-    consumes.push({ kind: "table", schema: t.schema, name: t.name });
   }
-  for (const s of schemas) {
-    clauses.push(`TABLES IN SCHEMA ${qid(s)}`);
-    consumes.push({ kind: "schema", name: s });
-  }
-  return { clauses, consumes };
-}
-
-/** Re-point a publication at the desired object list (SET, or DROP the last). */
-function publicationSetObjects(fact: Fact): ActionSpec {
-  const name = qid((fact.id as { name: string }).name);
-  const objects = publicationObjects(fact);
-  if (objects.clauses.length === 0) {
-    throw new Error(
-      `publication ${name}: emptying the object list requires drop+create — not supported in place`,
-    );
-  }
-  return {
-    sql: `ALTER PUBLICATION ${name} SET ${objects.clauses.join(", ")}`,
-    consumes: objects.consumes,
-  };
+  return { clauses, consumes, produced };
 }
 
 export const RULES: Record<string, KindRules> = {
@@ -1431,25 +1441,24 @@ export const RULES: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TYPE ${rel(id.schema, id.name)}`;
     }),
-    create: (fact) => {
+    create: (fact, view) => {
       const id = fact.id as { schema: string; name: string };
       const relName = rel(id.schema, id.name);
       const variant = str(p(fact, "variant"));
       let sql: string;
+      const alsoProduces: StableId[] = [];
       if (variant === "enum") {
         const values = (p(fact, "values") as string[]).map((v) => lit(v));
         sql = `CREATE TYPE ${relName} AS ENUM (${values.join(", ")})`;
       } else if (variant === "composite") {
-        const attrs = (
-          p(fact, "attributes") as {
-            name: string;
-            type: string;
-            collation: string | null;
-          }[]
-        ).map(
-          (a) =>
-            `${qid(a.name)} ${a.type}${a.collation != null ? ` COLLATE ${a.collation}` : ""}`,
-        );
+        // attributes are sub-facts (granularity is one): inline them on the
+        // fresh CREATE (delta-set, like partitioned-table columns) and
+        // register them as produced so their standalone creates are skipped
+        const attrFacts = view
+          .childrenOf(fact.id)
+          .filter((c) => c.id.kind === "typeAttribute");
+        const attrs = attrFacts.map((a) => typeAttributeClause(a));
+        for (const a of attrFacts) alsoProduces.push(a.id);
         sql = `CREATE TYPE ${relName} AS (${attrs.join(", ")})`;
       } else {
         const parts = [`SUBTYPE = ${str(p(fact, "subtype"))}`];
@@ -1460,7 +1469,11 @@ export const RULES: Record<string, KindRules> = {
         sql = `CREATE TYPE ${relName} AS RANGE (${parts.join(", ")})`;
       }
       return [
-        { sql, consumes: [{ kind: "role", name: str(p(fact, "owner")) }] },
+        {
+          sql,
+          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
+          ...(alsoProduces.length > 0 ? { alsoProduces } : {}),
+        },
         {
           sql: `ALTER TYPE ${relName} OWNER TO ${qid(str(p(fact, "owner")))}`,
           consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
@@ -1582,11 +1595,65 @@ export const RULES: Record<string, KindRules> = {
             (to as string[] | null) ?? [],
           ),
       },
-      attributes: "replace",
       subtype: "replace",
       subtypeDiff: "replace",
       collation: "replace",
       variant: "replace",
+    },
+  },
+
+  // composite-type attributes as sub-entity facts (granularity is one).
+  // On a fresh type they inline into CREATE TYPE (delta-set, see the type
+  // rule). On an existing type: ADD / DROP / RENAME ATTRIBUTE … CASCADE all
+  // work even while the type is used in table columns and preserve the
+  // stored data (verified). ALTER ATTRIBUTE … TYPE is the lone exception —
+  // PostgreSQL forbids it while a column uses the type (CASCADE only reaches
+  // typed tables, not columns), so it is supported only for unused
+  // composites and fails loudly otherwise.
+  typeAttribute: {
+    weight: 7,
+    create: (fact) => {
+      const id = fact.id as { schema: string; type: string; name: string };
+      return [
+        {
+          sql: `ALTER TYPE ${rel(id.schema, id.type)} ADD ATTRIBUTE ${typeAttributeClause(fact)} CASCADE`,
+          consumes: [{ kind: "type", schema: id.schema, name: id.type }],
+        },
+      ];
+    },
+    drop: (fact) => {
+      const id = fact.id as { schema: string; type: string; name: string };
+      return {
+        sql: `ALTER TYPE ${rel(id.schema, id.type)} DROP ATTRIBUTE ${qid(id.name)} CASCADE`,
+      };
+    },
+    rename: (fact, to) => {
+      const id = fact.id as { schema: string; type: string; name: string };
+      return {
+        sql: `ALTER TYPE ${rel(id.schema, id.type)} RENAME ATTRIBUTE ${qid(id.name)} TO ${qid((to as { name: string }).name)} CASCADE`,
+      };
+    },
+    attributes: {
+      type: {
+        alter: (fact, _from, to, view) => {
+          const id = fact.id as { schema: string; type: string; name: string };
+          const typeId: StableId = {
+            kind: "type",
+            schema: id.schema,
+            name: id.type,
+          };
+          if (compositeUserColumns(view, typeId).length > 0) {
+            throw new Error(
+              `composite type ${rel(id.schema, id.type)}: cannot change attribute "${id.name}" type while the type is used by table columns — PostgreSQL forbids ALTER ATTRIBUTE … TYPE on an in-use composite. Drop the using columns, or recreate the type, first.`,
+            );
+          }
+          return {
+            sql: `ALTER TYPE ${rel(id.schema, id.type)} ALTER ATTRIBUTE ${qid(id.name)} TYPE ${str(to)} CASCADE`,
+          };
+        },
+      },
+      // a collation-only change has no in-place form; replace the attribute
+      collation: "replace",
     },
   },
 
@@ -1983,10 +2050,13 @@ export const RULES: Record<string, KindRules> = {
 
   publication: {
     weight: 18,
-    create: (fact) => {
+    cascadesToChildren: true,
+    create: (fact, view) => {
       const name = qid((fact.id as { name: string }).name);
-      const objects = publicationObjects(fact);
+      const objects = publicationObjects(fact, view);
       let sql = `CREATE PUBLICATION ${name}`;
+      // FOR ALL TABLES has no member facts; otherwise inline the member
+      // facts (delta-set) so their standalone ADD actions are skipped
       if (p(fact, "allTables")) sql += ` FOR ALL TABLES`;
       else if (objects.clauses.length > 0)
         sql += ` FOR ${objects.clauses.join(", ")}`;
@@ -2003,6 +2073,9 @@ export const RULES: Record<string, KindRules> = {
             ...objects.consumes,
             { kind: "role", name: str(p(fact, "owner")) },
           ],
+          ...(objects.produced.length > 0
+            ? { alsoProduces: objects.produced }
+            : {}),
         },
       ];
     },
@@ -2024,14 +2097,64 @@ export const RULES: Record<string, KindRules> = {
           sql: `ALTER PUBLICATION ${qid((fact.id as { name: string }).name)} SET (publish_via_partition_root = ${to ? "true" : "false"})`,
         }),
       },
-      tables: {
-        alter: (fact) => publicationSetObjects(fact),
-      },
-      schemas: {
-        alter: (fact) => publicationSetObjects(fact),
-      },
       allTables: "replace",
     },
+  },
+
+  // a published table is its own fact: ADD/DROP TABLE incrementally. A
+  // column-list or WHERE change has no in-place form, so those attributes
+  // replace (DROP TABLE + re-ADD with the new shape). On a fresh
+  // publication the member is inlined into CREATE PUBLICATION (see above).
+  publicationRel: {
+    weight: 18,
+    create: (fact) => {
+      const id = fact.id as {
+        publication: string;
+        schema: string;
+        table: string;
+      };
+      return [
+        {
+          sql: `ALTER PUBLICATION ${qid(id.publication)} ADD ${publicationRelClause(fact)}`,
+          consumes: [{ kind: "table", schema: id.schema, name: id.table }],
+        },
+      ];
+    },
+    drop: (fact) => {
+      const id = fact.id as {
+        publication: string;
+        schema: string;
+        table: string;
+      };
+      return {
+        sql: `ALTER PUBLICATION ${qid(id.publication)} DROP TABLE ${rel(id.schema, id.table)}`,
+      };
+    },
+    attributes: {
+      columns: "replace",
+      where: "replace",
+    },
+  },
+
+  // a published schema (FOR TABLES IN SCHEMA, PG15+) as its own fact
+  publicationSchema: {
+    weight: 18,
+    create: (fact) => {
+      const id = fact.id as { publication: string; schema: string };
+      return [
+        {
+          sql: `ALTER PUBLICATION ${qid(id.publication)} ADD TABLES IN SCHEMA ${qid(id.schema)}`,
+          consumes: [{ kind: "schema", name: id.schema }],
+        },
+      ];
+    },
+    drop: (fact) => {
+      const id = fact.id as { publication: string; schema: string };
+      return {
+        sql: `ALTER PUBLICATION ${qid(id.publication)} DROP TABLES IN SCHEMA ${qid(id.schema)}`,
+      };
+    },
+    attributes: {},
   },
 
   subscription: {

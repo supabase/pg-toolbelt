@@ -56,6 +56,14 @@ export type StableId =
   | { kind: RoutineKind; schema: string; name: string; args: string[] }
   | { kind: "membership"; role: string; member: string }
   | { kind: "userMapping"; server: string; role: string }
+  | { kind: "typeAttribute"; schema: string; type: string; name: string }
+  | {
+      kind: "publicationRel";
+      publication: string;
+      schema: string;
+      table: string;
+    }
+  | { kind: "publicationSchema"; publication: string; schema: string }
   | { kind: "comment"; target: StableId }
   | { kind: "acl"; target: StableId; grantee: string }
   | { kind: "securityLabel"; target: StableId; provider: string }
@@ -91,6 +99,12 @@ export function encodeId(id: StableId): string {
       return `membership:${seg(id.role)}.${seg(id.member)}`;
     case "userMapping":
       return `userMapping:${seg(id.server)}.${seg(id.role)}`;
+    case "typeAttribute":
+      return `typeAttribute:${seg(id.schema)}.${seg(id.type)}.${seg(id.name)}`;
+    case "publicationRel":
+      return `publicationRel:${seg(id.publication)}.${seg(id.schema)}.${seg(id.table)}`;
+    case "publicationSchema":
+      return `publicationSchema:${seg(id.publication)}.${seg(id.schema)}`;
     case "comment":
       return `comment:(${encodeId(id.target)})`;
     case "acl":
@@ -236,6 +250,28 @@ function parseAt(c: Cursor): StableId {
       c.expect(".");
       const role = c.readSegment();
       return { kind, server, role };
+    }
+    case "typeAttribute": {
+      const schema = c.readSegment();
+      c.expect(".");
+      const type = c.readSegment();
+      c.expect(".");
+      const name = c.readSegment();
+      return { kind, schema, type, name };
+    }
+    case "publicationRel": {
+      const publication = c.readSegment();
+      c.expect(".");
+      const schema = c.readSegment();
+      c.expect(".");
+      const table = c.readSegment();
+      return { kind, publication, schema, table };
+    }
+    case "publicationSchema": {
+      const publication = c.readSegment();
+      c.expect(".");
+      const schema = c.readSegment();
+      return { kind, publication, schema };
     }
     case "comment": {
       c.expect("(");

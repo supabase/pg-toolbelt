@@ -267,4 +267,40 @@ describe("stage 9: renames", () => {
       await dbs.drop();
     }
   }, 60_000);
+
+  test("composite-type attribute rename: RENAME ATTRIBUTE, in-use, data survives", async () => {
+    const dbs = await pair(
+      "ren_attr",
+      `CREATE SCHEMA app;
+       CREATE TYPE app.addr AS (street text, city text);
+       CREATE TABLE app.loc (id integer PRIMARY KEY, a app.addr);
+       INSERT INTO app.loc VALUES (1, ROW('main', 'springfield'));`,
+      `CREATE SCHEMA app;
+       CREATE TYPE app.addr AS (street text, town text);
+       CREATE TABLE app.loc (id integer PRIMARY KEY, a app.addr);`,
+    );
+    try {
+      const [s, d] = [
+        await extract(dbs.source.pool),
+        await extract(dbs.desired.pool),
+      ];
+      const thePlan = plan(s.factBase, d.factBase, { renames: "auto" });
+      const renameAction = thePlan.actions.find((a) =>
+        a.sql.includes("RENAME ATTRIBUTE"),
+      );
+      expect(renameAction?.sql).toContain(`RENAME ATTRIBUTE "city" TO "town"`);
+      // no drop+re-add of the attribute (that would lose the sub-field data)
+      expect(
+        thePlan.actions.some((a) => a.sql.includes("DROP ATTRIBUTE")),
+      ).toBe(false);
+      const verdict = await provePlan(thePlan, dbs.source.pool, d.factBase);
+      expect(verdict.ok).toBe(true);
+      const rows = await dbs.source.pool.query(
+        `SELECT (a).street, (a).town FROM app.loc`,
+      );
+      expect(rows.rows[0]).toEqual({ street: "main", town: "springfield" });
+    } finally {
+      await dbs.drop();
+    }
+  }, 60_000);
 });

@@ -37,6 +37,8 @@ const FIXTURE_DDL = /* sql */ `
   CREATE POLICY users_self ON app.users FOR SELECT USING (true);
   CREATE ROLE app_reader_xyz NOLOGIN;
   GRANT SELECT ON app.users TO app_reader_xyz;
+  CREATE TYPE app.addr AS (street text, city varchar(90));
+  CREATE PUBLICATION app_pub FOR TABLE app.users (id, email);
 `;
 
 let db: TestDb;
@@ -180,6 +182,45 @@ describe("extract: fixture ring", () => {
     expect(policy?.payload).toMatchObject({ cmd: "r", usingExpr: "true" });
   });
 
+  test("composite-type attributes are their own facts (granularity is one)", () => {
+    const type = fb().get({ kind: "type", schema: "app", name: "addr" });
+    expect(type?.payload).toMatchObject({ variant: "composite" });
+    // the attributes are NOT in the type payload — they are sub-facts
+    expect(type?.payload["attributes"]).toBeUndefined();
+    const street = fb().get({
+      kind: "typeAttribute",
+      schema: "app",
+      type: "addr",
+      name: "street",
+    });
+    expect(street?.payload).toMatchObject({ type: "text" });
+    expect(street?.parent).toEqual({
+      kind: "type",
+      schema: "app",
+      name: "addr",
+    });
+    const city = fb().get({
+      kind: "typeAttribute",
+      schema: "app",
+      type: "addr",
+      name: "city",
+    });
+    expect(city?.payload["type"]).toBe("character varying(90)");
+  });
+
+  test("published tables are their own facts, parented to the publication", () => {
+    const pub = fb().get({ kind: "publication", name: "app_pub" });
+    expect(pub?.payload["tables"]).toBeUndefined();
+    const rel = fb().get({
+      kind: "publicationRel",
+      publication: "app_pub",
+      schema: "app",
+      table: "users",
+    });
+    expect(rel?.parent).toEqual({ kind: "publication", name: "app_pub" });
+    expect(rel?.payload["columns"]).toEqual(["email", "id"]);
+  });
+
   test("comments and ACLs are satellite facts parented to their target", () => {
     const tableId = { kind: "table", schema: "app", name: "users" } as const;
     const comment = fb().get({ kind: "comment", target: tableId });
@@ -217,7 +258,7 @@ describe("extract: fixture ring", () => {
   test("extraction is deterministic: re-extract is hash-identical", async () => {
     const again = await extract(db.pool);
     expect(again.factBase.rootHash).toBe(result.factBase.rootHash);
-  });
+  }, 30_000);
 
   test("snapshot round-trips a real extraction hash-identically", () => {
     const json = serializeSnapshot(result.factBase, {

@@ -16,26 +16,32 @@ publication, subscription, FDW, server, user mapping, foreign table.
 Global satellite facts (one rule each, any target kind): comment, ACL
 (acldefault-normalized), security label.
 
-## Modeled but coarser than fact-grain (known §3.1 granularity deviations)
+## Sub-entity facts (granularity is one, §3.1)
 
-These extract correctly and diff correctly, but a sub-entity lives inside a
-parent fact's payload rather than as its own fact. Consequence: a change to
-one sub-entity diffs as a whole-payload change on the parent, and the
-sub-entity cannot be a rename candidate or a `pg_depend` edge target.
+Composite-type attributes and publication members are full facts, not
+payload blobs — so they diff at sub-entity grain, are rename candidates,
+and can be `pg_depend` edge targets:
 
-- **Composite type attributes** — the `attributes` array is a payload blob on
-  the `type` fact (`extract.ts`, composite branch). Attribute-grain renames
-  and edges are therefore not detected; a composite type with a changed
-  attribute is replaced wholesale.
-- **Publication table-filters** — the `tables` array (with per-table column
-  lists and `WHERE` expressions) is a payload blob on the `publication`
-  fact. Column-list / row-filter changes diff at publication grain, and a
-  publication that changes both its table set and its schema set emits two
-  idempotent `ALTER PUBLICATION … SET` statements (correct, redundant).
+- **Composite type attributes** → `typeAttribute` facts (schema, type,
+  name; payload type + collation), parented to the `type`. On a fresh type
+  they inline into `CREATE TYPE AS (…)` (delta-set); on an existing type
+  they are managed incrementally: `ADD` / `DROP` / `RENAME ATTRIBUTE …
+  CASCADE` all work even while the type is used by table columns and
+  preserve the stored data.
+- **Published tables** → `publicationRel` facts (publication, schema,
+  table; payload column-list + `WHERE`), parented to the `publication`.
+  **Published schemas** → `publicationSchema` facts. On a fresh publication
+  they inline into `CREATE PUBLICATION FOR …`; otherwise managed with
+  `ALTER PUBLICATION ADD/DROP`. A per-table column-list / `WHERE` change
+  replaces that member (`DROP TABLE` + re-`ADD`), with no churn on the rest
+  of the publication.
 
-Both are correct-but-coarse and tracked for a future normalization pass
-(new `typeAttribute` / `publicationRel` fact kinds). They are deviations
-from "granularity is one", not correctness bugs.
+One irreducible PostgreSQL limitation: `ALTER TYPE … ALTER ATTRIBUTE …
+TYPE` is rejected while the composite is used by a table column (`CASCADE`
+only reaches typed tables, not columns). The `typeAttribute` rule supports
+the attribute-type change for unused composites and fails loudly with a
+clear remediation message for in-use ones — it does not emit a statement
+that would fail at apply.
 
 ## Environment-gated (modeled; integration proof needs a non-default image)
 

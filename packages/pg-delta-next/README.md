@@ -85,10 +85,13 @@ proof) and **data preservation** can be sharpened with opt-in `autoSeed`
 (cascade/rebuild/suppression/defacl) lives entirely in the rule table as
 `KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
 
-See `COVERAGE.md` for the full catalog-coverage map and the deliberate
-exclusions (languages, large objects, …) and known granularity deviations
-(composite-type attributes and publication table-filters are still payload
-blobs rather than sub-entity facts — correct but coarser; tracked).
+Every addressable thing is a fact at one grain (§3.1): composite-type
+attributes (`typeAttribute`) and publication members (`publicationRel` /
+`publicationSchema`) are sub-entity facts, so they diff at sub-entity grain
+and are rename candidates — a composite attribute renames in place,
+data-preserving, instead of forcing a type rebuild. See `COVERAGE.md` for
+the full catalog-coverage map and deliberate exclusions (languages, large
+objects, …).
 
 Environment-gated leftovers: security labels are fully modeled (extraction
 + rule + rendering, unit-proven) but their end-to-end proof needs an image

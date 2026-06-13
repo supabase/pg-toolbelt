@@ -840,26 +840,39 @@ async function extractOnClient(
     WHERE t.typtype = 'c' AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname`)) {
+    const typeId: StableId = {
+      kind: "type",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "type",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id: typeId,
         parent: schemaId(row["schema"]),
-        payload: {
-          variant: "composite",
-          owner: String(row["owner"]),
-          attributes:
-            (row["attrs"] as
-              | { name: string; type: string; collation: string | null }[]
-              | null) ?? [],
-        },
+        payload: { variant: "composite", owner: String(row["owner"]) },
       },
       row,
       parseAcl(row["acl"]),
     );
+    // each attribute is its own fact (granularity is one, §3.1) — enables
+    // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
+    // detection. Positional order is not desired state (mirrors columns).
+    const attrs =
+      (row["attrs"] as
+        | { name: string; type: string; collation: string | null }[]
+        | null) ?? [];
+    for (const a of attrs) {
+      facts.push({
+        id: {
+          kind: "typeAttribute",
+          schema: String(row["schema"]),
+          type: String(row["name"]),
+          name: a.name,
+        },
+        parent: typeId,
+        payload: { type: a.type, collation: a.collation ?? null },
+      });
+    }
   }
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
@@ -1199,28 +1212,55 @@ async function extractOnClient(
     if (row["pubupdate"]) publish.push("update");
     if (row["pubdelete"]) publish.push("delete");
     if (row["pubtruncate"]) publish.push("truncate");
+    const pubName = String(row["name"]);
+    const pubId: StableId = { kind: "publication", name: pubName };
     pushWithMeta(
       {
-        id: { kind: "publication", name: String(row["name"]) },
+        id: pubId,
         payload: {
           owner: String(row["owner"]),
           allTables: Boolean(row["all_tables"]),
           viaRoot: Boolean(row["via_root"]),
           publish,
-          tables:
-            (row["tables"] as
-              | {
-                  schema: string;
-                  name: string;
-                  columns: string[] | null;
-                  where: string | null;
-                }[]
-              | null) ?? [],
-          schemas: ((row["schemas"] as string[] | null) ?? []).map(String),
         },
       },
       row,
     );
+    // each published table / schema is its own fact (granularity is one):
+    // members are managed with ALTER PUBLICATION ADD/DROP, and a column-list
+    // or WHERE change diffs at table grain instead of churning the whole
+    // publication payload.
+    const tables =
+      (row["tables"] as
+        | {
+            schema: string;
+            name: string;
+            columns: string[] | null;
+            where: string | null;
+          }[]
+        | null) ?? [];
+    for (const t of tables) {
+      facts.push({
+        id: {
+          kind: "publicationRel",
+          publication: pubName,
+          schema: t.schema,
+          table: t.name,
+        },
+        parent: pubId,
+        payload: {
+          columns: t.columns == null ? null : t.columns.map(String),
+          where: t.where ?? null,
+        },
+      });
+    }
+    for (const s of ((row["schemas"] as string[] | null) ?? []).map(String)) {
+      facts.push({
+        id: { kind: "publicationSchema", publication: pubName, schema: s },
+        parent: pubId,
+        payload: {},
+      });
+    }
   }
 
   // ── subscriptions (database-local rows only) ─────────────────────────
@@ -1252,8 +1292,18 @@ async function extractOnClient(
 
   // ── security labels (satellite facts, like comments) ────────────────
   // pg_seclabel / pg_shseclabel are EMPTY unless a label provider module
-  // labeled something, so this is inert on label-free databases. The
-  // target's identity parts come back as a resolved StableId built inline.
+  // labeled something. One cheap existence probe gates the five resolver
+  // queries so a label-free database (the overwhelming common case) pays
+  // a single round trip, not six. The target's identity parts come back as
+  // a resolved StableId built inline.
+  const hasSeclabels = Boolean(
+    (
+      await q(
+        `SELECT EXISTS (SELECT 1 FROM pg_seclabel)
+              OR EXISTS (SELECT 1 FROM pg_shseclabel) AS present`,
+      )
+    )[0]?.["present"],
+  );
   const pushSeclabel = (
     target: StableId,
     provider: string,
@@ -1265,114 +1315,116 @@ async function extractOnClient(
       payload: { label },
     });
   };
-  // relations (tables/views/matviews/sequences/foreign tables) + columns
-  for (const row of await q(`
-    SELECT sl.provider, sl.label, sl.objsubid,
-           n.nspname AS schema, c.relname AS name, c.relkind AS relkind,
-           a.attname AS column
-    FROM pg_seclabel sl
-    JOIN pg_class c ON c.oid = sl.objoid AND sl.classoid = 'pg_class'::regclass
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = sl.objsubid
-    WHERE ${USER_SCHEMA_FILTER}
-    ORDER BY 1, 4, 5`)) {
-    const schema = String(row["schema"]);
-    const relkind = String(row["relkind"]);
-    if (Number(row["objsubid"]) > 0) {
+  if (hasSeclabels) {
+    // relations (tables/views/matviews/sequences/foreign tables) + columns
+    for (const row of await q(`
+      SELECT sl.provider, sl.label, sl.objsubid,
+             n.nspname AS schema, c.relname AS name, c.relkind AS relkind,
+             a.attname AS column
+      FROM pg_seclabel sl
+      JOIN pg_class c ON c.oid = sl.objoid AND sl.classoid = 'pg_class'::regclass
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = sl.objsubid
+      WHERE ${USER_SCHEMA_FILTER}
+      ORDER BY 1, 4, 5`)) {
+      const schema = String(row["schema"]);
+      const relkind = String(row["relkind"]);
+      if (Number(row["objsubid"]) > 0) {
+        pushSeclabel(
+          {
+            kind: "column",
+            schema,
+            table: String(row["name"]),
+            name: String(row["column"]),
+          },
+          String(row["provider"]),
+          String(row["label"]),
+        );
+        continue;
+      }
+      const relKindMap: Record<string, StableId["kind"]> = {
+        r: "table",
+        p: "table",
+        v: "view",
+        m: "materializedView",
+        S: "sequence",
+        f: "foreignTable",
+      };
+      const kind = relKindMap[relkind];
+      if (kind === undefined) continue;
+      pushSeclabel(
+        { kind, schema, name: String(row["name"]) } as StableId,
+        String(row["provider"]),
+        String(row["label"]),
+      );
+    }
+    // routines
+    for (const row of await q(`
+      SELECT sl.provider, sl.label, n.nspname AS schema, p.proname AS name,
+             p.prokind AS prokind,
+             ARRAY(SELECT format_type(t.t, NULL)
+                   FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
+                   ORDER BY t.ord)::text[] AS args
+      FROM pg_seclabel sl
+      JOIN pg_proc p ON p.oid = sl.objoid AND sl.classoid = 'pg_proc'::regclass
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE ${USER_SCHEMA_FILTER}
+      ORDER BY 1, 3, 4`)) {
       pushSeclabel(
         {
-          kind: "column",
-          schema,
-          table: String(row["name"]),
-          name: String(row["column"]),
+          kind: String(row["prokind"]) === "a" ? "aggregate" : "procedure",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+          args: (row["args"] as string[]).map(String),
         },
         String(row["provider"]),
         String(row["label"]),
       );
-      continue;
     }
-    const relKindMap: Record<string, StableId["kind"]> = {
-      r: "table",
-      p: "table",
-      v: "view",
-      m: "materializedView",
-      S: "sequence",
-      f: "foreignTable",
-    };
-    const kind = relKindMap[relkind];
-    if (kind === undefined) continue;
-    pushSeclabel(
-      { kind, schema, name: String(row["name"]) } as StableId,
-      String(row["provider"]),
-      String(row["label"]),
-    );
-  }
-  // routines
-  for (const row of await q(`
-    SELECT sl.provider, sl.label, n.nspname AS schema, p.proname AS name,
-           p.prokind AS prokind,
-           ARRAY(SELECT format_type(t.t, NULL)
-                 FROM unnest(p.proargtypes) WITH ORDINALITY AS t(t, ord)
-                 ORDER BY t.ord)::text[] AS args
-    FROM pg_seclabel sl
-    JOIN pg_proc p ON p.oid = sl.objoid AND sl.classoid = 'pg_proc'::regclass
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE ${USER_SCHEMA_FILTER}
-    ORDER BY 1, 3, 4`)) {
-    pushSeclabel(
-      {
-        kind: String(row["prokind"]) === "a" ? "aggregate" : "procedure",
-        schema: String(row["schema"]),
-        name: String(row["name"]),
-        args: (row["args"] as string[]).map(String),
-      },
-      String(row["provider"]),
-      String(row["label"]),
-    );
-  }
-  // schemas, types/domains
-  for (const row of await q(`
-    SELECT sl.provider, sl.label, n.nspname AS name
-    FROM pg_seclabel sl
-    JOIN pg_namespace n ON n.oid = sl.objoid AND sl.classoid = 'pg_namespace'::regclass
-    WHERE n.nspname NOT IN ${SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
-    ORDER BY 1, 3`)) {
-    pushSeclabel(
-      { kind: "schema", name: String(row["name"]) },
-      String(row["provider"]),
-      String(row["label"]),
-    );
-  }
-  for (const row of await q(`
-    SELECT sl.provider, sl.label, n.nspname AS schema, t.typname AS name,
-           t.typtype AS typtype
-    FROM pg_seclabel sl
-    JOIN pg_type t ON t.oid = sl.objoid AND sl.classoid = 'pg_type'::regclass
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE ${USER_SCHEMA_FILTER}
-    ORDER BY 1, 3, 4`)) {
-    pushSeclabel(
-      {
-        kind: String(row["typtype"]) === "d" ? "domain" : "type",
-        schema: String(row["schema"]),
-        name: String(row["name"]),
-      },
-      String(row["provider"]),
-      String(row["label"]),
-    );
-  }
-  // roles (shared catalog)
-  for (const row of await q(`
-    SELECT sl.provider, sl.label, r.rolname AS name
-    FROM pg_shseclabel sl
-    JOIN pg_authid r ON r.oid = sl.objoid AND sl.classoid = 'pg_authid'::regclass
-    WHERE r.rolname NOT LIKE 'pg\\_%'
-    ORDER BY 1, 3`)) {
-    pushSeclabel(
-      { kind: "role", name: String(row["name"]) },
-      String(row["provider"]),
-      String(row["label"]),
-    );
+    // schemas, types/domains
+    for (const row of await q(`
+      SELECT sl.provider, sl.label, n.nspname AS name
+      FROM pg_seclabel sl
+      JOIN pg_namespace n ON n.oid = sl.objoid AND sl.classoid = 'pg_namespace'::regclass
+      WHERE n.nspname NOT IN ${SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
+      ORDER BY 1, 3`)) {
+      pushSeclabel(
+        { kind: "schema", name: String(row["name"]) },
+        String(row["provider"]),
+        String(row["label"]),
+      );
+    }
+    for (const row of await q(`
+      SELECT sl.provider, sl.label, n.nspname AS schema, t.typname AS name,
+             t.typtype AS typtype
+      FROM pg_seclabel sl
+      JOIN pg_type t ON t.oid = sl.objoid AND sl.classoid = 'pg_type'::regclass
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE ${USER_SCHEMA_FILTER}
+      ORDER BY 1, 3, 4`)) {
+      pushSeclabel(
+        {
+          kind: String(row["typtype"]) === "d" ? "domain" : "type",
+          schema: String(row["schema"]),
+          name: String(row["name"]),
+        },
+        String(row["provider"]),
+        String(row["label"]),
+      );
+    }
+    // roles (shared catalog)
+    for (const row of await q(`
+      SELECT sl.provider, sl.label, r.rolname AS name
+      FROM pg_shseclabel sl
+      JOIN pg_authid r ON r.oid = sl.objoid AND sl.classoid = 'pg_authid'::regclass
+      WHERE r.rolname NOT LIKE 'pg\\_%'
+      ORDER BY 1, 3`)) {
+      pushSeclabel(
+        { kind: "role", name: String(row["name"]) },
+        String(row["provider"]),
+        String(row["label"]),
+      );
+    }
   }
 
   // ── inheritance / partition edges (child depends on parent) ──────────
