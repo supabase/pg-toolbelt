@@ -19,6 +19,8 @@ import { Procedure } from "../objects/procedure/procedure.model.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
 import { AlterSequenceChangeOwner } from "../objects/sequence/changes/sequence.alter.ts";
+import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
+import { GrantSequencePrivileges } from "../objects/sequence/changes/sequence.privilege.ts";
 import { Sequence } from "../objects/sequence/sequence.model.ts";
 import {
   AlterTableAddConstraint,
@@ -446,6 +448,51 @@ describe("sortChanges", () => {
 
     expect(tableOwnerIndex).toBeGreaterThan(-1);
     expect(sequenceOwnerIndex).toBeGreaterThan(tableOwnerIndex);
+  });
+
+  test("orders sequence privilege replay before owner restore", async () => {
+    const sequence = new Sequence({
+      schema: "public",
+      name: "items_id_seq",
+      data_type: "bigint",
+      start_value: 1,
+      minimum_value: BigInt(1),
+      maximum_value: BigInt("9223372036854775807"),
+      increment: 1,
+      cycle_option: false,
+      cache_size: 1,
+      persistence: "p",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+      comment: null,
+      privileges: [],
+      owner: "app_owner",
+      security_labels: [],
+    });
+    const changes: Change[] = [
+      new CreateSequence({ sequence }),
+      new AlterSequenceChangeOwner({ sequence, owner: "app_owner" }),
+      new GrantSequencePrivileges({
+        sequence,
+        grantee: "app_reader",
+        privileges: [{ privilege: "USAGE", grantable: false }],
+        version: 170000,
+      }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const grantIndex = sorted.findIndex(
+      (change) => change instanceof GrantSequencePrivileges,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(grantIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(grantIndex);
   });
 
   test("orders materialized view indexes after recreated materialized views", async () => {

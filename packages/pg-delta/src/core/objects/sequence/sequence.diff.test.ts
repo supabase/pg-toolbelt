@@ -3,6 +3,7 @@ import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
 import { Table } from "../table/table.model.ts";
 import {
+  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./changes/sequence.alter.ts";
@@ -69,6 +70,39 @@ describe.concurrent("sequence.diff", () => {
       { [branch.stableId]: branch },
     );
     expect(changes[0]).toBeInstanceOf(AlterSequenceSetOwnedBy);
+  });
+
+  test("detaches existing owned sequence before changing owner", () => {
+    const main = new Sequence({
+      ...base,
+      owner: "old_owner",
+      owned_by_schema: "public",
+      owned_by_table: "old_items",
+      owned_by_column: "id",
+    });
+    const branch = new Sequence({
+      ...base,
+      owner: "new_owner",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const detachIndex = changes.findIndex(
+      (change) =>
+        change instanceof AlterSequenceSetOwnedBy && change.ownedBy === null,
+    );
+    const ownerIndex = changes.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(detachIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(detachIndex);
   });
 
   test("alter options via diff", () => {
