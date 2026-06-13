@@ -54,6 +54,9 @@ import { CreateCommentOnRule } from "./objects/rule/changes/rule.comment.ts";
 import { CreateRule } from "./objects/rule/changes/rule.create.ts";
 import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { SetRuleEnabledState } from "./objects/rule/changes/rule.alter.ts";
+import { AlterSequenceSetOwnedBy } from "./objects/sequence/changes/sequence.alter.ts";
+import { diffSequences } from "./objects/sequence/sequence.diff.ts";
+import { Sequence } from "./objects/sequence/sequence.model.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
@@ -72,6 +75,7 @@ import { CreateTable } from "./objects/table/changes/table.create.ts";
 import { DropTable } from "./objects/table/changes/table.drop.ts";
 import { GrantTablePrivileges } from "./objects/table/changes/table.privilege.ts";
 import { CreateSecurityLabelOnColumn } from "./objects/table/changes/table.security-label.ts";
+import { diffTables } from "./objects/table/table.diff.ts";
 import type { TableProps } from "./objects/table/table.model.ts";
 import { SetTriggerEnabledState } from "./objects/trigger/changes/trigger.alter.ts";
 import { CreateCommentOnTrigger } from "./objects/trigger/changes/trigger.comment.ts";
@@ -537,6 +541,25 @@ export function expandReplaceDependencies({
               diffContext,
             })
           : [];
+      const retainedOwnedSequenceChanges =
+        resolved.kind === "table" && addDrop && addCreate
+          ? buildRetainedOwnedSequenceReplacementChanges({
+              table: resolved.branch,
+              mainCatalog,
+              branchCatalog,
+              createdIds,
+              diffContext,
+            })
+          : [];
+      const retainedPublicationMembershipChanges =
+        resolved.kind === "table" && addDrop && addCreate
+          ? buildRetainedPublicationMembershipChanges({
+              table: resolved.branch,
+              mainCatalog,
+              branchCatalog,
+              existingChanges: [...changes, ...additions],
+            })
+          : [];
       const procedureMetadataRestoreChanges =
         resolved.kind === "procedure" && addDrop && !addCreate
           ? buildRetainedProcedureMetadataChanges({
@@ -555,6 +578,8 @@ export function expandReplaceDependencies({
       additions.push(
         ...replacementChanges,
         ...retainedIndexChanges,
+        ...retainedOwnedSequenceChanges,
+        ...retainedPublicationMembershipChanges,
         ...procedureMetadataRestoreChanges,
         ...aggregateMetadataRestoreChanges,
       );
@@ -573,6 +598,8 @@ export function expandReplaceDependencies({
       for (const change of [
         ...replacementChanges,
         ...retainedIndexChanges,
+        ...retainedOwnedSequenceChanges,
+        ...retainedPublicationMembershipChanges,
         ...procedureMetadataRestoreChanges,
         ...aggregateMetadataRestoreChanges,
       ]) {
@@ -727,10 +754,7 @@ function collectExpressionDependentCoverage(
       }
     }
 
-    if (
-      change instanceof AlterDomainSetDefault ||
-      change instanceof AlterDomainAddConstraint
-    ) {
+    if (change instanceof AlterDomainSetDefault) {
       for (const id of change.requires ?? []) {
         if (isExpressionContainerStableId(id)) {
           restore.add(id);
@@ -2478,6 +2502,152 @@ function buildRootRetainedIndexReplacementChanges({
   return changes;
 }
 
+function buildRetainedOwnedSequenceReplacementChanges({
+  table,
+  mainCatalog,
+  branchCatalog,
+  createdIds,
+  diffContext,
+}: {
+  table: Catalog["tables"][string];
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  createdIds: ReadonlySet<string>;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  if (!diffContext) return [];
+
+  const changes: Change[] = [];
+  const branchSequences = Object.values(branchCatalog.sequences)
+    .filter(
+      (sequence) =>
+        sequence.owned_by_schema === table.schema &&
+        sequence.owned_by_table === table.name &&
+        sequence.owned_by_column !== null,
+    )
+    .sort((a, b) => a.stableId.localeCompare(b.stableId));
+
+  for (const branchSequence of branchSequences) {
+    if (!mainCatalog.sequences[branchSequence.stableId]) continue;
+    if (createdIds.has(branchSequence.stableId)) continue;
+    const ownedByColumn = branchSequence.owned_by_column;
+    if (ownedByColumn === null) continue;
+
+    const unownedSequence = new Sequence({
+      schema: branchSequence.schema,
+      name: branchSequence.name,
+      data_type: branchSequence.data_type,
+      start_value: branchSequence.start_value,
+      minimum_value: branchSequence.minimum_value,
+      maximum_value: branchSequence.maximum_value,
+      increment: branchSequence.increment,
+      cycle_option: branchSequence.cycle_option,
+      cache_size: branchSequence.cache_size,
+      persistence: branchSequence.persistence,
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+      comment: branchSequence.comment,
+      privileges: branchSequence.privileges,
+      owner: branchSequence.owner,
+      security_labels: branchSequence.security_labels,
+    });
+    changes.push(
+      ...(diffSequences(
+        diffContext,
+        {},
+        { [unownedSequence.stableId]: unownedSequence },
+        branchCatalog.tables,
+        mainCatalog.tables,
+      ) as Change[]),
+    );
+
+    changes.push(
+      new AlterSequenceSetOwnedBy({
+        sequence: branchSequence,
+        ownedBy: {
+          schema: table.schema,
+          table: table.name,
+          column: ownedByColumn,
+        },
+      }),
+    );
+
+    const ownedColumn = table.columns.find(
+      (column) => column.name === ownedByColumn,
+    );
+    if (ownedColumn && ownedColumn.default !== null) {
+      changes.push(
+        new AlterTableAlterColumnSetDefault({
+          table,
+          column: ownedColumn,
+        }),
+      );
+    }
+  }
+
+  return changes;
+}
+
+function buildRetainedPublicationMembershipChanges({
+  table,
+  mainCatalog,
+  branchCatalog,
+  existingChanges,
+}: {
+  table: Catalog["tables"][string];
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  existingChanges: readonly Change[];
+}): Change[] {
+  const changes: Change[] = [];
+
+  for (const branchPublication of Object.values(
+    branchCatalog.publications,
+  ).sort((a, b) => a.stableId.localeCompare(b.stableId))) {
+    const mainPublication =
+      mainCatalog.publications[branchPublication.stableId];
+    if (!mainPublication) continue;
+
+    const branchTable = branchPublication.tables.find(
+      (publicationTable) =>
+        publicationTable.schema === table.schema &&
+        publicationTable.name === table.name,
+    );
+    if (!branchTable) continue;
+
+    const retainedInMain = mainPublication.tables.some(
+      (publicationTable) =>
+        publicationTable.schema === branchTable.schema &&
+        publicationTable.name === branchTable.name,
+    );
+    if (!retainedInMain) continue;
+
+    if (
+      publicationTableChangeCovered({
+        changes: [...existingChanges, ...changes],
+        publicationId: branchPublication.stableId,
+        table: branchTable,
+        changeType: "add",
+      })
+    ) {
+      continue;
+    }
+
+    changes.push(
+      new AlterPublicationAddTables({
+        publication: branchPublication,
+        tables: [branchTable],
+      }),
+    );
+  }
+
+  return changes;
+}
+
 function recordChangeIds(
   changes: readonly Change[],
   createdIds: Set<string>,
@@ -2542,31 +2712,7 @@ function buildReplaceChanges(
       return [
         ...(addDrop ? [new DropTable({ table: resolved.main })] : []),
         ...(addCreate
-          ? [
-              new CreateTable({ table: resolved.branch }),
-              ...((resolved.branch.constraints ?? [])
-                .filter((c) => !c.is_partition_clone)
-                .flatMap((constraint) => {
-                  const items: Change[] = [
-                    new AlterTableAddConstraint({
-                      table: resolved.branch,
-                      constraint,
-                    }),
-                  ];
-                  if (
-                    constraint.comment !== null &&
-                    constraint.comment !== undefined
-                  ) {
-                    items.push(
-                      new CreateCommentOnConstraint({
-                        table: resolved.branch,
-                        constraint,
-                      }),
-                    );
-                  }
-                  return items;
-                }) as Change[]),
-            ]
+          ? buildCreateTableReplacementChanges(resolved.branch, diffContext)
           : []),
       ];
     case "view":
@@ -2904,6 +3050,43 @@ function buildRetainedAggregateMetadataChanges({
   );
 
   return changes;
+}
+
+function buildCreateTableReplacementChanges(
+  table: Catalog["tables"][string],
+  diffContext:
+    | Pick<
+        ObjectDiffContext,
+        "version" | "currentUser" | "defaultPrivilegeState"
+      >
+    | undefined,
+): Change[] {
+  if (diffContext) {
+    return diffTables(diffContext, {}, { [table.stableId]: table }) as Change[];
+  }
+
+  return [
+    new CreateTable({ table }),
+    ...((table.constraints ?? [])
+      .filter((constraint) => !constraint.is_partition_clone)
+      .flatMap((constraint) => {
+        const items: Change[] = [
+          new AlterTableAddConstraint({
+            table,
+            constraint,
+          }),
+        ];
+        if (constraint.comment !== null && constraint.comment !== undefined) {
+          items.push(
+            new CreateCommentOnConstraint({
+              table,
+              constraint,
+            }),
+          );
+        }
+        return items;
+      }) as Change[]),
+  ];
 }
 
 function buildCreateViewReplacementChanges(
