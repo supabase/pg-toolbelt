@@ -1371,6 +1371,31 @@ describe("range type dependencies", () => {
     expect(inRangeRequirements).toHaveLength(0);
   });
 
+  test("does not require producers for btree skip support functions", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4_skip_ops for type int4 using btree as operator 1 < (int4, int4), function 1 btint4cmp(int4, int4), function 6 btint4skipsupport(internal);",
+      "create schema app;",
+    ]);
+    const unresolvedSkipSupport = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "public" &&
+            ref.name === "btint4skipsupport",
+        ) === true,
+    );
+    const skipSupportRequirements = result.ordered.flatMap((statement) =>
+      statement.requires.filter(
+        (ref) => ref.kind === "function" && ref.name === "btint4skipsupport",
+      ),
+    );
+
+    expect(unresolvedSkipSupport).toHaveLength(0);
+    expect(skipSupportRequirements).toHaveLength(0);
+  });
+
   test("does not require producers for pg_catalog cross-type support operators", async () => {
     const result = await analyzeAndSort([
       "create operator class app.int4_cross_ops for type int4 using btree as operator 1 < (int4, int8), function 1 (int4, int8) btint48cmp(int4, int8);",
@@ -5064,6 +5089,33 @@ describe("range type dependencies", () => {
     );
 
     expect(unresolvedBrinSupportFunctions).toHaveLength(0);
+  });
+
+  test("does not require producers for built-in BRIN inclusion support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.box_brin_inclusion_ops for type box using brin as operator 1 << (box, box), operator 3 && (box, box), operator 4 &> (box, box), operator 7 @> (box, box), operator 8 <@ (box, box), function 1 brin_inclusion_opcinfo(internal);",
+      "create schema app;",
+    ]);
+    const unresolvedInclusionOperators = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator" &&
+            ref.schema === "public" &&
+            ["&&", "<<", "&>", "@>", "<@"].includes(ref.name),
+        ) === true,
+    );
+    const inclusionOperatorRequirements = result.ordered.flatMap((statement) =>
+      statement.requires.filter(
+        (ref) =>
+          ref.kind === "operator" &&
+          ["&&", "<<", "&>", "@>", "<@"].includes(ref.name),
+      ),
+    );
+
+    expect(unresolvedInclusionOperators).toHaveLength(0);
+    expect(inclusionOperatorRequirements).toHaveLength(0);
   });
 
   test("does not require producers for unqualified BRIN minmax support routines", async () => {

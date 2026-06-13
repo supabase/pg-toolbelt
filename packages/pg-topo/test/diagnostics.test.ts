@@ -265,6 +265,10 @@ describe("diagnostics", () => {
       "create schema app;",
       "create type app.r as range (subtype = app.r_multirange);",
     ]);
+    const explicitRangeMultirangeResult = await analyzeAndSort([
+      "create schema app;",
+      "create type app.r as range (subtype = app.mr, multirange_type_name = app.mr);",
+    ]);
     const domainResult = await analyzeAndSort([
       "create schema app;",
       "create domain app.email_domain as app.email_domain[];",
@@ -297,6 +301,15 @@ describe("diagnostics", () => {
             ref.name === "r_multirange",
         ) === true,
     );
+    const selfExplicitRangeMultirange =
+      explicitRangeMultirangeResult.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+          diagnostic.objectRefs?.some(
+            (ref) =>
+              ref.kind === "type" && ref.schema === "app" && ref.name === "mr",
+          ) === true,
+      );
     const selfDomainArray = domainResult.diagnostics.filter(
       (diagnostic) =>
         diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
@@ -311,6 +324,7 @@ describe("diagnostics", () => {
     expect(selfTableArray).toHaveLength(1);
     expect(selfRangeArray).toHaveLength(1);
     expect(selfRangeMultirange).toHaveLength(1);
+    expect(selfExplicitRangeMultirange).toHaveLength(1);
     expect(selfDomainArray).toHaveLength(1);
   });
 
@@ -356,6 +370,29 @@ describe("diagnostics", () => {
       {
         externalProviders: [
           { kind: "type", schema: "app", name: "mood", signature: "(enum)" },
+        ],
+      },
+    );
+    const unresolved = result.diagnostics.filter(
+      (d) => d.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const missingDefault = unresolved.filter((d) =>
+      d.message.includes("No default btree operator class provider"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(missingDefault).toHaveLength(0);
+  });
+
+  test("external range providers imply multirange default opclasses", async () => {
+    const result = await analyzeAndSort(
+      [
+        "create schema app;",
+        "create type app.wrap as range (subtype = app.period_multirange);",
+      ],
+      {
+        externalProviders: [
+          { kind: "type", schema: "app", name: "period", signature: "(range)" },
         ],
       },
     );
