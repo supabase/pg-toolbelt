@@ -1122,14 +1122,16 @@ function buildConstraintReplacementChanges(
     );
   }
 
-  replacementChanges.push(
-    ...buildConstraintBackingIndexMetadataReplacementChanges(
-      branchCatalog,
-      branchTable,
-      parsed.constraint,
-      [...existingChanges, ...replacementChanges],
-    ),
-  );
+  if (branchTable && branchConstraint) {
+    replacementChanges.push(
+      ...buildConstraintBackingIndexMetadataReplacementChanges(
+        branchCatalog,
+        branchTable,
+        parsed.constraint,
+        [...existingChanges, ...replacementChanges],
+      ),
+    );
+  }
 
   return replacementChanges;
 }
@@ -1166,6 +1168,14 @@ function buildConstraintBackingIndexMetadataReplacementChanges(
       ...existingChanges,
       ...changes,
     ]),
+  );
+
+  changes.push(
+    ...buildIndexReplicaIdentityReplacementChanges(
+      backingIndex,
+      branchCatalog,
+      [...existingChanges, ...changes],
+    ),
   );
 
   return changes;
