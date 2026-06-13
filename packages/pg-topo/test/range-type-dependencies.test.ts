@@ -6534,6 +6534,118 @@ describe("range type dependencies", () => {
     expect(unresolvedArrayCallbacks).toHaveLength(0);
   });
 
+  test("tracks explicit opclass support function argument types", async () => {
+    const missingLocalTypeResult = await analyzeAndSort(
+      [
+        "create operator class app.score_ops for type app.score using btree as function 1 app.score_cmp(app.other, app.other);",
+        "create type app.score as (value int4);",
+        "create schema app;",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "app",
+            name: "score_cmp",
+            signature: "(app.other,app.other)",
+          },
+        ],
+      },
+    );
+    const invalidCatalogTypeResult = await analyzeAndSort(
+      [
+        "create operator class app.score_ops for type app.score using btree as function 1 app.score_cmp(pg_catalog.no_such, pg_catalog.no_such);",
+        "create type app.score as (value int4);",
+        "create schema app;",
+      ],
+      {
+        externalProviders: [
+          {
+            kind: "function",
+            schema: "app",
+            name: "score_cmp",
+            signature: "(pg_catalog.no_such,pg_catalog.no_such)",
+          },
+        ],
+      },
+    );
+    const missingLocalType = missingLocalTypeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "other",
+        ) === true,
+    );
+    const missingCatalogType = invalidCatalogTypeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "no_such",
+        ) === true,
+    );
+
+    expect(missingLocalType).toHaveLength(1);
+    expect(missingCatalogType.length).toBeGreaterThan(0);
+  });
+
+  test("treats access method handler pseudo-types as built-ins", async () => {
+    const result = await analyzeAndSort([
+      "create access method myam type index handler app.myam_handler;",
+      "create function app.myam_handler(internal) returns index_am_handler language internal strict as 'btreehandler';",
+      "create schema app;",
+    ]);
+    const missingHandlerTypes = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ["index_am_handler", "table_am_handler"].includes(ref.name),
+        ) === true,
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const functionIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create function app.myam_handler"),
+    );
+    const accessMethodIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create access method myam"),
+    );
+
+    expect(missingHandlerTypes).toHaveLength(0);
+    expect(functionIndex).toBeGreaterThanOrEqual(0);
+    expect(accessMethodIndex).toBeGreaterThan(functionIndex);
+  });
+
+  test("maps access method comments to access method dependencies", async () => {
+    const result = await analyzeAndSort([
+      "comment on access method myam is 'custom index access method';",
+    ]);
+    const missingAccessMethod = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) => ref.kind === "access_method" && ref.name === "myam",
+        ) === true,
+    );
+    const commentStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("comment on access method myam"),
+    );
+
+    expect(commentStatement?.requires).toContainEqual({
+      kind: "access_method",
+      name: "myam",
+    });
+    expect(missingAccessMethod).toHaveLength(1);
+  });
+
   test("diagnoses base types that copy themselves through type options", async () => {
     const likeResult = await analyzeAndSort([
       "create type app.foo (input = app.foo_in, output = app.foo_out, like = app.foo);",
