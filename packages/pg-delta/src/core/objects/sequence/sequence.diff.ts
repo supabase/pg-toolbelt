@@ -210,6 +210,14 @@ export function diffSequences(
         changes.push(new DropSequence({ sequence: mainSequence }));
       }
       changes.push(new CreateSequence({ sequence: branchSequence }));
+      if (branchSequence.owner !== ctx.currentUser) {
+        changes.push(
+          new AlterSequenceChangeOwner({
+            sequence: branchSequence,
+            owner: branchSequence.owner,
+          }),
+        );
+      }
       // Re-apply OWNED BY if present on branch
       if (
         branchSequence.owned_by_schema !== null &&

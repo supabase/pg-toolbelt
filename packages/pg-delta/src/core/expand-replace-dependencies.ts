@@ -2696,7 +2696,7 @@ function buildRetainedOwnedSequenceReplacementChanges({
   if (!diffContext) return [];
 
   const changes: Change[] = [];
-  const branchSequences = Object.values(branchCatalog.sequences)
+  const mainSequences = Object.values(mainCatalog.sequences)
     .filter(
       (sequence) =>
         sequence.owned_by_schema === table.schema &&
@@ -2705,11 +2705,10 @@ function buildRetainedOwnedSequenceReplacementChanges({
     )
     .sort((a, b) => a.stableId.localeCompare(b.stableId));
 
-  for (const branchSequence of branchSequences) {
-    if (!mainCatalog.sequences[branchSequence.stableId]) continue;
+  for (const mainSequence of mainSequences) {
+    const branchSequence = branchCatalog.sequences[mainSequence.stableId];
+    if (!branchSequence) continue;
     if (createdIds.has(branchSequence.stableId)) continue;
-    const ownedByColumn = branchSequence.owned_by_column;
-    if (ownedByColumn === null) continue;
 
     changes.push(
       ...(diffSequences(
@@ -2720,6 +2719,9 @@ function buildRetainedOwnedSequenceReplacementChanges({
         mainCatalog.tables,
       ) as Change[]),
     );
+
+    const ownedByColumn = branchSequence.owned_by_column;
+    if (ownedByColumn === null) continue;
 
     const ownedColumn = table.columns.find(
       (column) => column.name === ownedByColumn,

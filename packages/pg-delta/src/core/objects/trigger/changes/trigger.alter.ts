@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { AlterTriggerChange } from "./trigger.base.ts";
 import { CreateTrigger } from "./trigger.create.ts";
@@ -85,7 +86,10 @@ export class SetTriggerEnabledState extends AlterTriggerChange {
   }
 
   get requires() {
-    return [this.trigger.stableId];
+    return [
+      this.trigger.stableId,
+      stableId.table(this.trigger.schema, this.trigger.table_name),
+    ];
   }
 
   serialize(_options?: SerializeOptions): string {
