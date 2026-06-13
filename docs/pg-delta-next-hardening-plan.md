@@ -1,16 +1,38 @@
 # pg-delta-next hardening plan: make the boundary semantics explicit
 
-- **Status**: Ready to execute. Remediation plan responding to
-  `pg-delta-next-architecture-implementation-review.md` (external review) and my
-  per-point assessment of it.
+- **Status**: **6 of 8 items shipped (correctness-complete). Two large items
+  remain — Item 4b (provenance flip) and Item 7 (planner split) — both deferred
+  to their own dedicated effort.** See the *Shipped* table below.
 - **Date**: 2026-06-13
-- **Branch / baseline**: `feat/pg-delta-next` @ `c9c322a`.
+- **Branch / baseline**: `feat/pg-delta-next`. Items 1–6 + 8 landed in
+  `c040e08..c918310`; the live head is `c918310`.
 - **Governing doc**: `docs/target-architecture.md` (the north star). **This plan
   does not amend it.** Almost every item here *closes a gap between the
   implementation and what the north star already specifies* — explicit
   projection (§3.9), proof tiers proven/observed/vetted (§3.7),
   provenance-as-edges (§3.1), typed predicates over provenance edges (§3.9). Two
   items (enum boundary, SQL-file txn) are robustness fixes within §3.8/§3.2.
+
+## Shipped (Items 1–6 + 8)
+
+Each landed RED→GREEN, gated (unit + types + lint + knip; corpus/integration
+where relevant), `private:true` so no changeset.
+
+| Item | Commit | What landed |
+|---|---|---|
+| 1 — Explicit projection | `c040e08` | `projectTarget(desired, filteredDeltas)` in `src/plan/project.ts`; `plan()` + `provePlan()` fingerprint/diff against the *projected* target, not full `desired`. |
+| 2 — Proof coverage | `7a08329` | `ProofCoverage` (per-table `contentMode: fingerprint\|count\|none`); deterministic content fingerprint gated on a stable `schemaSig`; honest `ok`. |
+| 3 — Typed predicates | `10cfbc8` | `edgeKind?: EdgeKind` on `EdgeToPredicate` matched in `factMatches`; `KNOWN_ID_FIELDS` + `validateIdFields` so a typo'd `idField` throws in `validatePolicy`. |
+| 4a — Satellite consistency | `e605f83` | `pruneOrphanedSatellites` drops comment/acl/securityLabel facts whose `target` is absent → **CLI-1471 can no longer orphan**. |
+| 5 — Enum boundary | `603cc48` | `commitBoundaryAfter` unconditionally closes its segment in `segmentActions`; new corpus scenario the **old engine fails, new converges**. |
+| 6 — Loader robustness | `c918310` | explicit per-file `BEGIN/COMMIT` + `ROLLBACK`, raw re-run fallback for non-transactional statements (`CREATE INDEX CONCURRENTLY`). |
+| 8 — Docs | folded in | README proof claim softened to coverage tiers + `contentMode`. |
+
+**What this means for correctness:** the bug 4b's review finding (#1) cited —
+CLI-1471 orphan satellites — is **already fixed by 4a**. The remaining 4b work
+is the *architectural ideal* ("observe everything, project intentionally"), not
+an open bug. That is why it is safe to pause here and treat 4b as a dedicated
+migration rather than a tail-end cleanup.
 
 ## Guiding principle
 
@@ -190,6 +212,9 @@ Item 3 (for 4b). **Effort/risk:** 4a small/low; **4b large/high** — recommend
 landing 4a immediately and scheduling 4b as its own gated effort (it may even
 be staged per extractor family).
 
+> **4a is shipped (`e605f83`); 4b is NOT started.** The detailed 4b migration
+> plan lives in its own section below ("Item 4b — dedicated migration plan").
+
 ### Item 5 — `commitBoundaryAfter` becomes an unconditional segment boundary  (review #6, **agree the concern; refine the fix**)
 
 **Problem.** `plan.ts:727` inserts the boundary "before the FIRST graph
@@ -254,6 +279,11 @@ differential must show **state-equivalent plans** (zero behavior change).
 medium / medium — defer until the semantic items land so we refactor a stable
 target. **Lowest priority.**
 
+> **NOT started — and explicitly sequenced *after* 4b, not before.** Refactoring
+> the planner immediately before the provenance flip would blur whether a corpus
+> failure came from the semantic change (4b) or the module movement (7). Do the
+> semantic migration first, against the *current* planner module, then split.
+
 ### Item 8 — Docs normalization (continuous)  (review #8, **agree**)
 
 **Fix.** Normalize README / `API-REVIEW.md` / `COVERAGE.md` into three buckets:
@@ -262,6 +292,115 @@ target. **Lowest priority.**
 truth for exclusions. Fix the README proof overstatement (ties to Item 2). Do
 this *as part of* each item above (each item updates the relevant bucket) rather
 than as a separate pass.
+
+---
+
+## Item 4b — dedicated migration plan (provenance flip)
+
+**This is the one remaining substantive item.** It is *not* "remove some
+filters." It is a **semantic migration from absence-as-policy to
+presence-plus-projection**: extension members stop being invisible (anti-joined
+away at extraction) and instead become observed facts that carry a
+`memberOfExtension` provenance edge and are *projected out by default*. That
+touches **five layers at once** — extraction, dependency resolution, default
+planning semantics, proof semantics, and corpus expectations — which is why it
+gets its own gated plan rather than a single patch.
+
+**Acceptance criterion (the contract this migration must satisfy):**
+
+> *Policy-free behavior remains byte-for-byte compatible by default, while raw
+> extraction can observe extension members with complete provenance edges.*
+
+In other words: with no policy, the corpus and differential stay green
+(members are projected out as before); but `extract()` on its own now returns a
+fact base where members are present, each with a `memberOfExtension` edge.
+
+### Why hurrying it is dangerous
+
+Done sloppily, 4b creates a *worse* class of bug than the one it fixes: objects
+become visible but not correctly projected (they leak into plans), or
+dependency edges point at the wrong abstraction layer (member fact vs the
+extension), changing ordering. "Almost right" looks green until one object
+family with satellites leaks through. The differential oracle is the safety net,
+but only if we gate **after each family**, not just at the end.
+
+### The five stages (each independently shippable, each corpus-gated)
+
+**Stage 0 — default projection first, while extraction still behaves the old
+way.** Before observing anything new, add the default projection path
+(`excludeExtensionMembers`, keyed on the `memberOfExtension` edge — mirror /
+generalize Phase A's `excludeManaged` on `managedBy`) and wire it as a default
+in `plan()`/`prove()`. With extraction unchanged this is a **no-op** (there are
+no `memberOfExtension` edges yet). **Gate:** full corpus on PG 15 + 17 stays
+green. *This proves the new projection path preserves current behavior before
+the observed universe expands* — the single most important de-risking step.
+
+**Stage 1 — parity / inventory harness.** Build a test harness that, for each
+extractor family, compares **"objects previously removed by `notExtensionMember`"**
+against **"objects now present with `memberOfExtension`."** Any mismatch must be
+**explicit and asserted**, not discovered later through corpus drift. This is the
+instrument that tells us a family flip is faithful *before* the corpus does.
+
+**Stage 2 — flip one extractor family at a time.** Remove `notExtensionMember`
+and emit `memberOfExtension` edges family-by-family. **Do not move them all in
+one patch.** Suggested family order (satellite-bearing families last, since they
+are where leaks hide):
+
+1. schemas
+2. tables, columns, constraints, indexes, sequences
+3. views, matviews
+4. routines (functions/procedures/aggregates), triggers
+5. types/domains/collations
+6. policies
+7. grants / comments / security labels / default privileges (**satellites — last**)
+
+After **each** family: run the parity harness (Stage 1) + the corpus on PG 15.
+
+**Stage 3 — change dependency resolution deliberately.** The pg_depend
+edge-resolver today collapses a member reference *to the extension fact* — which
+was correct under filtered extraction (the member didn't exist as a fact). Once
+members are present, resolving to the **member fact** is the correct behavior,
+but it exposes **new edges and new ordering**. This needs its own focused tests
+(not just corpus): assert that a reference into an extension member now resolves
+to the member, and that the resulting plan order is still valid. Land this
+*after* the families are flipped (the member facts must exist first).
+
+**Stage 4 — full gate.** Full corpus on **PG 15 + 17 + the differential** at the
+end. This is exactly the kind of work where a single satellite-bearing family
+can look green locally and leak in the differential — so the differential is the
+final arbiter, not optional.
+
+### Files (4b)
+
+- `src/policy/managed.ts` (or a sibling) — `excludeExtensionMembers` projection
+  keyed on `memberOfExtension`; wire as a default in `src/plan/plan.ts` +
+  `src/proof/prove.ts`.
+- `src/extract/extract.ts` — per family: drop `notExtensionMember`, emit
+  `memberOfExtension` edges; the edge-resolver change (Stage 3).
+- New parity-harness test (Stage 1) under `tests/` or `src/extract/`.
+- `src/policy/supabase.ts` — the Supabase data-package projection rule for
+  `memberOfExtension` (so the Supabase corpus stays green).
+- `COVERAGE.md` — move extension members from "removed at extraction" to
+  "observed, projected by default."
+
+### Gate summary (4b)
+
+- Stage 0: corpus PG 15 + 17 green with the no-op default projection.
+- Each family: parity harness asserts removed-set == newly-present-set; corpus
+  PG 15 green.
+- Stage 3: focused resolver tests (member-targeted edges + ordering) green.
+- Stage 4: **full corpus PG 15 + 17 + differential clean.**
+- `bun run format-and-lint:fix && bun run check-types && bun run knip` clean at
+  every commit.
+
+### Framing
+
+Treat 4b as an **architectural feature** ("complete provenance, intentional
+projection"), not a cleanup. Its value is the general capability: a user `GRANT`
+on `cron.job_run_details` becomes a first-class, policy-manageable fact instead
+of being silently invisible. The CLI-1471 *correctness* motivation is already
+banked in 4a — so 4b can be scheduled on its own merits, without correctness
+pressure.
 
 ---
 
@@ -281,16 +420,20 @@ Item 7 (planner split)  ── after 1,2,5,6
 Item 8 (docs)           ── continuous, folded into each item
 ```
 
-**Recommended order:**
+**Recommended order** (✅ = shipped, ⏳ = remaining):
 
-1. **Item 1 + Item 2** — the coupled, highest-leverage pair (explicit target +
+1. ✅ **Item 1 + Item 2** — the coupled, highest-leverage pair (explicit target +
    honest proof). Proof is the architecture's arbiter; everything else trusts it.
-2. **Item 3** — small; unblocks expressing provenance as policy.
-3. **Item 4a** — quick correctness win (CLI-1471), independent.
-4. **Item 5 + Item 6** — independent robustness, land anytime (good parallel work).
-5. **Item 4b** — the large provenance flip, gated by the differential oracle;
-   may be staged per extractor family.
-6. **Item 7** — planner split, last.
+2. ✅ **Item 3** — small; unblocks expressing provenance as policy.
+3. ✅ **Item 4a** — quick correctness win (CLI-1471), independent.
+4. ✅ **Item 5 + Item 6** — independent robustness (landed).
+5. ⏳ **Item 4b** — the large provenance flip, its own dedicated migration
+   (Stages 0–4 above), gated by the differential oracle after each family.
+6. ⏳ **Item 7** — planner split, last, **after 4b**.
+
+**Where to pick up:** start with **Item 4b Stage 0** (the no-op default
+projection) — it de-risks the whole migration by proving the projection path
+preserves current behavior before any extractor changes.
 
 ## Relationship to the extension-intent work
 
@@ -319,16 +462,25 @@ on the same "implicit safety at the boundary" register — monitored, not fixed:
 
 ## Done-when
 
-- Projection is an explicit, reported step; `provePlan` targets
-  `projectedDesired`; "what was excluded and why" is in the plan artifact.
-- Proof emits a coverage report; seeded tables are content-fingerprinted; a
-  count-preserving content mutation is caught; README/API docs match.
-- Policy predicates are typed and validated; `edgeTo` filters by `EdgeKind`.
-- Extension-member satellites can no longer orphan (CLI-1471 scenario green);
-  (4b) members are facts with `memberOfExtension` edges, projected by policy.
-- `commitBoundaryAfter` always closes its segment; the same-plan enum-consumer
-  scenario is green.
-- SQL-file attempts are transactional; non-transactional statements are
-  classified/handled, never silently stuck.
-- Full corpus green on PG 15 + 17; differential clean; lint/types/knip clean at
-  every commit.
+Shipped (Items 1–6 + 8):
+
+- ✅ Projection is an explicit step; `plan()`/`provePlan` target the *projected*
+  desired, not full `desired`.
+- ✅ Proof emits a coverage report; seeded tables are content-fingerprinted (on a
+  stable `schemaSig`); a count-preserving content mutation is caught; the README
+  proof claim matches.
+- ✅ Policy predicates are typed and validated; `edgeTo` filters by `EdgeKind`.
+- ✅ Extension-member satellites can no longer orphan (CLI-1471 fixed by 4a).
+- ✅ `commitBoundaryAfter` always closes its segment; the same-plan enum-consumer
+  scenario is green (old engine fails, new converges).
+- ✅ SQL-file attempts are transactional; non-transactional statements load via
+  the raw fallback, never silently stuck.
+
+Remaining (the dedicated efforts):
+
+- ⏳ **Item 4b:** extension members are observed facts with `memberOfExtension`
+  edges, projected out by default; **policy-free corpus + differential stay
+  green** (the acceptance criterion); the parity harness asserts removed-set ==
+  newly-present-set per family.
+- ⏳ **Item 7:** planner split with **state-equivalent plans** (zero behavior
+  change), done after 4b.
