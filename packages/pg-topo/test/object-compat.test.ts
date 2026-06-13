@@ -112,6 +112,20 @@ describe("signaturesCompatible", () => {
     ).toBe(true);
   });
 
+  test("does not match explicit public shadow types to pg_catalog signatures", () => {
+    const options = { requireExactArity: true };
+
+    expect(signaturesCompatible("(int4)", "(pg_catalog.int4)", options)).toBe(
+      true,
+    );
+    expect(
+      signaturesCompatible("(pg_catalog.int4)", "(public.int4)", options),
+    ).toBe(false);
+    expect(
+      signaturesCompatible("(public.int4)", "(pg_catalog.int4)", options),
+    ).toBe(false);
+  });
+
   test("single-arg unknown matches any single-param or multi-param provider", () => {
     expect(signaturesCompatible("(unknown)", "(bigint)")).toBe(true);
     expect(signaturesCompatible("(unknown)", "(bigint,text)")).toBe(true);

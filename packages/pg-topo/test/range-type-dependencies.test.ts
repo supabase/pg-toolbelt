@@ -1396,6 +1396,37 @@ describe("range type dependencies", () => {
     expect(skipSupportRequirements).toHaveLength(0);
   });
 
+  test("orders custom btree skip support functions before operator classes", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.score_skip_ops for type int4 using btree as operator 1 < (int4, int4), function 1 btint4cmp(int4, int4), function 6 btscore_skipsupport(internal);",
+      "create function app.btscore_skipsupport(internal) returns void language internal immutable strict as 'btint4skipsupport';",
+      "create schema app;",
+    ]);
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const supportFunctionIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create function app.btscore_skipsupport"),
+    );
+    const operatorClassIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create operator class app.score_skip_ops"),
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.score_skip_ops"),
+    );
+
+    expect(operatorClassStatement?.requires).toContainEqual({
+      kind: "function",
+      schema: "public",
+      name: "btscore_skipsupport",
+      signature: "(public.internal)",
+    });
+    expect(supportFunctionIndex).toBeGreaterThanOrEqual(0);
+    expect(operatorClassIndex).toBeGreaterThan(supportFunctionIndex);
+  });
+
   test("does not require producers for pg_catalog cross-type support operators", async () => {
     const result = await analyzeAndSort([
       "create operator class app.int4_cross_ops for type int4 using btree as operator 1 < (int4, int8), function 1 (int4, int8) btint48cmp(int4, int8);",
@@ -3446,6 +3477,37 @@ describe("range type dependencies", () => {
     expect(tableIndex).toBeGreaterThan(rangeIndex);
   }, 120000);
 
+  test("allows explicit multirange names when subtype matches the default multirange name", async () => {
+    const result = await analyzeAndSort([
+      "create type app.price_range as range (subtype = app.price_multirange, multirange_type_name = app.price_span);",
+      "create domain app.price_multirange as numeric;",
+      "create schema app;",
+    ]);
+    const selfSubtypeDiagnostics = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "price_multirange",
+        ) === true,
+    );
+    const orderedSql = result.ordered.map((statement) =>
+      statement.sql.toLowerCase(),
+    );
+    const domainIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create domain app.price_multirange"),
+    );
+    const rangeIndex = orderedSql.findIndex((sql) =>
+      sql.includes("create type app.price_range"),
+    );
+
+    expect(selfSubtypeDiagnostics).toHaveLength(0);
+    expect(domainIndex).toBeGreaterThanOrEqual(0);
+    expect(rangeIndex).toBeGreaterThan(domainIndex);
+  });
+
   test("provides implicit multirange type names", async () => {
     const result = await analyzeAndSort([
       "create table app.prices(id int primary key, spans app.price_multirange not null);",
@@ -4838,6 +4900,27 @@ describe("range type dependencies", () => {
     );
 
     expect(invalidRangeSupportFunction).toHaveLength(1);
+  });
+
+  test("diagnoses invalid pg_catalog range subtype names", async () => {
+    const result = await analyzeAndSort([
+      "create type app.r as range (subtype = pg_catalog.nope);",
+      "create schema app;",
+    ]);
+    const invalidRangeSubtype = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.message ===
+          "No valid pg_catalog range subtype 'nope' found." &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "nope",
+        ) === true,
+    );
+
+    expect(invalidRangeSubtype).toHaveLength(1);
   });
 
   test("diagnoses missing pg_catalog range subtype opclasses", async () => {
