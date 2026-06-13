@@ -5616,6 +5616,57 @@ describe("range type dependencies", () => {
     expect(unresolvedGinJsonbOperators).toHaveLength(0);
   });
 
+  test("accepts cidr_ops for inet range subtypes", async () => {
+    const result = await analyzeAndSort([
+      "create type app.inet_range as range (subtype = inet, subtype_opclass = pg_catalog.cidr_ops);",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+
+    expect(unresolved).toHaveLength(0);
+  });
+
+  test("accepts remaining built-in GiST range support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4range_gist_ops for type int4range using gist as operator 2 &< (int4range, int4range), operator 5 >> (int4range, int4range), operator 6 -|- (int4range, int4range), operator 18 = (int4range, int4range);",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+
+    expect(unresolved).toHaveLength(0);
+  });
+
+  test("accepts jsonpath and text-search GIN support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.jsonb_gin_ops for type jsonb using gin as operator 15 @? (jsonb, jsonpath), operator 16 @@ (jsonb, jsonpath);",
+      "create operator class app.tsvector_gin_ops for type tsvector using gin as operator 2 @@@ (tsvector, tsquery);",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+
+    expect(unresolved).toHaveLength(0);
+  });
+
+  test("accepts remaining built-in SP-GiST support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.inet_spgist_ops for type inet using spgist as operator 19 <> (inet, inet), operator 25 <<= (inet, inet), operator 26 >> (inet, inet), operator 27 >>= (inet, inet);",
+      "create operator class app.text_spgist_ops for type text using spgist as operator 1 ~<~ (text, text), operator 11 < (text, text), operator 28 ^@ (text, text);",
+      "create operator class app.range_spgist_ops for type int4range using spgist as operator 2 &< (int4range, int4range), operator 5 >> (int4range, int4range), operator 6 -|- (int4range, int4range), operator 18 = (int4range, int4range);",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+
+    expect(unresolved).toHaveLength(0);
+  });
+
   test("accepts shipped GiST support routines", async () => {
     const result = await analyzeAndSort([
       "create operator class app.box_gist_ops for type box using gist family pg_catalog.box_ops as function 1 gist_box_consistent(internal, box, smallint, oid, internal);",
