@@ -325,6 +325,11 @@ const producerRequiresConsumer = (
     hasCompatibleProvidedObject(requiredRef, consumer.provides),
   );
 
+const isRoutineCallbackConsumer = (consumer: StatementNode): boolean =>
+  consumer.statementClass === "CREATE_FUNCTION" ||
+  consumer.statementClass === "CREATE_PROCEDURE" ||
+  consumer.statementClass === "CREATE_AGGREGATE";
+
 const hasLocalProducerForRequirement = (
   requiredRef: ObjectRef,
   consumerIndex: number,
@@ -516,6 +521,7 @@ export const buildGraph = (
         if (
           typeof shellTypeProducerIndex === "number" &&
           shellTypeProducerIndex !== consumerIndex &&
+          isRoutineCallbackConsumer(consumer) &&
           producer &&
           producerRequiresConsumer(producer, consumer)
         ) {
@@ -588,6 +594,7 @@ export const buildGraph = (
         if (
           typeof shellTypeProducerIndex === "number" &&
           shellTypeProducerIndex !== consumerIndex &&
+          isRoutineCallbackConsumer(consumer) &&
           producer &&
           producerRequiresConsumer(producer, consumer)
         ) {

@@ -344,9 +344,7 @@ const extractCreateFunctionDependencies = (
     const argType = typeFromTypeNameNode(functionParameter?.argType);
     if (argType) {
       requires.push(argType);
-      signatureParts.push(
-        argType.schema ? `${argType.schema}.${argType.name}` : argType.name,
-      );
+      signatureParts.push(typeSignaturePart(argType));
     } else {
       signatureParts.push("unknown");
     }
@@ -1196,6 +1194,7 @@ const builtInBtreeOperatorFamilyNames = new Set([
   "macaddr8_ops",
   "macaddr_ops",
   "money_ops",
+  "name_ops",
   "multirange_ops",
   "network_ops",
   "numeric_ops",
@@ -2041,6 +2040,25 @@ const typeRefsMatchBuiltInCrossTypeSupportOperator = (
   );
 };
 
+const typeRefsMatchBuiltInGinJsonbSupportOperator = (
+  name: string,
+  leftArg: ObjectRef | null,
+  rightArg: ObjectRef | null,
+): boolean => {
+  if (!typeRefMatchesBuiltInNames(leftArg, ["jsonb"])) {
+    return false;
+  }
+
+  if (name === "?") {
+    return typeRefMatchesBuiltInNames(rightArg, ["text"]);
+  }
+
+  return (
+    (name === "?|" || name === "?&") &&
+    typeRefMatchesBuiltInNames(rightArg, ["text[]"])
+  );
+};
+
 const isBuiltInOperatorClassSupportOperatorName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
@@ -2140,6 +2158,13 @@ const isBuiltInOperatorClassSupportOperatorName = (
     return false;
   }
   if (!objectRefsSameObject(leftArg, rightArg)) {
+    if (
+      accessMethod.toLowerCase() === "gin" &&
+      typeRefsMatchBuiltInGinJsonbSupportOperator(name, leftArg, rightArg)
+    ) {
+      return true;
+    }
+
     return typeRefsMatchBuiltInCrossTypeSupportOperator(
       leftArg,
       rightArg,
@@ -2798,6 +2823,15 @@ const extractCreateRangeDependencies = (
         rangeRef?.schema ?? DEFAULT_SCHEMA,
       );
       if (multirangeRef) {
+        if (rangeRef && objectRefsSameObject(multirangeRef, rangeRef)) {
+          diagnostics.push(
+            selfReferenceDiagnostic(
+              multirangeRef,
+              `Range type '${rangeRef.schema ? `${rangeRef.schema}.` : ""}${rangeRef.name}' cannot reuse its own name as MULTIRANGE_TYPE_NAME.`,
+            ),
+          );
+          continue;
+        }
         provides.push(...typeProviderRefs(multirangeRef));
         if (multirangeRef.schema) {
           requires.push(createObjectRefFromAst("schema", multirangeRef.schema));
@@ -3529,11 +3563,17 @@ const extractCreateOperatorClassDependencies = (
 
     if (item.itemtype === OPCLASS_ITEM_OPERATOR) {
       const explicitOperatorArgs = objectWithArgsTypeRefs(itemName);
-      requires.push(
-        ...explicitOperatorArgs.filter(
-          (argRef): argRef is ObjectRef => argRef !== null,
-        ),
-      );
+      for (const argRef of explicitOperatorArgs) {
+        if (argRef) {
+          requires.push(argRef);
+          addInvalidPgCatalogTypeDiagnostic(
+            diagnostics,
+            argRef,
+            `No pg_catalog support operator argument type '${argRef.name}' found for operator class.`,
+            "Use an existing pg_catalog type or create the referenced support operator argument type explicitly in a user schema.",
+          );
+        }
+      }
       const operatorArgs =
         explicitOperatorArgs.length > 0
           ? explicitOperatorArgs
@@ -3618,6 +3658,12 @@ const extractCreateOperatorClassDependencies = (
         if (classArgRef) {
           classArgRefs.push(classArgRef);
           requires.push(classArgRef);
+          addInvalidPgCatalogTypeDiagnostic(
+            diagnostics,
+            classArgRef,
+            `No pg_catalog support function class argument type '${classArgRef.name}' found for operator class.`,
+            "Use an existing pg_catalog type or create the referenced support function class argument type explicitly in a user schema.",
+          );
         }
       }
 
