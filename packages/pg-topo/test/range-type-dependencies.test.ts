@@ -1329,6 +1329,62 @@ describe("range type dependencies", () => {
     });
   });
 
+  test("does not require producers for date/time in_range support functions", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.date_window_ops for type date using btree as operator 1 < (date, date), function 1 date_cmp(date, date), function 3 (date, interval) in_range(date, date, interval, bool, bool);",
+      "create operator class app.time_window_ops for type time using btree as operator 1 < (time, time), function 1 time_cmp(time, time), function 3 (time, interval) in_range(time, time, interval, bool, bool);",
+      "create operator class app.timetz_window_ops for type timetz using btree as operator 1 < (timetz, timetz), function 1 timetz_cmp(timetz, timetz), function 3 (timetz, interval) in_range(timetz, timetz, interval, bool, bool);",
+      "create operator class app.timestamp_window_ops for type timestamp using btree as operator 1 < (timestamp, timestamp), function 1 timestamp_cmp(timestamp, timestamp), function 3 (timestamp, interval) in_range(timestamp, timestamp, interval, bool, bool);",
+      "create operator class app.timestamptz_window_ops for type timestamptz using btree as operator 1 < (timestamptz, timestamptz), function 1 timestamptz_cmp(timestamptz, timestamptz), function 3 (timestamptz, interval) in_range(timestamptz, timestamptz, interval, bool, bool);",
+      "create schema app;",
+    ]);
+    const unresolvedInRange = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) => ref.kind === "function" && ref.name === "in_range",
+        ) === true,
+    );
+    const inRangeRequirements = result.ordered.flatMap((statement) =>
+      statement.requires.filter(
+        (ref) => ref.kind === "function" && ref.name === "in_range",
+      ),
+    );
+
+    expect(unresolvedInRange).toHaveLength(0);
+    expect(inRangeRequirements).toHaveLength(0);
+  });
+
+  test("does not require producers for pg_catalog cross-type support operators", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.int4_cross_ops for type int4 using btree as operator 1 < (int4, int8), function 1 (int4, int8) btint48cmp(int4, int8);",
+      "create schema app;",
+    ]);
+    const unresolvedCrossTypeOperator = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator" &&
+            ref.name === "<" &&
+            ref.signature?.includes("int4") === true &&
+            ref.signature?.includes("int8") === true,
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.int4_cross_ops"),
+    );
+
+    expect(unresolvedCrossTypeOperator).toHaveLength(0);
+    expect(
+      operatorClassStatement?.requires.some(
+        (ref) => ref.kind === "operator" && ref.name === "<",
+      ),
+    ).toBe(false);
+  });
+
   test("orders custom subtype opclasses with built-in names before range types", async () => {
     const result = await analyzeAndSort([
       "set search_path = public, pg_catalog;",
@@ -2443,6 +2499,32 @@ describe("range type dependencies", () => {
     ).toBe(false);
     expect(executionErrors).toHaveLength(0);
   }, 120000);
+
+  test("diagnoses built-in support functions that mismatch opclass types", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.invalid_int4_hash_ops for type int4 using hash as operator 1 = (int4, int4), function 1 hashtext(text);",
+      "create schema app;",
+    ]);
+    const invalidHashtext = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) => ref.kind === "function" && ref.name === "hashtext",
+        ) === true,
+    );
+    const operatorClassStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("create operator class app.invalid_int4_hash_ops"),
+    );
+
+    expect(invalidHashtext).toHaveLength(1);
+    expect(
+      operatorClassStatement?.requires.some(
+        (ref) => ref.kind === "function" && ref.name === "hashtext",
+      ),
+    ).toBe(true);
+  });
 
   test("does not require producers for pg_catalog enum and array support operators", async () => {
     const result = await analyzeAndSort([
