@@ -77,12 +77,26 @@ All engineering stages are implemented:
   loads in a single pass), drift, finalized public API (subpath
   exports, reviewed name-by-name in `API-REVIEW.md`), CLI v2.
 
-Environment-gated leftovers: security labels (needs the dummy_seclabel
-image) and the real-Supabase-image baseline proof (the mechanism and
-generation script exist; run `scripts/generate-supabase-baseline.ts`
-against a Supabase container). Stage 10 (cutover) is a product decision
-gated on the parity bar — the differential harness, soak quota at scale,
-and naming are deliberately not unilateral engineering calls.
+The proof loop now verifies the two safety fields state-proof alone can't
+see (§3.7): **rewrite risk** is observed on the clone (a kept table whose
+`relfilenode` changed under no `rewriteRisk`-declaring action fails the
+proof) and **data preservation** can be sharpened with opt-in `autoSeed`
+(synthetic rows in empty kept tables). Per-kind graph policy
+(cascade/rebuild/suppression/defacl) lives entirely in the rule table as
+`KindRules` flags — the planner body holds no kind-name lists (guardrail 3).
+
+See `COVERAGE.md` for the full catalog-coverage map and the deliberate
+exclusions (languages, large objects, …) and known granularity deviations
+(composite-type attributes and publication table-filters are still payload
+blobs rather than sub-entity facts — correct but coarser; tracked).
+
+Environment-gated leftovers: security labels are fully modeled (extraction
++ rule + rendering, unit-proven) but their end-to-end proof needs an image
+with `shared_preload_libraries=dummy_seclabel`; the real-Supabase-image
+baseline proof needs a Supabase container (mechanism + generation script
+exist — run `scripts/generate-supabase-baseline.ts`). Stage 10 (cutover) is
+a product decision gated on the parity bar — the differential harness, soak
+quota at scale, and naming are deliberately not unilateral engineering calls.
 
 Known v1 simplifications:
 
@@ -91,9 +105,9 @@ Known v1 simplifications:
 - capture is serial on one snapshot connection (parallel
   `pg_export_snapshot()` workers are a measured optimization)
 - a surviving dependent of a destroyed fact is force-rebuilt when its kind
-  is rebuildable (view, matview, index, policy, trigger, rule, constraint,
-  default, routine); a non-rebuildable survivor whose dependency stays
-  gone fails the plan loudly
+  declares `rebuildable` in the rule table (view, matview, index, policy,
+  trigger, rule, constraint, default, procedure); a non-rebuildable
+  survivor whose dependency stays gone fails the plan loudly
 
 ## Running
 

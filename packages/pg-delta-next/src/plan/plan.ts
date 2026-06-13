@@ -25,6 +25,7 @@ import {
   KNOWN_PARAMS,
   rulesFor,
   type ActionSpec,
+  type KindRules,
   type PlanParams,
 } from "./rules.ts";
 
@@ -106,27 +107,23 @@ export interface PlanOptions {
   compact?: boolean;
 }
 
-/** Metadata kinds vanish with their parent regardless of parent kind. */
-const METADATA_KINDS = new Set(["comment", "acl"]);
-/** Containers whose DROP cascades to children (schema/role do NOT cascade). */
-const CASCADING_PARENTS = new Set([
-  "table",
-  "view",
-  "materializedView",
-  "foreignTable",
-  "column",
-  "constraint",
-  "index",
-  "sequence",
-  "procedure",
-  "aggregate",
-  "domain",
-  "type",
-  "trigger",
-  "policy",
-  "rule",
-  "default",
-]);
+// Per-kind graph/suppression policy is DECLARED IN THE RULE TABLE
+// (guardrail 3). These accessors read those flags; the planner body holds
+// no kind-name lists. `rulesFor` throws for unknown kinds, so guard it.
+function ruleFlag<K extends keyof KindRules>(
+  kind: string,
+  flag: K,
+): KindRules[K] | undefined {
+  try {
+    return rulesFor(kind)[flag];
+  } catch {
+    return undefined;
+  }
+}
+const cascadesToChildren = (kind: string): boolean =>
+  ruleFlag(kind, "cascadesToChildren") === true;
+const isRebuildable = (kind: string): boolean =>
+  ruleFlag(kind, "rebuildable") === true;
 
 export function plan(
   source: FactBase,
@@ -220,18 +217,8 @@ export function plan(
 
   // ── forced dependent rebuild (the clean expand-replace, §3.4) ─────────
   // A surviving dependent of something this plan destroys must be dropped
-  // and recreated from the desired state — recursively.
-  const REBUILDABLE = new Set([
-    "view",
-    "materializedView",
-    "index",
-    "policy",
-    "trigger",
-    "rule",
-    "constraint",
-    "default",
-    "procedure",
-  ]);
+  // and recreated from the desired state — recursively. Which kinds are
+  // rebuildable is declared per-kind in the rule table (`rebuildable`).
   {
     const destroyedIds = new Set([
       ...removed.keys(),
@@ -247,7 +234,7 @@ export function plan(
         if (destroyedIds.has(fromKey)) continue;
         const dependent = source.get(edge.from);
         if (!dependent || !desired.has(edge.from)) continue;
-        if (!REBUILDABLE.has(dependent.id.kind)) continue;
+        if (!isRebuildable(dependent.id.kind)) continue;
         replaceIds.add(fromKey);
         destroyedIds.add(fromKey);
         grew = true;
@@ -274,23 +261,28 @@ export function plan(
   // FK constraint drops are NEVER suppressed: explicit DROP CONSTRAINT
   // before the table drops makes mutual-FK teardown cycles unconstructible
   // (decomposition over repair, §3.5).
+  const isRemovedId = (id: StableId): boolean => {
+    const key = encodeId(id);
+    return removed.has(key) || replaceIds.has(key);
+  };
   const dropRootOf = new Map<string, string>();
   const findDropRoot = (fact: Fact): string => {
     const key = encodeId(fact.id);
     const cached = dropRootOf.get(key);
     if (cached) return cached;
     let root = key;
+    const rules = rulesFor(fact.id.kind);
+    const suppressible = rules.suppressible?.(fact) ?? true;
     const parent = fact.parent;
-    const isFkConstraint =
-      fact.id.kind === "constraint" && fact.payload["type"] === "f";
-    if (parent !== undefined && !isFkConstraint) {
-      const parentKey = encodeId(parent);
-      const parentRemoved = removed.has(parentKey) || replaceIds.has(parentKey);
+    if (parent !== undefined && suppressible) {
+      const parentRemoved = isRemovedId(parent);
+      // a metadata satellite folds into ANY removed parent; otherwise the
+      // parent kind must be one whose DROP cascades to children
       const cascades =
-        METADATA_KINDS.has(fact.id.kind) || CASCADING_PARENTS.has(parent.kind);
+        rules.metadata === true || cascadesToChildren(parent.kind);
       if (parentRemoved && cascades) {
         root = findDropRoot(
-          removed.get(parentKey) ?? (source.get(parent) as Fact),
+          removed.get(encodeId(parent)) ?? (source.get(parent) as Fact),
         );
       }
     }
@@ -299,34 +291,20 @@ export function plan(
   };
   for (const fact of removed.values()) findDropRoot(fact);
 
-  // an OWNED BY sequence cascades with its owning column/table drop
+  // a fact whose drop folds into a NON-parent ancestor (an OWNED BY
+  // sequence into its owning column/table) — declared per-kind via
+  // dropRootRedirect, resolved here
   for (const fact of removed.values()) {
-    if (fact.id.kind !== "sequence") continue;
-    const ownedBy = fact.payload["ownedBy"] as {
-      schema: string;
-      table: string;
-      column: string;
-    } | null;
-    if (ownedBy == null) continue;
-    const columnKey = encodeId({
-      kind: "column",
-      schema: ownedBy.schema,
-      table: ownedBy.table,
-      name: ownedBy.column,
-    });
-    const tableKey = encodeId({
-      kind: "table",
-      schema: ownedBy.schema,
-      name: ownedBy.table,
-    });
-    const ownerKey = removed.has(columnKey)
-      ? columnKey
-      : removed.has(tableKey)
-        ? tableKey
-        : null;
-    if (ownerKey !== null) {
-      dropRootOf.set(encodeId(fact.id), dropRootOf.get(ownerKey) ?? ownerKey);
-    }
+    const redirect = rulesFor(fact.id.kind).dropRootRedirect?.(
+      fact,
+      isRemovedId,
+    );
+    if (redirect === undefined) continue;
+    const redirectKey = encodeId(redirect);
+    dropRootOf.set(
+      encodeId(fact.id),
+      dropRootOf.get(redirectKey) ?? redirectKey,
+    );
   }
 
   // ── emit actions ──────────────────────────────────────────────────────
@@ -445,17 +423,10 @@ export function plan(
   // default-privilege hygiene: objects created under active default ACLs
   // receive implicit grants; revoke them when the desired state has no
   // corresponding acl fact (pg_dump-style clean slate)
-  const DEFACL_KIND: Record<string, string> = {
-    table: "r",
-    view: "r",
-    materializedView: "r",
-    foreignTable: "r",
-    sequence: "S",
-    procedure: "f",
-    aggregate: "f",
-  };
   for (const fact of added.values()) {
-    const objtype = DEFACL_KIND[fact.id.kind];
+    // which pg_default_acl objtype this kind maps to is declared per-kind
+    // in the rule table (`defaclObjtype`); absent → no default ACLs
+    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
     if (objtype === undefined) continue;
     const owner = fact.payload["owner"];
     if (typeof owner !== "string") continue;

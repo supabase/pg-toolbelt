@@ -72,7 +72,6 @@ export {
   deltaMatches,
   filterDeltas,
   flattenPolicy,
-  serializeParams,
   validatePolicy,
   type Policy,
   type Predicate,

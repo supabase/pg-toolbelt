@@ -85,8 +85,13 @@ async function proveOn(
         const data = verdict.dataViolations
           .map((v) => `  ${v.table}: ${v.before} -> ${v.after} rows`)
           .join("\n");
+        const rewrites = verdict.rewriteViolations
+          .map(
+            (v) => `  ${v.table}: relfilenode changed, no rewriteRisk declared`,
+          )
+          .join("\n");
         throw new Error(
-          `[${name}] proof failed\ndrift:\n${drift}\ndata:\n${data}\nplan:\n${planText}`,
+          `[${name}] proof failed\ndrift:\n${drift}\ndata:\n${data}\nrewrites:\n${rewrites}\nplan:\n${planText}`,
         );
       }
     } finally {

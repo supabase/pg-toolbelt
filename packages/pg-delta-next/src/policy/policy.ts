@@ -29,23 +29,14 @@
  *   - `role` on membership facts (exclude memberships where role is a system role)
  *   - `table` on trigger/policy/etc. (filter triggers on pgmq queue tables)
  *
- * ### `{ targetKind: string | string[] }`
- * For satellite facts whose id has a `target: StableId` field (acl, comment,
- * securityLabel): matches when `target.kind` is one of the given values.
- * Needed for: excluding ACL facts on FDWs (targetKind "fdw").
- *
- * ### `{ targetSchema: string | string[] }`
- * For satellite facts whose id has a `target: StableId` field (acl, comment,
- * securityLabel): matches when the target's `schema` field matches any glob.
- * Needed for: excluding ACL/comment satellites whose target lives in a system
- * schema (the old engine filtered these implicitly via parent object exclusion).
- *
- * ### `{ targetName: string | string[] }`
- * For satellite facts whose id has a `target: StableId` field (acl, comment,
- * securityLabel): matches when the target's `name` field matches any glob.
- * Needed for: excluding ACL/comment satellites on schema-kind targets (which
- * use `name` not `schema` in their StableId). Companion to targetSchema for
- * simple-kind targets like schema, role, extension, fdw, server.
+ * ### `{ target: { kind?: string|string[]; schema?: string|string[]; name?: string|string[] } }`
+ * For satellite facts (acl, comment, securityLabel) whose id has a `target: StableId`
+ * field: matches when ALL provided sub-fields match the target's corresponding fields.
+ * Each sub-field is optional, glob-matched, and accepts a single value or an array.
+ *   - `kind` matches target.kind (exact, no glob — kinds are enum values)
+ *   - `schema` matches target.schema via glob
+ *   - `name` matches target.name via glob
+ * Replaces the three earlier satellite predicates targetKind/targetSchema/targetName.
  *
  * ### `{ edgeTo: { kind?: string; schema?: string | string[] } }`
  * Matches when the fact has an outgoing dependency edge (fb.outgoingEdges) to
@@ -119,6 +110,9 @@ export type OwnerPredicate = { owner: string | string[] };
  * Generic identity-field matcher: reads `(fact.id as Record<string, unknown>)[field]`,
  * then checks it is a string matching any of the given globs.
  * Added for membership.member, membership.role, trigger.table, etc.
+ *
+ * NOTE: This is the one intentional dynamic-field escape hatch in the DSL.
+ * A typo'd field name silently never matches — there is no compile-time check.
  */
 export type IdFieldPredicate = {
   idField: { field: string; glob: string | string[] };
@@ -126,27 +120,23 @@ export type IdFieldPredicate = {
 
 /**
  * For satellite facts (acl, comment, securityLabel) whose id has a
- * `target: StableId` field: matches when `target.kind` is one of the given values.
- * Added for excluding ACLs on FDW objects.
+ * `target: StableId` field: matches when ALL provided sub-fields match the
+ * corresponding fields of the target StableId.
+ *
+ * All sub-fields are optional; only the provided ones are tested.
+ * `kind` is tested by exact equality (kinds are enum values, not user strings).
+ * `schema` and `name` are glob-matched; each accepts a single value or an array
+ * (matches if any element matches).
+ *
+ * Replaces the three separate targetKind / targetSchema / targetName predicates.
  */
-export type TargetKindPredicate = { targetKind: string | string[] };
-
-/**
- * For satellite facts (acl, comment, securityLabel) whose id has a
- * `target: StableId` field: matches when the target's `schema` field matches
- * any glob. Added for excluding ACL/comment satellites in system schemas.
- * Note: does NOT match schema-kind targets (which have `name` not `schema`);
- * use targetName for that case.
- */
-export type TargetSchemaPredicate = { targetSchema: string | string[] };
-
-/**
- * For satellite facts (acl, comment, securityLabel) whose id has a
- * `target: StableId` field: matches when the target's `name` field matches
- * any glob. Added for excluding ACL/comment satellites on schema objects
- * (which use `name` rather than `schema` in their StableId).
- */
-export type TargetNamePredicate = { targetName: string | string[] };
+export type TargetPredicate = {
+  target: {
+    kind?: string | string[];
+    schema?: string | string[];
+    name?: string | string[];
+  };
+};
 
 /**
  * Matches when the fact has an outgoing dependency edge (fb.outgoingEdges)
@@ -171,9 +161,7 @@ export type Predicate =
   | NotPredicate
   | OwnerPredicate
   | IdFieldPredicate
-  | TargetKindPredicate
-  | TargetSchemaPredicate
-  | TargetNamePredicate
+  | TargetPredicate
   | EdgeToPredicate;
 
 // ---------------------------------------------------------------------------
@@ -365,6 +353,8 @@ export function factMatches(
   }
 
   // idField — reads (fact.id as Record)[field], matches any glob
+  // NOTE: Intentional dynamic-field escape hatch. Typo'd field names silently
+  // never match — there is no compile-time check for field name correctness.
   if ("idField" in predicate) {
     const rawId = fact.id as Record<string, unknown>;
     const fieldVal = rawId[predicate.idField.field];
@@ -375,44 +365,48 @@ export function factMatches(
     return globs.some((g) => globMatch(g, fieldVal));
   }
 
-  // targetKind — for satellite facts whose id has a target: StableId
-  if ("targetKind" in predicate) {
+  // target — unified satellite-target predicate (replaces targetKind/targetSchema/targetName)
+  // For satellite facts whose id has a `target: StableId` field.
+  // All provided sub-fields must match (AND semantics); absent sub-fields are ignored.
+  if ("target" in predicate) {
     const rawId = fact.id as Record<string, unknown>;
-    const target = rawId["target"];
-    if (target === null || typeof target !== "object") return false;
-    const targetKindVal = (target as Record<string, unknown>)["kind"];
-    if (typeof targetKindVal !== "string") return false;
-    const kinds = Array.isArray(predicate.targetKind)
-      ? predicate.targetKind
-      : [predicate.targetKind];
-    return kinds.some((k) => k === targetKindVal);
-  }
+    const targetRaw = rawId["target"];
+    if (targetRaw === null || typeof targetRaw !== "object") return false;
+    const targetObj = targetRaw as Record<string, unknown>;
 
-  // targetSchema — for satellite facts whose id has a target: StableId with schema
-  if ("targetSchema" in predicate) {
-    const rawId = fact.id as Record<string, unknown>;
-    const target = rawId["target"];
-    if (target === null || typeof target !== "object") return false;
-    const targetSchemaVal = (target as Record<string, unknown>)["schema"];
-    if (typeof targetSchemaVal !== "string") return false;
-    const patterns = Array.isArray(predicate.targetSchema)
-      ? predicate.targetSchema
-      : [predicate.targetSchema];
-    return patterns.some((p) => globMatch(p, targetSchemaVal));
-  }
+    const {
+      kind: kindFilter,
+      schema: schemaFilter,
+      name: nameFilter,
+    } = predicate.target;
 
-  // targetName — for satellite facts whose id has a target: StableId with name
-  // (covers schema-kind targets which have `name` not `schema`)
-  if ("targetName" in predicate) {
-    const rawId = fact.id as Record<string, unknown>;
-    const target = rawId["target"];
-    if (target === null || typeof target !== "object") return false;
-    const targetNameVal = (target as Record<string, unknown>)["name"];
-    if (typeof targetNameVal !== "string") return false;
-    const patterns = Array.isArray(predicate.targetName)
-      ? predicate.targetName
-      : [predicate.targetName];
-    return patterns.some((p) => globMatch(p, targetNameVal));
+    // kind sub-field: exact match (kinds are enum values)
+    if (kindFilter !== undefined) {
+      const targetKindVal = targetObj["kind"];
+      if (typeof targetKindVal !== "string") return false;
+      const kinds = Array.isArray(kindFilter) ? kindFilter : [kindFilter];
+      if (!kinds.some((k) => k === targetKindVal)) return false;
+    }
+
+    // schema sub-field: glob match
+    if (schemaFilter !== undefined) {
+      const targetSchemaVal = targetObj["schema"];
+      if (typeof targetSchemaVal !== "string") return false;
+      const patterns = Array.isArray(schemaFilter)
+        ? schemaFilter
+        : [schemaFilter];
+      if (!patterns.some((p) => globMatch(p, targetSchemaVal))) return false;
+    }
+
+    // name sub-field: glob match
+    if (nameFilter !== undefined) {
+      const targetNameVal = targetObj["name"];
+      if (typeof targetNameVal !== "string") return false;
+      const patterns = Array.isArray(nameFilter) ? nameFilter : [nameFilter];
+      if (!patterns.some((p) => globMatch(p, targetNameVal))) return false;
+    }
+
+    return true;
   }
 
   // edgeTo — matches when outgoing edges contain one to kind/schema
@@ -651,36 +645,6 @@ export function filterDeltas(
   }
 
   return { kept, filtered };
-}
-
-// ---------------------------------------------------------------------------
-// Serialize params merging
-// ---------------------------------------------------------------------------
-
-/**
- * Merge serialize params from all matching rules in policy evaluation order.
- *
- * Rules are evaluated in own-before-extends order (flattenPolicy). The first
- * matching rule to set a param key wins (later rules do not override earlier
- * ones). The common case — a match-everything rule `{ all: [] }` — is handled
- * naturally.
- *
- * This overload operates without a specific delta context; callers needing
- * per-delta params should use filterDeltas + their own rule evaluation.
- */
-export function serializeParams(policy: Policy): PlanParams {
-  const flat = flattenPolicy(policy);
-  const result: PlanParams = {};
-
-  for (const rule of flat.serialize) {
-    for (const [key, value] of Object.entries(rule.params)) {
-      if (!(key in result)) {
-        result[key] = value;
-      }
-    }
-  }
-
-  return result;
 }
 
 // ---------------------------------------------------------------------------

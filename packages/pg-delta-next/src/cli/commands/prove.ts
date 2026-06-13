@@ -10,28 +10,30 @@ import { provePlan } from "../../proof/prove.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 
 export async function cmdProve(args: string[]): Promise<void> {
-  let planPath: string | undefined;
-  let cloneUrl: string | undefined;
-  let snapshotPath: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--plan" && args[i + 1]) {
-      planPath = args[++i];
-    } else if (args[i] === "--clone" && args[i + 1]) {
-      cloneUrl = args[++i];
-    } else if (args[i] === "--desired-snapshot" && args[i + 1]) {
-      snapshotPath = args[++i];
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      plan: { type: "value", required: true },
+      clone: { type: "value", required: true },
+      "desired-snapshot": { type: "value", required: true },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file>\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!planPath || !cloneUrl || !snapshotPath) {
-    process.stderr.write(
-      "Usage: pg-delta-next prove --plan <plan.json> --clone <pg-url> --desired-snapshot <file>\n",
-    );
-    process.exit(2);
-  }
+  const { flags } = parsed;
+  const planPath = flags["plan"];
+  const cloneUrl = flags["clone"];
+  const snapshotPath = flags["desired-snapshot"];
 
   process.stderr.write(
     "WARNING: The --clone database will be mutated and can no longer be used as a source.\n",

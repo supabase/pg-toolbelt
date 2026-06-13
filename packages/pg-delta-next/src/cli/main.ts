@@ -18,6 +18,7 @@
  * Commands:
  *   plan           --source <pg-url> --desired <pg-url>
  *                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+ *                  [--accept-rename <from>=<to>] ...
  *   apply          --plan <plan.json> --target <pg-url> [--force]
  *   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
  *   diff           --source <pg-url> --desired <pg-url>
@@ -26,6 +27,13 @@
  *   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
  *   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
  *                  [--renames auto|prompt|off] [--force]
+ *                  [--accept-rename <from>=<to>] ...
+ *
+ * --renames default for the CLI is "prompt" (the library default is "off").
+ * --accept-rename <from>=<to>
+ *   Confirm one rename candidate using the encoded stable-ids printed during a
+ *   prior --renames prompt run (e.g. --accept-rename table:public.old=table:public.new).
+ *   Repeatable; each occurrence confirms one rename.  Available on: plan, schema apply.
  */
 
 import { cmdPlan } from "./commands/plan.ts";
@@ -42,6 +50,7 @@ pg-delta-next <command> [options]
 Commands:
   plan           --source <pg-url> --desired <pg-url>
                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+                 [--accept-rename <from>=<to>] ...
   apply          --plan <plan.json> --target <pg-url> [--force]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
   diff           --source <pg-url> --desired <pg-url>
@@ -50,6 +59,11 @@ Commands:
   schema export  --source <pg-url> --out-dir <dir> [--layout ordered]
   schema apply   --dir <dir> --shadow <pg-url> --target <pg-url>
                  [--renames auto|prompt|off] [--force]
+                 [--accept-rename <from>=<to>] ...
+
+Notes:
+  --renames defaults to "prompt" for the CLI (library default is "off").
+  --accept-rename: confirm a rename from a prior prompt run; repeatable.
 
 Old → New mapping:
   plan              -> plan

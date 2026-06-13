@@ -114,7 +114,6 @@ the documented vocabulary.
 | `rulesFor` / `ActionSpec` / `PlanParams` | `plan/rules.ts` | The rule table is an implementation detail of the planner; no caller should need to invoke rules directly. |
 | `topoSort` | `plan/graph.ts` | Internal graph utility. |
 | `grantTarget` / `qid` | `plan/render.ts` | Internal SQL-rendering utilities. |
-| `filterDeltas` / `serializeParams` / `validatePolicy` / `Policy` | `policy/policy.ts` | Policy is a parallel work-in-progress module (owned by another agent); nothing is exported from it yet to avoid contract conflicts. |
 | `PayloadValue` | `core/hash.ts` | Implementation detail of `Payload`; not part of the public comparison vocabulary. Callers work with `Payload`. |
 | `hashString` | `core/hash.ts` | Internal primitive not needed by API consumers. |
 | `FORMAT_VERSION` | `core/snapshot.ts` | Version management is handled inside `serializeSnapshot` / `deserializeSnapshot`; callers need not reference the constant. |
@@ -129,8 +128,8 @@ the documented vocabulary.
 | `factMatches` / `deltaMatches` | function | predicate evaluation against a fact/delta in context | ✓ |
 | `filterDeltas` | function | split deltas into kept/filtered — filtered is reported, never silent | ✓ |
 | `flattenPolicy` | function | resolve extends with cycle detection | ✓ |
-| `serializeParams` | function | merged params of a policy's serialize rules (match-all use) | ✓ |
 | `validatePolicy` | function | unknown-param + extends-cycle validation | ✓ |
+| `serializeParams` | function | **DEPRECATED** — aggregates serialize params globally without per-delta context; misleading second path alongside the planner's own per-fact resolution. Retained in the export surface only because `src/index.ts` re-exports it and that file is outside the current edit boundary. Do not use in new code. | ✗ |
 | `subtractBaseline` | function | drop facts present-and-identical in a baseline fact base | ✓ (baselines = fact-base subtraction) |
 | `loadBaseline` | function | snapshot file → FactBase with digest verification | ✓ |
 | `supabasePolicy` | const | the Supabase vendor package (first DSL consumer) | ✓ |

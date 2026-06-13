@@ -9,28 +9,30 @@ import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
 import { apply } from "../../apply/apply.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 
 export async function cmdApply(args: string[]): Promise<void> {
-  let planPath: string | undefined;
-  let targetUrl: string | undefined;
-  let force = false;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--plan" && args[i + 1]) {
-      planPath = args[++i];
-    } else if (args[i] === "--target" && args[i + 1]) {
-      targetUrl = args[++i];
-    } else if (args[i] === "--force") {
-      force = true;
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      plan: { type: "value", required: true },
+      target: { type: "value", required: true },
+      force: { type: "boolean" },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next apply --plan <plan.json> --target <pg-url> [--force]\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!planPath || !targetUrl) {
-    process.stderr.write(
-      "Usage: pg-delta-next apply --plan <plan.json> --target <pg-url> [--force]\n",
-    );
-    process.exit(2);
-  }
+  const { flags } = parsed;
+  const planPath = flags["plan"];
+  const targetUrl = flags["target"];
+  const force = flags["force"];
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);

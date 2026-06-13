@@ -1,53 +1,93 @@
 /**
  * plan --source <pg-url> --desired <pg-url>
  *      [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
+ *      [--accept-rename <from>=<to>] (repeatable)
  *
  * Extract both databases, plan, write serializePlan to --out (default stdout).
  * Print a human summary to stderr: action count, safety report, rename
  * candidates (prompt-mode candidates listed as questions with from/to),
  * filtered-delta count.
+ *
+ * --accept-rename <from>=<to>
+ *   Confirm one rename candidate identified during a prior --renames prompt run.
+ *   <from> and <to> are the encoded stable-ids printed in the prompt output
+ *   (e.g. table:public.users).  Repeatable; each flag names one confirmed rename.
+ *   In prompt mode, accepted renames become real renames; unconfirmed unambiguous
+ *   candidates are treated as drop+create.
  */
 import { extract } from "../../extract/extract.ts";
 import { plan } from "../../plan/plan.ts";
 import { serializePlan } from "../../plan/artifact.ts";
-import { encodeId } from "../../core/stable-id.ts";
+import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
 
-export async function cmdPlan(args: string[]): Promise<void> {
-  let sourceUrl: string | undefined;
-  let desiredUrl: string | undefined;
-  let renames: RenameMode = "off";
-  let compact = true;
-  let outPath: string | undefined;
+const USAGE =
+  "Usage: pg-delta-next plan --source <pg-url> --desired <pg-url> " +
+  "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
+  "[--accept-rename <from>=<to>] ...\n";
 
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--source" && args[i + 1]) {
-      sourceUrl = args[++i];
-    } else if (args[i] === "--desired" && args[i + 1]) {
-      desiredUrl = args[++i];
-    } else if (args[i] === "--renames" && args[i + 1]) {
-      const v = args[++i];
-      if (v !== "auto" && v !== "prompt" && v !== "off") {
-        process.stderr.write(
-          `--renames must be auto, prompt, or off (got: ${v})\n`,
-        );
-        process.exit(2);
-      }
-      renames = v;
-    } else if (args[i] === "--no-compact") {
-      compact = false;
-    } else if (args[i] === "--out" && args[i + 1]) {
-      outPath = args[++i];
+export async function cmdPlan(args: string[]): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      source: { type: "value", required: true },
+      desired: { type: "value", required: true },
+      renames: { type: "value" },
+      "no-compact": { type: "boolean" },
+      out: { type: "value" },
+      "accept-rename": { type: "multi" },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(`${err.message}\n${USAGE}`);
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!sourceUrl || !desiredUrl) {
-    process.stderr.write(
-      "Usage: pg-delta-next plan --source <pg-url> --desired <pg-url> [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]\n",
-    );
-    process.exit(2);
+  const { flags } = parsed;
+  const sourceUrl = flags["source"];
+  const desiredUrl = flags["desired"];
+  const compact = !flags["no-compact"];
+  const outPath = flags["out"];
+  const acceptRenameRaw = flags["accept-rename"]; // string[]
+
+  // --renames default for CLI is "prompt"
+  let renames: RenameMode = "prompt";
+  if (flags["renames"] !== undefined) {
+    const v = flags["renames"];
+    if (v !== "auto" && v !== "prompt" && v !== "off") {
+      process.stderr.write(
+        `--renames must be auto, prompt, or off (got: ${v})\n`,
+      );
+      process.exit(2);
+    }
+    renames = v;
+  }
+
+  // parse --accept-rename <from>=<to> entries
+  const acceptRenames: Array<{ from: StableId; to: StableId }> = [];
+  for (const entry of acceptRenameRaw) {
+    const eqIdx = entry.indexOf("=");
+    if (eqIdx === -1) {
+      process.stderr.write(
+        `--accept-rename value must be in <from>=<to> form (got: ${entry})\n`,
+      );
+      process.exit(2);
+    }
+    const fromStr = entry.slice(0, eqIdx);
+    const toStr = entry.slice(eqIdx + 1);
+    try {
+      acceptRenames.push({ from: parseId(fromStr), to: parseId(toStr) });
+    } catch (e) {
+      process.stderr.write(
+        `--accept-rename: invalid stable-id in "${entry}": ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      process.exit(2);
+    }
   }
 
   const src = makePool(sourceUrl);
@@ -60,10 +100,15 @@ export async function cmdPlan(args: string[]): Promise<void> {
       extract(dst.pool),
     ]);
 
-    const thePlan = plan(sourceResult.factBase, desiredResult.factBase, {
-      renames,
-      compact,
-    });
+    const planOptions =
+      acceptRenames.length > 0
+        ? { renames, compact, acceptRenames }
+        : { renames, compact };
+    const thePlan = plan(
+      sourceResult.factBase,
+      desiredResult.factBase,
+      planOptions,
+    );
 
     // human summary → stderr
     process.stderr.write(`\nPlan summary:\n`);
@@ -89,6 +134,9 @@ export async function cmdPlan(args: string[]): Promise<void> {
         if (renames === "prompt" && c.status === "unambiguous") {
           process.stderr.write(
             `  ? Rename ${fromStr} -> ${toStr}? (${c.status})\n`,
+          );
+          process.stderr.write(
+            `    To confirm, rerun with: --accept-rename ${fromStr}=${toStr}\n`,
           );
         } else {
           process.stderr.write(

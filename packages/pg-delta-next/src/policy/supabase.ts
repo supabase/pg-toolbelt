@@ -37,17 +37,17 @@
  *           { kind:"membership", idField{field:"role"} IN SYSTEM_ROLES } → exclude
  *
  * Old-9: objectType foreign_data_wrapper + scope privilege
- *        → { kind:"acl", targetKind:"fdw" } → exclude
+ *        → { kind:"acl", target:{kind:"fdw"} } → exclude
  *        (GRANT/REVOKE on FDW requires superuser; non-superuser postgres
  *        cannot replay this ACL regardless of FDW ownership)
  *
  * Old-10: implicitly filtered in old engine via parent-object exclusion
- *         → { kind:["acl","comment","securityLabel"], targetSchema IN SYSTEM } → exclude
- *            { kind:["acl","comment","securityLabel"], targetName IN SYSTEM_SCHEMAS } → exclude
- *         Two rules because targetSchema matches qualified-kind targets (table,
- *         view, sequence...) while targetName matches simple-kind targets like
- *         schema itself (in v2, satellite deltas are independent; must be excluded
- *         explicitly)
+ *         → { kind:["acl","comment","securityLabel"], target:{schema IN SYSTEM} } → exclude
+ *            { kind:["acl","comment","securityLabel"], target:{kind:"schema", name IN SYSTEM_SCHEMAS} } → exclude
+ *         Two sub-rules under the unified target predicate: target.schema covers
+ *         qualified-kind targets (table, view, sequence...) while target.kind+name
+ *         covers simple-kind targets like schema itself (in v2, satellite deltas
+ *         are independent; must be excluded explicitly)
  *
  * Old-11: emptyCatalog: undefined (TODO in old engine)
  *         → baseline: "supabase-baseline"
@@ -321,7 +321,7 @@ export const supabasePolicy: Policy = {
     // and user-created servers carry legitimate user ACL that must roundtrip.
     {
       match: {
-        all: [{ kind: "acl" }, { targetKind: "fdw" }],
+        all: [{ kind: "acl" }, { target: { kind: "fdw" } }],
       },
       action: "exclude",
     },
@@ -334,25 +334,25 @@ export const supabasePolicy: Policy = {
     // cascaded. In v2, each delta is evaluated independently against the full
     // fact base, so we must explicitly exclude satellites targeting system objects.
     //
-    // Two sub-rules are needed:
-    //   - targetSchema covers qualified-kind targets (table, view, sequence, ...)
+    // Two sub-rules under the unified `target` predicate:
+    //   - target.schema covers qualified-kind targets (table, view, sequence, ...)
     //     which carry a `schema` field in their StableId.
-    //   - targetName covers simple-kind targets (schema, role, extension, fdw, ...)
-    //     which carry only a `name` field. We match schema-kind targets whose
-    //     `name` is in SUPABASE_SYSTEM_SCHEMAS (covers ACLs on the auth schema
-    //     itself, not just tables inside auth).
+    //   - target.kind + target.name covers simple-kind targets like schema
+    //     which carry only a `name` field (no `schema`). We match schema-kind
+    //     targets whose `name` is in SUPABASE_SYSTEM_SCHEMAS (covers ACLs on
+    //     the auth schema itself, not just tables inside auth).
     {
       match: {
         all: [
           { kind: ["acl", "comment", "securityLabel"] },
           {
             any: [
-              { targetSchema: [...SUPABASE_SYSTEM_SCHEMAS] },
+              { target: { schema: [...SUPABASE_SYSTEM_SCHEMAS] } },
               {
-                all: [
-                  { targetKind: "schema" },
-                  { targetName: [...SUPABASE_SYSTEM_SCHEMAS] },
-                ],
+                target: {
+                  kind: "schema",
+                  name: [...SUPABASE_SYSTEM_SCHEMAS],
+                },
               },
             ],
           },

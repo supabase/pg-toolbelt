@@ -6,6 +6,7 @@ import { diff } from "../../core/diff.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { extract } from "../../extract/extract.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 import type { Delta } from "../../core/diff.ts";
 
 function subjectKind(d: Delta): string {
@@ -35,23 +36,25 @@ function subjectId(d: Delta): string {
 }
 
 export async function cmdDiff(args: string[]): Promise<void> {
-  let sourceUrl: string | undefined;
-  let desiredUrl: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--source" && args[i + 1]) {
-      sourceUrl = args[++i];
-    } else if (args[i] === "--desired" && args[i + 1]) {
-      desiredUrl = args[++i];
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      source: { type: "value", required: true },
+      desired: { type: "value", required: true },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next diff --source <pg-url> --desired <pg-url>\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!sourceUrl || !desiredUrl) {
-    process.stderr.write(
-      "Usage: pg-delta-next diff --source <pg-url> --desired <pg-url>\n",
-    );
-    process.exit(2);
-  }
+  const { flags } = parsed;
+  const sourceUrl = flags["source"];
+  const desiredUrl = flags["desired"];
 
   const src = makePool(sourceUrl);
   const dst = makePool(desiredUrl);

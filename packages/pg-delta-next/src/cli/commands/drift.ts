@@ -9,25 +9,28 @@ import { encodeId } from "../../core/stable-id.ts";
 import { extract } from "../../extract/extract.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 
 export async function cmdDrift(args: string[]): Promise<void> {
-  let envUrl: string | undefined;
-  let snapshotPath: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--env" && args[i + 1]) {
-      envUrl = args[++i];
-    } else if (args[i] === "--snapshot" && args[i + 1]) {
-      snapshotPath = args[++i];
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      env: { type: "value", required: true },
+      snapshot: { type: "value", required: true },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file>\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!envUrl || !snapshotPath) {
-    process.stderr.write(
-      "Usage: pg-delta-next drift --env <pg-url> --snapshot <file>\n",
-    );
-    process.exit(2);
-  }
+  const { flags } = parsed;
+  const envUrl = flags["env"];
+  const snapshotPath = flags["snapshot"];
 
   const env = makePool(envUrl);
   try {

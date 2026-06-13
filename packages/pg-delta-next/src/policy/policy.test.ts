@@ -11,7 +11,6 @@ import {
   factMatches,
   filterDeltas,
   flattenPolicy,
-  serializeParams,
   validatePolicy,
   type Policy,
   type Predicate,
@@ -685,10 +684,6 @@ describe("validatePolicy — serialize param validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// describe: serializeParams
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // describe: factMatches — new predicates (stage-8 vocabulary extensions)
 // ---------------------------------------------------------------------------
 
@@ -837,13 +832,18 @@ describe("factMatches — idField predicate", () => {
   });
 });
 
-describe("factMatches — targetKind predicate", () => {
-  test("matches acl fact targeting fdw", () => {
+// ---------------------------------------------------------------------------
+// describe: factMatches — target predicate (unified replacement for
+// targetKind / targetSchema / targetName)
+// ---------------------------------------------------------------------------
+
+describe("factMatches — target predicate (kind sub-field)", () => {
+  test("matches acl fact targeting fdw via target.kind", () => {
     const fdwId: StableId = { kind: "fdw", name: "postgres_fdw" };
     const aclId: StableId = { kind: "acl", target: fdwId, grantee: "postgres" };
     const fact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([{ id: fdwId, payload: {} }, fact], []);
-    expect(factMatches({ targetKind: "fdw" }, fact, fb)).toBe(true);
+    expect(factMatches({ target: { kind: "fdw" } }, fact, fb)).toBe(true);
   });
 
   test("does not match when target kind differs", () => {
@@ -864,15 +864,17 @@ describe("factMatches — targetKind predicate", () => {
       payload: {},
     };
     const fb = buildFactBase([schemaFact, tableFact, fact], []);
-    expect(factMatches({ targetKind: "fdw" }, fact, fb)).toBe(false);
+    expect(factMatches({ target: { kind: "fdw" } }, fact, fb)).toBe(false);
   });
 
-  test("matches array of target kinds", () => {
+  test("matches array of target kinds via target.kind", () => {
     const fdwId: StableId = { kind: "fdw", name: "my_fdw" };
     const aclId: StableId = { kind: "acl", target: fdwId, grantee: "pg" };
     const fact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([{ id: fdwId, payload: {} }, fact], []);
-    expect(factMatches({ targetKind: ["fdw", "server"] }, fact, fb)).toBe(true);
+    expect(factMatches({ target: { kind: ["fdw", "server"] } }, fact, fb)).toBe(
+      true,
+    );
   });
 
   test("returns false when id has no target field", () => {
@@ -881,12 +883,12 @@ describe("factMatches — targetKind predicate", () => {
       payload: {},
     };
     const fb = buildFactBase([fact], []);
-    expect(factMatches({ targetKind: "fdw" }, fact, fb)).toBe(false);
+    expect(factMatches({ target: { kind: "fdw" } }, fact, fb)).toBe(false);
   });
 });
 
-describe("factMatches — targetSchema predicate", () => {
-  test("matches acl whose target lives in a system schema", () => {
+describe("factMatches — target predicate (schema sub-field)", () => {
+  test("matches acl whose target lives in a system schema via target.schema", () => {
     const tableId: StableId = { kind: "table", schema: "auth", name: "users" };
     const aclId: StableId = { kind: "acl", target: tableId, grantee: "anon" };
     const schemaFact: Fact = {
@@ -900,7 +902,7 @@ describe("factMatches — targetSchema predicate", () => {
     };
     const fact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, tableFact, fact], []);
-    expect(factMatches({ targetSchema: "auth" }, fact, fb)).toBe(true);
+    expect(factMatches({ target: { schema: "auth" } }, fact, fb)).toBe(true);
   });
 
   test("does not match when target schema differs", () => {
@@ -917,10 +919,10 @@ describe("factMatches — targetSchema predicate", () => {
     };
     const fact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, tableFact, fact], []);
-    expect(factMatches({ targetSchema: "auth" }, fact, fb)).toBe(false);
+    expect(factMatches({ target: { schema: "auth" } }, fact, fb)).toBe(false);
   });
 
-  test("matches array of target schemas", () => {
+  test("matches array of target schemas via target.schema", () => {
     const tableId: StableId = {
       kind: "table",
       schema: "storage",
@@ -938,9 +940,9 @@ describe("factMatches — targetSchema predicate", () => {
     };
     const fact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, tableFact, fact], []);
-    expect(factMatches({ targetSchema: ["auth", "storage"] }, fact, fb)).toBe(
-      true,
-    );
+    expect(
+      factMatches({ target: { schema: ["auth", "storage"] } }, fact, fb),
+    ).toBe(true);
   });
 
   test("returns false for facts without target in id", () => {
@@ -949,18 +951,18 @@ describe("factMatches — targetSchema predicate", () => {
       payload: {},
     };
     const fb = buildFactBase([fact], []);
-    expect(factMatches({ targetSchema: "auth" }, fact, fb)).toBe(false);
+    expect(factMatches({ target: { schema: "auth" } }, fact, fb)).toBe(false);
   });
 });
 
-describe("factMatches — targetName predicate", () => {
+describe("factMatches — target predicate (name sub-field)", () => {
   test("matches acl whose target has the given name (schema-kind target)", () => {
     const schemaId: StableId = { kind: "schema", name: "auth" };
     const aclId: StableId = { kind: "acl", target: schemaId, grantee: "anon" };
     const schemaFact: Fact = { id: schemaId, payload: {} };
     const aclFact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, aclFact], []);
-    expect(factMatches({ targetName: "auth" }, aclFact, fb)).toBe(true);
+    expect(factMatches({ target: { name: "auth" } }, aclFact, fb)).toBe(true);
   });
 
   test("does not match when target name differs", () => {
@@ -969,7 +971,7 @@ describe("factMatches — targetName predicate", () => {
     const schemaFact: Fact = { id: schemaId, payload: {} };
     const aclFact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, aclFact], []);
-    expect(factMatches({ targetName: "auth" }, aclFact, fb)).toBe(false);
+    expect(factMatches({ target: { name: "auth" } }, aclFact, fb)).toBe(false);
   });
 
   test("matches array of target names", () => {
@@ -978,15 +980,55 @@ describe("factMatches — targetName predicate", () => {
     const schemaFact: Fact = { id: schemaId, payload: {} };
     const aclFact: Fact = { id: aclId, payload: {} };
     const fb = buildFactBase([schemaFact, aclFact], []);
-    expect(factMatches({ targetName: ["auth", "storage"] }, aclFact, fb)).toBe(
-      true,
-    );
+    expect(
+      factMatches({ target: { name: ["auth", "storage"] } }, aclFact, fb),
+    ).toBe(true);
   });
 
   test("returns false for facts without target in id", () => {
     const fact: Fact = { id: { kind: "schema", name: "public" }, payload: {} };
     const fb = buildFactBase([fact], []);
-    expect(factMatches({ targetName: "auth" }, fact, fb)).toBe(false);
+    expect(factMatches({ target: { name: "auth" } }, fact, fb)).toBe(false);
+  });
+});
+
+describe("factMatches — target predicate (combined sub-fields)", () => {
+  test("matches when all provided sub-fields match (kind + name)", () => {
+    const schemaId: StableId = { kind: "schema", name: "auth" };
+    const aclId: StableId = { kind: "acl", target: schemaId, grantee: "anon" };
+    const schemaFact: Fact = { id: schemaId, payload: {} };
+    const aclFact: Fact = { id: aclId, payload: {} };
+    const fb = buildFactBase([schemaFact, aclFact], []);
+    expect(
+      factMatches({ target: { kind: "schema", name: "auth" } }, aclFact, fb),
+    ).toBe(true);
+  });
+
+  test("fails when only one of two sub-fields matches (kind + name mismatch)", () => {
+    const schemaId: StableId = { kind: "schema", name: "public" };
+    const aclId: StableId = { kind: "acl", target: schemaId, grantee: "anon" };
+    const schemaFact: Fact = { id: schemaId, payload: {} };
+    const aclFact: Fact = { id: aclId, payload: {} };
+    const fb = buildFactBase([schemaFact, aclFact], []);
+    // kind matches ("schema") but name does not ("public" != "auth")
+    expect(
+      factMatches({ target: { kind: "schema", name: "auth" } }, aclFact, fb),
+    ).toBe(false);
+  });
+
+  test("empty target predicate {} matches any fact with a target field", () => {
+    const fdwId: StableId = { kind: "fdw", name: "my_fdw" };
+    const aclId: StableId = { kind: "acl", target: fdwId, grantee: "pg" };
+    const aclFact: Fact = { id: aclId, payload: {} };
+    const fb = buildFactBase([{ id: fdwId, payload: {} }, aclFact], []);
+    // No sub-fields provided → vacuously true for any fact with a `target` field
+    expect(factMatches({ target: {} }, aclFact, fb)).toBe(true);
+  });
+
+  test("empty target predicate {} returns false for facts without target field", () => {
+    const fact: Fact = { id: { kind: "schema", name: "public" }, payload: {} };
+    const fb = buildFactBase([fact], []);
+    expect(factMatches({ target: {} }, fact, fb)).toBe(false);
   });
 });
 
@@ -1158,52 +1200,5 @@ describe("factMatches — edgeTo predicate", () => {
     expect(factMatches({ edgeTo: { schema: "auth" } }, trigFact, fb)).toBe(
       false,
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// describe: serializeParams
-// ---------------------------------------------------------------------------
-
-describe("serializeParams", () => {
-  test("no serialize rules → empty object", () => {
-    const policy: Policy = { id: "empty" };
-    expect(serializeParams(policy)).toEqual({});
-  });
-
-  test("match-everything rule contributes params", () => {
-    const policy: Policy = {
-      id: "with-params",
-      serialize: [{ match: { all: [] }, params: { concurrentIndexes: true } }],
-    };
-    const params = serializeParams(policy);
-    expect(params["concurrentIndexes"]).toBe(true);
-  });
-
-  test("own rules win over extended rules (own-before-extends order)", () => {
-    const parent: Policy = {
-      id: "parent-params",
-      serialize: [{ match: { all: [] }, params: { concurrentIndexes: false } }],
-    };
-    const child: Policy = {
-      id: "child-params",
-      serialize: [{ match: { all: [] }, params: { concurrentIndexes: true } }],
-      extends: [parent],
-    };
-    const params = serializeParams(child);
-    // child sets it to true, parent to false — child wins
-    expect(params["concurrentIndexes"]).toBe(true);
-  });
-
-  test("later rules do not override earlier ones for the same key", () => {
-    const policy: Policy = {
-      id: "multi-rules",
-      serialize: [
-        { match: { all: [] }, params: { concurrentIndexes: true } },
-        { match: { all: [] }, params: { concurrentIndexes: false } },
-      ],
-    };
-    const params = serializeParams(policy);
-    expect(params["concurrentIndexes"]).toBe(true);
   });
 });

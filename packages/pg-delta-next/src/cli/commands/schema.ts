@@ -5,8 +5,13 @@
  *
  * schema apply --dir <dir> --shadow <pg-url> --target <pg-url>
  *              [--renames auto|prompt|off] [--force]
+ *              [--accept-rename <from>=<to>] (repeatable)
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
+ *
+ *   --accept-rename <from>=<to>
+ *     Confirm one rename candidate by the encoded stable-ids shown in a prior
+ *     --renames prompt run.  Repeatable; each flag names one confirmed rename.
  */
 import {
   mkdirSync,
@@ -21,7 +26,9 @@ import { exportSqlFiles } from "../../frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../../frontends/load-sql-files.ts";
 import { plan } from "../../plan/plan.ts";
 import { apply } from "../../apply/apply.ts";
+import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { makePool } from "../pool.ts";
+import { parseFlags, UsageError } from "../flags.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import type { SqlFile } from "../../frontends/load-sql-files.ts";
 
@@ -48,32 +55,36 @@ function collectSqlFiles(dir: string): SqlFile[] {
 }
 
 export async function cmdSchemaExport(args: string[]): Promise<void> {
-  let sourceUrl: string | undefined;
-  let outDir: string | undefined;
-  let layout: "by-object" | "ordered" = "by-object";
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--source" && args[i + 1]) {
-      sourceUrl = args[++i];
-    } else if (args[i] === "--out-dir" && args[i + 1]) {
-      outDir = args[++i];
-    } else if (args[i] === "--layout" && args[i + 1]) {
-      const v = args[++i];
-      if (v !== "by-object" && v !== "ordered") {
-        process.stderr.write(
-          `--layout must be by-object or ordered (got: ${v})\n`,
-        );
-        process.exit(2);
-      }
-      layout = v;
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      source: { type: "value", required: true },
+      "out-dir": { type: "value", required: true },
+      layout: { type: "value" },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> [--layout ordered]\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!sourceUrl || !outDir) {
-    process.stderr.write(
-      "Usage: pg-delta-next schema export --source <pg-url> --out-dir <dir> [--layout ordered]\n",
-    );
-    process.exit(2);
+  const { flags } = parsed;
+  const sourceUrl = flags["source"];
+  const outDir = flags["out-dir"];
+  let layout: "by-object" | "ordered" = "by-object";
+  if (flags["layout"] !== undefined) {
+    const v = flags["layout"];
+    if (v !== "by-object" && v !== "ordered") {
+      process.stderr.write(
+        `--layout must be by-object or ordered (got: ${v})\n`,
+      );
+      process.exit(2);
+    }
+    layout = v;
   }
 
   const src = makePool(sourceUrl);
@@ -96,38 +107,67 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
 }
 
 export async function cmdSchemaApply(args: string[]): Promise<void> {
-  let dir: string | undefined;
-  let shadowUrl: string | undefined;
-  let targetUrl: string | undefined;
-  let renames: RenameMode = "off";
-  let force = false;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--dir" && args[i + 1]) {
-      dir = args[++i];
-    } else if (args[i] === "--shadow" && args[i + 1]) {
-      shadowUrl = args[++i];
-    } else if (args[i] === "--target" && args[i + 1]) {
-      targetUrl = args[++i];
-    } else if (args[i] === "--renames" && args[i + 1]) {
-      const v = args[++i];
-      if (v !== "auto" && v !== "prompt" && v !== "off") {
-        process.stderr.write(
-          `--renames must be auto, prompt, or off (got: ${v})\n`,
-        );
-        process.exit(2);
-      }
-      renames = v;
-    } else if (args[i] === "--force") {
-      force = true;
+  let parsed;
+  try {
+    parsed = parseFlags(args, {
+      dir: { type: "value", required: true },
+      shadow: { type: "value", required: true },
+      target: { type: "value", required: true },
+      renames: { type: "value" },
+      force: { type: "boolean" },
+      "accept-rename": { type: "multi" },
+    });
+  } catch (err) {
+    if (err instanceof UsageError) {
+      process.stderr.write(
+        `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
+          `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ...\n`,
+      );
+      process.exit(2);
     }
+    throw err;
   }
 
-  if (!dir || !shadowUrl || !targetUrl) {
-    process.stderr.write(
-      "Usage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> [--renames auto|prompt|off] [--force]\n",
-    );
-    process.exit(2);
+  const { flags } = parsed;
+  const dir = flags["dir"];
+  const shadowUrl = flags["shadow"];
+  const targetUrl = flags["target"];
+  const force = flags["force"];
+  const acceptRenameRaw = flags["accept-rename"];
+
+  // --renames default for CLI is "prompt"
+  let renames: RenameMode = "prompt";
+  if (flags["renames"] !== undefined) {
+    const v = flags["renames"];
+    if (v !== "auto" && v !== "prompt" && v !== "off") {
+      process.stderr.write(
+        `--renames must be auto, prompt, or off (got: ${v})\n`,
+      );
+      process.exit(2);
+    }
+    renames = v;
+  }
+
+  // parse --accept-rename <from>=<to> entries
+  const acceptRenames: Array<{ from: StableId; to: StableId }> = [];
+  for (const entry of acceptRenameRaw) {
+    const eqIdx = entry.indexOf("=");
+    if (eqIdx === -1) {
+      process.stderr.write(
+        `--accept-rename value must be in <from>=<to> form (got: ${entry})\n`,
+      );
+      process.exit(2);
+    }
+    const fromStr = entry.slice(0, eqIdx);
+    const toStr = entry.slice(eqIdx + 1);
+    try {
+      acceptRenames.push({ from: parseId(fromStr), to: parseId(toStr) });
+    } catch (e) {
+      process.stderr.write(
+        `--accept-rename: invalid stable-id in "${entry}": ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      process.exit(2);
+    }
   }
 
   const shadow = makePool(shadowUrl);
@@ -147,10 +187,36 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       `  Target: ${targetResult.factBase.facts().length} facts\n`,
     );
 
-    const thePlan = plan(targetResult.factBase, loadResult.factBase, {
-      renames,
-    });
+    const planOptions =
+      acceptRenames.length > 0 ? { renames, acceptRenames } : { renames };
+    const thePlan = plan(
+      targetResult.factBase,
+      loadResult.factBase,
+      planOptions,
+    );
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
+
+    // print rename candidates in prompt mode
+    if (renames === "prompt" && thePlan.renameCandidates.length > 0) {
+      process.stderr.write(`\nRename candidates:\n`);
+      for (const c of thePlan.renameCandidates) {
+        const fromStr = encodeId(c.from);
+        const toStr = encodeId(c.to);
+        if (c.status === "unambiguous") {
+          process.stderr.write(
+            `  ? Rename ${fromStr} -> ${toStr}? (${c.status})\n`,
+          );
+          process.stderr.write(
+            `    To confirm, rerun with: --accept-rename ${fromStr}=${toStr}\n`,
+          );
+        } else {
+          process.stderr.write(
+            `  ${c.status}: ${fromStr} -> ${toStr}${c.reason ? ` (${c.reason})` : ""}\n`,
+          );
+        }
+      }
+      process.stderr.write("\n");
+    }
 
     if (thePlan.actions.length === 0) {
       process.stderr.write("Target is already up to date.\n");

@@ -102,6 +102,33 @@ export interface KindRules {
   attributes: Record<string, AttributeRule>;
   /** kind weight for deterministic tie-breaking (pg_dump-inspired) */
   weight: number;
+
+  // ── graph/suppression policy (guardrail 3: per-kind knowledge lives
+  //    HERE, never in the planner body) ──────────────────────────────────
+  /** this fact vanishes with its parent regardless of the parent's kind
+   *  (comment, acl) — a metadata satellite */
+  metadata?: boolean;
+  /** a DROP of this kind cascades to its children in PostgreSQL, so child
+   *  drops fold into it (table, view, type, …). schema/role do NOT cascade. */
+  cascadesToChildren?: boolean;
+  /** a surviving dependent of a destroyed fact of this kind is force-
+   *  rebuilt (drop + recreate from the desired state) */
+  rebuildable?: boolean;
+  /** whether a fact of this kind MAY be folded into a parent's cascading
+   *  drop. Default true. FK constraints return false: an explicit
+   *  DROP CONSTRAINT first makes mutual-FK teardown cycles unconstructible. */
+  suppressible?: (fact: Fact) => boolean;
+  /** redirect this fact's drop to fold into a NON-parent ancestor's drop
+   *  when that ancestor is being removed (an OWNED BY sequence folds into
+   *  its owning column/table, which is not its catalog parent). */
+  dropRootRedirect?: (
+    fact: Fact,
+    isRemoved: (id: StableId) => boolean,
+  ) => StableId | undefined;
+  /** pg_default_acl objtype char for the default-privilege hygiene pass
+   *  (table/view/matview/foreignTable → 'r', sequence → 'S',
+   *  procedure/aggregate → 'f'); absent for kinds with no default ACLs */
+  defaclObjtype?: string;
 }
 
 /** Most renames are `<ALTER prefix> RENAME TO <new name>`. */
@@ -577,6 +604,30 @@ export const RULES: Record<string, KindRules> = {
 
   sequence: {
     weight: 3,
+    cascadesToChildren: true,
+    defaclObjtype: "S",
+    dropRootRedirect: (fact, isRemoved) => {
+      const ownedBy = fact.payload["ownedBy"] as {
+        schema: string;
+        table: string;
+        column: string;
+      } | null;
+      if (ownedBy == null) return undefined;
+      const columnId: StableId = {
+        kind: "column",
+        schema: ownedBy.schema,
+        table: ownedBy.table,
+        name: ownedBy.column,
+      };
+      if (isRemoved(columnId)) return columnId;
+      const tableId: StableId = {
+        kind: "table",
+        schema: ownedBy.schema,
+        name: ownedBy.table,
+      };
+      if (isRemoved(tableId)) return tableId;
+      return undefined;
+    },
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
@@ -668,6 +719,8 @@ export const RULES: Record<string, KindRules> = {
 
   table: {
     weight: 4,
+    cascadesToChildren: true,
+    defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TABLE ${rel(id.schema, id.name)}`;
@@ -799,6 +852,7 @@ export const RULES: Record<string, KindRules> = {
 
   column: {
     weight: 5,
+    cascadesToChildren: true,
     rename: (fact, to) => {
       const { schema, table, column } = columnRef(fact);
       return {
@@ -819,9 +873,18 @@ export const RULES: Record<string, KindRules> = {
         clause += ` DEFAULT ${str(defaultChild.payload["expr"])}`;
         alsoProduces.push(defaultChild.id);
       }
+      // ADD COLUMN rewrites the table when it materializes a value for every
+      // row: a STORED generated column always, or an inline DEFAULT whose
+      // expression may be volatile (nextval, now, …). We cannot tell a
+      // constant default from a volatile one without parsing (guardrail 2),
+      // so any inline default conservatively declares rewriteRisk — over-
+      // declaring is safe (the proof only fails on UNDER-declared rewrites).
+      const rewrites =
+        fact.payload["generatedExpr"] != null || defaultChild !== undefined;
       const spec: ActionSpec = {
         sql: `ALTER TABLE ${rel(schema, table)} ADD COLUMN ${clause}`,
         alsoProduces,
+        ...(rewrites ? { rewriteRisk: true } : {}),
       };
       if (fact.parent !== undefined && fact.parent.kind === "table") {
         spec.compaction = { foldInto: fact.parent, clause };
@@ -921,6 +984,8 @@ export const RULES: Record<string, KindRules> = {
 
   default: {
     weight: 6,
+    cascadesToChildren: true,
+    rebuildable: true,
     create: (fact) => {
       const { schema, table, column } = columnRef(fact);
       return [
@@ -949,6 +1014,9 @@ export const RULES: Record<string, KindRules> = {
 
   procedure: {
     weight: 8,
+    cascadesToChildren: true,
+    rebuildable: true,
+    defaclObjtype: "f",
     rename: (fact, to) => ({
       sql: `ALTER ROUTINE ${routineSig(fact.id as { schema: string; name: string; args: string[] })} RENAME TO ${qid((to as { name: string }).name)}`,
     }),
@@ -989,6 +1057,9 @@ export const RULES: Record<string, KindRules> = {
 
   constraint: {
     weight: 10,
+    cascadesToChildren: true,
+    rebuildable: true,
+    suppressible: (fact) => fact.payload["type"] !== "f",
     rename: (fact, to) => {
       const id = fact.id as { name: string };
       return {
@@ -1038,6 +1109,9 @@ export const RULES: Record<string, KindRules> = {
 
   view: {
     weight: 12,
+    cascadesToChildren: true,
+    rebuildable: true,
+    defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER VIEW ${rel(id.schema, id.name)}`;
@@ -1071,6 +1145,9 @@ export const RULES: Record<string, KindRules> = {
 
   materializedView: {
     weight: 13,
+    cascadesToChildren: true,
+    rebuildable: true,
+    defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER MATERIALIZED VIEW ${rel(id.schema, id.name)}`;
@@ -1106,6 +1183,8 @@ export const RULES: Record<string, KindRules> = {
 
   index: {
     weight: 14,
+    cascadesToChildren: true,
+    rebuildable: true,
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER INDEX ${rel(id.schema, id.name)}`;
@@ -1137,6 +1216,8 @@ export const RULES: Record<string, KindRules> = {
 
   trigger: {
     weight: 15,
+    cascadesToChildren: true,
+    rebuildable: true,
     rename: (fact, to) => {
       const id = fact.id as { schema: string; table: string; name: string };
       return {
@@ -1175,6 +1256,8 @@ export const RULES: Record<string, KindRules> = {
 
   policy: {
     weight: 16,
+    cascadesToChildren: true,
+    rebuildable: true,
     rename: (fact, to) => {
       const id = fact.id as { schema: string; table: string; name: string };
       return {
@@ -1228,6 +1311,7 @@ export const RULES: Record<string, KindRules> = {
 
   comment: {
     weight: 20,
+    metadata: true,
     create: (fact) => {
       const target = (fact.id as { target: StableId }).target;
       return [
@@ -1252,8 +1336,41 @@ export const RULES: Record<string, KindRules> = {
     },
   },
 
+  // a global satellite rule (like comment): SECURITY LABEL shares COMMENT's
+  // ON-target grammar, so it reuses commentTarget. The provider lives in
+  // the fact id; the label text is the payload.
+  securityLabel: {
+    weight: 20,
+    metadata: true,
+    create: (fact) => {
+      const id = fact.id as { target: StableId; provider: string };
+      return [
+        {
+          sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS ${lit(str(p(fact, "label")))}`,
+        },
+      ];
+    },
+    drop: (fact) => {
+      const id = fact.id as { target: StableId; provider: string };
+      return {
+        sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS NULL`,
+      };
+    },
+    attributes: {
+      label: {
+        alter: (fact, _from, to) => {
+          const id = fact.id as { target: StableId; provider: string };
+          return {
+            sql: `SECURITY LABEL FOR ${lit(id.provider)} ON ${commentTarget(id.target)} IS ${lit(str(to))}`,
+          };
+        },
+      },
+    },
+  },
+
   domain: {
     weight: 7,
+    cascadesToChildren: true,
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
@@ -1309,6 +1426,7 @@ export const RULES: Record<string, KindRules> = {
 
   type: {
     weight: 7,
+    cascadesToChildren: true,
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER TYPE ${rel(id.schema, id.name)}`;
@@ -1395,7 +1513,22 @@ export const RULES: Record<string, KindRules> = {
           // every column of this type through a text cast, drop the old type.
           // rebuildsDependents has already forced views/defaults/routines
           // that reference the type out of the way.
-          const tmp = `${id.name}__pgdelta_replaced`;
+          // a deterministic temp name that cannot collide with an existing
+          // type in the schema (bump a counter past any occupant)
+          const taken = (n: string): boolean =>
+            view.get({
+              kind: "type",
+              schema: id.schema,
+              name: n,
+            } as StableId) !== undefined ||
+            sourceView.get({
+              kind: "type",
+              schema: id.schema,
+              name: n,
+            } as StableId) !== undefined;
+          let tmp = `${id.name}__pgdelta_replaced`;
+          for (let n = 2; taken(tmp); n++)
+            tmp = `${id.name}__pgdelta_replaced_${n}`;
           const enumKey = encodeId(fact.id);
           const specs: ActionSpec[] = [
             { sql: `ALTER TYPE ${relName} RENAME TO ${qid(tmp)}` },
@@ -1432,6 +1565,10 @@ export const RULES: Record<string, KindRules> = {
           for (const col of dependentColumns) {
             specs.push({
               sql: `ALTER TABLE ${rel(col.schema, col.table)} ALTER COLUMN ${qid(col.name)} TYPE ${relName} USING ${qid(col.name)}::text::${relName}`,
+              // reference the rewritten column so the proof's rewrite
+              // attribution maps this action to its table (the action's
+              // primary subject is the type, not the table it rewrites)
+              consumes: [col],
               dataLoss: "destructive",
               rewriteRisk: true,
             });
@@ -1549,6 +1686,8 @@ export const RULES: Record<string, KindRules> = {
 
   rule: {
     weight: 15,
+    cascadesToChildren: true,
+    rebuildable: true,
     create: (fact) => [{ sql: str(p(fact, "def")) }],
     drop: (fact) => {
       const id = fact.id as { schema: string; table: string; name: string };
@@ -1571,6 +1710,8 @@ export const RULES: Record<string, KindRules> = {
 
   aggregate: {
     weight: 9,
+    cascadesToChildren: true,
+    defaclObjtype: "f",
     create: (fact) => {
       const id = fact.id as { schema: string; name: string; args: string[] };
       const parts = [
@@ -1797,6 +1938,8 @@ export const RULES: Record<string, KindRules> = {
 
   foreignTable: {
     weight: 5,
+    cascadesToChildren: true,
+    defaclObjtype: "r",
     rename: renameRule((fact) => {
       const id = fact.id as { schema: string; name: string };
       return `ALTER FOREIGN TABLE ${rel(id.schema, id.name)}`;
@@ -1953,6 +2096,7 @@ export const RULES: Record<string, KindRules> = {
 
   acl: {
     weight: 21,
+    metadata: true,
     create: (fact) => grantActions(fact, "grant"),
     drop: (fact) => {
       const id = fact.id as { kind: "acl"; target: StableId; grantee: string };

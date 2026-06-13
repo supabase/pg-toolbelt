@@ -22,6 +22,11 @@ export interface Fact {
   payload: Payload;
 }
 
+/** Where a fact base came from. Provenance is metadata, NOT state: it never
+ *  enters the rollup hash, so two bases with identical facts compare equal
+ *  regardless of source. Policy (§3.9) and frontends use it for routing. */
+export type FactSource = "liveDb" | "sqlFiles" | "snapshot";
+
 export type EdgeKind = "depends" | "owner" | "memberOfExtension";
 
 export interface DependencyEdge {
@@ -40,6 +45,8 @@ interface Entry {
 
 export class FactBase {
   readonly diagnostics: Diagnostic[] = [];
+  /** provenance; metadata only, never folded into rollups */
+  readonly source: FactSource;
   readonly #byId = new Map<string, Entry>();
   readonly #children = new Map<string, Entry[]>();
   readonly #outgoing = new Map<string, DependencyEdge[]>();
@@ -48,7 +55,12 @@ export class FactBase {
   readonly #structural = new Map<string, ContentHash>();
   #rootHash: ContentHash | undefined;
 
-  constructor(facts: Fact[], edges: DependencyEdge[]) {
+  constructor(
+    facts: Fact[],
+    edges: DependencyEdge[],
+    source: FactSource = "liveDb",
+  ) {
+    this.source = source;
     for (const fact of facts) {
       const encoded = encodeId(fact.id);
       if (this.#byId.has(encoded)) {
@@ -197,6 +209,7 @@ export class FactBase {
 export function buildFactBase(
   facts: Fact[],
   edges: DependencyEdge[],
+  source: FactSource = "liveDb",
 ): FactBase {
-  return new FactBase(facts, edges);
+  return new FactBase(facts, edges, source);
 }

@@ -17,6 +17,8 @@ const FORMAT_VERSION = 1;
 interface SnapshotDoc {
   formatVersion: number;
   pgVersion: string;
+  /** ISO-8601 capture time; auditability only, never affects the digest */
+  capturedAt?: string;
   digest: string;
   facts: Array<{ id: string; parent?: string; payload: unknown }>;
   edges: Array<{ from: string; to: string; kind: EdgeKind }>;
@@ -52,11 +54,12 @@ function decodePayload(value: unknown): PayloadValue {
 
 export function serializeSnapshot(
   fb: FactBase,
-  meta: { pgVersion: string },
+  meta: { pgVersion: string; capturedAt?: string },
 ): string {
   const doc: SnapshotDoc = {
     formatVersion: FORMAT_VERSION,
     pgVersion: meta.pgVersion,
+    ...(meta.capturedAt !== undefined ? { capturedAt: meta.capturedAt } : {}),
     digest: fb.rootHash,
     facts: fb
       .facts()
@@ -99,7 +102,7 @@ export function deserializeSnapshot(json: string): {
     to: parseId(e.to),
     kind: e.kind,
   }));
-  const factBase = buildFactBase(facts, edges);
+  const factBase = buildFactBase(facts, edges, "snapshot");
   if (factBase.rootHash !== doc.digest) {
     throw new Error(
       `snapshot digest mismatch — content is corrupt or was edited (expected ${doc.digest}, computed ${factBase.rootHash})`,
