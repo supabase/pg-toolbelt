@@ -3198,6 +3198,122 @@ describe("expandReplaceDependencies", () => {
     expect(expanded.replacedTableIds.has(mainTable.stableId)).toBe(false);
   });
 
+  test("replays retained grants only for covered generated column recreation", async () => {
+    const baseline = await createEmptyCatalog(150000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const retainedPrivileges = [
+      {
+        grantee: "value_reader",
+        privilege: "SELECT",
+        grantable: false,
+        columns: ["value"],
+      },
+      {
+        grantee: "other_reader",
+        privilege: "SELECT",
+        grantable: false,
+        columns: ["other_value"],
+      },
+    ];
+    const mainTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithDefault("public.normalize_value(value)", {
+        is_generated: true,
+      }),
+      columns: [
+        ...tableWithDefault("public.normalize_value(value)", {
+          is_generated: true,
+        }).columns,
+        {
+          name: "other_value",
+          position: 2,
+          data_type: "integer",
+          data_type_str: "integer",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: false,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      privileges: retainedPrivileges,
+    });
+    const branchTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainTable,
+      privileges: retainedPrivileges,
+    });
+    const valueColumn = mainTable.columns[0];
+    const branchValueColumn = branchTable.columns[0];
+    const columnId = "column:public.items.value";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new AlterTableDropColumn({
+        table: mainTable,
+        column: valueColumn,
+      }),
+      new AlterTableAddColumn({
+        table: branchTable,
+        column: branchValueColumn,
+      }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 150000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const grants = expanded.changes.filter(
+      (change): change is GrantTablePrivileges =>
+        change instanceof GrantTablePrivileges,
+    );
+
+    expect(grants).toHaveLength(1);
+    expect(grants[0]?.grantee).toBe("value_reader");
+    expect(grants[0]?.columns).toEqual(["value"]);
+  });
+
   test("restores retained security labels without replacing the table when recreating a generated column", async () => {
     const baseline = await createEmptyCatalog(150000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -5232,7 +5348,7 @@ describe("expandReplaceDependencies", () => {
     ).not.toThrow();
   });
 
-  test("restores clustering for retained constraint-backed indexes on promoted tables", async () => {
+  test("replays metadata for retained constraint-backed indexes on promoted tables", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
     const branchProcedure = procedureWithArgs(["bigint"]);
@@ -5241,6 +5357,8 @@ describe("expandReplaceDependencies", () => {
     const mainIndex = constraintBackedIndexOnItemsValue({ is_clustered: true });
     const branchIndex = constraintBackedIndexOnItemsValue({
       is_clustered: true,
+      comment: "retained unique index",
+      statistics_target: [100],
     });
 
     const changes: Change[] = [
@@ -5284,6 +5402,35 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.some((change) => change instanceof AlterTableClusterOn),
     ).toBe(true);
+    expect(
+      expanded.changes.some((change) => change instanceof CreateCommentOnIndex),
+    ).toBe(true);
+    expect(
+      expanded.changes.some(
+        (change) => change instanceof AlterIndexSetStatistics,
+      ),
+    ).toBe(true);
+
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addConstraintIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    const commentIndex = sorted.findIndex(
+      (change) => change instanceof CreateCommentOnIndex,
+    );
+    const statisticsIndex = sorted.findIndex(
+      (change) => change instanceof AlterIndexSetStatistics,
+    );
+    const clusterIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableClusterOn,
+    );
+
+    expect(commentIndex).toBeGreaterThan(addConstraintIndex);
+    expect(statisticsIndex).toBeGreaterThan(addConstraintIndex);
+    expect(clusterIndex).toBeGreaterThan(addConstraintIndex);
   });
 
   test("synthesizes a table check constraint replacement for an unchanged expression that depends on a replaced procedure", async () => {
