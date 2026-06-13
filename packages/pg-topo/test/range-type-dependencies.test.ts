@@ -5045,4 +5045,152 @@ describe("range type dependencies", () => {
       name: "other",
     });
   });
+
+  test("matches operator family comment signatures to create providers", async () => {
+    const result = await analyzeAndSort([
+      "comment on operator family app.ops using btree is 'range helpers';",
+      "create operator family app.ops using btree;",
+      "create schema app;",
+    ]);
+    const unresolved = result.diagnostics.filter(
+      (diagnostic) => diagnostic.code === "UNRESOLVED_DEPENDENCY",
+    );
+    const familyStatement = result.ordered.find((statement) =>
+      statement.sql.toLowerCase().includes("create operator family app.ops"),
+    );
+    const commentStatement = result.ordered.find((statement) =>
+      statement.sql
+        .toLowerCase()
+        .includes("comment on operator family app.ops"),
+    );
+
+    expect(unresolved).toHaveLength(0);
+    expect(familyStatement?.provides).toContainEqual({
+      kind: "operator_family",
+      schema: "app",
+      name: "ops",
+      signature: "(btree)",
+    });
+    expect(commentStatement?.requires).toContainEqual({
+      kind: "operator_family",
+      schema: "app",
+      name: "ops",
+      signature: "(btree)",
+    });
+  });
+
+  test("diagnoses unknown pg_catalog range support callbacks", async () => {
+    const result = await analyzeAndSort([
+      "create type app.r as range (subtype = int4, subtype_diff = pg_catalog.no_such);",
+      "create schema app;",
+    ]);
+    const missingRangeCallback = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "no_such" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+
+    expect(missingRangeCallback).toHaveLength(1);
+  });
+
+  test("diagnoses unknown pg_catalog operator implementation callbacks", async () => {
+    const result = await analyzeAndSort([
+      "create operator app.<< (function = pg_catalog.no_such, leftarg = int4, rightarg = int4);",
+      "create schema app;",
+    ]);
+    const missingOperatorCallback = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "no_such" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+
+    expect(missingOperatorCallback).toHaveLength(1);
+  });
+
+  test("diagnoses unknown pg_catalog opclass support items", async () => {
+    const result = await analyzeAndSort([
+      "create operator class app.bad_ops for type int4 using gist as operator 1 pg_catalog.@#@ (int4, int4), function 1 pg_catalog.no_such(internal), storage pg_catalog.no_such;",
+      "create schema app;",
+    ]);
+    const missingSupportOperator = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "operator" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "@#@" &&
+            ref.signature === "(public.int4,public.int4)",
+        ) === true,
+    );
+    const missingSupportRoutine = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "function" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "no_such" &&
+            ref.signature === "(public.internal)",
+        ) === true,
+    );
+    const missingStorageType = result.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "pg_catalog" &&
+            ref.name === "no_such",
+        ) === true,
+    );
+
+    expect(missingSupportOperator).toHaveLength(1);
+    expect(missingSupportRoutine).toHaveLength(1);
+    expect(missingStorageType).toHaveLength(1);
+  });
+
+  test("diagnoses self row-type and range subtype references", async () => {
+    const tableResult = await analyzeAndSort([
+      "create table app.events(parent app.events);",
+      "create schema app;",
+    ]);
+    const rangeResult = await analyzeAndSort([
+      "create type app.r as range (subtype = app.r);",
+      "create schema app;",
+    ]);
+    const selfRowType = tableResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" &&
+            ref.schema === "app" &&
+            ref.name === "events",
+        ) === true,
+    );
+    const selfRangeSubtype = rangeResult.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
+        diagnostic.objectRefs?.some(
+          (ref) =>
+            ref.kind === "type" && ref.schema === "app" && ref.name === "r",
+        ) === true,
+    );
+
+    expect(selfRowType).toHaveLength(1);
+    expect(selfRangeSubtype).toHaveLength(1);
+  });
 });
