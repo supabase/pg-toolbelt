@@ -44,6 +44,7 @@ import {
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableAlterColumnType,
   AlterTableDropConstraint,
   AlterTableDropColumn,
 } from "./objects/table/changes/table.alter.ts";
@@ -368,6 +369,7 @@ export function expandReplaceDependencies({
         dependentRaw.startsWith("constraint:") &&
         (!reachedFromInvalidation ||
           isColumnReplacementRoot ||
+          refId.startsWith("index:") ||
           refId.startsWith("procedure:"))
       ) {
         const replacementChanges = buildConstraintReplacementChanges(
@@ -473,7 +475,7 @@ export function expandReplaceDependencies({
   }
 
   const retainedChanges = removeSupersededRlsPolicyAlters(
-    removeSupersededGeneratedColumnDefaultAlters(
+    removeSupersededGeneratedColumnAlters(
       changes,
       generatedColumnsReplacedByExpansion,
     ),
@@ -1211,7 +1213,7 @@ function hasColumnDefaultSetChange(
   );
 }
 
-function removeSupersededGeneratedColumnDefaultAlters(
+function removeSupersededGeneratedColumnAlters(
   changes: readonly Change[],
   replacedGeneratedColumnIds: ReadonlySet<string>,
 ): Change[] {
@@ -1221,7 +1223,8 @@ function removeSupersededGeneratedColumnDefaultAlters(
     if (
       !(
         change instanceof AlterTableAlterColumnDropDefault ||
-        change instanceof AlterTableAlterColumnSetDefault
+        change instanceof AlterTableAlterColumnSetDefault ||
+        change instanceof AlterTableAlterColumnType
       )
     ) {
       return true;
@@ -1487,6 +1490,13 @@ function buildMaterializedViewIndexReplacementChanges(
     ) {
       changes.push(new CreateCommentOnIndex({ index }));
     }
+
+    changes.push(
+      ...buildIndexStatisticsReplacementChanges(index, [
+        ...existingChanges,
+        ...changes,
+      ]),
+    );
   }
 
   return changes;
