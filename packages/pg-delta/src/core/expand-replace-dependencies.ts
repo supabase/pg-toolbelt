@@ -293,6 +293,7 @@ export function expandReplaceDependencies({
   // associated drop-phase cycle with the catalog constraint→column edge.
   const tablesReplacedByExpansion = new Set<string>();
   const routinesReplacedByExpansion = new Set<string>();
+  const triggersReplacedByExpansion = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
   const generatedColumnGrantRestoresAdded = new Set<string>();
@@ -599,14 +600,22 @@ export function expandReplaceDependencies({
           ? buildRetainedProcedureMetadataChanges({
               procedure: resolved.branch,
               diffContext,
-            }).filter((change) => !isCreateAlreadyCovered(change, createdIds))
+            }).filter(
+              (change) =>
+                !isCreateAlreadyCovered(change, createdIds) ||
+                isRoutinePrivilegeReplay(change),
+            )
           : [];
       const aggregateMetadataRestoreChanges =
         resolved.kind === "aggregate" && addDrop && !addCreate
           ? buildRetainedAggregateMetadataChanges({
               aggregate: resolved.branch,
               diffContext,
-            }).filter((change) => !isCreateAlreadyCovered(change, createdIds))
+            }).filter(
+              (change) =>
+                !isCreateAlreadyCovered(change, createdIds) ||
+                isRoutinePrivilegeReplay(change),
+            )
           : [];
 
       additions.push(
@@ -625,6 +634,9 @@ export function expandReplaceDependencies({
         addDrop
       ) {
         routinesReplacedByExpansion.add(targetId);
+      }
+      if (resolved.kind === "trigger" && addDrop) {
+        triggersReplacedByExpansion.add(targetId);
       }
 
       // If we added a DropTable(T) for an existing table, mark T so any
@@ -659,9 +671,12 @@ export function expandReplaceDependencies({
   return {
     changes: [
       ...removeSupersededGeneratedColumnSetExpressions(
-        removeSupersededRoutineAlters(
-          removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
-          routinesReplacedByExpansion,
+        removeSupersededTriggerAlters(
+          removeSupersededRoutineAlters(
+            removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+            routinesReplacedByExpansion,
+          ),
+          triggersReplacedByExpansion,
         ),
         generatedColumnsRecreatedByExpressionFallback,
       ),
@@ -776,6 +791,27 @@ function removeSupersededRoutineAlters(
     }
     return true;
   });
+}
+
+function removeSupersededTriggerAlters(
+  changes: Change[],
+  promotedTriggerIds: ReadonlySet<string>,
+): Change[] {
+  if (promotedTriggerIds.size === 0) return changes;
+  return changes.filter((change) => {
+    if (change.objectType !== "trigger" || change.operation !== "alter") {
+      return true;
+    }
+    return !promotedTriggerIds.has(change.trigger.stableId);
+  });
+}
+
+function isRoutinePrivilegeReplay(change: Change): boolean {
+  return (
+    change.operation === "alter" &&
+    change.scope === "privilege" &&
+    (change.objectType === "procedure" || change.objectType === "aggregate")
+  );
 }
 
 interface ExpressionDependentCoverage {

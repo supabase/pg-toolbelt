@@ -5,6 +5,7 @@ import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -28,6 +29,7 @@ function isSupersededByTableReplacement(
 ): boolean {
   if (
     change instanceof AlterTableAddColumn ||
+    change instanceof AlterTableAlterColumnAddIdentity ||
     change instanceof AlterTableDropColumn ||
     change instanceof AlterTableDropConstraint
   ) {
