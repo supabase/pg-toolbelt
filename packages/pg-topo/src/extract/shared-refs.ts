@@ -152,6 +152,30 @@ export const objectFromNameParts = (
   );
 };
 
+const objectFromOperatorAccessMethodNameParts = (
+  kind: "operator_class" | "operator_family",
+  parts: string[],
+): ObjectRef | null => {
+  if (parts.length < 2) {
+    return objectFromNameParts(kind, parts);
+  }
+
+  const accessMethod = parts[0];
+  const objectName = parts.at(-1);
+  const schemaName = parts.length >= 3 ? parts.at(-2) : DEFAULT_SCHEMA;
+  if (!accessMethod || !objectName) {
+    return null;
+  }
+
+  const ref = createObjectRefFromAst(
+    kind,
+    objectName,
+    schemaName,
+    `(${accessMethod})`,
+  );
+  return parts.length >= 3 ? markExplicitSchemaRef(ref) : ref;
+};
+
 export const typeFromTypeNameNode = (
   typeNameNode: unknown,
 ): ObjectRef | null => {
@@ -332,7 +356,11 @@ export const parseNamedObjectRef = (
 
   const listNode = asRecord(nodeRecord.List);
   if (listNode) {
-    return objectFromNameParts(kind, extractNameParts(listNode.items));
+    const nameParts = extractNameParts(listNode.items);
+    if (kind === "operator_class" || kind === "operator_family") {
+      return objectFromOperatorAccessMethodNameParts(kind, nameParts);
+    }
+    return objectFromNameParts(kind, nameParts);
   }
 
   const rangeVarRef = relationFromRangeVarNode(

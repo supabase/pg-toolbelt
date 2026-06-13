@@ -764,6 +764,11 @@ const extractCreateCollationDependencies = (
 
 const rangeFunctionOptionNames = new Set(["canonical", "subtype_diff"]);
 
+const isBuiltInSchemaName = (schemaName: string): boolean => {
+  const normalized = schemaName.toLowerCase();
+  return normalized === "pg_catalog" || normalized === "information_schema";
+};
+
 const builtInRangeSupportFunctionSignatures = new Map<string, string[][]>([
   ["daterange_subdiff", [["date", "date"]]],
   ["float8mi", [["float8", "float8"]]],
@@ -2386,7 +2391,9 @@ const extractCreateRangeDependencies = (
         functionArgs,
       );
       if (functionRef) {
-        const exactFunctionRef = markExactSignatureRef(functionRef);
+        const exactFunctionRef = markExactKindRef(
+          markExactSignatureRef(functionRef),
+        );
         if (
           isBuiltInRangeSupportFunctionName(functionNameParts, functionArgs)
         ) {
@@ -2813,8 +2820,9 @@ const extractCreateOperatorDependencies = (
         operatorEstimatorFunctionArgs(optionName) ?? [],
       );
       if (estimatorFunctionRef) {
-        const exactEstimatorFunctionRef =
-          markExactSignatureRef(estimatorFunctionRef);
+        const exactEstimatorFunctionRef = markExactKindRef(
+          markExactSignatureRef(estimatorFunctionRef),
+        );
         if (
           isBuiltInOperatorEstimatorFunctionName(
             estimatorFunctionNameParts,
@@ -2853,7 +2861,9 @@ const extractCreateOperatorDependencies = (
       );
       if (linkedOperatorNameParts.length > 1) {
         const schemaName = linkedOperatorNameParts.slice(0, -1).join(".");
-        requires.push(createObjectRefFromAst("schema", schemaName));
+        if (!isBuiltInSchemaName(schemaName)) {
+          requires.push(createObjectRefFromAst("schema", schemaName));
+        }
       }
       continue;
     }
@@ -3083,6 +3093,11 @@ const extractCreateOperatorClassDependencies = (
 
     if (item.itemtype === OPCLASS_ITEM_OPERATOR) {
       const explicitOperatorArgs = objectWithArgsTypeRefs(itemName);
+      requires.push(
+        ...explicitOperatorArgs.filter(
+          (argRef): argRef is ObjectRef => argRef !== null,
+        ),
+      );
       const operatorArgs =
         explicitOperatorArgs.length > 0
           ? explicitOperatorArgs
@@ -3192,7 +3207,9 @@ const extractCreateOperatorClassDependencies = (
           );
           if (functionRef) {
             requires.push(
-              markOmitIfNoLocalProducerRef(markExactSignatureRef(functionRef)),
+              markOmitIfNoLocalProducerRef(
+                markExactKindRef(markExactSignatureRef(functionRef)),
+              ),
             );
           }
         }
@@ -3201,7 +3218,9 @@ const extractCreateOperatorClassDependencies = (
 
       const functionRef = objectWithArgsRef("function", itemName);
       if (functionRef) {
-        const exactFunctionRef = markExactSignatureRef(functionRef);
+        const exactFunctionRef = markExactKindRef(
+          markExactSignatureRef(functionRef),
+        );
         requires.push(exactFunctionRef);
         const functionName = nameParts.at(-1)?.toLowerCase();
         if (
@@ -3333,12 +3352,14 @@ const extractCreateBaseTypeDependencies = (
     if (functionRef) {
       const alternatives = baseTypeFunctionArgAlternatives(optionName, typeRef);
       for (const args of alternatives) {
-        const callbackRef = markExactSignatureRef(
-          createObjectRefFromAst(
-            "function",
-            functionRef.name,
-            functionRef.schema,
-            typeRefsSignature(args),
+        const callbackRef = markExactKindRef(
+          markExactSignatureRef(
+            createObjectRefFromAst(
+              "function",
+              functionRef.name,
+              functionRef.schema,
+              typeRefsSignature(args),
+            ),
           ),
         );
         requires.push(

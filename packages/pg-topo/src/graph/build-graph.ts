@@ -366,12 +366,22 @@ export const buildGraph = (
   };
 
   const externalByName = new Map<string, ObjectRef[]>();
+  const addExternalProvider = (ref: ObjectRef): void => {
+    const key = ref.name.toLowerCase();
+    const list = externalByName.get(key) ?? [];
+    list.push(ref);
+    externalByName.set(key, list);
+  };
   if (externalProviders) {
     for (const ref of externalProviders) {
-      const key = ref.name.toLowerCase();
-      const list = externalByName.get(key) ?? [];
-      list.push(ref);
-      externalByName.set(key, list);
+      addExternalProvider(ref);
+      if (ref.kind === "type" && !ref.name.endsWith("[]")) {
+        addExternalProvider({
+          kind: "type",
+          schema: ref.schema,
+          name: `${ref.name}[]`,
+        });
+      }
     }
   }
 
