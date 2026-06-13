@@ -44,7 +44,11 @@ interface Segment {
 }
 
 /** Group actions into maximal transactional runs; nonTransactional actions
- *  run alone; newSegmentBefore forces a commit between two runs. */
+ *  run alone; a commitBoundaryAfter action UNCONDITIONALLY ends its
+ *  transactional segment (its effect is unusable before COMMIT — ALTER TYPE …
+ *  ADD VALUE — so nothing after it may share its transaction, regardless of
+ *  graph-successor shape, review #6); newSegmentBefore forces a commit between
+ *  two runs (used by compaction protection). */
 export function segmentActions(
   actions: ReadonlyArray<{
     transactionality:
@@ -61,6 +65,10 @@ export function segmentActions(
     if (action.transactionality === "nonTransactional") {
       if (i > start) segments.push({ start, end: i, transactional: true });
       segments.push({ start: i, end: i + 1, transactional: false });
+      start = i + 1;
+    } else if (action.transactionality === "commitBoundaryAfter") {
+      // close the transactional segment AFTER this action, unconditionally
+      segments.push({ start, end: i + 1, transactional: true });
       start = i + 1;
     } else if (action.newSegmentBefore && i > start) {
       segments.push({ start, end: i, transactional: true });

@@ -42,12 +42,14 @@ describe("segmentActions", () => {
     ]);
   });
 
-  test("newSegmentBefore commits the run containing a commitBoundaryAfter action", () => {
-    // ADD VALUE at 1, its first consumer at 3 (marked by the planner)
+  test("a commitBoundaryAfter action unconditionally ends its segment (review #6)", () => {
+    // ADD VALUE at 1 closes its segment immediately — no reliance on a graph
+    // successor being marked. A later newSegmentBefore (at 3) splits again.
     expect(
       segmentActions([txn(), boundary(), txn(), txn(true), txn()]),
     ).toEqual([
-      { start: 0, end: 3, transactional: true },
+      { start: 0, end: 2, transactional: true },
+      { start: 2, end: 3, transactional: true },
       { start: 3, end: 5, transactional: true },
     ]);
   });
