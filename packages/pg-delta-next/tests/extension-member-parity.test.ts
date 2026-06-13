@@ -27,19 +27,40 @@ import { encodeId, type StableId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
 import { supabaseCluster, type TestDb } from "./containers.ts";
 
-/** Member kinds whose extractor family has been flipped (Stage 2 grows this). */
+/** Member kinds whose extractor family has been flipped (Stage 2). The
+ *  member-ROOT families are flipped; sub-entity families (columns, constraints,
+ *  indexes, triggers, policies, rules) and rare member-root kinds (fdw, server,
+ *  foreignTable, eventTrigger, publication) keep their anti-joins for now — a
+ *  documented, regression-free limitation (COVERAGE.md). */
 const FLIPPED_KINDS: ReadonlySet<string> = new Set<string>([
-  // (none yet — Stage 1 establishes the harness; Stage 2 fills this in)
+  "schema",
+  "table",
+  "sequence",
+  "view",
+  "materializedView",
+  "procedure", // functions + procedures (routines family)
+  "aggregate",
+  "domain",
+  "type", // enum, composite, range
+  "collation",
 ]);
 
 /** Independent oracle: every extension member (deptype 'e') of a modeled kind,
  *  resolved to (kind, identity) WITHOUT collapsing to the extension. Mirrors the
  *  resolver's fallback branches but is deliberately a separate query so it can
  *  disagree with the code under test. */
-async function catalogMembers(pool: Pool): Promise<
-  { id: StableId; extension: string }[]
-> {
-  const { rows } = await pool.query<{ ident: Record<string, unknown>; ext: string }>(`
+async function catalogMembers(
+  pool: Pool,
+): Promise<{ id: StableId; extension: string }[]> {
+  // mirror the extractor's scope: user schemas only, and plpgsql is not a
+  // tracked extension (memberExtensionExpr / the extensions extractor skip it)
+  const userNs = (col: string) =>
+    `${col} NOT IN ('pg_catalog', 'information_schema')
+       AND ${col} NOT LIKE 'pg\\_toast%' AND ${col} NOT LIKE 'pg\\_temp%'`;
+  const { rows } = await pool.query<{
+    ident: Record<string, unknown>;
+    ext: string;
+  }>(`
     SELECT ident, ext FROM (
       -- relations: tables, views, matviews, sequences (indexes 'i','I' skipped:
       -- not standalone facts in the member sense for parity)
@@ -57,8 +78,11 @@ async function catalogMembers(pool: Pool): Promise<
       WHERE d.deptype = 'e' AND d.classid = 'pg_class'::regclass
         AND d.refclassid = 'pg_extension'::regclass
         AND c.relkind IN ('r','p','v','m','S')
+        AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
       UNION ALL
-      -- routines (functions/procedures → 'procedure', aggregates → 'aggregate')
+      -- routines (functions/procedures → 'procedure', aggregates → 'aggregate'),
+      -- minus those that are an internal dependency (type I/O etc.): the
+      -- extractor excludes deptype 'i', so they are not standalone facts
       SELECT json_build_object(
                'kind', CASE p.prokind WHEN 'a' THEN 'aggregate' ELSE 'procedure' END,
                'schema', n.nspname, 'name', p.proname,
@@ -73,6 +97,11 @@ async function catalogMembers(pool: Pool): Promise<
       WHERE d.deptype = 'e' AND d.classid = 'pg_proc'::regclass
         AND d.refclassid = 'pg_extension'::regclass
         AND p.prokind IN ('f','p','a')
+        AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_depend idep
+          WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
+            AND idep.deptype = 'i')
       UNION ALL
       -- types and domains
       SELECT json_build_object(
@@ -86,9 +115,15 @@ async function catalogMembers(pool: Pool): Promise<
       WHERE d.deptype = 'e' AND d.classid = 'pg_type'::regclass
         AND d.refclassid = 'pg_extension'::regclass
         AND t.typtype IN ('d','e','c','r')
-        -- skip the implicit array/relation-rowtype types extensions drag in;
-        -- they are not standalone facts
+        -- skip the implicit array types extensions drag in (they are not facts)
         AND t.typname NOT LIKE '\\_%'
+        -- skip TABLE rowtypes: a member table's rowtype is typtype 'c' but is
+        -- not a standalone composite-type fact (the extractor requires the
+        -- backing relation to be relkind 'c'); the table itself is the fact
+        AND (t.typtype <> 'c' OR EXISTS (
+              SELECT 1 FROM pg_class tc
+              WHERE tc.oid = t.typrelid AND tc.relkind = 'c'))
+        AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
       UNION ALL
       -- schemas owned by an extension
       SELECT json_build_object('kind', 'schema', 'name', n.nspname) AS ident,
@@ -98,6 +133,7 @@ async function catalogMembers(pool: Pool): Promise<
       JOIN pg_namespace n ON n.oid = d.objid
       WHERE d.deptype = 'e' AND d.classid = 'pg_namespace'::regclass
         AND d.refclassid = 'pg_extension'::regclass
+        AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
       UNION ALL
       -- collations
       SELECT json_build_object('kind', 'collation', 'schema', n.nspname,
@@ -109,6 +145,7 @@ async function catalogMembers(pool: Pool): Promise<
       JOIN pg_namespace n ON n.oid = cl.collnamespace
       WHERE d.deptype = 'e' AND d.classid = 'pg_collation'::regclass
         AND d.refclassid = 'pg_extension'::regclass
+        AND e.extname <> 'plpgsql' AND ${userNs("n.nspname")}
     ) m
     ORDER BY ident::text`);
   return rows.map((r) => ({ id: identToStableId(r.ident), extension: r.ext }));
@@ -159,46 +196,40 @@ afterAll(async () => {
 });
 
 describe("extension-member parity (4b Stage 1/2)", () => {
-  test(
-    "every observed extension member is tagged; flipped kinds are fully observed",
-    async () => {
-      const cluster = await supabaseCluster();
-      const db = await cluster.createDb("member_parity");
-      dbs.push(db);
+  test("every observed extension member is tagged; flipped kinds are fully observed", async () => {
+    const cluster = await supabaseCluster();
+    const db = await cluster.createDb("member_parity");
+    dbs.push(db);
 
-      // install extensions that own members across several families:
-      //  - pg_partman: functions (procedure) + config tables (table)
-      //  - hstore / citext: a type each, plus functions and operators
-      await db.pool.query(`CREATE SCHEMA IF NOT EXISTS partman`);
-      await db.pool.query(
-        `CREATE EXTENSION IF NOT EXISTS pg_partman WITH SCHEMA partman`,
-      );
-      await db.pool.query(`CREATE EXTENSION IF NOT EXISTS hstore`);
-      await db.pool.query(`CREATE EXTENSION IF NOT EXISTS citext`);
+    // install extensions that own members across several families:
+    //  - pg_partman: functions (procedure) + config tables (table)
+    //  - hstore / citext: a type each, plus functions and operators
+    await db.pool.query(`CREATE SCHEMA IF NOT EXISTS partman`);
+    await db.pool.query(
+      `CREATE EXTENSION IF NOT EXISTS pg_partman WITH SCHEMA partman`,
+    );
+    await db.pool.query(`CREATE EXTENSION IF NOT EXISTS hstore`);
+    await db.pool.query(`CREATE EXTENSION IF NOT EXISTS citext`);
 
-      const members = await catalogMembers(db.pool);
-      const fb = (await extract(db.pool)).factBase;
+    const members = await catalogMembers(db.pool);
+    const fb = (await extract(db.pool)).factBase;
 
-      const present = new Set(fb.facts().map((f) => encodeId(f.id)));
-      const tagged = taggedMemberIds(fb);
+    const present = new Set(fb.facts().map((f) => encodeId(f.id)));
+    const tagged = taggedMemberIds(fb);
 
-      // soundness: any catalog member that IS observed must be tagged
-      const untagged = members.filter(
-        (m) => present.has(encodeId(m.id)) && !tagged.has(encodeId(m.id)),
-      );
-      expect(
-        untagged.map((m) => encodeId(m.id)),
-      ).toEqual([]);
+    // soundness: any catalog member that IS observed must be tagged
+    const untagged = members.filter(
+      (m) => present.has(encodeId(m.id)) && !tagged.has(encodeId(m.id)),
+    );
+    expect(untagged.map((m) => encodeId(m.id))).toEqual([]);
 
-      // completeness: for each flipped kind, every catalog member is observed
-      const missing = members.filter(
-        (m) => FLIPPED_KINDS.has(m.id.kind) && !present.has(encodeId(m.id)),
-      );
-      expect(missing.map((m) => encodeId(m.id))).toEqual([]);
+    // completeness: for each flipped kind, every catalog member is observed
+    const missing = members.filter(
+      (m) => FLIPPED_KINDS.has(m.id.kind) && !present.has(encodeId(m.id)),
+    );
+    expect(missing.map((m) => encodeId(m.id))).toEqual([]);
 
-      // sanity: the oracle actually found members (guards a silent empty oracle)
-      expect(members.length).toBeGreaterThan(0);
-    },
-    180_000,
-  );
+    // sanity: the oracle actually found members (guards a silent empty oracle)
+    expect(members.length).toBeGreaterThan(0);
+  }, 180_000);
 });

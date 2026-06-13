@@ -151,6 +151,37 @@ async function extractOnClient(
     }
   };
 
+  /** Provenance flip (4b): a scalar subquery selecting the name of the
+   *  extension that OWNS this object (pg_depend deptype 'e'), or NULL. plpgsql
+   *  is excluded to match the extensions extractor, which omits it — an edge to
+   *  it would dangle. A flipped family SELECTs this AS ext_member_of and the
+   *  loop calls pushMemberEdge so the member is observed AND tagged, instead of
+   *  anti-joined away with notExtensionMember. */
+  const memberExtensionExpr = (classid: string, oidExpr: string): string => `(
+    SELECT ext.extname
+    FROM pg_depend ext_d
+    JOIN pg_extension ext ON ext.oid = ext_d.refobjid
+    WHERE ext_d.classid = '${classid}'::regclass
+      AND ext_d.objid = ${oidExpr}
+      AND ext_d.refclassid = 'pg_extension'::regclass
+      AND ext_d.deptype = 'e'
+      AND ext.extname <> 'plpgsql'
+    LIMIT 1)`;
+
+  /** Emit a `memberOfExtension` edge from `id` to its owning extension when the
+   *  row's `ext_member_of` column (from memberExtensionExpr) is set. The edge's
+   *  `from` is the exact fact id, so it can never drift from the fact. */
+  const pushMemberEdge = (id: StableId, row: Row): void => {
+    const ext = row["ext_member_of"];
+    if (typeof ext === "string") {
+      edges.push({
+        from: id,
+        to: { kind: "extension", name: ext },
+        kind: "memberOfExtension",
+      });
+    }
+  };
+
   /** ACL subquery: aggregated per grantee, sorted, PUBLIC for grantee 0.
    *  A NULL acl column means "the built-in default" — coalescing through
    *  acldefault() (pg_dump's model) makes NULL and an explicitly
@@ -269,20 +300,22 @@ async function extractOnClient(
   for (const row of await q(`
     SELECT n.nspname AS name, r.rolname AS owner,
            obj_description(n.oid, 'pg_namespace') AS comment,
-           ${aclJson("n.nspacl", "n", "n.nspowner")} AS acl
+           ${aclJson("n.nspacl", "n", "n.nspowner")} AS acl,
+           ${memberExtensionExpr("pg_namespace", "n.oid")} AS ext_member_of
     FROM pg_namespace n
     JOIN pg_roles r ON r.oid = n.nspowner
     WHERE ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_namespace", "n.oid")}
     ORDER BY n.nspname`)) {
+    const id: StableId = { kind: "schema", name: String(row["name"]) };
     pushWithMeta(
       {
-        id: { kind: "schema", name: String(row["name"]) },
+        id,
         payload: { owner: String(row["owner"]) },
       },
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── extensions (version deliberately excluded from the payload) ─────
@@ -326,20 +359,21 @@ async function extractOnClient(
             WHERE inh.inhrelid = c.oid
             LIMIT 1) AS parent_table,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl
+           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
     WHERE c.relkind IN ('r', 'p') AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname`)) {
+    const id: StableId = {
+      kind: "table",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "table",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -368,6 +402,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
@@ -546,25 +581,26 @@ async function extractOnClient(
               AND od.refobjsubid > 0
             LIMIT 1) AS owned_by,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "s", "c.relowner")} AS acl
+           ${aclJson("c.relacl", "s", "c.relowner")} AS acl,
+           ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_sequence s
     JOIN pg_class c ON c.oid = s.seqrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
     WHERE ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_class", "c.oid")}
       AND NOT EXISTS (
         SELECT 1 FROM pg_depend d
         WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
           AND d.deptype = 'i')
     ORDER BY n.nspname, c.relname`)) {
+    const id: StableId = {
+      kind: "sequence",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "sequence",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -588,6 +624,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── views + materialized views ───────────────────────────────────────
@@ -596,26 +633,28 @@ async function extractOnClient(
            c.relkind AS kind,
            pg_get_viewdef(c.oid) AS def,
            obj_description(c.oid, 'pg_class') AS comment,
-           ${aclJson("c.relacl", "r", "c.relowner")} AS acl
+           ${aclJson("c.relacl", "r", "c.relowner")} AS acl,
+           ${memberExtensionExpr("pg_class", "c.oid")} AS ext_member_of
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_roles r ON r.oid = c.relowner
     WHERE c.relkind IN ('v', 'm') AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname`)) {
+    const id: StableId = {
+      kind: String(row["kind"]) === "m" ? "materializedView" : "view",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: String(row["kind"]) === "m" ? "materializedView" : "view",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: { owner: String(row["owner"]), def: String(row["def"]) },
       },
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── routines (functions + procedures; pg_get_functiondef canonical) ──
@@ -627,26 +666,27 @@ async function extractOnClient(
                  ORDER BY t.ord)::text[] AS identity_args,
            pg_get_functiondef(p.oid) AS def,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl
+           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     JOIN pg_roles r ON r.oid = p.proowner
     WHERE p.prokind IN ('f', 'p') AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_proc", "p.oid")}
       AND NOT EXISTS (
         SELECT 1 FROM pg_depend idep
         WHERE idep.classid = 'pg_proc'::regclass AND idep.objid = p.oid
           AND idep.deptype = 'i')
     ORDER BY n.nspname, p.proname`)) {
     const args = (row["identity_args"] as string[]).map(String);
+    const id: StableId = {
+      kind: "procedure",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+      args,
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "procedure",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-          args,
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -657,6 +697,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── triggers ─────────────────────────────────────────────────────────
@@ -756,21 +797,22 @@ async function extractOnClient(
              WHERE co.oid = t.typcollation)
            END AS collation,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     JOIN pg_type bt ON bt.oid = t.typbasetype
     WHERE t.typtype = 'd' AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname`)) {
+    const id: StableId = {
+      kind: "domain",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "domain",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -787,6 +829,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS domain, con.conname AS name,
@@ -828,20 +871,21 @@ async function extractOnClient(
            ARRAY(SELECT e.enumlabel::text FROM pg_enum e
                  WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) AS values,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     WHERE t.typtype = 'e' AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname`)) {
+    const id: StableId = {
+      kind: "type",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "type",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           variant: "enum",
@@ -852,6 +896,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
@@ -867,13 +912,13 @@ async function extractOnClient(
             JOIN pg_type at ON at.oid = a.atttypid
             WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) AS attrs,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_type t
     JOIN pg_class tc ON tc.oid = t.typrelid AND tc.relkind = 'c'
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     WHERE t.typtype = 'c' AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname`)) {
     const typeId: StableId = {
       kind: "type",
@@ -889,6 +934,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(typeId, row);
     // each attribute is its own fact (granularity is one, §3.1) — enables
     // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
     // detection. Positional order is not desired state (mirrors columns).
@@ -918,21 +964,22 @@ async function extractOnClient(
              WHERE co.oid = rng.rngcollation) END AS collation,
            CASE WHEN rng.rngsubdiff <> 0 THEN rng.rngsubdiff::regproc::text END AS subtype_diff,
            obj_description(t.oid, 'pg_type') AS comment,
-           ${aclJson("t.typacl", "T", "t.typowner")} AS acl
+           ${aclJson("t.typacl", "T", "t.typowner")} AS acl,
+           ${memberExtensionExpr("pg_type", "t.oid")} AS ext_member_of
     FROM pg_range rng
     JOIN pg_type t ON t.oid = rng.rngtypid
     JOIN pg_namespace n ON n.oid = t.typnamespace
     JOIN pg_roles r ON r.oid = t.typowner
     WHERE t.typtype = 'r' AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname`)) {
+    const id: StableId = {
+      kind: "type",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "type",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           variant: "range",
@@ -949,6 +996,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── collations (collversion deliberately excluded from equality) ─────
@@ -956,25 +1004,26 @@ async function extractOnClient(
     SELECT n.nspname AS schema, c.collname AS name, r.rolname AS owner,
            c.collprovider AS provider, c.collisdeterministic AS deterministic,
            to_jsonb(c) AS raw,
-           obj_description(c.oid, 'pg_collation') AS comment
+           obj_description(c.oid, 'pg_collation') AS comment,
+           ${memberExtensionExpr("pg_collation", "c.oid")} AS ext_member_of
     FROM pg_collation c
     JOIN pg_namespace n ON n.oid = c.collnamespace
     JOIN pg_roles r ON r.oid = c.collowner
     WHERE ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_collation", "c.oid")}
     ORDER BY n.nspname, c.collname`)) {
     const raw = row["raw"] as Record<string, unknown>;
     const locale =
       (raw["colllocale"] as string | null) ??
       (raw["colliculocale"] as string | null) ??
       null;
+    const id: StableId = {
+      kind: "collation",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "collation",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -987,6 +1036,7 @@ async function extractOnClient(
       },
       row,
     );
+    pushMemberEdge(id, row);
   }
 
   // ── event triggers ───────────────────────────────────────────────────
@@ -1067,22 +1117,23 @@ async function extractOnClient(
            CASE WHEN a.aggfinalfn <> 0 THEN a.aggfinalfn::regproc::text END AS finalfunc,
            a.agginitval AS initcond,
            obj_description(p.oid, 'pg_proc') AS comment,
-           ${aclJson("p.proacl", "f", "p.proowner")} AS acl
+           ${aclJson("p.proacl", "f", "p.proowner")} AS acl,
+           ${memberExtensionExpr("pg_proc", "p.oid")} AS ext_member_of
     FROM pg_proc p
     JOIN pg_aggregate a ON a.aggfnoid = p.oid
     JOIN pg_namespace n ON n.oid = p.pronamespace
     JOIN pg_roles r ON r.oid = p.proowner
     WHERE p.prokind = 'a' AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_proc", "p.oid")}
     ORDER BY n.nspname, p.proname`)) {
+    const id: StableId = {
+      kind: "aggregate",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+      args: (row["identity_args"] as string[]).map(String),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "aggregate",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-          args: (row["identity_args"] as string[]).map(String),
-        },
+        id,
         parent: schemaId(row["schema"]),
         payload: {
           owner: String(row["owner"]),
@@ -1099,6 +1150,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushMemberEdge(id, row);
   }
 
   // ── foreign data wrappers / servers / user mappings / foreign tables ─
