@@ -1947,6 +1947,124 @@ for (const pgVersion of POSTGRES_VERSIONS) {
     );
 
     test(
+      "constraint-backed generated column index metadata survives dependent function replacement",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_invoice_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED NOT NULL,
+              CONSTRAINT invoice_totals_total_key UNIQUE (total)
+            );
+
+            COMMENT ON INDEX test_schema.invoice_totals_total_key
+              IS 'retained unique total lookup';
+
+            ALTER TABLE test_schema.invoice_totals
+              CLUSTER ON invoice_totals_total_key;
+
+            ALTER TABLE test_schema.invoice_totals
+              REPLICA IDENTITY USING INDEX invoice_totals_total_key;
+
+            INSERT INTO test_schema.invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            CREATE FUNCTION test_schema.compute_invoice_total(input bigint)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input::integer + 1
+            $function$;
+
+            ALTER TABLE test_schema.invoice_totals
+              DROP COLUMN total;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal::bigint)) STORED NOT NULL;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD CONSTRAINT invoice_totals_total_key UNIQUE (total);
+
+            COMMENT ON INDEX test_schema.invoice_totals_total_key
+              IS 'retained unique total lookup';
+
+            ALTER TABLE test_schema.invoice_totals
+              CLUSTER ON invoice_totals_total_key;
+
+            ALTER TABLE test_schema.invoice_totals
+              REPLICA IDENTITY USING INDEX invoice_totals_total_key;
+
+            DROP FUNCTION test_schema.compute_invoice_total(integer);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const addConstraintIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD CONSTRAINT invoice_totals_total_key",
+              ),
+            );
+            const commentIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON INDEX test_schema.invoice_totals_total_key IS 'retained unique total lookup'",
+              ),
+            );
+            const clusterIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals CLUSTER ON invoice_totals_total_key",
+              ),
+            );
+            const replicaIdentityIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals REPLICA IDENTITY USING INDEX invoice_totals_total_key",
+              ),
+            );
+
+            expect(addConstraintIndex).toBeGreaterThanOrEqual(0);
+            expect(commentIndex).toBeGreaterThan(addConstraintIndex);
+            expect(clusterIndex).toBeGreaterThan(addConstraintIndex);
+            expect(replicaIdentityIndex).toBeGreaterThan(addConstraintIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(dedent`
+          SELECT
+            d.description,
+            i.indisclustered,
+            i.indisreplident
+          FROM pg_catalog.pg_class idx
+          JOIN pg_catalog.pg_namespace n ON n.oid = idx.relnamespace
+          JOIN pg_catalog.pg_index i ON i.indexrelid = idx.oid
+          LEFT JOIN pg_catalog.pg_description d
+            ON d.objoid = idx.oid
+           AND d.objsubid = 0
+          WHERE n.nspname = 'test_schema'
+            AND idx.relname = 'invoice_totals_total_key'
+        `);
+        expect(rows[0]?.description).toBe("retained unique total lookup");
+        expect(rows[0]?.indisclustered).toBe(true);
+        expect(rows[0]?.indisreplident).toBe(true);
+      }),
+    );
+
+    test(
       "aggregate dependents are recreated before replacing support functions",
       withDb(pgVersion, async (db) => {
         await roundtripFidelityTest({

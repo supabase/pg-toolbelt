@@ -181,6 +181,45 @@ describe("normalizePostDiffChanges", () => {
     expect(normalized).toContain(preExistingGrant);
   });
 
+  test("dedupes table owner restores for replaced tables with last replacement replay winning", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+      owner: "postgres",
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+      owner: "app_owner",
+    });
+
+    const preExistingOwnerRestore = new AlterTableChangeOwner({
+      table: mainTable,
+      owner: "app_owner",
+    });
+    const replacementOwnerRestore = new AlterTableChangeOwner({
+      table: branchTable,
+      owner: "app_owner",
+    });
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        preExistingOwnerRestore,
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacementOwnerRestore,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+    const ownerRestores = normalized.filter(
+      (change): change is AlterTableChangeOwner =>
+        change instanceof AlterTableChangeOwner,
+    );
+
+    expect(ownerRestores).toEqual([replacementOwnerRestore]);
+  });
+
   test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {
     const branchChildren = new Table({
       ...baseTableProps,
