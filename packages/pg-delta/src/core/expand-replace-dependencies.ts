@@ -537,6 +537,13 @@ export function expandReplaceDependencies({
               diffContext,
             })
           : [];
+      const procedureMetadataRestoreChanges =
+        resolved.kind === "procedure" && addDrop && !addCreate
+          ? buildRetainedProcedureMetadataChanges({
+              procedure: resolved.branch,
+              diffContext,
+            }).filter((change) => !isCreateAlreadyCovered(change, createdIds))
+          : [];
       const aggregateMetadataRestoreChanges =
         resolved.kind === "aggregate" && addDrop && !addCreate
           ? buildRetainedAggregateMetadataChanges({
@@ -548,6 +555,7 @@ export function expandReplaceDependencies({
       additions.push(
         ...replacementChanges,
         ...retainedIndexChanges,
+        ...procedureMetadataRestoreChanges,
         ...aggregateMetadataRestoreChanges,
       );
       if (resolved.kind === "rls_policy") {
@@ -565,6 +573,7 @@ export function expandReplaceDependencies({
       for (const change of [
         ...replacementChanges,
         ...retainedIndexChanges,
+        ...procedureMetadataRestoreChanges,
         ...aggregateMetadataRestoreChanges,
       ]) {
         for (const id of change.creates ?? []) createdIds.add(id);
