@@ -22,6 +22,10 @@ import {
   AlterPublicationSetOwner,
 } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
+import { SetRuleEnabledState } from "../objects/rule/changes/rule.alter.ts";
+import { CreateCommentOnRule } from "../objects/rule/changes/rule.comment.ts";
+import { CreateRule } from "../objects/rule/changes/rule.create.ts";
+import { Rule } from "../objects/rule/rule.model.ts";
 import { AlterSequenceChangeOwner } from "../objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "../objects/sequence/changes/sequence.create.ts";
 import { GrantSequencePrivileges } from "../objects/sequence/changes/sequence.privilege.ts";
@@ -36,7 +40,9 @@ import {
 } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
 import { Table } from "../objects/table/table.model.ts";
+import { SetTriggerEnabledState } from "../objects/trigger/changes/trigger.alter.ts";
 import { CreateCommentOnTrigger } from "../objects/trigger/changes/trigger.comment.ts";
+import { CreateTrigger } from "../objects/trigger/changes/trigger.create.ts";
 import { Trigger } from "../objects/trigger/trigger.model.ts";
 import { AlterViewChangeOwner } from "../objects/view/changes/view.alter.ts";
 import { CreateCommentOnView } from "../objects/view/changes/view.comment.ts";
@@ -314,7 +320,10 @@ function sequenceOwnedBy(tableName: string, columnName: string) {
   });
 }
 
-function triggerOnTable(tableName: string) {
+function triggerOnTable(
+  tableName: string,
+  overrides: Partial<ConstructorParameters<typeof Trigger>[0]> = {},
+) {
   return new Trigger({
     schema: "public",
     name: `${tableName}_audit_trigger`,
@@ -341,6 +350,23 @@ function triggerOnTable(tableName: string) {
     owner: "postgres",
     definition: `CREATE TRIGGER ${tableName}_audit_trigger AFTER UPDATE ON public.${tableName} FOR EACH ROW EXECUTE FUNCTION public.audit_row()`,
     comment: "retained trigger comment",
+    ...overrides,
+  });
+}
+
+function ruleOnView(viewName: string) {
+  return new Rule({
+    schema: "public",
+    name: `${viewName}_update_rule`,
+    table_name: viewName,
+    relation_kind: "v",
+    event: "UPDATE",
+    enabled: "R",
+    is_instead: true,
+    owner: "postgres",
+    definition: `CREATE RULE ${viewName}_update_rule AS ON UPDATE TO public.${viewName} DO INSTEAD NOTHING`,
+    comment: "retained rule comment",
+    columns: [],
   });
 }
 
@@ -612,6 +638,112 @@ describe("sortChanges", () => {
     expect(grantIndex).toBeGreaterThan(-1);
     expect(ownerIndex).toBeGreaterThan(commentIndex);
     expect(ownerIndex).toBeGreaterThan(grantIndex);
+  });
+
+  test("orders view trigger replay before view owner restore", async () => {
+    const retainedView = new View({
+      schema: "public",
+      name: "active_users",
+      definition: "SELECT id FROM users",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: false,
+      has_triggers: true,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      owner: "app_owner",
+      comment: null,
+      columns: [integerColumn("id", 1)],
+      privileges: [],
+    });
+    const trigger = triggerOnTable("active_users", {
+      table_relkind: "v",
+      definition:
+        "CREATE TRIGGER active_users_audit_trigger INSTEAD OF UPDATE ON public.active_users FOR EACH ROW EXECUTE FUNCTION public.audit_row()",
+      enabled: "R",
+    });
+    const changes: Change[] = [
+      new AlterViewChangeOwner({ view: retainedView, owner: "app_owner" }),
+      new CreateTrigger({ trigger }),
+      new SetTriggerEnabledState({ trigger }),
+      new CreateCommentOnTrigger({ trigger }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const createTriggerIndex = sorted.findIndex(
+      (change) => change instanceof CreateTrigger,
+    );
+    const enabledStateIndex = sorted.findIndex(
+      (change) => change instanceof SetTriggerEnabledState,
+    );
+    const commentIndex = sorted.findIndex(
+      (change) => change instanceof CreateCommentOnTrigger,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterViewChangeOwner,
+    );
+
+    expect(createTriggerIndex).toBeGreaterThan(-1);
+    expect(enabledStateIndex).toBeGreaterThan(-1);
+    expect(commentIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(createTriggerIndex);
+    expect(ownerIndex).toBeGreaterThan(enabledStateIndex);
+    expect(ownerIndex).toBeGreaterThan(commentIndex);
+  });
+
+  test("orders view rule metadata replay before view owner restore", async () => {
+    const retainedView = new View({
+      schema: "public",
+      name: "active_users",
+      definition: "SELECT id FROM users",
+      row_security: false,
+      force_row_security: false,
+      has_indexes: false,
+      has_rules: true,
+      has_triggers: false,
+      has_subclasses: false,
+      is_populated: true,
+      replica_identity: "d",
+      is_partition: false,
+      options: null,
+      partition_bound: null,
+      owner: "app_owner",
+      comment: null,
+      columns: [integerColumn("id", 1)],
+      privileges: [],
+    });
+    const rule = ruleOnView("active_users");
+    const changes: Change[] = [
+      new CreateRule({ rule }),
+      new AlterViewChangeOwner({ view: retainedView, owner: "app_owner" }),
+      new CreateCommentOnRule({ rule }),
+      new SetRuleEnabledState({ rule }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const commentIndex = sorted.findIndex(
+      (change) => change instanceof CreateCommentOnRule,
+    );
+    const enabledStateIndex = sorted.findIndex(
+      (change) => change instanceof SetRuleEnabledState,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterViewChangeOwner,
+    );
+
+    expect(commentIndex).toBeGreaterThan(-1);
+    expect(enabledStateIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(commentIndex);
+    expect(ownerIndex).toBeGreaterThan(enabledStateIndex);
   });
 
   test("orders publication table replay before publication owner restore", async () => {
