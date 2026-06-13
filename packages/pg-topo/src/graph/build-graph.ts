@@ -375,7 +375,10 @@ export const buildGraph = (
   if (externalProviders) {
     for (const ref of externalProviders) {
       addExternalProvider(ref);
-      if (ref.kind === "type" && !ref.name.endsWith("[]")) {
+      if (
+        (ref.kind === "type" || ref.kind === "domain") &&
+        !ref.name.endsWith("[]")
+      ) {
         addExternalProvider({
           kind: "type",
           schema: ref.schema,

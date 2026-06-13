@@ -2373,12 +2373,7 @@ const extractCreateRangeDependencies = (
           }
         } else {
           requires.push(operatorClassRequirement);
-          if (
-            operatorClassRef.schema?.toLowerCase() === "pg_catalog" &&
-            builtInRangeOperatorClassNames.has(
-              operatorClassRef.name.toLowerCase(),
-            )
-          ) {
+          if (operatorClassRef.schema?.toLowerCase() === "pg_catalog") {
             const subtypeName = operatorClassSubtypeRef
               ? typeSignaturePart(operatorClassSubtypeRef)
               : "unknown";
@@ -2750,19 +2745,6 @@ const isBuiltInOperatorEstimatorFunctionName = (
   );
 };
 
-const isPgCatalogQualifiedKnownOperatorEstimatorFunctionName = (
-  nameParts: string[],
-): boolean => {
-  const name = nameParts.at(-1)?.toLowerCase();
-  return (
-    nameParts.length === 2 &&
-    nameParts[0]?.toLowerCase() === "pg_catalog" &&
-    name !== undefined &&
-    (builtInRestrictEstimatorFunctionNames.has(name) ||
-      builtInJoinEstimatorFunctionNames.has(name))
-  );
-};
-
 const isBuiltInOperatorImplementationFunctionName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
@@ -2867,11 +2849,7 @@ const extractCreateOperatorDependencies = (
         }
 
         requires.push(exactEstimatorFunctionRef);
-        if (
-          isPgCatalogQualifiedKnownOperatorEstimatorFunctionName(
-            estimatorFunctionNameParts,
-          )
-        ) {
+        if (isPgCatalogQualifiedName(estimatorFunctionNameParts)) {
           diagnostics.push({
             code: "UNRESOLVED_DEPENDENCY",
             message: `No valid pg_catalog operator estimator '${estimatorFunctionRef.name}' found for option '${optionName}'.`,
@@ -3339,6 +3317,7 @@ const extractCreateBaseTypeDependencies = (
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
+  const diagnostics: Diagnostic[] = [];
 
   const typeRef = objectFromNameParts(
     "type",
@@ -3378,6 +3357,7 @@ const extractCreateBaseTypeDependencies = (
     const functionRef = objectFromNameParts("function", functionNameParts);
     if (functionRef) {
       const alternatives = baseTypeFunctionArgAlternatives(optionName, typeRef);
+      const callbackRefs: ObjectRef[] = [];
       for (const args of alternatives) {
         const callbackRef = markExactKindRef(
           markExactSignatureRef(
@@ -3389,6 +3369,7 @@ const extractCreateBaseTypeDependencies = (
             ),
           ),
         );
+        callbackRefs.push(callbackRef);
         if (isBuiltInBaseTypeCallbackName(optionName, functionNameParts)) {
           if (functionNameParts.length === 1) {
             requires.push(markOmitIfNoLocalProducerRef(callbackRef));
@@ -3405,10 +3386,23 @@ const extractCreateBaseTypeDependencies = (
             : callbackRef,
         );
       }
+      if (
+        callbackRefs.length > 0 &&
+        isPgCatalogQualifiedName(functionNameParts) &&
+        !isBuiltInBaseTypeCallbackName(optionName, functionNameParts)
+      ) {
+        diagnostics.push({
+          code: "UNRESOLVED_DEPENDENCY",
+          message: `No valid pg_catalog base type callback '${functionRef.name}' found for option '${optionName}'.`,
+          objectRefs: callbackRefs,
+          suggestedFix:
+            "Use a valid pg_catalog base type callback or create the referenced callback function explicitly in a user schema.",
+        });
+      }
     }
   }
 
-  return { provides, requires };
+  return { provides, requires, diagnostics };
 };
 
 const aggregateFunctionOptionNames = new Set([
