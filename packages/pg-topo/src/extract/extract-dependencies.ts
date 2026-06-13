@@ -1288,6 +1288,8 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
   ["hash_aclitem_extended", [["aclitem", "int8"]]],
   ["hash_array", [["anyarray"]]],
   ["hash_array_extended", [["anyarray", "int8"]]],
+  ["hashcid", [["cid"]]],
+  ["hashcidextended", [["cid", "int8"]]],
   ["hash_multirange", [["anymultirange"]]],
   ["hash_multirange_extended", [["anymultirange", "int8"]]],
   ["hash_numeric", [["numeric"]]],
@@ -1330,6 +1332,8 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
   ["hashtidextended", [["tid", "int8"]]],
   ["hashvarlena", [["internal"]]],
   ["hashvarlenaextended", [["internal", "int8"]]],
+  ["hashxid", [["xid"]]],
+  ["hashxidextended", [["xid", "int8"]]],
   [
     "in_range",
     [

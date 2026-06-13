@@ -2,6 +2,7 @@ import {
   createObjectRefFromAst,
   DEFAULT_SCHEMA,
   isBuiltInObjectRef,
+  markExplicitSchemaRef,
 } from "../model/object-ref.ts";
 import type { ObjectRef } from "../model/types.ts";
 import { asRecord } from "../utils/ast.ts";
@@ -114,11 +115,12 @@ export const objectFromNameParts = (
       return null;
     }
 
-    return createObjectRefFromAst(
+    const ref = createObjectRefFromAst(
       kind,
       `${relationName}.${objectName}`,
       parts.at(-3) ?? fallbackSchema,
     );
+    return parts.length >= 3 ? markExplicitSchemaRef(ref) : ref;
   }
 
   if (parts.length === 1) {
@@ -141,10 +143,12 @@ export const objectFromNameParts = (
     return createObjectRefFromAst(kind, first, fallbackSchema);
   }
 
-  return createObjectRefFromAst(
-    kind,
-    parts.at(-1) ?? "",
-    parts.at(-2) ?? fallbackSchema,
+  return markExplicitSchemaRef(
+    createObjectRefFromAst(
+      kind,
+      parts.at(-1) ?? "",
+      parts.at(-2) ?? fallbackSchema,
+    ),
   );
 };
 

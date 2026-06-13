@@ -60,6 +60,7 @@ export type ObjectRef = {
   omitIfNoLocalProducer?: boolean;
   alternativeKey?: string;
   implicitProvider?: boolean;
+  explicitSchema?: boolean;
 };
 
 export type AnnotationHints = {

@@ -15,6 +15,7 @@ const BUILTIN_TYPES = new Set([
   "bytea",
   "char",
   "circle",
+  "cid",
   "cidr",
   "datemultirange",
   "daterange",
@@ -81,6 +82,7 @@ const BUILTIN_TYPES = new Set([
   "bit",
   "void",
   "xml",
+  "xid",
   "xid8",
 ]);
 
@@ -205,7 +207,11 @@ export const createObjectRefFromAst = (
 
 const markObjectRefFlag = (
   ref: ObjectRef,
-  key: "exactSignature" | "omitIfNoLocalProducer" | "implicitProvider",
+  key:
+    | "exactSignature"
+    | "omitIfNoLocalProducer"
+    | "implicitProvider"
+    | "explicitSchema",
 ): ObjectRef => {
   Object.defineProperty(ref, key, {
     configurable: true,
@@ -248,6 +254,9 @@ export const markImplicitProviderRef = (ref: ObjectRef): ObjectRef =>
 export const isImplicitProvider = (ref: ObjectRef): boolean =>
   ref.implicitProvider === true;
 
+export const markExplicitSchemaRef = (ref: ObjectRef): ObjectRef =>
+  markObjectRefFlag(ref, "explicitSchema");
+
 // CREATE TYPE name; creates a shell type that support routines can reference,
 // but ordinary consumers still need the later concrete type definition.
 export const SHELL_TYPE_SIGNATURE = "(shell)";
@@ -287,14 +296,14 @@ export const isBuiltInObjectRef = (ref: ObjectRef): boolean => {
 
   if (
     ref.kind === "type" &&
-    (!schemaLower || schemaLower === DEFAULT_SCHEMA) &&
+    (!schemaLower || (schemaLower === DEFAULT_SCHEMA && !ref.explicitSchema)) &&
     BUILTIN_TYPES.has(nameLower)
   ) {
     return true;
   }
 
   if (ref.kind === "type" && nameLower.endsWith("[]")) {
-    if (schemaLower && schemaLower !== DEFAULT_SCHEMA) {
+    if (schemaLower && (schemaLower !== DEFAULT_SCHEMA || ref.explicitSchema)) {
       return false;
     }
     return BUILTIN_TYPES.has(nameLower.slice(0, -"[]".length));
