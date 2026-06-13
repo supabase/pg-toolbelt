@@ -298,11 +298,15 @@ export function expandReplaceDependencies({
     collectCoveredGeneratedColumnRecreations(changes);
   const columnsRecreatedByOriginalDiff =
     collectCoveredColumnRecreations(changes);
+  const columnsEligibleForGrantRestores = new Set([
+    ...generatedColumnsRecreatedByExpressionFallback,
+    ...columnsRecreatedByOriginalDiff,
+  ]);
   const generatedColumnGrantRestoresAdded = new Set<string>();
   for (const columnId of generatedColumnsRecreatedByExpressionFallback) {
     maybeAddCoveredGeneratedColumnGrantRestores({
       columnId,
-      generatedColumnsRecreatedByExpressionFallback,
+      columnsEligibleForGrantRestores,
       generatedColumnGrantRestoresAdded,
       branchCatalog,
       additions,
@@ -326,7 +330,7 @@ export function expandReplaceDependencies({
     const refId = queue.shift() as string;
     maybeAddCoveredGeneratedColumnGrantRestores({
       columnId: refId,
-      generatedColumnsRecreatedByExpressionFallback,
+      columnsEligibleForGrantRestores,
       generatedColumnGrantRestoresAdded,
       branchCatalog,
       additions,
@@ -400,10 +404,10 @@ export function expandReplaceDependencies({
         const restoreCovered =
           expressionDependentCoverage.restore.has(dependentRaw);
         if (releaseCovered && restoreCovered) {
-          if (generatedColumnsRecreatedByExpressionFallback.has(dependentRaw)) {
+          if (columnsEligibleForGrantRestores.has(dependentRaw)) {
             maybeAddCoveredGeneratedColumnGrantRestores({
               columnId: dependentRaw,
-              generatedColumnsRecreatedByExpressionFallback,
+              columnsEligibleForGrantRestores,
               generatedColumnGrantRestoresAdded,
               branchCatalog,
               additions,
@@ -1122,7 +1126,7 @@ function maybeAddRecreatedColumnMetadataRestore({
 
 function maybeAddCoveredGeneratedColumnGrantRestores({
   columnId,
-  generatedColumnsRecreatedByExpressionFallback,
+  columnsEligibleForGrantRestores,
   generatedColumnGrantRestoresAdded,
   branchCatalog,
   additions,
@@ -1130,7 +1134,7 @@ function maybeAddCoveredGeneratedColumnGrantRestores({
   diffContext,
 }: {
   columnId: string;
-  generatedColumnsRecreatedByExpressionFallback: ReadonlySet<string>;
+  columnsEligibleForGrantRestores: ReadonlySet<string>;
   generatedColumnGrantRestoresAdded: Set<string>;
   branchCatalog: Catalog;
   additions: Change[];
@@ -1141,7 +1145,7 @@ function maybeAddCoveredGeneratedColumnGrantRestores({
   >;
 }): void {
   if (
-    !generatedColumnsRecreatedByExpressionFallback.has(columnId) ||
+    !columnsEligibleForGrantRestores.has(columnId) ||
     generatedColumnGrantRestoresAdded.has(columnId)
   ) {
     return;

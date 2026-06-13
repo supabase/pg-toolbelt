@@ -2,6 +2,7 @@ import type { Change } from "../change.types.ts";
 import { getSchema } from "../change-utils.ts";
 import { AlterAggregateChangeOwner } from "../objects/aggregate/changes/aggregate.alter.ts";
 import { AlterProcedureChangeOwner } from "../objects/procedure/changes/procedure.alter.ts";
+import { AlterPublicationSetOwner } from "../objects/publication/changes/publication.alter.ts";
 import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
@@ -18,6 +19,7 @@ import {
   AlterTableAlterColumnSetDefault,
   AlterTableChangeOwner,
 } from "../objects/table/changes/table.alter.ts";
+import { AlterViewChangeOwner } from "../objects/view/changes/view.alter.ts";
 import type { Constraint } from "./types.ts";
 
 /**
@@ -424,6 +426,67 @@ function generateMaterializedViewOwnerRestoreLastConstraints(
   return constraints;
 }
 
+function getRelatedViewStableIds(change: Change): Set<string> {
+  const viewIds = new Set<string>();
+  if (
+    "view" in change &&
+    change.view &&
+    typeof change.view === "object" &&
+    "stableId" in change.view &&
+    typeof change.view.stableId === "string"
+  ) {
+    viewIds.add(change.view.stableId);
+  }
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    if (id.startsWith("view:")) {
+      viewIds.add(id);
+    }
+  }
+  return viewIds;
+}
+
+function generateViewOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; viewId: string }> = [];
+  const changesByView = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (change instanceof AlterViewChangeOwner) {
+      ownerChanges.push({ index, viewId: change.view.stableId });
+      continue;
+    }
+
+    const viewIds = getRelatedViewStableIds(change);
+    for (const viewId of viewIds) {
+      const indexes = changesByView.get(viewId) ?? [];
+      indexes.push(index);
+      changesByView.set(viewId, indexes);
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes = changesByView.get(ownerChange.viewId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function parseSequenceStableIdFromStableId(id: string): string | null {
   if (id.startsWith("sequence:")) {
     return id;
@@ -558,6 +621,71 @@ function generateRoutineOwnerRestoreLastConstraints(
   return constraints;
 }
 
+function getRelatedPublicationStableIds(change: Change): Set<string> {
+  const publicationIds = new Set<string>();
+  if (
+    "publication" in change &&
+    change.publication &&
+    typeof change.publication === "object" &&
+    "stableId" in change.publication &&
+    typeof change.publication.stableId === "string"
+  ) {
+    publicationIds.add(change.publication.stableId);
+  }
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    if (id.startsWith("publication:")) {
+      publicationIds.add(id);
+    }
+  }
+  return publicationIds;
+}
+
+function generatePublicationOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; publicationId: string }> = [];
+  const changesByPublication = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (change instanceof AlterPublicationSetOwner) {
+      ownerChanges.push({
+        index,
+        publicationId: change.publication.stableId,
+      });
+      continue;
+    }
+
+    const publicationIds = getRelatedPublicationStableIds(change);
+    for (const publicationId of publicationIds) {
+      const indexes = changesByPublication.get(publicationId) ?? [];
+      indexes.push(index);
+      changesByPublication.set(publicationId, indexes);
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes =
+      changesByPublication.get(ownerChange.publicationId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function generateOwnedSequenceAttachmentConstraints(
   changes: Change[],
 ): Constraint[] {
@@ -640,8 +768,10 @@ const customConstraintGenerators: ConstraintGenerator[] = [
   generateIdentityTransitionConstraints,
   generateTableOwnerRestoreLastConstraints,
   generateMaterializedViewOwnerRestoreLastConstraints,
+  generateViewOwnerRestoreLastConstraints,
   generateSequenceOwnerRestoreLastConstraints,
   generateRoutineOwnerRestoreLastConstraints,
+  generatePublicationOwnerRestoreLastConstraints,
   generateOwnedSequenceAttachmentConstraints,
 ];
 
