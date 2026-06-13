@@ -941,7 +941,7 @@ const builtInRangeOperatorClassSubtypes = new Map<string, string[]>([
   ["bpchar_pattern_ops", ["bpchar"]],
   ["bytea_ops", ["bytea"]],
   ["char_ops", ["char"]],
-  ["cidr_ops", ["cidr"]],
+  ["cidr_ops", ["cidr", "inet"]],
   ["date_ops", ["date"]],
   ["float4_ops", ["float4"]],
   ["float8_ops", ["float8"]],
@@ -1979,25 +1979,44 @@ const builtInGinSupportOperatorStrategies = new Map([
   ["?|", [10]],
   ["?&", [11]],
   ["@?", [15]],
-  ["@@", [6, 16]],
+  ["@@", [1, 6, 16]],
+  ["@@@", [2]],
 ]);
 
 const builtInGistSupportOperatorStrategies = new Map([
   ["<<", [1]],
+  ["&<", [2]],
   ["&&", [3]],
   ["&>", [4]],
-  ["=", [6]],
+  [">>", [5]],
+  ["-|-", [6]],
   ["@>", [7]],
   ["<@", [8]],
+  ["=", [6, 18]],
 ]);
 
 const builtInSpgistSupportOperatorStrategies = new Map([
-  ["<<", [1]],
+  ["~<~", [1]],
+  ["~<=~", [2]],
+  ["~>=~", [4]],
+  ["~>~", [5]],
+  ["<", [11, 20]],
+  ["<=", [12, 21]],
+  [">=", [14, 23]],
+  [">", [15, 22]],
+  ["^@", [28]],
+  ["<<", [1, 24]],
+  ["&<", [2]],
   ["&&", [3]],
   ["&>", [4]],
-  ["=", [6]],
+  [">>", [5, 26]],
+  ["-|-", [6]],
   ["@>", [7]],
   ["<@", [8]],
+  ["=", [3, 6, 18]],
+  ["<>", [19]],
+  ["<<=", [25]],
+  [">>=", [27]],
 ]);
 
 const builtInBtreeOperatorStrategies = new Map([
@@ -2176,23 +2195,34 @@ const typeRefsMatchBuiltInCrossTypeSupportOperator = (
   );
 };
 
-const typeRefsMatchBuiltInGinJsonbSupportOperator = (
+const typeRefsMatchBuiltInGinSupportOperator = (
   name: string,
   leftArg: ObjectRef | null,
   rightArg: ObjectRef | null,
 ): boolean => {
-  if (!typeRefMatchesBuiltInNames(leftArg, ["jsonb"])) {
-    return false;
+  if (typeRefMatchesBuiltInNames(leftArg, ["tsvector"])) {
+    return (
+      (name === "@@" || name === "@@@") &&
+      typeRefMatchesBuiltInNames(rightArg, ["tsquery"])
+    );
   }
 
-  if (name === "?") {
-    return typeRefMatchesBuiltInNames(rightArg, ["text"]);
+  if (typeRefMatchesBuiltInNames(leftArg, ["jsonb"])) {
+    if (name === "?") {
+      return typeRefMatchesBuiltInNames(rightArg, ["text"]);
+    }
+
+    if (name === "?|" || name === "?&") {
+      return typeRefMatchesBuiltInNames(rightArg, ["text[]"]);
+    }
+
+    return (
+      (name === "@?" || name === "@@") &&
+      typeRefMatchesBuiltInNames(rightArg, ["jsonpath"])
+    );
   }
 
-  return (
-    (name === "?|" || name === "?&") &&
-    typeRefMatchesBuiltInNames(rightArg, ["text[]"])
-  );
+  return false;
 };
 
 const isBuiltInOperatorClassSupportOperatorName = (
@@ -2296,7 +2326,7 @@ const isBuiltInOperatorClassSupportOperatorName = (
   if (!objectRefsSameObject(leftArg, rightArg)) {
     if (
       accessMethod.toLowerCase() === "gin" &&
-      typeRefsMatchBuiltInGinJsonbSupportOperator(name, leftArg, rightArg)
+      typeRefsMatchBuiltInGinSupportOperator(name, leftArg, rightArg)
     ) {
       return true;
     }
