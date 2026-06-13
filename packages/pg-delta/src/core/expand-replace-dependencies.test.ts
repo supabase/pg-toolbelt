@@ -2134,6 +2134,123 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("keeps drop-only constraint dependents when the branch table is missing", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 1,
+      argument_names: ["status"],
+      argument_types: ["text"],
+      source_code: "SELECT status <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' $$",
+    });
+    const branchProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 2,
+      argument_names: ["status", "expected"],
+      argument_types: ["text", "text"],
+      argument_default_count: 1,
+      argument_defaults: "'active'::text",
+      source_code: "SELECT status <> '' AND expected <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text, expected text DEFAULT 'active'::text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' AND expected <> '' $$",
+    });
+    const constraint = {
+      name: "accounts_status_check",
+      constraint_type: "c" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: [],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "is_valid_status(status)",
+      owner: "postgres",
+      definition: "CHECK (public.is_valid_status(status))",
+      comment: null,
+    };
+    const table = makeTable(
+      "accounts",
+      [
+        {
+          name: "status",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      { constraints: [constraint] },
+    );
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id:
+            "constraint:public.accounts.accounts_status_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: {},
+      indexes: {
+        "index:public.other_table.other_table_name_idx": makeIndex({
+          table_name: "other_table",
+          name: "other_table_name_idx",
+          is_owned_by_constraint: true,
+          definition:
+            "CREATE INDEX other_table_name_idx ON public.other_table USING btree (name)",
+        }),
+      },
+      depends: [],
+    });
+
+    expect(() =>
+      expandReplaceDependencies({
+        changes,
+        mainCatalog,
+        branchCatalog,
+      }),
+    ).not.toThrow();
+  });
+
   test("replays backing index comments when constraint rebuilds recreate owned indexes", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = makeProcedure({
@@ -2264,6 +2381,163 @@ describe("expandReplaceDependencies", () => {
           ),
       ),
     ).toBe(true);
+  });
+
+  test("reapplies replica identity when constraint rebuilds recreate owned indexes", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 1,
+      argument_names: ["status"],
+      argument_types: ["text"],
+      source_code: "SELECT status <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' $$",
+    });
+    const branchProcedure = makeProcedure({
+      name: "is_valid_status",
+      argument_count: 2,
+      argument_names: ["status", "expected"],
+      argument_types: ["text", "text"],
+      argument_default_count: 1,
+      argument_defaults: "'active'::text",
+      source_code: "SELECT status <> '' AND expected <> ''",
+      definition:
+        "CREATE FUNCTION public.is_valid_status(status text, expected text DEFAULT 'active'::text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT status <> '' AND expected <> '' $$",
+    });
+    const constraint = {
+      name: "accounts_status_key",
+      constraint_type: "u" as const,
+      deferrable: false,
+      initially_deferred: false,
+      validated: true,
+      is_local: true,
+      no_inherit: false,
+      is_temporal: false,
+      is_partition_clone: false,
+      parent_constraint_schema: null,
+      parent_constraint_name: null,
+      parent_table_schema: null,
+      parent_table_name: null,
+      key_columns: ["status"],
+      foreign_key_columns: null,
+      foreign_key_table: null,
+      foreign_key_schema: null,
+      foreign_key_table_is_partition: null,
+      foreign_key_parent_schema: null,
+      foreign_key_parent_table: null,
+      foreign_key_effective_schema: null,
+      foreign_key_effective_table: null,
+      on_update: null,
+      on_delete: null,
+      match_type: null,
+      check_expression: "is_valid_status(status)",
+      owner: "postgres",
+      definition: "UNIQUE (status)",
+      comment: null,
+    };
+    const table = makeTable(
+      "accounts",
+      [
+        {
+          name: "status",
+          position: 1,
+          data_type: "text",
+          data_type_str: "text",
+          is_custom_type: false,
+          custom_type_type: null,
+          custom_type_category: null,
+          custom_type_schema: null,
+          custom_type_name: null,
+          not_null: true,
+          is_identity: false,
+          is_identity_always: false,
+          is_generated: false,
+          collation: null,
+          default: null,
+          comment: null,
+        },
+      ],
+      {
+        constraints: [constraint],
+        replica_identity: "i",
+        replica_identity_index: "accounts_status_key",
+      },
+    );
+    const backingIndex = makeIndex({
+      name: "accounts_status_key",
+      key_columns: [1],
+      index_expressions: null,
+      is_unique: true,
+      is_replica_identity: true,
+      is_owned_by_constraint: true,
+      definition:
+        "CREATE UNIQUE INDEX accounts_status_key ON public.accounts USING btree (status)",
+    });
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = catalogWith(baseline, {
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      indexableObjects: { [table.stableId]: table },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.accounts.accounts_status_key",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = catalogWith(baseline, {
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [table.stableId]: table },
+      indexes: { [backingIndex.stableId]: backingIndex },
+      indexableObjects: { [table.stableId]: table },
+      depends: mainCatalog.depends,
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addConstraintIdx = sorted.findIndex(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    const replicaIdentityChanges = sorted.filter(
+      (change) => change instanceof AlterTableSetReplicaIdentity,
+    );
+    const replicaIdentityIdx = sorted.findIndex(
+      (change) => change instanceof AlterTableSetReplicaIdentity,
+    );
+
+    expect(addConstraintIdx).toBeGreaterThanOrEqual(0);
+    expect(replicaIdentityChanges).toHaveLength(1);
+    expect(replicaIdentityIdx).toBeGreaterThan(addConstraintIdx);
+
+    const preExistingReplicaIdentity = new AlterTableSetReplicaIdentity({
+      table,
+      mode: "i",
+      indexName: "accounts_status_key",
+    });
+    const expandedWithExisting = expandReplaceDependencies({
+      changes: [...changes, preExistingReplicaIdentity],
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(
+      expandedWithExisting.changes.filter(
+        (change) => change instanceof AlterTableSetReplicaIdentity,
+      ),
+    ).toHaveLength(1);
   });
 
   test("promotes dependent RLS policy when a procedure's signature changes", async () => {
