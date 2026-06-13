@@ -62,6 +62,7 @@ import {
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
+  AlterTableChangeOwner,
   AlterTableClusterOn,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -493,6 +494,8 @@ export function expandReplaceDependencies({
           additions,
           createdIds,
           droppedIds,
+          visitedRefs,
+          queue,
           visitedTargets,
         })
       ) {
@@ -1300,6 +1303,8 @@ function maybeAddColumnDependentConstraintReplacement({
   additions,
   createdIds,
   droppedIds,
+  visitedRefs,
+  queue,
   visitedTargets,
 }: {
   refId: string;
@@ -1309,16 +1314,27 @@ function maybeAddColumnDependentConstraintReplacement({
   additions: Change[];
   createdIds: Set<string>;
   droppedIds: Set<string>;
+  visitedRefs: Set<string>;
+  queue: string[];
   visitedTargets: Set<string>;
 }): boolean {
-  if (!refId.startsWith("column:") || !dependentRaw.startsWith("constraint:")) {
+  if (
+    !(refId.startsWith("column:") || refId.startsWith("constraint:")) ||
+    !dependentRaw.startsWith("constraint:")
+  ) {
     return false;
   }
-  if (visitedTargets.has(dependentRaw)) return true;
+  if (visitedTargets.has(dependentRaw)) {
+    queueRefForTraversal(dependentRaw, visitedRefs, queue);
+    return true;
+  }
 
   const addRelease = !droppedIds.has(dependentRaw);
   const addRestore = !createdIds.has(dependentRaw);
-  if (!addRelease && !addRestore) return true;
+  if (!addRelease && !addRestore) {
+    queueRefForTraversal(dependentRaw, visitedRefs, queue);
+    return true;
+  }
 
   const constraintReplacementChanges =
     buildConstraintExpressionReplacementChanges({
@@ -1332,6 +1348,7 @@ function maybeAddColumnDependentConstraintReplacement({
 
   additions.push(...constraintReplacementChanges);
   visitedTargets.add(dependentRaw);
+  queueRefForTraversal(dependentRaw, visitedRefs, queue);
   for (const change of constraintReplacementChanges) {
     for (const id of change.creates ?? []) createdIds.add(id);
     for (const id of change.drops ?? []) droppedIds.add(id);
@@ -3187,7 +3204,9 @@ function buildCreateTableReplacementChanges(
     | undefined,
 ): Change[] {
   if (diffContext) {
-    return diffTables(diffContext, {}, { [table.stableId]: table }) as Change[];
+    return moveTableOwnerRestoresAfterReplay(
+      diffTables(diffContext, {}, { [table.stableId]: table }) as Change[],
+    );
   }
 
   return [
@@ -3211,6 +3230,17 @@ function buildCreateTableReplacementChanges(
         }
         return items;
       }) as Change[]),
+  ];
+}
+
+function moveTableOwnerRestoresAfterReplay(changes: Change[]): Change[] {
+  const ownerRestores = changes.filter(
+    (change) => change instanceof AlterTableChangeOwner,
+  );
+  if (ownerRestores.length === 0) return changes;
+  return [
+    ...changes.filter((change) => !(change instanceof AlterTableChangeOwner)),
+    ...ownerRestores,
   ];
 }
 

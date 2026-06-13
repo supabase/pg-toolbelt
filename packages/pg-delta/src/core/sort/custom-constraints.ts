@@ -5,10 +5,15 @@ import {
   RevokeRoleDefaultPrivileges,
 } from "../objects/role/changes/role.privilege.ts";
 import {
+  AlterSequenceChangeOwner,
+  AlterSequenceSetOwnedBy,
+} from "../objects/sequence/changes/sequence.alter.ts";
+import {
   AlterTableAlterColumnAddIdentity,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnDropIdentity,
   AlterTableAlterColumnSetDefault,
+  AlterTableChangeOwner,
 } from "../objects/table/changes/table.alter.ts";
 import type { Constraint } from "./types.ts";
 
@@ -237,12 +242,154 @@ function generateIdentityTransitionConstraints(
   return constraints;
 }
 
+function parseTableStableIdFromStableId(id: string): string | null {
+  if (id.startsWith("table:")) {
+    return id;
+  }
+  const parseSubEntity = (prefix: string) => {
+    if (!id.startsWith(prefix)) return null;
+    const parts = id.slice(prefix.length).split(".");
+    if (parts.length < 2) return null;
+    return `table:${parts[0]}.${parts[1]}`;
+  };
+  return (
+    parseSubEntity("column:") ??
+    parseSubEntity("constraint:") ??
+    parseSubEntity("index:")
+  );
+}
+
+function getRelatedTableStableIds(change: Change): Set<string> {
+  const tableIds = new Set<string>();
+  if (
+    "table" in change &&
+    change.table &&
+    typeof change.table === "object" &&
+    "stableId" in change.table &&
+    typeof change.table.stableId === "string"
+  ) {
+    tableIds.add(change.table.stableId);
+  }
+  if (
+    "index" in change &&
+    change.index &&
+    typeof change.index === "object" &&
+    "tableStableId" in change.index &&
+    typeof change.index.tableStableId === "string"
+  ) {
+    tableIds.add(change.index.tableStableId);
+  }
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    const tableId = parseTableStableIdFromStableId(id);
+    if (tableId) tableIds.add(tableId);
+  }
+  return tableIds;
+}
+
+function generateTableOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; tableId: string }> = [];
+  const changesByTable = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (
+      change.objectType !== "sequence" &&
+      !(change instanceof AlterTableChangeOwner)
+    ) {
+      const tableIds = getRelatedTableStableIds(change);
+      for (const tableId of tableIds) {
+        const indexes = changesByTable.get(tableId) ?? [];
+        indexes.push(index);
+        changesByTable.set(tableId, indexes);
+      }
+    }
+    if (change instanceof AlterTableChangeOwner) {
+      ownerChanges.push({ index, tableId: change.table.stableId });
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes = changesByTable.get(ownerChange.tableId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
+function generateOwnedSequenceAttachmentConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const tableOwnerChanges = new Map<string, number[]>();
+  const sequenceOwnerChanges = new Map<string, number[]>();
+  const ownedByChanges: Array<{
+    index: number;
+    sequenceId: string;
+    tableId: string;
+  }> = [];
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (change instanceof AlterTableChangeOwner) {
+      const entries = tableOwnerChanges.get(change.table.stableId) ?? [];
+      entries.push(index);
+      tableOwnerChanges.set(change.table.stableId, entries);
+    } else if (change instanceof AlterSequenceChangeOwner) {
+      const entries = sequenceOwnerChanges.get(change.sequence.stableId) ?? [];
+      entries.push(index);
+      sequenceOwnerChanges.set(change.sequence.stableId, entries);
+    } else if (
+      change instanceof AlterSequenceSetOwnedBy &&
+      change.ownedBy !== null
+    ) {
+      ownedByChanges.push({
+        index,
+        sequenceId: change.sequence.stableId,
+        tableId: `table:${change.ownedBy.schema}.${change.ownedBy.table}`,
+      });
+    }
+  }
+
+  for (const ownedByChange of ownedByChanges) {
+    for (const sourceChangeIndex of [
+      ...(tableOwnerChanges.get(ownedByChange.tableId) ?? []),
+      ...(sequenceOwnerChanges.get(ownedByChange.sequenceId) ?? []),
+    ]) {
+      if (sourceChangeIndex === ownedByChange.index) continue;
+      constraints.push({
+        sourceChangeIndex,
+        targetChangeIndex: ownedByChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 /**
  * All custom constraint generators.
  */
 const customConstraintGenerators: ConstraintGenerator[] = [
   generateDefaultPrivilegeConstraints,
   generateIdentityTransitionConstraints,
+  generateTableOwnerRestoreLastConstraints,
+  generateOwnedSequenceAttachmentConstraints,
 ];
 
 /**
