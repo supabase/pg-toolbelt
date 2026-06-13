@@ -4,6 +4,7 @@ import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import {
   AlterTableAddConstraint,
+  AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
   AlterTableSetReplicaIdentity,
@@ -120,6 +121,34 @@ function dropReplacedTableDuplicateConstraintChanges(
         continue;
       }
       seen.add(key);
+    }
+    reversedKept.push(change);
+  }
+
+  return mutated ? reversedKept.reverse() : changes;
+}
+
+function dropReplacedTableDuplicateOwnerChanges(
+  changes: Change[],
+  replacedTableIds: ReadonlySet<string>,
+): Change[] {
+  if (replacedTableIds.size === 0) return changes;
+
+  const seen = new Set<string>();
+  const reversedKept: Change[] = [];
+  let mutated = false;
+
+  for (let i = changes.length - 1; i >= 0; i--) {
+    const change = changes[i] as Change;
+    if (
+      change instanceof AlterTableChangeOwner &&
+      replacedTableIds.has(change.table.stableId)
+    ) {
+      if (seen.has(change.table.stableId)) {
+        mutated = true;
+        continue;
+      }
+      seen.add(change.table.stableId);
     }
     reversedKept.push(change);
   }
@@ -283,8 +312,12 @@ export function normalizePostDiffChanges({
     branchTables,
   );
 
-  const dedupedChanges = dropReplacedTableDuplicateConstraintChanges(
+  const dedupedConstraintChanges = dropReplacedTableDuplicateConstraintChanges(
     restoredChanges,
+    replacedTableIds,
+  );
+  const dedupedChanges = dropReplacedTableDuplicateOwnerChanges(
+    dedupedConstraintChanges,
     replacedTableIds,
   );
 

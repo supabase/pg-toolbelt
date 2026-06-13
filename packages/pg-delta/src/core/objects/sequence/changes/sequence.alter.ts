@@ -17,7 +17,42 @@ import { AlterSequenceChange } from "./sequence.base.ts";
  * ```
  */
 
-export type AlterSequence = AlterSequenceSetOptions | AlterSequenceSetOwnedBy;
+export type AlterSequence =
+  | AlterSequenceChangeOwner
+  | AlterSequenceSetOptions
+  | AlterSequenceSetOwnedBy;
+
+/**
+ * ALTER SEQUENCE ... OWNER TO ...
+ */
+export class AlterSequenceChangeOwner extends AlterSequenceChange {
+  public readonly sequence: Sequence;
+  public readonly owner: string;
+  public readonly scope = "object" as const;
+
+  constructor(props: { sequence: Sequence; owner: string }) {
+    super();
+    this.sequence = props.sequence;
+    this.owner = props.owner;
+  }
+
+  get creates() {
+    return [];
+  }
+
+  get requires() {
+    return [this.sequence.stableId, stableId.role(this.owner)];
+  }
+
+  serialize(_options?: SerializeOptions): string {
+    return [
+      "ALTER SEQUENCE",
+      `${this.sequence.schema}.${this.sequence.name}`,
+      "OWNER TO",
+      this.owner,
+    ].join(" ");
+  }
+}
 
 /**
  * ALTER SEQUENCE ... OWNED BY ... | OWNED BY NONE

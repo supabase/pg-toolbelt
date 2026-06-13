@@ -2230,9 +2230,39 @@ function buildTableConstraintReplacementChanges({
         }),
       );
     }
+    changes.push(
+      ...buildRetainedConstraintBackedIndexMetadataChangesForConstraint({
+        constraintRef,
+        mainCatalog,
+        branchCatalog,
+      }),
+    );
   }
 
   return changes;
+}
+
+function buildRetainedConstraintBackedIndexMetadataChangesForConstraint({
+  constraintRef,
+  mainCatalog,
+  branchCatalog,
+}: {
+  constraintRef: ConstraintStableIdParts;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+}): Change[] {
+  const indexId = stableId.index(
+    constraintRef.schema,
+    constraintRef.owner,
+    constraintRef.constraint,
+  );
+  const resolved = resolveObjectForStableId(
+    indexId,
+    mainCatalog,
+    branchCatalog,
+  );
+  if (!resolved || resolved.kind !== "index") return [];
+  return buildRetainedConstraintBackedIndexMetadataChanges(resolved);
 }
 
 function isOwnedSequenceColumnDependency(
@@ -2775,6 +2805,15 @@ function buildRetainedConstraintBackedIndexMetadataChanges(
       : []),
     ...buildRetainedIndexStatisticsChanges(resolved.branch),
     ...buildRetainedClusterChange(resolved),
+    ...(resolved.branch.is_replica_identity && resolved.branchTable
+      ? [
+          new AlterTableSetReplicaIdentity({
+            table: resolved.branchTable,
+            mode: "i",
+            indexName: resolved.branch.name,
+          }),
+        ]
+      : []),
   ];
 }
 

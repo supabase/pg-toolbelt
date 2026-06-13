@@ -9,6 +9,7 @@ import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
+  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./changes/sequence.alter.ts";
@@ -61,6 +62,14 @@ export function diffSequences(
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
     changes.push(new CreateSequence({ sequence: createdSeq }));
+    if (createdSeq.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterSequenceChangeOwner({
+          sequence: createdSeq,
+          owner: createdSeq.owner,
+        }),
+      );
+    }
     if (createdSeq.comment !== null) {
       changes.push(new CreateCommentOnSequence({ sequence: createdSeq }));
     }
@@ -310,6 +319,15 @@ export function diffSequences(
         mainSequence.owned_by_schema !== branchSequence.owned_by_schema ||
         mainSequence.owned_by_table !== branchSequence.owned_by_table ||
         mainSequence.owned_by_column !== branchSequence.owned_by_column;
+
+      if (mainSequence.owner !== branchSequence.owner) {
+        changes.push(
+          new AlterSequenceChangeOwner({
+            sequence: mainSequence,
+            owner: branchSequence.owner,
+          }),
+        );
+      }
 
       if (ownedByChanged) {
         const ownedBy =
