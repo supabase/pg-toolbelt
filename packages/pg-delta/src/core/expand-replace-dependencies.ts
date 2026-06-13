@@ -289,6 +289,17 @@ export function expandReplaceDependencies({
   const tablesReplacedByExpansion = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
+  const rootRetainedIndexChanges = buildRootRetainedIndexReplacementChanges({
+    replaceRoots,
+    mainCatalog,
+    branchCatalog,
+    createdIds,
+    droppedIds,
+    visitedTargets,
+    diffContext,
+  });
+  additions.push(...rootRetainedIndexChanges);
+  recordChangeIds(rootRetainedIndexChanges, createdIds, droppedIds);
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
@@ -526,20 +537,18 @@ export function expandReplaceDependencies({
               diffContext,
             })
           : [];
-      const partitionGeneratedColumnRestoreChanges =
-        resolved.kind === "table"
-          ? buildPartitionGeneratedColumnTableReplacementRestoreChanges({
-              dependentRaw,
-              branchCatalog,
+      const aggregateMetadataRestoreChanges =
+        resolved.kind === "aggregate" && addDrop && !addCreate
+          ? buildRetainedAggregateMetadataChanges({
+              aggregate: resolved.branch,
               diffContext,
-              addCreate,
-            })
+            }).filter((change) => !isCreateAlreadyCovered(change, createdIds))
           : [];
 
       additions.push(
         ...replacementChanges,
         ...retainedIndexChanges,
-        ...partitionGeneratedColumnRestoreChanges,
+        ...aggregateMetadataRestoreChanges,
       );
       if (resolved.kind === "rls_policy") {
         promotedRlsPolicyIds.add(targetId);
@@ -556,7 +565,7 @@ export function expandReplaceDependencies({
       for (const change of [
         ...replacementChanges,
         ...retainedIndexChanges,
-        ...partitionGeneratedColumnRestoreChanges,
+        ...aggregateMetadataRestoreChanges,
       ]) {
         for (const id of change.creates ?? []) createdIds.add(id);
         for (const id of change.drops ?? []) droppedIds.add(id);
@@ -1424,60 +1433,6 @@ function buildColumnExpressionReplacementChanges({
   }
 
   return changes;
-}
-
-function buildPartitionGeneratedColumnTableReplacementRestoreChanges({
-  dependentRaw,
-  branchCatalog,
-  diffContext,
-  addCreate,
-}: {
-  dependentRaw: string;
-  branchCatalog: Catalog;
-  diffContext?: Pick<
-    ObjectDiffContext,
-    "version" | "currentUser" | "defaultPrivilegeState"
-  >;
-  addCreate: boolean;
-}): Change[] {
-  if (!addCreate || (diffContext?.version ?? 0) < 170000) {
-    return [];
-  }
-
-  const columnRef = parseColumnStableId(dependentRaw);
-  if (!columnRef) {
-    return [];
-  }
-
-  const branchTable =
-    branchCatalog.tables[stableId.table(columnRef.schema, columnRef.table)];
-  if (!branchTable?.is_partition) {
-    return [];
-  }
-
-  const branchColumn = branchTable.columns.find(
-    (column) => column.name === columnRef.column,
-  );
-  if (
-    !branchColumn?.is_generated ||
-    branchColumn.default === null ||
-    partitionGeneratedColumnExpressionsMatchParent({
-      mainTable: branchTable,
-      branchTable,
-      columnName: branchColumn.name,
-      mainCatalog: branchCatalog,
-      branchCatalog,
-    })
-  ) {
-    return [];
-  }
-
-  return [
-    new AlterTableAlterColumnSetDefault({
-      table: branchTable,
-      column: branchColumn,
-    }),
-  ];
 }
 
 function buildPublicationColumnListReplacement({
@@ -2462,6 +2417,75 @@ function buildRetainedIndexReplacementChanges({
   }
 
   return changes;
+}
+
+function buildRootRetainedIndexReplacementChanges({
+  replaceRoots,
+  mainCatalog,
+  branchCatalog,
+  createdIds,
+  droppedIds,
+  visitedTargets,
+  diffContext,
+}: {
+  replaceRoots: ReadonlySet<string>;
+  mainCatalog: Catalog;
+  branchCatalog: Catalog;
+  createdIds: ReadonlySet<string>;
+  droppedIds: ReadonlySet<string>;
+  visitedTargets: Set<string>;
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): Change[] {
+  const changes: Change[] = [];
+  for (const relationStableId of [...replaceRoots].sort()) {
+    if (
+      !(
+        mainCatalog.tables[relationStableId] &&
+        branchCatalog.tables[relationStableId]
+      ) &&
+      !(
+        mainCatalog.materializedViews[relationStableId] &&
+        branchCatalog.materializedViews[relationStableId]
+      )
+    ) {
+      continue;
+    }
+
+    changes.push(
+      ...buildRetainedIndexReplacementChanges({
+        relationStableId,
+        mainCatalog,
+        branchCatalog,
+        createdIds,
+        droppedIds,
+        visitedTargets,
+        diffContext,
+      }),
+    );
+  }
+  return changes;
+}
+
+function recordChangeIds(
+  changes: readonly Change[],
+  createdIds: Set<string>,
+  droppedIds: Set<string>,
+): void {
+  for (const change of changes) {
+    for (const id of change.creates ?? []) createdIds.add(id);
+    for (const id of change.drops ?? []) droppedIds.add(id);
+  }
+}
+
+function isCreateAlreadyCovered(
+  change: Change,
+  createdIds: ReadonlySet<string>,
+): boolean {
+  const creates = change.creates ?? [];
+  return creates.length > 0 && creates.every((id) => createdIds.has(id));
 }
 
 function buildRetainedClusterChange(
