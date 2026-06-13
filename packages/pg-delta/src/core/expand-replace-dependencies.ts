@@ -292,6 +292,7 @@ export function expandReplaceDependencies({
   // AlterTableDropColumn on a table that is about to be dropped) and the
   // associated drop-phase cycle with the catalog constraint→column edge.
   const tablesReplacedByExpansion = new Set<string>();
+  const routinesReplacedByExpansion = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
   const generatedColumnGrantRestoresAdded = new Set<string>();
@@ -619,6 +620,12 @@ export function expandReplaceDependencies({
       if (resolved.kind === "rls_policy") {
         promotedRlsPolicyIds.add(targetId);
       }
+      if (
+        (resolved.kind === "procedure" || resolved.kind === "aggregate") &&
+        addDrop
+      ) {
+        routinesReplacedByExpansion.add(targetId);
+      }
 
       // If we added a DropTable(T) for an existing table, mark T so any
       // pre-existing object-scope AlterTable*(T) changes get dropped below —
@@ -652,7 +659,10 @@ export function expandReplaceDependencies({
   return {
     changes: [
       ...removeSupersededGeneratedColumnSetExpressions(
-        removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+        removeSupersededRoutineAlters(
+          removeSupersededRlsPolicyAlters(changes, promotedRlsPolicyIds),
+          routinesReplacedByExpansion,
+        ),
         generatedColumnsRecreatedByExpressionFallback,
       ),
       ...additions,
@@ -751,6 +761,23 @@ function removeSupersededRlsPolicyAlters(
   });
 }
 
+function removeSupersededRoutineAlters(
+  changes: Change[],
+  promotedRoutineIds: ReadonlySet<string>,
+): Change[] {
+  if (promotedRoutineIds.size === 0) return changes;
+  return changes.filter((change) => {
+    if (change.operation !== "alter") return true;
+    if (change.objectType === "procedure") {
+      return !promotedRoutineIds.has(change.procedure.stableId);
+    }
+    if (change.objectType === "aggregate") {
+      return !promotedRoutineIds.has(change.aggregate.stableId);
+    }
+    return true;
+  });
+}
+
 interface ExpressionDependentCoverage {
   release: Set<string>;
   restore: Set<string>;
@@ -778,7 +805,6 @@ function collectExpressionDependentCoverage(
     if (
       change instanceof AlterTableAlterColumnDropDefault ||
       change instanceof AlterTableDropConstraint ||
-      change instanceof AlterDomainDropConstraint ||
       change instanceof AlterDomainDropDefault
     ) {
       for (const id of change.requires ?? []) {
@@ -3058,15 +3084,13 @@ function buildRetainedProcedureMetadataChanges({
   >;
 }): Change[] {
   const changes: Change[] = [];
-
-  if (diffContext && procedure.owner !== diffContext.currentUser) {
-    changes.push(
-      new AlterProcedureChangeOwner({
-        procedure,
-        owner: procedure.owner,
-      }),
-    );
-  }
+  const ownerRestore =
+    diffContext && procedure.owner !== diffContext.currentUser
+      ? new AlterProcedureChangeOwner({
+          procedure,
+          owner: procedure.owner,
+        })
+      : null;
 
   if (procedure.comment !== null) {
     changes.push(new CreateCommentOnProcedure({ procedure }));
@@ -3117,6 +3141,9 @@ function buildRetainedProcedureMetadataChanges({
       diffContext.version,
     ) as Change[]),
   );
+  if (ownerRestore) {
+    changes.push(ownerRestore);
+  }
 
   return changes;
 }
@@ -3132,15 +3159,13 @@ function buildRetainedAggregateMetadataChanges({
   >;
 }): Change[] {
   const changes: Change[] = [];
-
-  if (diffContext && aggregate.owner !== diffContext.currentUser) {
-    changes.push(
-      new AlterAggregateChangeOwner({
-        aggregate,
-        owner: aggregate.owner,
-      }),
-    );
-  }
+  const ownerRestore =
+    diffContext && aggregate.owner !== diffContext.currentUser
+      ? new AlterAggregateChangeOwner({
+          aggregate,
+          owner: aggregate.owner,
+        })
+      : null;
 
   if (aggregate.comment !== null) {
     changes.push(new CreateCommentOnAggregate({ aggregate }));
@@ -3191,6 +3216,9 @@ function buildRetainedAggregateMetadataChanges({
       diffContext.version,
     ) as Change[]),
   );
+  if (ownerRestore) {
+    changes.push(ownerRestore);
+  }
 
   return changes;
 }

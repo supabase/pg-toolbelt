@@ -1,5 +1,7 @@
 import type { Change } from "../change.types.ts";
 import { getSchema } from "../change-utils.ts";
+import { AlterAggregateChangeOwner } from "../objects/aggregate/changes/aggregate.alter.ts";
+import { AlterProcedureChangeOwner } from "../objects/procedure/changes/procedure.alter.ts";
 import {
   GrantRoleDefaultPrivileges,
   RevokeRoleDefaultPrivileges,
@@ -484,6 +486,68 @@ function generateSequenceOwnerRestoreLastConstraints(
   return constraints;
 }
 
+function getRelatedRoutineStableIds(change: Change): Set<string> {
+  const routineIds = new Set<string>();
+  for (const id of [
+    ...change.creates,
+    ...change.drops,
+    ...change.requires,
+    ...change.invalidates,
+  ]) {
+    if (id.startsWith("procedure:") || id.startsWith("aggregate:")) {
+      routineIds.add(id);
+    }
+  }
+  return routineIds;
+}
+
+function generateRoutineOwnerRestoreLastConstraints(
+  changes: Change[],
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  const ownerChanges: Array<{ index: number; routineId: string }> = [];
+  const changesByRoutine = new Map<string, number[]>();
+
+  for (let index = 0; index < changes.length; index++) {
+    const change = changes[index];
+    if (change instanceof AlterProcedureChangeOwner) {
+      ownerChanges.push({
+        index,
+        routineId: change.procedure.stableId,
+      });
+      continue;
+    }
+    if (change instanceof AlterAggregateChangeOwner) {
+      ownerChanges.push({
+        index,
+        routineId: change.aggregate.stableId,
+      });
+      continue;
+    }
+
+    const routineIds = getRelatedRoutineStableIds(change);
+    for (const routineId of routineIds) {
+      const indexes = changesByRoutine.get(routineId) ?? [];
+      indexes.push(index);
+      changesByRoutine.set(routineId, indexes);
+    }
+  }
+
+  for (const ownerChange of ownerChanges) {
+    const relatedIndexes = changesByRoutine.get(ownerChange.routineId) ?? [];
+    for (const relatedIndex of relatedIndexes) {
+      if (relatedIndex === ownerChange.index) continue;
+      constraints.push({
+        sourceChangeIndex: relatedIndex,
+        targetChangeIndex: ownerChange.index,
+        source: "custom",
+      });
+    }
+  }
+
+  return constraints;
+}
+
 function generateOwnedSequenceAttachmentConstraints(
   changes: Change[],
 ): Constraint[] {
@@ -567,6 +631,7 @@ const customConstraintGenerators: ConstraintGenerator[] = [
   generateTableOwnerRestoreLastConstraints,
   generateMaterializedViewOwnerRestoreLastConstraints,
   generateSequenceOwnerRestoreLastConstraints,
+  generateRoutineOwnerRestoreLastConstraints,
   generateOwnedSequenceAttachmentConstraints,
 ];
 
