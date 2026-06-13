@@ -23,6 +23,7 @@ import { Domain } from "./objects/domain/domain.model.ts";
 import { CreateProcedure } from "./objects/procedure/changes/procedure.create.ts";
 import { DropProcedure } from "./objects/procedure/changes/procedure.drop.ts";
 import { AlterProcedureChangeOwner } from "./objects/procedure/changes/procedure.alter.ts";
+import { GrantProcedurePrivileges } from "./objects/procedure/changes/procedure.privilege.ts";
 import { Procedure } from "./objects/procedure/procedure.model.ts";
 import { AlterIndexSetStatistics } from "./objects/index/changes/index.alter.ts";
 import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
@@ -91,6 +92,7 @@ import {
   CreateSecurityLabelOnTable,
 } from "./objects/table/changes/table.security-label.ts";
 import { Table, type TableProps } from "./objects/table/table.model.ts";
+import { ReplaceTrigger } from "./objects/trigger/changes/trigger.alter.ts";
 import { CreateTrigger } from "./objects/trigger/changes/trigger.create.ts";
 import { DropTrigger } from "./objects/trigger/changes/trigger.drop.ts";
 import { Trigger } from "./objects/trigger/trigger.model.ts";
@@ -3925,6 +3927,81 @@ describe("expandReplaceDependencies", () => {
     ).toBe(false);
   });
 
+  test("prunes superseded trigger alters for promoted trigger replacements", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainTable = tableWithDefault(null);
+    const branchTable = tableWithDefault(null);
+    const mainTrigger = triggerOnItemsValue({
+      function_name: mainProcedure.name,
+      definition:
+        "CREATE TRIGGER items_value_trigger AFTER UPDATE OF value ON public.items FOR EACH ROW EXECUTE FUNCTION public.normalize_value()",
+    });
+    const branchTrigger = triggerOnItemsValue({
+      function_name: branchProcedure.name,
+      definition:
+        "CREATE TRIGGER items_value_trigger BEFORE UPDATE OF value ON public.items FOR EACH ROW EXECUTE FUNCTION public.normalize_value()",
+    });
+    const originalReplaceTrigger = new ReplaceTrigger({
+      trigger: branchTrigger,
+      indexableObject: branchTable,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      originalReplaceTrigger,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      indexableObjects: { [mainTable.stableId]: mainTable },
+      triggers: { [mainTrigger.stableId]: mainTrigger },
+      depends: [
+        {
+          dependent_stable_id: mainTrigger.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      indexableObjects: { [branchTable.stableId]: branchTable },
+      triggers: { [branchTrigger.stableId]: branchTrigger },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).not.toContain(originalReplaceTrigger);
+    expect(
+      expanded.changes.filter((change) => change instanceof ReplaceTrigger),
+    ).toHaveLength(0);
+    expect(
+      expanded.changes.filter((change) => change instanceof DropTrigger),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.filter((change) => change instanceof CreateTrigger),
+    ).toHaveLength(1);
+  });
+
   test("replaces child partitions instead of dropping generated columns on them", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -4885,6 +4962,84 @@ describe("expandReplaceDependencies", () => {
         (change) => change instanceof AlterProcedureChangeOwner,
       ),
     ).toHaveLength(1);
+  });
+
+  test("preserves new grants when injecting the drop side for an existing routine create", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainDependent = procedureWithArgs(["integer"], "uses_normalize");
+    const branchDependent = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainDependent,
+      source_code: "SELECT public.normalize_value(arg1::bigint)",
+      definition:
+        "CREATE FUNCTION public.uses_normalize(arg1 integer) RETURNS integer",
+      privileges: [
+        {
+          grantee: "routine_executor",
+          privilege: "EXECUTE",
+          grantable: false,
+        },
+      ],
+    });
+    const originalGrant = new GrantProcedurePrivileges({
+      procedure: branchDependent,
+      grantee: "routine_executor",
+      privileges: [{ privilege: "EXECUTE", grantable: false }],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      new CreateProcedure({ procedure: branchDependent, orReplace: true }),
+      originalGrant,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [mainProcedure.stableId]: mainProcedure,
+        [mainDependent.stableId]: mainDependent,
+      },
+      depends: [
+        {
+          dependent_stable_id: mainDependent.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: {
+        [branchProcedure.stableId]: branchProcedure,
+        [branchDependent.stableId]: branchDependent,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+
+    expect(expanded.changes).not.toContain(originalGrant);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof GrantProcedurePrivileges,
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.map((change) => change.serialize())).toContain(
+      "GRANT ALL ON FUNCTION public.uses_normalize(integer) TO routine_executor",
+    );
   });
 
   test("defers promoted routine owner restore until after routine metadata replay", async () => {

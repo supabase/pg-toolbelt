@@ -12,6 +12,7 @@ import {
 import {
   AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -262,6 +263,63 @@ describe("normalizePostDiffChanges", () => {
     expect(
       normalized.filter((change) => change instanceof AlterTableAddColumn),
     ).toEqual([unrelatedAddColumn]);
+  });
+
+  test("prunes same-table identity-add ALTERs for replaced tables only", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other_items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+
+    const replacedTableAddIdentity = new AlterTableAlterColumnAddIdentity({
+      table: branchTable,
+      column: branchTable.columns[0],
+    });
+    const unrelatedAddIdentity = new AlterTableAlterColumnAddIdentity({
+      table: otherTable,
+      column: otherTable.columns[0],
+    });
+
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacedTableAddIdentity,
+        unrelatedAddIdentity,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+
+    expect(normalized).not.toContain(replacedTableAddIdentity);
+    expect(normalized).toContain(unrelatedAddIdentity);
+    expect(
+      normalized.filter(
+        (change) => change instanceof AlterTableAlterColumnAddIdentity,
+      ),
+    ).toEqual([unrelatedAddIdentity]);
   });
 
   test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {
