@@ -18,11 +18,14 @@ import { DropProcedure } from "../objects/procedure/changes/procedure.drop.ts";
 import { Procedure } from "../objects/procedure/procedure.model.ts";
 import { AlterPublicationDropTables } from "../objects/publication/changes/publication.alter.ts";
 import { Publication } from "../objects/publication/publication.model.ts";
+import { AlterSequenceChangeOwner } from "../objects/sequence/changes/sequence.alter.ts";
+import { Sequence } from "../objects/sequence/sequence.model.ts";
 import {
   AlterTableAddConstraint,
   AlterTableAlterColumnDropDefault,
   AlterTableAlterColumnSetDefault,
   AlterTableAlterColumnType,
+  AlterTableChangeOwner,
   AlterTableDropConstraint,
 } from "../objects/table/changes/table.alter.ts";
 import { DropTable } from "../objects/table/changes/table.drop.ts";
@@ -278,6 +281,28 @@ function indexOnMaterializedView(viewName: string, indexName: string) {
   });
 }
 
+function sequenceOwnedBy(tableName: string, columnName: string) {
+  return new Sequence({
+    schema: "public",
+    name: `${tableName}_${columnName}_seq`,
+    data_type: "bigint",
+    start_value: 1,
+    minimum_value: BigInt(1),
+    maximum_value: BigInt("9223372036854775807"),
+    increment: 1,
+    cycle_option: false,
+    cache_size: 1,
+    persistence: "p",
+    owned_by_schema: "public",
+    owned_by_table: tableName,
+    owned_by_column: columnName,
+    comment: null,
+    privileges: [],
+    owner: "old_owner",
+    security_labels: [],
+  });
+}
+
 function domain(defaultValue: string | null, name = "score") {
   return new Domain({
     schema: "public",
@@ -392,6 +417,37 @@ function changeLabel(change: Change) {
 }
 
 describe("sortChanges", () => {
+  test("orders owned sequence owner after owning table owner", async () => {
+    const owningTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [{ ...integerColumn("id", 1), not_null: true }],
+      constraints: [],
+      owner: "old_owner",
+    });
+    const ownedSequence = sequenceOwnedBy("items", "id");
+    const changes: Change[] = [
+      new AlterSequenceChangeOwner({
+        sequence: ownedSequence,
+        owner: "app_owner",
+      }),
+      new AlterTableChangeOwner({ table: owningTable, owner: "app_owner" }),
+    ];
+    const mainCatalog = await catalogWithDepends([]);
+    const branchCatalog = await catalogWithDepends([]);
+
+    const sorted = sortChanges({ mainCatalog, branchCatalog }, changes);
+    const tableOwnerIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableChangeOwner,
+    );
+    const sequenceOwnerIndex = sorted.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(tableOwnerIndex).toBeGreaterThan(-1);
+    expect(sequenceOwnerIndex).toBeGreaterThan(tableOwnerIndex);
+  });
+
   test("orders materialized view indexes after recreated materialized views", async () => {
     const branchMaterializedView = materializedView("user_ids_mv");
     const branchIndex = indexOnMaterializedView(

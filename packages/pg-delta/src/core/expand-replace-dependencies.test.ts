@@ -28,7 +28,10 @@ import { CreateCommentOnIndex } from "./objects/index/changes/index.comment.ts";
 import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { Index, type IndexProps } from "./objects/index/index.model.ts";
-import { AlterMaterializedViewClusterOn } from "./objects/materialized-view/changes/materialized-view.alter.ts";
+import {
+  AlterMaterializedViewChangeOwner,
+  AlterMaterializedViewClusterOn,
+} from "./objects/materialized-view/changes/materialized-view.alter.ts";
 import { CreateMaterializedView } from "./objects/materialized-view/changes/materialized-view.create.ts";
 import { DropMaterializedView } from "./objects/materialized-view/changes/materialized-view.drop.ts";
 import {
@@ -3687,6 +3690,105 @@ describe("expandReplaceDependencies", () => {
     );
   });
 
+  test("orders promoted materialized view clustering before owner restore", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainMaterializedView = materializedViewOnItemsValue({
+      definition:
+        " SELECT public.normalize_value(items.value) AS value FROM public.items;",
+      owner: "app_owner",
+    });
+    const branchMaterializedView = materializedViewOnItemsValue({
+      definition:
+        " SELECT public.normalize_value(items.value) AS value FROM public.items;",
+      owner: "app_owner",
+    });
+    const mainIndex = indexOnItemsValue({
+      table_name: "items_value_mv",
+      name: "items_value_mv_value_idx",
+      table_relkind: "m",
+      is_clustered: true,
+      definition:
+        "CREATE INDEX items_value_mv_value_idx ON public.items_value_mv (value)",
+    });
+    const branchIndex = indexOnItemsValue({
+      table_name: "items_value_mv",
+      name: "items_value_mv_value_idx",
+      table_relkind: "m",
+      is_clustered: true,
+      definition:
+        "CREATE INDEX items_value_mv_value_idx ON public.items_value_mv (value)",
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      materializedViews: {
+        [mainMaterializedView.stableId]: mainMaterializedView,
+      },
+      indexableObjects: {
+        [mainMaterializedView.stableId]: mainMaterializedView,
+      },
+      indexes: { [mainIndex.stableId]: mainIndex },
+      depends: [
+        {
+          dependent_stable_id: mainMaterializedView.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      materializedViews: {
+        [branchMaterializedView.stableId]: branchMaterializedView,
+      },
+      indexableObjects: {
+        [branchMaterializedView.stableId]: branchMaterializedView,
+      },
+      indexes: { [branchIndex.stableId]: branchIndex },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const clusterIndex = sorted.findIndex(
+      (change) => change instanceof AlterMaterializedViewClusterOn,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterMaterializedViewChangeOwner,
+    );
+
+    expect(clusterIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(clusterIndex);
+  });
+
   test("restores retained indexes when materialized views are already replace roots", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainMaterializedView = materializedViewOnItemsValue({
@@ -6537,6 +6639,84 @@ describe("expandReplaceDependencies", () => {
     expect(
       expanded.changes.filter(
         (change) => change instanceof AlterDomainAddConstraint,
+      ),
+    ).toHaveLength(1);
+    expect(
+      expanded.changes.some((change) => change instanceof DropDomain),
+    ).toBe(false);
+  });
+
+  test("does not duplicate a covered removed domain check constraint release", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const mainDomain = domainWithConstraint(
+      "public.normalize_value(VALUE) > 0",
+    );
+    const branchDomain = domainWithDefault(null);
+    const tableUsingDomain = tableWithDefault(null, {
+      data_type: "item_value",
+      data_type_str: "public.item_value",
+      is_custom_type: true,
+      custom_type_type: "d",
+      custom_type_category: "N",
+      custom_type_schema: "public",
+      custom_type_name: "item_value",
+    });
+    const dropConstraint = new AlterDomainDropConstraint({
+      domain: mainDomain,
+      constraint: mainDomain.constraints[0] as Domain["constraints"][number],
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+      dropConstraint,
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      domains: { [mainDomain.stableId]: mainDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [
+        {
+          dependent_stable_id: "constraint:public.item_value.item_value_check",
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: "column:public.items.value",
+          referenced_stable_id: mainDomain.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      domains: { [branchDomain.stableId]: branchDomain },
+      tables: { [tableUsingDomain.stableId]: tableUsingDomain },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+    });
+
+    expect(expanded.changes).toContain(dropConstraint);
+    expect(
+      expanded.changes.filter(
+        (change) => change instanceof AlterDomainDropConstraint,
       ),
     ).toHaveLength(1);
     expect(
