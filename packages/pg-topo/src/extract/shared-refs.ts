@@ -38,6 +38,8 @@ export const objectKindFromObjType = (
   switch (objType) {
     case "OBJECT_AGGREGATE":
       return "aggregate";
+    case "OBJECT_ACCESS_METHOD":
+      return "access_method";
     case "OBJECT_COLLATION":
       return "collation";
     case "OBJECT_DOMAIN":
@@ -346,6 +348,7 @@ export const parseNamedObjectRef = (
       kind === "extension" ||
       kind === "foreign_data_wrapper" ||
       kind === "foreign_server" ||
+      kind === "access_method" ||
       kind === "publication" ||
       kind === "subscription" ||
       kind === "role"

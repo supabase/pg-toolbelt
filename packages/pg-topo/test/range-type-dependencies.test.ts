@@ -6574,9 +6574,7 @@ describe("range type dependencies", () => {
         diagnostic.code === "UNRESOLVED_DEPENDENCY" &&
         diagnostic.objectRefs?.some(
           (ref) =>
-            ref.kind === "type" &&
-            ref.schema === "app" &&
-            ref.name === "other",
+            ref.kind === "type" && ref.schema === "app" && ref.name === "other",
         ) === true,
     );
     const missingCatalogType = invalidCatalogTypeResult.diagnostics.filter(

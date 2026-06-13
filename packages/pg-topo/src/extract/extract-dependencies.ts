@@ -4175,6 +4175,17 @@ const extractCreateOperatorClassDependencies = (
       }
 
       const explicitFunctionArgs = objectWithArgsTypeRefs(itemName);
+      for (const functionArgRef of explicitFunctionArgs) {
+        if (functionArgRef) {
+          requires.push(functionArgRef);
+          addInvalidPgCatalogTypeDiagnostic(
+            diagnostics,
+            functionArgRef,
+            `No pg_catalog support function argument type '${functionArgRef.name}' found for operator class.`,
+            "Use an existing pg_catalog type or create the referenced support function argument type explicitly in a user schema.",
+          );
+        }
+      }
       const functionArgs =
         explicitFunctionArgs.length > 0
           ? explicitFunctionArgs
