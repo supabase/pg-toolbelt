@@ -53,7 +53,10 @@ import { RlsPolicy } from "./objects/rls-policy/rls-policy.model.ts";
 import { CreateRule } from "./objects/rule/changes/rule.create.ts";
 import { DropRule } from "./objects/rule/changes/rule.drop.ts";
 import { Rule } from "./objects/rule/rule.model.ts";
-import { AlterSequenceSetOwnedBy } from "./objects/sequence/changes/sequence.alter.ts";
+import {
+  AlterSequenceChangeOwner,
+  AlterSequenceSetOwnedBy,
+} from "./objects/sequence/changes/sequence.alter.ts";
 import { CreateSequence } from "./objects/sequence/changes/sequence.create.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import { diffSequences } from "./objects/sequence/sequence.diff.ts";
@@ -4989,6 +4992,63 @@ describe("expandReplaceDependencies", () => {
     ).toBe(true);
   });
 
+  test("defers promoted table owner restore until after table-local replay", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const mainTable = tableWithUniqueConstraint({ owner: "app_owner" });
+    const branchTable = tableWithUniqueConstraint({ owner: "app_owner" });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      depends: [
+        {
+          dependent_stable_id: mainTable.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addConstraintIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    const ownerIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableChangeOwner,
+    );
+
+    expect(addConstraintIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(addConstraintIndex);
+  });
+
   test("restores retained owned sequence owners before reattaching ownership on promoted tables", async () => {
     const baseline = await createEmptyCatalog(170000, "postgres");
     const mainProcedure = procedureWithArgs(["integer"]);
@@ -5064,6 +5124,253 @@ describe("expandReplaceDependencies", () => {
     expect(ownerIndex).toBeGreaterThan(-1);
     expect(ownedByIndex).toBeGreaterThan(-1);
     expect(ownerIndex).toBeLessThan(ownedByIndex);
+  });
+
+  test("orders promoted table and owned sequence owner restores before OWNED BY", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = procedureWithArgs(["bigint"]);
+    const columnDefault = "nextval('public.items_value_seq'::regclass)";
+    const mainTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableWithUniqueConstraint({
+        columns: [
+          {
+            ...tableWithDefault(columnDefault).columns[0],
+            not_null: true,
+          },
+        ],
+        owner: "app_owner",
+      }),
+    });
+    const branchTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainTable,
+    });
+    const mainSequence = new Sequence({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...sequenceOwnedByItemsValue(),
+      owner: "app_owner",
+    });
+    const branchSequence = new Sequence({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainSequence,
+    });
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: { [mainTable.stableId]: mainTable },
+      sequences: { [mainSequence.stableId]: mainSequence },
+      depends: [
+        {
+          dependent_stable_id: mainTable.stableId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: { [branchTable.stableId]: branchTable },
+      sequences: { [branchSequence.stableId]: branchSequence },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const sorted = sortChanges(
+      { mainCatalog, branchCatalog },
+      expanded.changes,
+    );
+    const addConstraintIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableAddConstraint,
+    );
+    const tableOwnerIndex = sorted.findIndex(
+      (change) => change instanceof AlterTableChangeOwner,
+    );
+    const sequenceOwnerIndex = sorted.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+    const ownedByIndex = sorted.findIndex(
+      (change) => change instanceof AlterSequenceSetOwnedBy,
+    );
+
+    expect(addConstraintIndex).toBeGreaterThan(-1);
+    expect(tableOwnerIndex).toBeGreaterThan(addConstraintIndex);
+    expect(sequenceOwnerIndex).toBeGreaterThan(-1);
+    expect(ownedByIndex).toBeGreaterThan(sequenceOwnerIndex);
+    expect(ownedByIndex).toBeGreaterThan(tableOwnerIndex);
+  });
+
+  test("traverses foreign keys that reference recreated column constraints", async () => {
+    const baseline = await createEmptyCatalog(170000, "postgres");
+    const mainProcedure = procedureWithArgs(["integer"]);
+    const branchProcedure = new Procedure({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainProcedure,
+      argument_names: ["renamed"],
+      definition:
+        "CREATE FUNCTION public.normalize_value(renamed integer) RETURNS integer",
+    });
+    const generatedColumnTable = tableWithDefault(
+      "public.normalize_value(value)",
+      {
+        is_generated: true,
+      },
+    );
+    const mainTable = tableWithUniqueConstraint({
+      columns: generatedColumnTable.columns,
+    });
+    const branchTable = tableWithUniqueConstraint({
+      columns: generatedColumnTable.columns,
+    });
+    const mainReferencingTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...tableNamedWithDefault("item_refs", null, {
+        name: "item_value",
+      }),
+      constraints: [
+        {
+          name: "item_refs_item_value_fkey",
+          constraint_type: "f",
+          deferrable: false,
+          initially_deferred: false,
+          validated: true,
+          is_local: true,
+          no_inherit: false,
+          is_temporal: false,
+          is_partition_clone: false,
+          parent_constraint_schema: null,
+          parent_constraint_name: null,
+          parent_table_schema: null,
+          parent_table_name: null,
+          key_columns: ["item_value"],
+          foreign_key_columns: ["value"],
+          foreign_key_table: "items",
+          foreign_key_schema: "public",
+          foreign_key_table_is_partition: false,
+          foreign_key_parent_schema: null,
+          foreign_key_parent_table: null,
+          foreign_key_effective_schema: "public",
+          foreign_key_effective_table: "items",
+          on_update: "a",
+          on_delete: "a",
+          match_type: "s",
+          check_expression: null,
+          owner: "postgres",
+          definition: "FOREIGN KEY (item_value) REFERENCES public.items(value)",
+          comment: null,
+        },
+      ],
+    });
+    const branchReferencingTable = new Table({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...mainReferencingTable,
+    });
+    const columnId = "column:public.items.value";
+    const uniqueConstraintId = "constraint:public.items.items_value_key";
+    const foreignKeyId =
+      "constraint:public.item_refs.item_refs_item_value_fkey";
+
+    const changes: Change[] = [
+      new DropProcedure({ procedure: mainProcedure }),
+      new CreateProcedure({ procedure: branchProcedure }),
+    ];
+    const mainCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [mainProcedure.stableId]: mainProcedure },
+      tables: {
+        [mainTable.stableId]: mainTable,
+        [mainReferencingTable.stableId]: mainReferencingTable,
+      },
+      depends: [
+        {
+          dependent_stable_id: columnId,
+          referenced_stable_id: mainProcedure.stableId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: uniqueConstraintId,
+          referenced_stable_id: columnId,
+          deptype: "n",
+        },
+        {
+          dependent_stable_id: foreignKeyId,
+          referenced_stable_id: uniqueConstraintId,
+          deptype: "n",
+        },
+      ],
+    });
+    const branchCatalog = new Catalog({
+      // oxlint-disable-next-line typescript/no-misused-spread
+      ...baseline,
+      procedures: { [branchProcedure.stableId]: branchProcedure },
+      tables: {
+        [branchTable.stableId]: branchTable,
+        [branchReferencingTable.stableId]: branchReferencingTable,
+      },
+      depends: [],
+    });
+
+    const expanded = expandReplaceDependencies({
+      changes,
+      mainCatalog,
+      branchCatalog,
+      diffContext: {
+        version: 170000,
+        currentUser: "postgres",
+        defaultPrivilegeState: new DefaultPrivilegeState({}),
+      },
+    });
+    const dropConstraints = expanded.changes.filter(
+      (change): change is AlterTableDropConstraint =>
+        change instanceof AlterTableDropConstraint,
+    );
+    const addConstraints = expanded.changes.filter(
+      (change): change is AlterTableAddConstraint =>
+        change instanceof AlterTableAddConstraint,
+    );
+
+    expect(
+      dropConstraints.filter(
+        (change) => change.constraint.name === "items_value_key",
+      ),
+    ).toHaveLength(1);
+    expect(
+      addConstraints.filter(
+        (change) => change.constraint.name === "items_value_key",
+      ),
+    ).toHaveLength(1);
+    expect(
+      dropConstraints.filter(
+        (change) => change.constraint.name === "item_refs_item_value_fkey",
+      ),
+    ).toHaveLength(1);
+    expect(
+      addConstraints.filter(
+        (change) => change.constraint.name === "item_refs_item_value_fkey",
+      ),
+    ).toHaveLength(1);
+    expect(expanded.changes.some((change) => change instanceof DropTable)).toBe(
+      false,
+    );
   });
 
   test("does not count domain constraints as domain default restores", async () => {

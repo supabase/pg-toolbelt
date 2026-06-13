@@ -1435,6 +1435,125 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test(
+      "retained unique generated column referenced by foreign key is recreated safely",
+      withDbIsolated(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_invoice_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED,
+              CONSTRAINT invoice_totals_total_key UNIQUE (total)
+            );
+
+            CREATE TABLE test_schema.invoice_total_refs (
+              total integer NOT NULL,
+              CONSTRAINT invoice_total_refs_total_fkey
+                FOREIGN KEY (total)
+                REFERENCES test_schema.invoice_totals(total)
+            );
+
+            INSERT INTO test_schema.invoice_totals (id, subtotal)
+            VALUES (1, 20);
+            INSERT INTO test_schema.invoice_total_refs (total)
+            VALUES (21);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.invoice_total_refs
+              DROP CONSTRAINT invoice_total_refs_total_fkey;
+
+            ALTER TABLE test_schema.invoice_totals
+              DROP CONSTRAINT invoice_totals_total_key;
+
+            ALTER TABLE test_schema.invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_invoice_total(integer);
+
+            CREATE FUNCTION test_schema.compute_invoice_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_invoice_total(subtotal)) STORED;
+
+            ALTER TABLE test_schema.invoice_totals
+              ADD CONSTRAINT invoice_totals_total_key UNIQUE (total);
+
+            ALTER TABLE test_schema.invoice_total_refs
+              ADD CONSTRAINT invoice_total_refs_total_fkey
+              FOREIGN KEY (total)
+              REFERENCES test_schema.invoice_totals(total);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const dropForeignKeyIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_total_refs DROP CONSTRAINT invoice_total_refs_total_fkey",
+              ),
+            );
+            const dropUniqueIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP CONSTRAINT invoice_totals_total_key",
+              ),
+            );
+            const dropColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals DROP COLUMN total",
+              ),
+            );
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD COLUMN total",
+              ),
+            );
+            const addUniqueIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_totals ADD CONSTRAINT invoice_totals_total_key",
+              ),
+            );
+            const addForeignKeyIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.invoice_total_refs ADD CONSTRAINT invoice_total_refs_total_fkey",
+              ),
+            );
+
+            expect(dropForeignKeyIndex).toBeGreaterThanOrEqual(0);
+            expect(dropUniqueIndex).toBeGreaterThan(dropForeignKeyIndex);
+            expect(dropColumnIndex).toBeGreaterThan(dropUniqueIndex);
+            expect(addColumnIndex).toBeGreaterThan(dropColumnIndex);
+            expect(addUniqueIndex).toBeGreaterThan(addColumnIndex);
+            expect(addForeignKeyIndex).toBeGreaterThan(addUniqueIndex);
+          },
+        });
+
+        const { rows } = await db.main.query(
+          "SELECT count(*) FROM test_schema.invoice_total_refs WHERE total = 21",
+        );
+        expect(Number(rows[0]?.count)).toBe(1);
+      }),
+    );
+
     test.skipIf(pgVersion < 18)(
       "unchanged generated column in publication column list does not recreate table",
       withDb(pgVersion, async (db) => {
