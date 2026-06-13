@@ -750,6 +750,91 @@ for (const pgVersion of POSTGRES_VERSIONS) {
       }),
     );
 
+    test.skipIf(pgVersion >= 17)(
+      "covered generated column recreation restores retained comments before PostgreSQL 17",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_commented_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.commented_invoice_totals (
+              id integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS
+                (test_schema.compute_commented_total(subtotal)) STORED
+            );
+
+            COMMENT ON COLUMN test_schema.commented_invoice_totals.total
+              IS 'computed invoice total';
+
+            INSERT INTO test_schema.commented_invoice_totals (id, subtotal)
+            VALUES (1, 20);
+          `,
+          testSql: dedent`
+            ALTER TABLE test_schema.commented_invoice_totals
+              DROP COLUMN total;
+
+            DROP FUNCTION test_schema.compute_commented_total(integer);
+
+            CREATE FUNCTION test_schema.compute_commented_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            ALTER TABLE test_schema.commented_invoice_totals
+              ADD COLUMN total integer GENERATED ALWAYS AS
+                (test_schema.compute_commented_total(subtotal + 1)) STORED;
+
+            COMMENT ON COLUMN test_schema.commented_invoice_totals.total
+              IS 'computed invoice total';
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expectNoTableReplacement(sqlStatements);
+
+            const addColumnIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "ALTER TABLE test_schema.commented_invoice_totals ADD COLUMN total",
+              ),
+            );
+            const commentIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "COMMENT ON COLUMN test_schema.commented_invoice_totals.total",
+              ),
+            );
+
+            expect(addColumnIndex).toBeGreaterThanOrEqual(0);
+            expect(commentIndex).toBeGreaterThan(addColumnIndex);
+          },
+        });
+
+        await expectTableRowCount(
+          db.main.query.bind(db.main),
+          "test_schema.commented_invoice_totals",
+          1,
+        );
+        const { rows } = await db.main.query(dedent`
+          SELECT col_description(attrelid, attnum) AS comment
+          FROM pg_catalog.pg_attribute
+          WHERE attrelid = 'test_schema.commented_invoice_totals'::regclass
+            AND attname = 'total'
+        `);
+        expect(rows[0]?.comment).toBe("computed invoice total");
+      }),
+    );
+
     test(
       "unchanged check constraint for overloaded replacement drops old function before restore",
       withDb(pgVersion, async (db) => {
@@ -1960,6 +2045,106 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           "test_schema.partitioned_invoice_totals",
           1,
         );
+      }),
+    );
+
+    test.skipIf(pgVersion < 17)(
+      "child-specific generated partition expression without parent recreation avoids child column DDL",
+      withDb(pgVersion, async (db) => {
+        await roundtripFidelityTest({
+          mainSession: db.main,
+          branchSession: db.branch,
+          initialSetup: dedent`
+            CREATE SCHEMA test_schema;
+
+            CREATE FUNCTION test_schema.compute_child_total(value integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT value + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_child_only_totals (
+              id integer NOT NULL,
+              period integer NOT NULL,
+              subtotal integer NOT NULL,
+              total integer GENERATED ALWAYS AS (subtotal + 1) STORED
+            ) PARTITION BY RANGE (period);
+
+            CREATE TABLE test_schema.partitioned_child_only_totals_2026
+              PARTITION OF test_schema.partitioned_child_only_totals (
+                total GENERATED ALWAYS AS
+                  (test_schema.compute_child_total(subtotal)) STORED
+              )
+              FOR VALUES FROM (2026) TO (2027);
+          `,
+          testSql: dedent`
+            DROP TABLE test_schema.partitioned_child_only_totals_2026;
+
+            DROP FUNCTION test_schema.compute_child_total(integer);
+
+            CREATE FUNCTION test_schema.compute_child_total(input integer)
+            RETURNS integer
+            LANGUAGE sql
+            IMMUTABLE
+            AS $function$
+              SELECT input + 1
+            $function$;
+
+            CREATE TABLE test_schema.partitioned_child_only_totals_2026
+              PARTITION OF test_schema.partitioned_child_only_totals (
+                total GENERATED ALWAYS AS
+                  (test_schema.compute_child_total(subtotal)) STORED
+              )
+              FOR VALUES FROM (2026) TO (2027);
+          `,
+          assertSqlStatements: (sqlStatements) => {
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_child_only_totals_2026 DROP COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+            expect(
+              sqlStatements.some((statement) =>
+                statement.startsWith(
+                  "ALTER TABLE test_schema.partitioned_child_only_totals_2026 ADD COLUMN total",
+                ),
+              ),
+            ).toBe(false);
+
+            const dropFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP FUNCTION test_schema.compute_child_total",
+              ),
+            );
+            const createFunctionIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE FUNCTION test_schema.compute_child_total",
+              ),
+            );
+
+            expect(dropFunctionIndex).toBeGreaterThanOrEqual(0);
+            expect(createFunctionIndex).toBeGreaterThan(dropFunctionIndex);
+
+            const childDropTableIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "DROP TABLE test_schema.partitioned_child_only_totals_2026",
+              ),
+            );
+            const childCreateTableIndex = sqlStatements.findIndex((statement) =>
+              statement.startsWith(
+                "CREATE TABLE test_schema.partitioned_child_only_totals_2026",
+              ),
+            );
+
+            expect(childDropTableIndex).toBeGreaterThanOrEqual(0);
+            expect(dropFunctionIndex).toBeGreaterThan(childDropTableIndex);
+            expect(childCreateTableIndex).toBeGreaterThan(createFunctionIndex);
+          },
+        });
       }),
     );
 
