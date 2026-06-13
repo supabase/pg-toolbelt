@@ -38,16 +38,21 @@
  *   - `name` matches target.name via glob
  * Replaces the three earlier satellite predicates targetKind/targetSchema/targetName.
  *
- * ### `{ edgeTo: { kind?: string; schema?: string | string[] } }`
- * Matches when the fact has an outgoing dependency edge (fb.outgoingEdges) to
- * a fact whose id.kind equals `kind` (if given) and/or whose id `schema` field
- * matches any glob (if given). Needed for: detecting user-created triggers whose
- * function lives in a non-managed schema (edgeTo {kind: "procedure", schema: not
- * in SYSTEM_SCHEMAS}), and for provenance filtering of extension-owned servers.
+ * ### `{ edgeTo: { edgeKind?: EdgeKind; kind?: string; schema?: string | string[] } }`
+ * Matches when the fact has an outgoing edge of the given `edgeKind`
+ * (provenance: depends / owner / memberOfExtension / managedBy) and/or to a
+ * fact whose id.kind equals `kind` and/or whose id `schema` matches a glob.
+ * Needed for: detecting user-created triggers whose function lives in a
+ * non-managed schema (edgeTo {kind: "procedure", schema: not in
+ * SYSTEM_SCHEMAS}), and for provenance filtering of operationally-managed
+ * objects (edgeTo {edgeKind: "managedBy"}).
+ *
+ * `validatePolicy` rejects an `idField` naming an unknown identity field, so a
+ * typo fails loudly instead of silently never matching (review #7).
  */
 
 import type { Delta } from "../core/diff.ts";
-import type { DependencyEdge, Fact, FactBase } from "../core/fact.ts";
+import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 
@@ -146,7 +151,13 @@ export type TargetPredicate = {
  * extension-provenance filtering.
  */
 export type EdgeToPredicate = {
-  edgeTo: { kind?: string; schema?: string | string[] };
+  edgeTo: {
+    /** the edge's OWN kind (provenance): "depends" | "owner" |
+     *  "memberOfExtension" | "managedBy". Without it, edges of any kind match. */
+    edgeKind?: EdgeKind;
+    kind?: string;
+    schema?: string | string[];
+  };
 };
 
 export type Predicate =
@@ -409,10 +420,17 @@ export function factMatches(
     return true;
   }
 
-  // edgeTo — matches when outgoing edges contain one to kind/schema
+  // edgeTo — matches when outgoing edges contain one of the given edge kind
+  // (provenance) and/or to a target of the given kind/schema
   if ("edgeTo" in predicate) {
     const outgoing = view.outgoingEdges(fact.id);
     for (const edge of outgoing) {
+      if (
+        predicate.edgeTo.edgeKind !== undefined &&
+        edge.kind !== predicate.edgeTo.edgeKind
+      ) {
+        continue;
+      }
       const toId = edge.to as Record<string, unknown>;
       if (
         predicate.edgeTo.kind !== undefined &&
@@ -589,6 +607,47 @@ function flattenInner(
  * Validate a policy: throws on unknown serialize param names and extends
  * cycles.
  */
+/**
+ * Every field name that appears in some StableId variant (src/core/stable-id.ts).
+ * `idField` reads `(fact.id as Record)[field]`, so a `field` not in this set is
+ * a typo that would silently never match — validatePolicy rejects it (review
+ * #7). Keep in sync with the StableId union.
+ */
+const KNOWN_ID_FIELDS = new Set<string>([
+  "name",
+  "schema",
+  "table",
+  "args",
+  "role",
+  "member",
+  "server",
+  "type",
+  "publication",
+  "grantee",
+  "objtype",
+  "provider",
+  "target",
+]);
+
+/** Recursively reject any `idField` naming an unknown identity field. */
+function validateIdFields(predicate: Predicate, policyId: string): void {
+  if ("idField" in predicate) {
+    if (!KNOWN_ID_FIELDS.has(predicate.idField.field)) {
+      throw new Error(
+        `Policy "${policyId}": idField references unknown identity field ` +
+          `"${predicate.idField.field}". Known fields: ` +
+          `${[...KNOWN_ID_FIELDS].sort().join(", ")}`,
+      );
+    }
+  } else if ("all" in predicate) {
+    for (const p of predicate.all) validateIdFields(p, policyId);
+  } else if ("any" in predicate) {
+    for (const p of predicate.any) validateIdFields(p, policyId);
+  } else if ("not" in predicate) {
+    validateIdFields(predicate.not, policyId);
+  }
+}
+
 export function validatePolicy(policy: Policy): void {
   // Cycle detection via flatten (throws on cycles)
   const flat = flattenPolicy(policy);
@@ -604,6 +663,10 @@ export function validatePolicy(policy: Policy): void {
       }
     }
   }
+
+  // Validate identity-field names in every filter + serialize predicate
+  for (const rule of flat.filter) validateIdFields(rule.match, policy.id);
+  for (const rule of flat.serialize) validateIdFields(rule.match, policy.id);
 }
 
 // ---------------------------------------------------------------------------
