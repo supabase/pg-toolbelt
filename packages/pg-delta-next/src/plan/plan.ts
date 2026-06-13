@@ -13,6 +13,7 @@ import {
   type Policy,
 } from "../policy/policy.ts";
 import { topoSort } from "./graph.ts";
+import { projectTarget } from "./project.ts";
 import { lockClassFor, type LockClass } from "./locks.ts";
 import { grantTarget, qid } from "./render.ts";
 import {
@@ -148,6 +149,10 @@ export function plan(
   const { kept: deltas, filtered: filteredDeltas } = options?.policy
     ? filterDeltas(allDeltas, options.policy, source, desired)
     : { kept: allDeltas, filtered: [] };
+  // the honest plan target: `desired` with every FILTERED delta reverted to
+  // its source value, since the plan only applies KEPT deltas (review #2). The
+  // fingerprint and the proof both target THIS, not full `desired`.
+  const projectedDesired = projectTarget(desired, filteredDeltas);
 
   const removed = new Map<string, Fact>();
   const added = new Map<string, Fact>();
@@ -826,7 +831,7 @@ export function plan(
     formatVersion: 1,
     engineVersion: ENGINE_VERSION,
     source: { fingerprint: source.rootHash },
-    target: { fingerprint: desired.rootHash },
+    target: { fingerprint: projectedDesired.rootHash },
     preamble: [{ name: "check_function_bodies", value: "off" }],
     deltas,
     filteredDeltas,

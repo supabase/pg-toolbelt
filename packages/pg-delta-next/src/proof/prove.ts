@@ -16,6 +16,7 @@ import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
+import { projectTarget } from "../plan/project.ts";
 
 export interface ProofVerdict {
   ok: boolean;
@@ -183,7 +184,10 @@ export async function provePlan(
     };
   }
   const proven = await (options.reextract ?? extract)(clonePool);
-  const driftDeltas = diff(proven.factBase, desired);
+  // target the PROJECTED desired: the plan only applies kept deltas, so it
+  // converges to `desired` minus the policy-filtered changes (review #2).
+  const target = projectTarget(desired, thePlan.filteredDeltas);
+  const driftDeltas = diff(proven.factBase, target);
   const after = await tableStats(clonePool);
 
   const dataViolations: ProofVerdict["dataViolations"] = [];
