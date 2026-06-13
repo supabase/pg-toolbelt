@@ -44,6 +44,7 @@ type ExtractDependenciesResult = {
 };
 
 type ExtractionContext = {
+  createdTypeKeys: ReadonlySet<string>;
   enumTypeKeys: ReadonlySet<string>;
   rangeTypeKeys: ReadonlySet<string>;
   multirangeTypeKeys: ReadonlySet<string>;
@@ -51,6 +52,7 @@ type ExtractionContext = {
 };
 
 const EMPTY_EXTRACTION_CONTEXT: ExtractionContext = {
+  createdTypeKeys: new Set(),
   enumTypeKeys: new Set(),
   rangeTypeKeys: new Set(),
   multirangeTypeKeys: new Set(),
@@ -60,15 +62,60 @@ const EMPTY_EXTRACTION_CONTEXT: ExtractionContext = {
 const generatedArrayTypeName = (typeName: string): string =>
   clipPostgresIdentifier(`_${typeName}`);
 
-const typeProviderRefs = (typeRef: ObjectRef): ObjectRef[] => [
-  createObjectRefFromAst("type", typeRef.name, typeRef.schema),
-  createObjectRefFromAst("type", `${typeRef.name}[]`, typeRef.schema),
+const contextTypeKey = (typeRef: ObjectRef): string =>
+  objectRefKey(
+    createObjectRefFromAst(
+      "type",
+      typeRef.name,
+      typeRef.schema ?? DEFAULT_SCHEMA,
+    ),
+  );
+
+const generatedArrayTypeRef = (typeRef: ObjectRef): ObjectRef =>
   createObjectRefFromAst(
     "type",
     generatedArrayTypeName(typeRef.name),
     typeRef.schema,
-  ),
-];
+  );
+
+const hasCreatedType = (
+  context: ExtractionContext,
+  typeRef: ObjectRef,
+): boolean => context.createdTypeKeys.has(contextTypeKey(typeRef));
+
+const implicitArrayCollisionRequirement = (
+  typeRef: ObjectRef,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
+): ObjectRef | null => {
+  const generatedRef = generatedArrayTypeRef(typeRef);
+  return hasCreatedType(context, generatedRef) ? generatedRef : null;
+};
+
+const typeProviderRefs = (
+  typeRef: ObjectRef,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
+): ObjectRef[] => {
+  const refs = [
+    createObjectRefFromAst("type", typeRef.name, typeRef.schema),
+    createObjectRefFromAst("type", `${typeRef.name}[]`, typeRef.schema),
+  ];
+  const generatedRef = generatedArrayTypeRef(typeRef);
+  if (!hasCreatedType(context, generatedRef)) {
+    refs.push(generatedRef);
+  }
+  return refs;
+};
+
+const addImplicitArrayCollisionDependency = (
+  typeRef: ObjectRef,
+  requires: ObjectRef[],
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
+): void => {
+  const collisionRef = implicitArrayCollisionRequirement(typeRef, context);
+  if (collisionRef) {
+    requires.push(collisionRef);
+  }
+};
 
 const relationRowTypeProviderRefs = (relationRef: ObjectRef): ObjectRef[] =>
   typeProviderRefs(
@@ -2522,6 +2569,46 @@ const objectWithArgsRef = (
   );
 };
 
+const inferredOperatorClassSupportFunctionArgs = (
+  accessMethod: string,
+  supportNumber: number,
+  dataTypeRef: ObjectRef | null,
+  classArgRefs: ObjectRef[],
+): (ObjectRef | null)[] => {
+  const normalizedAccessMethod = accessMethod.toLowerCase();
+  const defaultTypeArgs =
+    classArgRefs.length >= 2
+      ? [classArgRefs[0], classArgRefs[1]]
+      : classArgRefs.length === 1
+        ? [classArgRefs[0], classArgRefs[0]]
+        : dataTypeRef
+          ? [dataTypeRef, dataTypeRef]
+          : [];
+
+  if (normalizedAccessMethod === "btree") {
+    if (supportNumber === 1) {
+      return defaultTypeArgs;
+    }
+    if (supportNumber === 2) {
+      return [createObjectRefFromAst("type", "internal", "pg_catalog")];
+    }
+  }
+
+  if (normalizedAccessMethod === "hash") {
+    if (supportNumber === 1 && dataTypeRef) {
+      return [dataTypeRef];
+    }
+    if (supportNumber === 2 && dataTypeRef) {
+      return [
+        dataTypeRef,
+        createObjectRefFromAst("type", "int8", "pg_catalog"),
+      ];
+    }
+  }
+
+  return [];
+};
+
 const objectRefFromNamePartsWithArgs = (
   kind: ObjectRef["kind"],
   nameParts: string[],
@@ -2601,10 +2688,21 @@ const addTypeKey = (typeKeys: Set<string>, typeRef: ObjectRef | null): void => {
   typeKeys.add(normalizedTypeContextKey(typeRef));
 };
 
+const addCreatedTypeKey = (
+  typeKeys: Set<string>,
+  typeRef: ObjectRef | null,
+): void => {
+  if (!typeRef) {
+    return;
+  }
+  typeKeys.add(contextTypeKey(typeRef));
+};
+
 export const createExtractionContext = (
   astNodes: readonly unknown[],
   externalProviders: readonly ObjectRef[] = [],
 ): ExtractionContext => {
+  const createdTypeKeys = new Set<string>();
   const enumTypeKeys = new Set<string>();
   const rangeTypeKeys = new Set<string>();
   const multirangeTypeKeys = new Set<string>();
@@ -2618,14 +2716,31 @@ export const createExtractionContext = (
       extractNameParts(domainStmt?.domainname),
     );
     const domainBaseTypeRef = typeFromTypeNameNode(domainStmt?.typeName);
+    addCreatedTypeKey(createdTypeKeys, domainRef);
     if (domainRef && domainBaseTypeRef) {
       domainBaseTypes.set(objectRefKey(domainRef), domainBaseTypeRef);
     }
 
     const enumStmt = asRecord(astRecord?.CreateEnumStmt);
-    addTypeKey(
-      enumTypeKeys,
-      objectFromNameParts("type", extractNameParts(enumStmt?.typeName)),
+    const enumRef = objectFromNameParts(
+      "type",
+      extractNameParts(enumStmt?.typeName),
+    );
+    addCreatedTypeKey(createdTypeKeys, enumRef);
+    addTypeKey(enumTypeKeys, enumRef);
+
+    const defineStmt = asRecord(astRecord?.DefineStmt);
+    if (defineStmt?.kind === "OBJECT_TYPE") {
+      addCreatedTypeKey(
+        createdTypeKeys,
+        objectFromNameParts("type", extractNameParts(defineStmt.defnames)),
+      );
+    }
+
+    const compositeStmt = asRecord(astRecord?.CompositeTypeStmt);
+    addCreatedTypeKey(
+      createdTypeKeys,
+      relationFromRangeVarNode(asRecord(compositeStmt?.typevar), "type"),
     );
 
     const rangeStmt = asRecord(astRecord?.CreateRangeStmt);
@@ -2633,6 +2748,7 @@ export const createExtractionContext = (
       "type",
       extractNameParts(rangeStmt?.typeName),
     );
+    addCreatedTypeKey(createdTypeKeys, rangeRef);
     addTypeKey(rangeTypeKeys, rangeRef);
     if (!rangeRef) {
       continue;
@@ -2682,6 +2798,7 @@ export const createExtractionContext = (
       providerRef.name,
       providerRef.schema ?? DEFAULT_SCHEMA,
     );
+    addCreatedTypeKey(createdTypeKeys, typeRef);
     const signature = providerRef.signature?.trim().toLowerCase();
     if (signature === "(enum)") {
       addTypeKey(enumTypeKeys, typeRef);
@@ -2700,7 +2817,13 @@ export const createExtractionContext = (
     }
   }
 
-  return { enumTypeKeys, rangeTypeKeys, multirangeTypeKeys, domainBaseTypes };
+  return {
+    createdTypeKeys,
+    enumTypeKeys,
+    rangeTypeKeys,
+    multirangeTypeKeys,
+    domainBaseTypes,
+  };
 };
 
 export const domainBaseTypeRef = (
@@ -2854,7 +2977,18 @@ const extractCreateRangeDependencies = (
     extractNameParts(statementNode.typeName),
   );
   if (rangeRef) {
-    provides.push(...typeProviderRefs(rangeRef));
+    provides.push(...typeProviderRefs(rangeRef, context));
+    addImplicitArrayCollisionDependency(rangeRef, requires, context);
+    requires.push(
+      markOmitIfNoLocalProducerRef(
+        createObjectRefFromAst(
+          "type",
+          rangeRef.name,
+          rangeRef.schema,
+          SHELL_TYPE_SIGNATURE,
+        ),
+      ),
+    );
     if (rangeRef.schema) {
       requires.push(createObjectRefFromAst("schema", rangeRef.schema));
     }
@@ -3009,7 +3143,8 @@ const extractCreateRangeDependencies = (
           );
           continue;
         }
-        provides.push(...typeProviderRefs(multirangeRef));
+        provides.push(...typeProviderRefs(multirangeRef, context));
+        addImplicitArrayCollisionDependency(multirangeRef, requires, context);
         if (multirangeRef.schema) {
           requires.push(createObjectRefFromAst("schema", multirangeRef.schema));
         }
@@ -3063,6 +3198,7 @@ const extractCreateRangeDependencies = (
           defaultMultirangeTypeName(rangeRef.name),
           rangeRef.schema,
         ),
+        context,
       ),
     );
   }
@@ -3880,7 +4016,16 @@ const extractCreateOperatorClassDependencies = (
         }
       }
 
-      const functionArgs = objectWithArgsTypeRefs(itemName);
+      const explicitFunctionArgs = objectWithArgsTypeRefs(itemName);
+      const functionArgs =
+        explicitFunctionArgs.length > 0
+          ? explicitFunctionArgs
+          : inferredOperatorClassSupportFunctionArgs(
+              accessMethod,
+              itemNumber,
+              dataTypeRef,
+              classArgRefs,
+            );
       if (
         isBuiltInOperatorClassSupportFunctionName(
           nameParts,
@@ -3909,7 +4054,7 @@ const extractCreateOperatorClassDependencies = (
         continue;
       }
 
-      const functionRef = objectWithArgsRef("function", itemName);
+      const functionRef = objectWithArgsRef("function", itemName, functionArgs);
       if (functionRef) {
         const exactFunctionRef = markExactKindRef(
           markExactSignatureRef(functionRef),
@@ -4006,6 +4151,7 @@ const baseTypeFunctionArgAlternatives = (
 
 const extractCreateBaseTypeDependencies = (
   statementNode: Record<string, unknown>,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
 ): ExtractDependenciesResult => {
   const provides: ObjectRef[] = [];
   const requires: ObjectRef[] = [];
@@ -4016,7 +4162,18 @@ const extractCreateBaseTypeDependencies = (
     extractNameParts(statementNode.defnames),
   );
   if (typeRef) {
-    provides.push(...typeProviderRefs(typeRef));
+    provides.push(...typeProviderRefs(typeRef, context));
+    addImplicitArrayCollisionDependency(typeRef, requires, context);
+    requires.push(
+      markOmitIfNoLocalProducerRef(
+        createObjectRefFromAst(
+          "type",
+          typeRef.name,
+          typeRef.schema,
+          SHELL_TYPE_SIGNATURE,
+        ),
+      ),
+    );
     if (typeRef.schema) {
       requires.push(createObjectRefFromAst("schema", typeRef.schema));
     }
@@ -4427,7 +4584,7 @@ const extractDependencyRefs = (
           Array.isArray(defineStmt.definition) &&
           defineStmt.definition.length > 0
         ) {
-          return extractCreateBaseTypeDependencies(defineStmt);
+          return extractCreateBaseTypeDependencies(defineStmt, context);
         }
 
         const shellTypeRef = objectFromNameParts(
@@ -4469,11 +4626,15 @@ const extractDependencyRefs = (
       if (rangeDependencies) {
         return rangeDependencies;
       }
+      const requires = typeRef?.schema
+        ? [createObjectRefFromAst("schema", typeRef.schema)]
+        : [];
+      if (typeRef) {
+        addImplicitArrayCollisionDependency(typeRef, requires, context);
+      }
       return {
-        provides: typeRef ? typeProviderRefs(typeRef) : [],
-        requires: typeRef?.schema
-          ? [createObjectRefFromAst("schema", typeRef.schema)]
-          : [],
+        provides: typeRef ? typeProviderRefs(typeRef, context) : [],
+        requires,
       };
     }
     case "CREATE_ROLE": {
@@ -4508,6 +4669,9 @@ const extractDependencyRefs = (
       const typeRef = typeFromTypeNameNode(createDomain?.typeName);
       const requires: ObjectRef[] = typeRef ? [typeRef] : [];
       const diagnostics: Diagnostic[] = [];
+      if (domainRef) {
+        addImplicitArrayCollisionDependency(domainRef, requires, context);
+      }
       if (domainRef && typeRef && isSelfTypeReference(domainRef, typeRef)) {
         diagnostics.push(
           selfReferenceDiagnostic(
@@ -4528,7 +4692,9 @@ const extractDependencyRefs = (
       }
 
       return {
-        provides: domainRef ? [domainRef, ...typeProviderRefs(domainRef)] : [],
+        provides: domainRef
+          ? [domainRef, ...typeProviderRefs(domainRef, context)]
+          : [],
         requires,
         diagnostics,
       };
