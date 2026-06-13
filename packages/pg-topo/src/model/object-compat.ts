@@ -123,6 +123,26 @@ const schemaQualifiedBuiltInArgsCompatible = (
   signatureArgSchema(requiredArg) === "pg_catalog" &&
   signatureArgSchema(providedArg) === "pg_catalog";
 
+const schemaQualifiedBuiltInArgsConflict = (
+  requiredArg: string,
+  providedArg: string,
+): boolean => {
+  if (
+    signatureArgBase(requiredArg) !== signatureArgBase(providedArg) ||
+    !isKnownBuiltInSignatureType(requiredArg) ||
+    !isKnownBuiltInSignatureType(providedArg)
+  ) {
+    return false;
+  }
+
+  const requiredSchema = signatureArgSchema(requiredArg);
+  const providedSchema = signatureArgSchema(providedArg);
+  return (
+    (requiredSchema === "pg_catalog" && providedSchema !== "pg_catalog") ||
+    (providedSchema === "pg_catalog" && requiredSchema !== "pg_catalog")
+  );
+};
+
 const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
   "any",
   "anyarray",
@@ -166,6 +186,11 @@ const signatureArgCompatible = (
   const requiredHasSchema = signatureArgHasSchema(normalizedRequired);
   const providedHasSchema = signatureArgHasSchema(normalizedProvided);
   if (requiredHasSchema && providedHasSchema) {
+    if (
+      schemaQualifiedBuiltInArgsConflict(normalizedRequired, normalizedProvided)
+    ) {
+      return false;
+    }
     return schemaQualifiedBuiltInArgsCompatible(
       normalizedRequired,
       normalizedProvided,

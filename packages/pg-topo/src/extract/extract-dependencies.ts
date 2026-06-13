@@ -829,6 +829,32 @@ const isPgCatalogQualifiedName = (nameParts: string[]): boolean =>
 const isPgCatalogRef = (ref: ObjectRef | null | undefined): boolean =>
   ref?.schema?.toLowerCase() === "pg_catalog";
 
+const catalogArrayElementName = (
+  ref: ObjectRef | null | undefined,
+): string | null => {
+  if (
+    !isPgCatalogRef(ref) ||
+    ref?.kind !== "type" ||
+    !ref.name.startsWith("_")
+  ) {
+    return null;
+  }
+  return ref.name.slice(1);
+};
+
+const isKnownPgCatalogTypeRef = (
+  ref: ObjectRef | null | undefined,
+): boolean => {
+  if (!isPgCatalogRef(ref) || ref?.kind !== "type") {
+    return false;
+  }
+  const elementName = catalogArrayElementName(ref);
+  return (
+    isKnownBuiltInTypeName(ref.name) ||
+    (elementName !== null && isKnownBuiltInTypeName(elementName))
+  );
+};
+
 const unresolvedCatalogDiagnostic = (
   message: string,
   objectRef: ObjectRef,
@@ -961,6 +987,13 @@ const typeRefMatchesBuiltInNames = (
   );
 };
 
+const typeRefMatchesCatalogArrayTypeName = (
+  typeRef: ObjectRef | null,
+): boolean => {
+  const elementName = catalogArrayElementName(typeRef);
+  return elementName !== null && isKnownBuiltInTypeName(elementName);
+};
+
 const isBuiltInRangeSupportFunctionName = (
   nameParts: string[],
   args: (ObjectRef | null)[],
@@ -1029,7 +1062,11 @@ const typeRefMatchesPolymorphicBuiltInName = (
     normalizedTypeName === "anyarray" ||
     normalizedTypeName === "anycompatiblearray"
   ) {
-    return normalizedRefName.endsWith("[]");
+    return (
+      normalizedRefName === normalizedTypeName ||
+      normalizedRefName.endsWith("[]") ||
+      typeRefMatchesCatalogArrayTypeName(typeRef)
+    );
   }
   if (normalizedTypeName === "anyenum") {
     return context.enumTypeKeys.has(typeKey);
@@ -1068,7 +1105,10 @@ const typeRefMatchesPolymorphicBuiltInName = (
     normalizedTypeName === "anynonarray" ||
     normalizedTypeName === "anycompatiblenonarray"
   ) {
-    return !normalizedRefName.endsWith("[]");
+    return (
+      !normalizedRefName.endsWith("[]") &&
+      !typeRefMatchesCatalogArrayTypeName(typeRef)
+    );
   }
 
   return polymorphicBuiltInTypeNames.has(normalizedTypeName);
@@ -1801,6 +1841,36 @@ const builtInBrinInclusionOperatorStrategies = new Map([
   ["<@", [8, 26, 27]],
 ]);
 
+const builtInGinSupportOperatorStrategies = new Map([
+  ["&&", [1]],
+  ["@>", [2, 7]],
+  ["<@", [3]],
+  ["=", [4]],
+  ["?", [9]],
+  ["?|", [10]],
+  ["?&", [11]],
+  ["@?", [15]],
+  ["@@", [6, 16]],
+]);
+
+const builtInGistSupportOperatorStrategies = new Map([
+  ["<<", [1]],
+  ["&&", [3]],
+  ["&>", [4]],
+  ["=", [6]],
+  ["@>", [7]],
+  ["<@", [8]],
+]);
+
+const builtInSpgistSupportOperatorStrategies = new Map([
+  ["<<", [1]],
+  ["&&", [3]],
+  ["&>", [4]],
+  ["=", [6]],
+  ["@>", [7]],
+  ["<@", [8]],
+]);
+
 const builtInBtreeOperatorStrategies = new Map([
   ["<", 1],
   ["<=", 2],
@@ -1856,6 +1926,30 @@ const builtInOperatorClassSupportOperatorMatchesSlot = (
     }
 
     return builtInBtreeOperatorStrategies.get(name) === strategyNumber;
+  }
+
+  if (normalizedAccessMethod === "gin") {
+    return (
+      builtInGinSupportOperatorStrategies
+        .get(name)
+        ?.includes(strategyNumber) === true
+    );
+  }
+
+  if (normalizedAccessMethod === "gist") {
+    return (
+      builtInGistSupportOperatorStrategies
+        .get(name)
+        ?.includes(strategyNumber) === true
+    );
+  }
+
+  if (normalizedAccessMethod === "spgist") {
+    return (
+      builtInSpgistSupportOperatorStrategies
+        .get(name)
+        ?.includes(strategyNumber) === true
+    );
   }
 
   return false;
@@ -1965,7 +2059,10 @@ const isBuiltInOperatorClassSupportOperatorName = (
     (!builtInOperatorClassSupportOperatorNames.has(name) &&
       !builtInPatternOperatorClassSupportOperatorNames.has(name) &&
       !builtInRecordImageOperatorClassSupportOperatorNames.has(name) &&
-      !builtInBrinInclusionOperatorStrategies.has(name))
+      !builtInBrinInclusionOperatorStrategies.has(name) &&
+      !builtInGinSupportOperatorStrategies.has(name) &&
+      !builtInGistSupportOperatorStrategies.has(name) &&
+      !builtInSpgistSupportOperatorStrategies.has(name))
   ) {
     return false;
   }
@@ -2008,7 +2105,10 @@ const isBuiltInOperatorClassSupportOperatorName = (
     );
   }
 
-  if (builtInBrinInclusionOperatorStrategies.has(name)) {
+  if (
+    ["brin", "gist", "spgist"].includes(accessMethod.toLowerCase()) &&
+    builtInBrinInclusionOperatorStrategies.has(name)
+  ) {
     if (args.length === 0) {
       return typeRefMatchesBuiltInBrinInclusionOperatorType(
         operatorClassDataTypeRef,
@@ -2137,11 +2237,15 @@ const isBuiltInBaseTypeCallbackName = (
 const baseTypeTypeOptionNames = new Set(["like", "element"]);
 
 const typeSignaturePart = (typeRef: ObjectRef): string =>
-  isBuiltInObjectRef(typeRef)
-    ? typeRef.name
-    : typeRef.schema
-      ? `${typeRef.schema}.${typeRef.name}`
-      : typeRef.name;
+  typeRef.kind === "type" &&
+  typeRef.schema?.toLowerCase() === "pg_catalog" &&
+  typeRef.explicitSchema === true
+    ? `${typeRef.schema}.${typeRef.name}`
+    : isBuiltInObjectRef(typeRef)
+      ? typeRef.name
+      : typeRef.schema
+        ? `${typeRef.schema}.${typeRef.name}`
+        : typeRef.name;
 
 const operatorClassTypeSignaturePart = (typeRef: ObjectRef): string =>
   isBuiltInObjectRef(typeRef) ? typeRef.name : typeSignaturePart(typeRef);
@@ -2381,6 +2485,14 @@ export const createExtractionContext = (
       addTypeKey(enumTypeKeys, typeRef);
     } else if (signature === "(range)") {
       addTypeKey(rangeTypeKeys, typeRef);
+      addTypeKey(
+        multirangeTypeKeys,
+        createObjectRefFromAst(
+          "type",
+          defaultMultirangeTypeName(typeRef.name),
+          typeRef.schema,
+        ),
+      );
     } else if (signature === "(multirange)") {
       addTypeKey(multirangeTypeKeys, typeRef);
     }
@@ -2580,7 +2692,7 @@ const extractCreateRangeDependencies = (
         requires.push(typeRef);
         if (
           typeRef.schema?.toLowerCase() === "pg_catalog" &&
-          !isKnownBuiltInTypeName(typeRef.name)
+          !isKnownPgCatalogTypeRef(typeRef)
         ) {
           diagnostics.push({
             code: "UNRESOLVED_DEPENDENCY",
@@ -2937,6 +3049,7 @@ const builtInOperatorImplementationFunctionSignatures = new Map<
   ["record_le", [["record", "record"]]],
   ["record_lt", [["record", "record"]]],
   ["record_ne", [["record", "record"]]],
+  ["textcat", [["text", "text"]]],
   ["texteq", [["text", "text"]]],
   ["text_ge", [["text", "text"]]],
   ["text_gt", [["text", "text"]]],
@@ -3075,6 +3188,19 @@ const isBuiltInOperatorImplementationFunctionName = (
   );
 };
 
+const addInvalidPgCatalogTypeDiagnostic = (
+  diagnostics: Diagnostic[],
+  typeRef: ObjectRef,
+  message: string,
+  suggestedFix: string,
+): void => {
+  if (isPgCatalogRef(typeRef) && !isKnownPgCatalogTypeRef(typeRef)) {
+    diagnostics.push(
+      unresolvedCatalogDiagnostic(message, typeRef, suggestedFix),
+    );
+  }
+};
+
 const extractCreateOperatorDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -3168,6 +3294,12 @@ const extractCreateOperatorDependencies = (
       leftArgRef = typeFromTypeNameNode(typeName);
       if (leftArgRef) {
         requires.push(leftArgRef);
+        addInvalidPgCatalogTypeDiagnostic(
+          diagnostics,
+          leftArgRef,
+          `No pg_catalog operator argument type '${leftArgRef.name}' found.`,
+          "Use an existing pg_catalog type or create the referenced argument type explicitly in a user schema.",
+        );
       }
       continue;
     }
@@ -3176,6 +3308,12 @@ const extractCreateOperatorDependencies = (
       rightArgRef = typeFromTypeNameNode(typeName);
       if (rightArgRef) {
         requires.push(rightArgRef);
+        addInvalidPgCatalogTypeDiagnostic(
+          diagnostics,
+          rightArgRef,
+          `No pg_catalog operator argument type '${rightArgRef.name}' found.`,
+          "Use an existing pg_catalog type or create the referenced argument type explicitly in a user schema.",
+        );
       }
     }
   }
@@ -3370,6 +3508,12 @@ const extractCreateOperatorClassDependencies = (
 
   if (dataTypeRef) {
     requires.push(dataTypeRef);
+    addInvalidPgCatalogTypeDiagnostic(
+      diagnostics,
+      dataTypeRef,
+      `No pg_catalog operator class data type '${dataTypeRef.name}' found.`,
+      "Use an existing pg_catalog type or create the referenced operator class data type explicitly in a user schema.",
+    );
   }
 
   const items = Array.isArray(statementNode.items) ? statementNode.items : [];
@@ -3531,7 +3675,7 @@ const extractCreateOperatorClassDependencies = (
         requires.push(storageTypeRef);
         if (
           isPgCatalogRef(storageTypeRef) &&
-          !isKnownBuiltInTypeName(storageTypeRef.name)
+          !isKnownPgCatalogTypeRef(storageTypeRef)
         ) {
           diagnostics.push(
             unresolvedCatalogDiagnostic(
@@ -3645,7 +3789,7 @@ const extractCreateBaseTypeDependencies = (
         }
         if (
           optionTypeRef.schema === "pg_catalog" &&
-          !isKnownBuiltInTypeName(optionTypeRef.name)
+          !isKnownPgCatalogTypeRef(optionTypeRef)
         ) {
           diagnostics.push({
             code: "UNRESOLVED_DEPENDENCY",
