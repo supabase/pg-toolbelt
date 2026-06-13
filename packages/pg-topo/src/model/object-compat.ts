@@ -101,6 +101,30 @@ const signatureArgBase = (value: string): string => {
 const signatureArgHasSchema = (value: string): boolean =>
   splitTopLevel(value, ".").length > 1;
 
+const signatureArgSchema = (value: string): string | undefined => {
+  const parts = splitTopLevel(value, ".");
+  if (parts.length <= 1) {
+    return undefined;
+  }
+  return normalizeSignatureArg(parts.slice(0, -1).join("."));
+};
+
+const isBuiltInSignatureSchema = (schema: string | undefined): boolean =>
+  schema === "pg_catalog" || schema === "public";
+
+const isKnownBuiltInSignatureType = (value: string): boolean =>
+  PG_TYPE_ALIASES[signatureArgBase(value)] !== undefined;
+
+const schemaQualifiedBuiltInArgsCompatible = (
+  requiredArg: string,
+  providedArg: string,
+): boolean =>
+  signatureArgBase(requiredArg) === signatureArgBase(providedArg) &&
+  isKnownBuiltInSignatureType(requiredArg) &&
+  isKnownBuiltInSignatureType(providedArg) &&
+  isBuiltInSignatureSchema(signatureArgSchema(requiredArg)) &&
+  isBuiltInSignatureSchema(signatureArgSchema(providedArg));
+
 const POLYMORPHIC_PROVIDER_TYPES = new Set<string>([
   "any",
   "anyarray",
@@ -144,7 +168,10 @@ const signatureArgCompatible = (
   const requiredHasSchema = signatureArgHasSchema(normalizedRequired);
   const providedHasSchema = signatureArgHasSchema(normalizedProvided);
   if (requiredHasSchema && providedHasSchema) {
-    return false;
+    return schemaQualifiedBuiltInArgsCompatible(
+      normalizedRequired,
+      normalizedProvided,
+    );
   }
 
   return (
@@ -185,6 +212,16 @@ export const operatorClassSignaturesCompatible = (
     return signaturesCompatible(requiredSignature, providedSignature, {
       requireExactArity: true,
     });
+  }
+
+  if (requiredArgs.length === 1 && providedArgs.length === 2) {
+    const requiredAccessMethod = requiredArgs[0];
+    const providedAccessMethod = providedArgs[0];
+    return (
+      typeof requiredAccessMethod === "string" &&
+      typeof providedAccessMethod === "string" &&
+      signatureArgCompatible(requiredAccessMethod, providedAccessMethod)
+    );
   }
 
   if (requiredArgs.length !== 2 || providedArgs.length !== 2) {

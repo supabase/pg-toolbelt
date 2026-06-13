@@ -66,6 +66,15 @@ const relationRowTypeProviderRefs = (relationRef: ObjectRef): ObjectRef[] =>
     createObjectRefFromAst("type", relationRef.name, relationRef.schema),
   );
 
+const isSelfTypeReference = (
+  createdTypeRef: ObjectRef,
+  requiredTypeRef: ObjectRef,
+): boolean =>
+  requiredTypeRef.kind === "type" &&
+  requiredTypeRef.schema === createdTypeRef.schema &&
+  (requiredTypeRef.name === createdTypeRef.name ||
+    requiredTypeRef.name === `${createdTypeRef.name}[]`);
+
 const extractCreateTableDependencies = (
   statementNode: Record<string, unknown>,
 ): ExtractDependenciesResult => {
@@ -105,12 +114,7 @@ const extractCreateTableDependencies = (
       const typeRef = typeFromTypeNameNode(columnDefinition.typeName);
       if (typeRef) {
         requires.push(typeRef);
-        if (
-          tableRef &&
-          typeRef.kind === "type" &&
-          typeRef.schema === tableRef.schema &&
-          typeRef.name === tableRef.name
-        ) {
+        if (tableRef && isSelfTypeReference(tableRef, typeRef)) {
           diagnostics.push(
             selfReferenceDiagnostic(
               typeRef,
@@ -1277,6 +1281,7 @@ const builtInOperatorClassSupportFunctionSignatures = new Map<
   ["btboolcmp", [["bool", "bool"]]],
   ["btbpchar_pattern_cmp", [["bpchar", "bpchar"]]],
   ["btbpchar_pattern_sortsupport", [["internal"]]],
+  ["brin_minmax_opcinfo", [["internal"]]],
   ["btcharcmp", [["char", "char"]]],
   ["btequalimage", [["oid"]]],
   ["btfloat4cmp", [["float4", "float4"]]],
@@ -1489,6 +1494,15 @@ const builtInOperatorClassSupportFunctionMatchesSlot = (
         isHashExtendedSupportFunctionName(name)
       );
     }
+  }
+
+  if (normalizedAccessMethod === "brin") {
+    return (
+      supportNumber === 1 &&
+      signature.length === 1 &&
+      signature[0] === "internal" &&
+      name === "brin_minmax_opcinfo"
+    );
   }
 
   return false;
@@ -2337,12 +2351,7 @@ const extractCreateRangeDependencies = (
       const typeRef = typeFromTypeNameNode(typeName);
       if (typeRef) {
         requires.push(typeRef);
-        if (
-          rangeRef &&
-          typeRef.kind === "type" &&
-          typeRef.schema === rangeRef.schema &&
-          typeRef.name === rangeRef.name
-        ) {
+        if (rangeRef && isSelfTypeReference(rangeRef, typeRef)) {
           diagnostics.push(
             selfReferenceDiagnostic(
               typeRef,
@@ -3816,6 +3825,15 @@ const extractDependencyRefs = (
       const domainRef = objectFromNameParts("domain", nameParts);
       const typeRef = typeFromTypeNameNode(createDomain?.typeName);
       const requires: ObjectRef[] = typeRef ? [typeRef] : [];
+      const diagnostics: Diagnostic[] = [];
+      if (domainRef && typeRef && isSelfTypeReference(domainRef, typeRef)) {
+        diagnostics.push(
+          selfReferenceDiagnostic(
+            typeRef,
+            `Domain '${domainRef.schema ? `${domainRef.schema}.` : ""}${domainRef.name}' cannot use itself as its base type.`,
+          ),
+        );
+      }
 
       const constraints = Array.isArray(createDomain?.constraints)
         ? createDomain.constraints
@@ -3830,6 +3848,7 @@ const extractDependencyRefs = (
       return {
         provides: domainRef ? [domainRef, ...typeProviderRefs(domainRef)] : [],
         requires,
+        diagnostics,
       };
     }
     case "CREATE_SEQUENCE": {
