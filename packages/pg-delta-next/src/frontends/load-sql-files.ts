@@ -27,10 +27,46 @@
  * memberships will load successfully. Use this mode when your SQL files
  * intentionally manage cluster-level state.
  */
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
+
+/** SQLSTATE 25001 ("active_sql_transaction") — raised when a statement that
+ *  cannot run inside a transaction block (CREATE INDEX CONCURRENTLY, VACUUM, …)
+ *  is attempted within one. Detection by effect, not by parsing (P1). */
+function isNonTransactional(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return (
+    code === "25001" ||
+    (error instanceof Error &&
+      /cannot run inside a transaction block/i.test(error.message))
+  );
+}
+
+/**
+ * Apply one file's SQL inside an EXPLICIT transaction (hardening Item 6 /
+ * review #5), so a mid-file failure leaves NO partial state and the file can be
+ * cleanly retried in a later round — instead of relying on PostgreSQL's
+ * implicit multi-statement-query transaction. A statement that cannot run in a
+ * transaction block (e.g. CREATE INDEX CONCURRENTLY) is re-run RAW on the
+ * throwaway shadow, detected by effect (SQLSTATE 25001); its real error, if
+ * any, still surfaces to the caller.
+ */
+async function applyFile(client: PoolClient, sql: string): Promise<void> {
+  try {
+    await client.query("BEGIN");
+    await client.query(sql);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (isNonTransactional(error)) {
+      await client.query(sql);
+      return;
+    }
+    throw error;
+  }
+}
 
 export interface SqlFile {
   name: string;
@@ -115,7 +151,7 @@ export async function loadSqlFiles(
       const next: SqlFile[] = [];
       for (const file of pending) {
         try {
-          await client.query(file.sql);
+          await applyFile(client, file.sql);
         } catch (error) {
           failures.push({
             file,
