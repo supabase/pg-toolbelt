@@ -145,6 +145,7 @@ const externalProviderSatisfies = (
     ) {
       continue;
     }
+    const requireExactSignature = requiresExactSignature(requiredRef);
     const signaturesMatch =
       requiredRef.kind === "operator_class" &&
       provider.kind === "operator_class"
@@ -154,7 +155,8 @@ const externalProviderSatisfies = (
           )
         : signaturesCompatible(requiredRef.signature, provider.signature, {
             allowVariadicProviderTail: true,
-            requireExactArity: requiresExactSignature(requiredRef),
+            rejectPolymorphicProviderArgs: requireExactSignature,
+            requireExactArity: requireExactSignature,
           });
     if (!signaturesMatch) {
       continue;
@@ -234,6 +236,7 @@ const producerIndicesForRequirement = (
       if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
         return false;
       }
+      const requireExactSignature = requiresExactSignature(requiredRef);
       const signaturesMatch =
         requiredRef.kind === "operator_class" &&
         providedRef.kind === "operator_class"
@@ -242,7 +245,8 @@ const producerIndicesForRequirement = (
               providedRef.signature,
             )
           : signaturesCompatible(requiredRef.signature, providedRef.signature, {
-              requireExactArity: requiresExactSignature(requiredRef),
+              rejectPolymorphicProviderArgs: requireExactSignature,
+              requireExactArity: requireExactSignature,
             });
       if (!signaturesMatch) {
         return false;
@@ -277,6 +281,7 @@ const hasCompatibleProvidedObject = (
     if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
       return false;
     }
+    const requireExactSignature = requiresExactSignature(requiredRef);
     return requiredRef.kind === "operator_class" &&
       providedRef.kind === "operator_class"
       ? operatorClassSignaturesCompatible(
@@ -284,7 +289,8 @@ const hasCompatibleProvidedObject = (
           providedRef.signature,
         )
       : signaturesCompatible(requiredRef.signature, providedRef.signature, {
-          requireExactArity: requiresExactSignature(requiredRef),
+          rejectPolymorphicProviderArgs: requireExactSignature,
+          requireExactArity: requireExactSignature,
         });
   });
 

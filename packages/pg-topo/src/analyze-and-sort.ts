@@ -297,6 +297,7 @@ const omitRequirementsWithoutLocalProducers = (
         if (requiredRef.schema && providedRef.schema !== requiredRef.schema) {
           continue;
         }
+        const requireExactSignature = requiresExactSignature(requiredRef);
         const signaturesMatch =
           requiredRef.kind === "operator_class" &&
           providedRef.kind === "operator_class"
@@ -308,7 +309,8 @@ const omitRequirementsWithoutLocalProducers = (
                 requiredRef.signature,
                 providedRef.signature,
                 {
-                  requireExactArity: requiresExactSignature(requiredRef),
+                  rejectPolymorphicProviderArgs: requireExactSignature,
+                  requireExactArity: requireExactSignature,
                 },
               );
         if (!signaturesMatch) {

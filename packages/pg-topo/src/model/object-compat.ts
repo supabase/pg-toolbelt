@@ -178,9 +178,14 @@ const isPolymorphicProviderArg = (value: string): boolean =>
     signatureArgBase(normalizeSignatureArg(value)),
   );
 
+type SignatureArgCompatibilityOptions = {
+  rejectPolymorphicProviderArgs?: boolean;
+};
+
 const signatureArgCompatible = (
   requiredArg: string,
   providedArg: string,
+  options: SignatureArgCompatibilityOptions = {},
 ): boolean => {
   const normalizedRequired = normalizeSignatureArg(requiredArg);
   const normalizedProvided = normalizeSignatureArg(providedArg);
@@ -190,7 +195,10 @@ const signatureArgCompatible = (
   if (normalizedProvided === "unknown" || normalizedProvided.length === 0) {
     return true;
   }
-  if (isPolymorphicProviderArg(normalizedProvided)) {
+  if (
+    isPolymorphicProviderArg(normalizedProvided) &&
+    options.rejectPolymorphicProviderArgs !== true
+  ) {
     return true;
   }
 
@@ -296,6 +304,7 @@ export const operatorClassSignaturesCompatible = (
 type SignatureCompatibilityOptions = {
   allowNamedArgumentsInRequirement?: boolean;
   allowVariadicProviderTail?: boolean;
+  rejectPolymorphicProviderArgs?: boolean;
   requireExactArity?: boolean;
 };
 
@@ -355,7 +364,7 @@ export const signaturesCompatible = (
       if (typeof requiredArg !== "string" || typeof providedArg !== "string") {
         return false;
       }
-      if (!signatureArgCompatible(requiredArg, providedArg)) {
+      if (!signatureArgCompatible(requiredArg, providedArg, options)) {
         return false;
       }
     }
@@ -369,7 +378,7 @@ export const signaturesCompatible = (
       if (typeof requiredArg !== "string") {
         return false;
       }
-      if (!signatureArgCompatible(requiredArg, variadicBaseArg)) {
+      if (!signatureArgCompatible(requiredArg, variadicBaseArg, options)) {
         return false;
       }
     }
@@ -391,7 +400,7 @@ export const signaturesCompatible = (
     if (typeof requiredArg !== "string" || typeof providedArg !== "string") {
       return false;
     }
-    if (!signatureArgCompatible(requiredArg, providedArg)) {
+    if (!signatureArgCompatible(requiredArg, providedArg, options)) {
       return false;
     }
   }

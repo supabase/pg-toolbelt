@@ -83,6 +83,24 @@ const hasCreatedType = (
   typeRef: ObjectRef,
 ): boolean => context.createdTypeKeys.has(contextTypeKey(typeRef));
 
+const generatedArrayElementTypeRef = (typeRef: ObjectRef): ObjectRef | null => {
+  if (!typeRef.name.startsWith("_") || typeRef.name.length <= 1) {
+    return null;
+  }
+  return createObjectRefFromAst("type", typeRef.name.slice(1), typeRef.schema);
+};
+
+const typeRefMatchesGeneratedArrayTypeName = (
+  typeRef: ObjectRef | null,
+  context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
+): boolean => {
+  if (!typeRef || typeRef.kind !== "type" || hasCreatedType(context, typeRef)) {
+    return false;
+  }
+  const elementRef = generatedArrayElementTypeRef(typeRef);
+  return elementRef !== null && hasCreatedType(context, elementRef);
+};
+
 const implicitArrayCollisionRequirement = (
   typeRef: ObjectRef,
   context: ExtractionContext = EMPTY_EXTRACTION_CONTEXT,
@@ -1143,7 +1161,8 @@ const typeRefMatchesPolymorphicBuiltInName = (
     return (
       normalizedRefName === normalizedTypeName ||
       normalizedRefName.endsWith("[]") ||
-      typeRefMatchesCatalogArrayTypeName(typeRef)
+      typeRefMatchesCatalogArrayTypeName(typeRef) ||
+      typeRefMatchesGeneratedArrayTypeName(typeRef, context)
     );
   }
   if (normalizedTypeName === "anyenum") {
@@ -1185,7 +1204,8 @@ const typeRefMatchesPolymorphicBuiltInName = (
   ) {
     return (
       !normalizedRefName.endsWith("[]") &&
-      !typeRefMatchesCatalogArrayTypeName(typeRef)
+      !typeRefMatchesCatalogArrayTypeName(typeRef) &&
+      !typeRefMatchesGeneratedArrayTypeName(typeRef, context)
     );
   }
 
@@ -2903,14 +2923,13 @@ export const createExtractionContext = (
       }
       hasExplicitMultirangeTypeName = true;
       const typeName = asRecord(asRecord(defElem?.arg)?.TypeName);
-      addTypeKey(
-        multirangeTypeKeys,
-        objectFromNameParts(
-          "type",
-          extractNameParts(typeName?.names),
-          rangeRef.schema ?? DEFAULT_SCHEMA,
-        ),
+      const multirangeRef = objectFromNameParts(
+        "type",
+        extractNameParts(typeName?.names),
+        rangeRef.schema ?? DEFAULT_SCHEMA,
       );
+      addCreatedTypeKey(createdTypeKeys, multirangeRef);
+      addTypeKey(multirangeTypeKeys, multirangeRef);
     }
 
     if (!hasExplicitMultirangeTypeName) {
