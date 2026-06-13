@@ -3,7 +3,11 @@ import { CreateIndex } from "./objects/index/changes/index.create.ts";
 import { DropIndex } from "./objects/index/changes/index.drop.ts";
 import { DropSequence } from "./objects/sequence/changes/sequence.drop.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
+  AlterTableAlterColumnDropIdentity,
+  AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
   AlterTableSetReplicaIdentity,
@@ -25,6 +29,9 @@ function isSupersededByTableReplacement(
   replacedTableIds: ReadonlySet<string>,
 ): boolean {
   if (
+    change instanceof AlterTableAddColumn ||
+    change instanceof AlterTableAlterColumnAddIdentity ||
+    change instanceof AlterTableAlterColumnDropIdentity ||
     change instanceof AlterTableDropColumn ||
     change instanceof AlterTableDropConstraint
   ) {
@@ -120,6 +127,34 @@ function dropReplacedTableDuplicateConstraintChanges(
         continue;
       }
       seen.add(key);
+    }
+    reversedKept.push(change);
+  }
+
+  return mutated ? reversedKept.reverse() : changes;
+}
+
+function dropReplacedTableDuplicateOwnerChanges(
+  changes: Change[],
+  replacedTableIds: ReadonlySet<string>,
+): Change[] {
+  if (replacedTableIds.size === 0) return changes;
+
+  const seen = new Set<string>();
+  const reversedKept: Change[] = [];
+  let mutated = false;
+
+  for (let i = changes.length - 1; i >= 0; i--) {
+    const change = changes[i] as Change;
+    if (
+      change instanceof AlterTableChangeOwner &&
+      replacedTableIds.has(change.table.stableId)
+    ) {
+      if (seen.has(change.table.stableId)) {
+        mutated = true;
+        continue;
+      }
+      seen.add(change.table.stableId);
     }
     reversedKept.push(change);
   }
@@ -243,11 +278,12 @@ function restoreReplicaIdentityAfterIndexReplace(
  *
  * Concretely, this pass:
  *
- * - Prunes `AlterTableDropColumn(T.*)` / `AlterTableDropConstraint(T.*)`
+ * - Prunes structural table alters (`AlterTableAddColumn(T.*)`,
+ *   `AlterTableDropColumn(T.*)`, `AlterTableDropConstraint(T.*)`)
  *   changes that are made redundant by an expansion-emitted
  *   `DropTable(T) + CreateTable(T)` pair. Without this, the apply phase
- *   would try to drop a column that no longer exists in the freshly
- *   recreated table.
+ *   would try to add/drop a column or drop a constraint that is already
+ *   represented by the freshly recreated table.
  * - Prunes `DropSequence(S)` changes when `S` is `OWNED BY` a column on a
  *   table promoted to `DropTable + CreateTable` by the expander. The
  *   `DROP TABLE` cascade drops the sequence at apply time; emitting an
@@ -283,8 +319,12 @@ export function normalizePostDiffChanges({
     branchTables,
   );
 
-  const dedupedChanges = dropReplacedTableDuplicateConstraintChanges(
+  const dedupedConstraintChanges = dropReplacedTableDuplicateConstraintChanges(
     restoredChanges,
+    replacedTableIds,
+  );
+  const dedupedChanges = dropReplacedTableDuplicateOwnerChanges(
+    dedupedConstraintChanges,
     replacedTableIds,
   );
 

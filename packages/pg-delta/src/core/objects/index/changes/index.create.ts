@@ -43,8 +43,8 @@ export class CreateIndex extends CreateIndexChange {
     // Schema dependency
     dependencies.add(stableId.schema(this.index.schema));
 
-    // Table dependency
-    dependencies.add(stableId.table(this.index.schema, this.index.table_name));
+    // Relation dependency
+    dependencies.add(this.index.tableStableId);
 
     // Owner dependency
     dependencies.add(stableId.role(this.index.owner));

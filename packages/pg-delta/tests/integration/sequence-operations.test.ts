@@ -3,11 +3,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { applyPlan } from "../../src/core/plan/apply.ts";
 import { createPlan } from "../../src/core/plan/create.ts";
+import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 import { POSTGRES_VERSIONS } from "../constants.ts";
 import { withDb } from "../utils.ts";
 import { roundtripFidelityTest } from "./roundtrip.ts";
-import { flattenPlanStatements } from "../../src/core/plan/render.ts";
 
 for (const pgVersion of POSTGRES_VERSIONS) {
   describe(`sequence operations (pg${pgVersion})`, () => {
@@ -89,6 +90,113 @@ for (const pgVersion of POSTGRES_VERSIONS) {
           testSql: `
           ALTER SEQUENCE test_schema.test_seq INCREMENT BY 5 CACHE 10;
         `,
+        });
+      }),
+    );
+
+    test(
+      "sequence owner restores run after detach and privilege replay",
+      withDb(pgVersion, async (db) => {
+        const initialSetup = `
+          CREATE SCHEMA test_schema;
+          DO $$
+          BEGIN
+            CREATE ROLE seq_review_old_owner;
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END
+          $$;
+          DO $$
+          BEGIN
+            CREATE ROLE seq_review_new_owner;
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END
+          $$;
+          DO $$
+          BEGIN
+            CREATE ROLE seq_review_reader;
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END
+          $$;
+
+          CREATE SEQUENCE test_schema.existing_owned_seq;
+          CREATE TABLE test_schema.old_items (
+            id bigint DEFAULT nextval('test_schema.existing_owned_seq'::regclass)
+          );
+          ALTER SEQUENCE test_schema.existing_owned_seq OWNED BY test_schema.old_items.id;
+          ALTER TABLE test_schema.old_items OWNER TO seq_review_old_owner;
+        `;
+        const testSql = `
+          ALTER SEQUENCE test_schema.existing_owned_seq OWNED BY NONE;
+          ALTER SEQUENCE test_schema.existing_owned_seq OWNER TO seq_review_new_owner;
+
+          CREATE SEQUENCE test_schema.acl_seq;
+          GRANT USAGE ON SEQUENCE test_schema.acl_seq TO seq_review_reader;
+          ALTER SEQUENCE test_schema.acl_seq OWNER TO seq_review_new_owner;
+        `;
+
+        await db.main.query(initialSetup);
+        await db.branch.query(initialSetup);
+        await db.branch.query(testSql);
+
+        const planResult = await createPlan(db.main, db.branch);
+        expect(planResult).not.toBeNull();
+        if (!planResult) return;
+
+        const sqlStatements = flattenPlanStatements(planResult.plan);
+        const existingDetachIndex = sqlStatements.indexOf(
+          "ALTER SEQUENCE test_schema.existing_owned_seq OWNED BY NONE",
+        );
+        const existingOwnerIndex = sqlStatements.indexOf(
+          "ALTER SEQUENCE test_schema.existing_owned_seq OWNER TO seq_review_new_owner",
+        );
+        const createdGrantIndex = sqlStatements.indexOf(
+          "GRANT USAGE ON SEQUENCE test_schema.acl_seq TO seq_review_reader",
+        );
+        const createdOwnerIndex = sqlStatements.indexOf(
+          "ALTER SEQUENCE test_schema.acl_seq OWNER TO seq_review_new_owner",
+        );
+
+        expect(existingDetachIndex).toBeGreaterThan(-1);
+        expect(existingOwnerIndex).toBeGreaterThan(existingDetachIndex);
+        expect(createdGrantIndex).toBeGreaterThan(-1);
+        expect(createdOwnerIndex).toBeGreaterThan(createdGrantIndex);
+
+        const applyResult = await applyPlan(
+          planResult.plan,
+          db.main,
+          db.branch,
+          {
+            verifyPostApply: false,
+          },
+        );
+        expect(applyResult.status).toBe("applied");
+
+        const { rows } = await db.main.query<{
+          existing_owner: string;
+          acl_owner: string;
+          reader_has_usage: boolean;
+        }>(`
+          SELECT
+            pg_get_userbyid(existing.relowner) AS existing_owner,
+            pg_get_userbyid(acl.relowner) AS acl_owner,
+            has_sequence_privilege(
+              'seq_review_reader',
+              'test_schema.acl_seq',
+              'USAGE'
+            ) AS reader_has_usage
+          FROM pg_class existing
+          CROSS JOIN pg_class acl
+          JOIN pg_namespace existing_ns ON existing_ns.oid = existing.relnamespace
+          JOIN pg_namespace acl_ns ON acl_ns.oid = acl.relnamespace
+          WHERE existing_ns.nspname = 'test_schema'
+            AND existing.relname = 'existing_owned_seq'
+            AND acl_ns.nspname = 'test_schema'
+            AND acl.relname = 'acl_seq';
+        `);
+        expect(rows[0]).toEqual({
+          existing_owner: "seq_review_new_owner",
+          acl_owner: "seq_review_new_owner",
+          reader_has_usage: true,
         });
       }),
     );

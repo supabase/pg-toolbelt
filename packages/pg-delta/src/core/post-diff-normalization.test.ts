@@ -10,7 +10,10 @@ import {
   type SequenceProps,
 } from "./objects/sequence/sequence.model.ts";
 import {
+  AlterTableAddColumn,
   AlterTableAddConstraint,
+  AlterTableAlterColumnAddIdentity,
+  AlterTableAlterColumnDropIdentity,
   AlterTableChangeOwner,
   AlterTableDropColumn,
   AlterTableDropConstraint,
@@ -179,6 +182,202 @@ describe("normalizePostDiffChanges", () => {
     expect(normalized).toContain(preExistingEnableRls);
     expect(normalized).toContain(preExistingReplicaIdentity);
     expect(normalized).toContain(preExistingGrant);
+  });
+
+  test("dedupes table owner restores for replaced tables with last replacement replay winning", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+      owner: "postgres",
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+      owner: "app_owner",
+    });
+
+    const preExistingOwnerRestore = new AlterTableChangeOwner({
+      table: mainTable,
+      owner: "app_owner",
+    });
+    const replacementOwnerRestore = new AlterTableChangeOwner({
+      table: branchTable,
+      owner: "app_owner",
+    });
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        preExistingOwnerRestore,
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacementOwnerRestore,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+    const ownerRestores = normalized.filter(
+      (change): change is AlterTableChangeOwner =>
+        change instanceof AlterTableChangeOwner,
+    );
+
+    expect(ownerRestores).toEqual([replacementOwnerRestore]);
+  });
+
+  test("prunes same-table add-column ALTERs for replaced tables only", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1), integerColumn("slug", 2)],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other_items",
+      columns: [integerColumn("id", 1), integerColumn("slug", 2)],
+    });
+
+    const replacedTableAddColumn = new AlterTableAddColumn({
+      table: branchTable,
+      column: branchTable.columns[1],
+    });
+    const unrelatedAddColumn = new AlterTableAddColumn({
+      table: otherTable,
+      column: otherTable.columns[1],
+    });
+
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacedTableAddColumn,
+        unrelatedAddColumn,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+
+    expect(normalized).not.toContain(replacedTableAddColumn);
+    expect(normalized).toContain(unrelatedAddColumn);
+    expect(
+      normalized.filter((change) => change instanceof AlterTableAddColumn),
+    ).toEqual([unrelatedAddColumn]);
+  });
+
+  test("prunes same-table identity-add ALTERs for replaced tables only", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other_items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+
+    const replacedTableAddIdentity = new AlterTableAlterColumnAddIdentity({
+      table: branchTable,
+      column: branchTable.columns[0],
+    });
+    const unrelatedAddIdentity = new AlterTableAlterColumnAddIdentity({
+      table: otherTable,
+      column: otherTable.columns[0],
+    });
+
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacedTableAddIdentity,
+        unrelatedAddIdentity,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+
+    expect(normalized).not.toContain(replacedTableAddIdentity);
+    expect(normalized).toContain(unrelatedAddIdentity);
+    expect(
+      normalized.filter(
+        (change) => change instanceof AlterTableAlterColumnAddIdentity,
+      ),
+    ).toEqual([unrelatedAddIdentity]);
+  });
+
+  test("prunes same-table identity-drop ALTERs for replaced tables only", () => {
+    const mainTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+    const branchTable = new Table({
+      ...baseTableProps,
+      name: "items",
+      columns: [integerColumn("id", 1)],
+    });
+    const otherTable = new Table({
+      ...baseTableProps,
+      name: "other_items",
+      columns: [
+        {
+          ...integerColumn("id", 1),
+          is_identity: true,
+          is_identity_always: true,
+        },
+      ],
+    });
+
+    const replacedTableDropIdentity = new AlterTableAlterColumnDropIdentity({
+      table: mainTable,
+      column: mainTable.columns[0],
+    });
+    const unrelatedDropIdentity = new AlterTableAlterColumnDropIdentity({
+      table: otherTable,
+      column: otherTable.columns[0],
+    });
+
+    const normalized = normalizePostDiffChanges({
+      changes: [
+        new DropTable({ table: mainTable }),
+        new CreateTable({ table: branchTable }),
+        replacedTableDropIdentity,
+        unrelatedDropIdentity,
+      ],
+      replacedTableIds: new Set([mainTable.stableId]),
+    });
+
+    expect(normalized).not.toContain(replacedTableDropIdentity);
+    expect(normalized).toContain(unrelatedDropIdentity);
+    expect(
+      normalized.filter(
+        (change) => change instanceof AlterTableAlterColumnDropIdentity,
+      ),
+    ).toEqual([unrelatedDropIdentity]);
   });
 
   test("dedupes duplicate constraint Add/Validate/Comment on replaced tables keeping last occurrence", async () => {

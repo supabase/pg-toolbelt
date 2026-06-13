@@ -73,6 +73,7 @@ export type AlterTable =
   | AlterTableAlterColumnType
   | AlterTableAttachPartition
   | AlterTableChangeOwner
+  | AlterTableClusterOn
   | AlterTableDetachPartition
   | AlterTableDisableRowLevelSecurity
   | AlterTableDropColumn
@@ -111,6 +112,37 @@ export class AlterTableChangeOwner extends AlterTableChange {
       `${this.table.schema}.${this.table.name}`,
       "OWNER TO",
       this.owner,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER TABLE ... CLUSTER ON ...
+ */
+export class AlterTableClusterOn extends AlterTableChange {
+  public readonly table: Table;
+  public readonly indexName: string;
+  public readonly scope = "object" as const;
+
+  constructor(props: { table: Table; indexName: string }) {
+    super();
+    this.table = props.table;
+    this.indexName = props.indexName;
+  }
+
+  get requires() {
+    return [
+      this.table.stableId,
+      stableId.index(this.table.schema, this.table.name, this.indexName),
+    ];
+  }
+
+  serialize(_options?: SerializeOptions): string {
+    return [
+      "ALTER TABLE",
+      `${this.table.schema}.${this.table.name}`,
+      "CLUSTER ON",
+      this.indexName,
     ].join(" ");
   }
 }
@@ -338,13 +370,27 @@ export class AlterTableAddConstraint extends AlterTableChange {
   }
 
   get creates() {
-    return [
+    const creates: string[] = [
       stableId.constraint(
         this.table.schema,
         this.table.name,
         this.constraint.name,
       ),
     ];
+    if (
+      this.constraint.constraint_type === "p" ||
+      this.constraint.constraint_type === "u" ||
+      this.constraint.constraint_type === "x"
+    ) {
+      creates.push(
+        stableId.index(
+          this.table.schema,
+          this.table.name,
+          this.constraint.name,
+        ),
+      );
+    }
+    return creates;
   }
 
   get requires() {
@@ -702,9 +748,21 @@ export class AlterTableAlterColumnSetDefault extends AlterTableChange {
   }
 
   get requires() {
-    return [
+    const requirements = [
       stableId.column(this.table.schema, this.table.name, this.column.name),
     ];
+
+    if (this.table.parent_schema && this.table.parent_name) {
+      requirements.push(
+        stableId.column(
+          this.table.parent_schema,
+          this.table.parent_name,
+          this.column.name,
+        ),
+      );
+    }
+
+    return requirements;
   }
 
   serialize(_options?: SerializeOptions): string {

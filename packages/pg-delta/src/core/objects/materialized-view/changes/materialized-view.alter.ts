@@ -1,4 +1,5 @@
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
+import { stableId } from "../../utils.ts";
 import type { MaterializedView } from "../materialized-view.model.ts";
 import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
@@ -34,6 +35,7 @@ import { AlterMaterializedViewChange } from "./materialized-view.base.ts";
 
 export type AlterMaterializedView =
   | AlterMaterializedViewChangeOwner
+  | AlterMaterializedViewClusterOn
   | AlterMaterializedViewSetStorageParams;
 
 /**
@@ -60,6 +62,44 @@ export class AlterMaterializedViewChangeOwner extends AlterMaterializedViewChang
       `${this.materializedView.schema}.${this.materializedView.name}`,
       "OWNER TO",
       this.owner,
+    ].join(" ");
+  }
+}
+
+/**
+ * ALTER MATERIALIZED VIEW ... CLUSTER ON ...
+ */
+export class AlterMaterializedViewClusterOn extends AlterMaterializedViewChange {
+  public readonly materializedView: MaterializedView;
+  public readonly indexName: string;
+  public readonly scope = "object" as const;
+
+  constructor(props: {
+    materializedView: MaterializedView;
+    indexName: string;
+  }) {
+    super();
+    this.materializedView = props.materializedView;
+    this.indexName = props.indexName;
+  }
+
+  get requires() {
+    return [
+      this.materializedView.stableId,
+      stableId.index(
+        this.materializedView.schema,
+        this.materializedView.name,
+        this.indexName,
+      ),
+    ];
+  }
+
+  serialize(_options?: SerializeOptions): string {
+    return [
+      "ALTER MATERIALIZED VIEW",
+      `${this.materializedView.schema}.${this.materializedView.name}`,
+      "CLUSTER ON",
+      this.indexName,
     ].join(" ");
   }
 }

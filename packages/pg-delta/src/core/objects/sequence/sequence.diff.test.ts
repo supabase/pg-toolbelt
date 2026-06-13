@@ -3,6 +3,7 @@ import { DefaultPrivilegeState } from "../base.default-privileges.ts";
 import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts";
 import { Table } from "../table/table.model.ts";
 import {
+  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./changes/sequence.alter.ts";
@@ -71,6 +72,39 @@ describe.concurrent("sequence.diff", () => {
     expect(changes[0]).toBeInstanceOf(AlterSequenceSetOwnedBy);
   });
 
+  test("detaches existing owned sequence before changing owner", () => {
+    const main = new Sequence({
+      ...base,
+      owner: "old_owner",
+      owned_by_schema: "public",
+      owned_by_table: "old_items",
+      owned_by_column: "id",
+    });
+    const branch = new Sequence({
+      ...base,
+      owner: "new_owner",
+      owned_by_schema: null,
+      owned_by_table: null,
+      owned_by_column: null,
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+    const detachIndex = changes.findIndex(
+      (change) =>
+        change instanceof AlterSequenceSetOwnedBy && change.ownedBy === null,
+    );
+    const ownerIndex = changes.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(detachIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(detachIndex);
+  });
+
   test("alter options via diff", () => {
     const main = new Sequence(base);
     const branch = new Sequence({
@@ -106,6 +140,35 @@ describe.concurrent("sequence.diff", () => {
     );
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
+  });
+
+  test("restores owner after replacing a sequence", () => {
+    const main = new Sequence({
+      ...base,
+      persistence: "u",
+      owner: "old_owner",
+    });
+    const branch = new Sequence({
+      ...base,
+      persistence: "p",
+      owner: "app_owner",
+    });
+
+    const changes = diffSequences(
+      testContext,
+      { [main.stableId]: main },
+      { [branch.stableId]: branch },
+    );
+
+    const createIndex = changes.findIndex(
+      (change) => change instanceof CreateSequence,
+    );
+    const ownerIndex = changes.findIndex(
+      (change) => change instanceof AlterSequenceChangeOwner,
+    );
+
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(ownerIndex).toBeGreaterThan(createIndex);
   });
 
   test("replacing an owned sequence re-emits the owning column default", () => {
@@ -177,11 +240,12 @@ describe.concurrent("sequence.diff", () => {
       { [branchTable.stableId]: branchTable },
     );
 
-    expect(changes).toHaveLength(4);
+    expect(changes).toHaveLength(5);
     expect(changes[0]).toBeInstanceOf(DropSequence);
     expect(changes[1]).toBeInstanceOf(CreateSequence);
-    expect(changes[2]).toBeInstanceOf(AlterSequenceSetOwnedBy);
-    expect(changes[3]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
+    expect(changes[2]).toBeInstanceOf(AlterSequenceChangeOwner);
+    expect(changes[3]).toBeInstanceOf(AlterSequenceSetOwnedBy);
+    expect(changes[4]).toBeInstanceOf(AlterTableAlterColumnSetDefault);
   });
 
   test("skip DROP SEQUENCE when owned by table being dropped", () => {

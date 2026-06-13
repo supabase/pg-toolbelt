@@ -1,6 +1,7 @@
 import type { SerializeOptions } from "../../../integrations/serialize/serialize.types.ts";
 import { quoteLiteral } from "../../base.change.ts";
 import type { TableLikeObject } from "../../base.model.ts";
+import { stableId } from "../../utils.ts";
 import type { Trigger } from "../trigger.model.ts";
 import { AlterTriggerChange } from "./trigger.base.ts";
 import { CreateTrigger } from "./trigger.create.ts";
@@ -17,7 +18,7 @@ import { DropTrigger } from "./trigger.drop.ts";
  * ```
  */
 
-export type AlterTrigger = ReplaceTrigger;
+export type AlterTrigger = ReplaceTrigger | SetTriggerEnabledState;
 
 /**
  * Replace a trigger by dropping and recreating it.
@@ -70,5 +71,46 @@ export class ReplaceTrigger extends AlterTriggerChange {
     });
 
     return createChange.serialize();
+  }
+}
+
+export class SetTriggerEnabledState extends AlterTriggerChange {
+  public readonly trigger: Trigger;
+  public readonly enabled: Trigger["enabled"];
+  public readonly scope = "object" as const;
+
+  constructor(props: { trigger: Trigger; enabled?: Trigger["enabled"] }) {
+    super();
+    this.trigger = props.trigger;
+    this.enabled = props.enabled ?? props.trigger.enabled;
+  }
+
+  get requires() {
+    return [
+      this.trigger.stableId,
+      stableId.table(this.trigger.schema, this.trigger.table_name),
+    ];
+  }
+
+  serialize(_options?: SerializeOptions): string {
+    const clause = clauseForState(this.enabled);
+    return `ALTER TABLE ${this.trigger.schema}.${this.trigger.table_name} ${clause} ${this.trigger.name}`;
+  }
+}
+
+function clauseForState(state: Trigger["enabled"]) {
+  switch (state) {
+    case "O":
+      return "ENABLE TRIGGER";
+    case "D":
+      return "DISABLE TRIGGER";
+    case "R":
+      return "ENABLE REPLICA TRIGGER";
+    case "A":
+      return "ENABLE ALWAYS TRIGGER";
+    default: {
+      const _exhaustive: never = state;
+      return _exhaustive;
+    }
   }
 }

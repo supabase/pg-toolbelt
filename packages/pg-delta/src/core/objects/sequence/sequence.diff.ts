@@ -9,6 +9,7 @@ import { AlterTableAlterColumnSetDefault } from "../table/changes/table.alter.ts
 import type { Table } from "../table/table.model.ts";
 import { hasNonAlterableChanges } from "../utils.ts";
 import {
+  AlterSequenceChangeOwner,
   AlterSequenceSetOptions,
   AlterSequenceSetOwnedBy,
 } from "./changes/sequence.alter.ts";
@@ -61,6 +62,14 @@ export function diffSequences(
   for (const sequenceId of created) {
     const createdSeq = branch[sequenceId];
     changes.push(new CreateSequence({ sequence: createdSeq }));
+    if (createdSeq.owner !== ctx.currentUser) {
+      changes.push(
+        new AlterSequenceChangeOwner({
+          sequence: createdSeq,
+          owner: createdSeq.owner,
+        }),
+      );
+    }
     if (createdSeq.comment !== null) {
       changes.push(new CreateCommentOnSequence({ sequence: createdSeq }));
     }
@@ -201,6 +210,14 @@ export function diffSequences(
         changes.push(new DropSequence({ sequence: mainSequence }));
       }
       changes.push(new CreateSequence({ sequence: branchSequence }));
+      if (branchSequence.owner !== ctx.currentUser) {
+        changes.push(
+          new AlterSequenceChangeOwner({
+            sequence: branchSequence,
+            owner: branchSequence.owner,
+          }),
+        );
+      }
       // Re-apply OWNED BY if present on branch
       if (
         branchSequence.owned_by_schema !== null &&
@@ -310,6 +327,31 @@ export function diffSequences(
         mainSequence.owned_by_schema !== branchSequence.owned_by_schema ||
         mainSequence.owned_by_table !== branchSequence.owned_by_table ||
         mainSequence.owned_by_column !== branchSequence.owned_by_column;
+      const ownerChanged = mainSequence.owner !== branchSequence.owner;
+      const mainOwnedBy =
+        mainSequence.owned_by_schema !== null ||
+        mainSequence.owned_by_table !== null ||
+        mainSequence.owned_by_column !== null;
+      const detachBeforeOwnerChange =
+        ownerChanged && ownedByChanged && mainOwnedBy;
+
+      if (detachBeforeOwnerChange) {
+        changes.push(
+          new AlterSequenceSetOwnedBy({
+            sequence: mainSequence,
+            ownedBy: null,
+          }),
+        );
+      }
+
+      if (ownerChanged) {
+        changes.push(
+          new AlterSequenceChangeOwner({
+            sequence: mainSequence,
+            owner: branchSequence.owner,
+          }),
+        );
+      }
 
       if (ownedByChanged) {
         const ownedBy =
@@ -322,9 +364,11 @@ export function diffSequences(
                 column: branchSequence.owned_by_column,
               }
             : null;
-        changes.push(
-          new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
-        );
+        if (!(detachBeforeOwnerChange && ownedBy === null)) {
+          changes.push(
+            new AlterSequenceSetOwnedBy({ sequence: mainSequence, ownedBy }),
+          );
+        }
       }
 
       // COMMENT

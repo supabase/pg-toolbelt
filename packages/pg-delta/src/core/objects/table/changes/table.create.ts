@@ -115,10 +115,18 @@ export class CreateTable extends CreateTableChange {
       this.table.parent_name &&
       this.table.partition_bound
     ) {
+      const columnOverrides = this.table.columns
+        .filter((col) => col.is_generated && col.default)
+        .map(
+          (col) => `${col.name} GENERATED ALWAYS AS (${col.default}) STORED`,
+        );
       return [
         ...parts,
         "PARTITION OF",
         `${this.table.parent_schema}.${this.table.parent_name}`,
+        ...(columnOverrides.length > 0
+          ? [`(${columnOverrides.join(", ")})`]
+          : []),
         this.table.partition_bound,
       ].join(" ");
     }

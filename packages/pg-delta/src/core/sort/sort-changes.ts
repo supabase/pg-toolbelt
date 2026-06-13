@@ -96,7 +96,10 @@ function sortChangesByPhasedGraph(
     create_alter_object: [],
   };
 
-  // Partition changes into execution phases
+  // Keep routine drops in the drop phase even for same-name signature
+  // replacements. Dependent expressions/views are released in this phase and
+  // restored in create/alter; moving the routine drop later breaks old
+  // dependency drops such as argument domains and defaulted overloads.
   for (const changeItem of changeList) {
     const phase = getExecutionPhase(changeItem);
     changesByPhase[phase].push(changeItem);
