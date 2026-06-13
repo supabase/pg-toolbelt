@@ -293,6 +293,18 @@ export function expandReplaceDependencies({
   const tablesReplacedByExpansion = new Set<string>();
   const generatedColumnsRecreatedByExpressionFallback =
     collectCoveredGeneratedColumnRecreations(changes);
+  const generatedColumnGrantRestoresAdded = new Set<string>();
+  for (const columnId of generatedColumnsRecreatedByExpressionFallback) {
+    maybeAddCoveredGeneratedColumnGrantRestores({
+      columnId,
+      generatedColumnsRecreatedByExpressionFallback,
+      generatedColumnGrantRestoresAdded,
+      branchCatalog,
+      additions,
+      existingChanges: [...changes, ...additions],
+      diffContext,
+    });
+  }
   const rootRetainedIndexChanges = buildRootRetainedIndexReplacementChanges({
     replaceRoots,
     mainCatalog,
@@ -307,6 +319,15 @@ export function expandReplaceDependencies({
 
   while (queue.length > 0) {
     const refId = queue.shift() as string;
+    maybeAddCoveredGeneratedColumnGrantRestores({
+      columnId: refId,
+      generatedColumnsRecreatedByExpressionFallback,
+      generatedColumnGrantRestoresAdded,
+      branchCatalog,
+      additions,
+      existingChanges: [...changes, ...additions],
+      diffContext,
+    });
     const dependents = dependentsByReferenced.get(refId);
     if (!dependents) continue;
 
@@ -375,6 +396,15 @@ export function expandReplaceDependencies({
           expressionDependentCoverage.restore.has(dependentRaw);
         if (releaseCovered && restoreCovered) {
           if (generatedColumnsRecreatedByExpressionFallback.has(dependentRaw)) {
+            maybeAddCoveredGeneratedColumnGrantRestores({
+              columnId: dependentRaw,
+              generatedColumnsRecreatedByExpressionFallback,
+              generatedColumnGrantRestoresAdded,
+              branchCatalog,
+              additions,
+              existingChanges: [...changes, ...additions],
+              diffContext,
+            });
             queueRefForTraversal(dependentRaw, visitedRefs, queue);
           }
           continue;
@@ -988,6 +1018,55 @@ function maybeAddRecreatedColumnMetadataRestore({
   });
   additions.push(change);
   for (const id of change.creates ?? []) createdIds.add(id);
+}
+
+function maybeAddCoveredGeneratedColumnGrantRestores({
+  columnId,
+  generatedColumnsRecreatedByExpressionFallback,
+  generatedColumnGrantRestoresAdded,
+  branchCatalog,
+  additions,
+  existingChanges,
+  diffContext,
+}: {
+  columnId: string;
+  generatedColumnsRecreatedByExpressionFallback: ReadonlySet<string>;
+  generatedColumnGrantRestoresAdded: Set<string>;
+  branchCatalog: Catalog;
+  additions: Change[];
+  existingChanges: readonly Change[];
+  diffContext?: Pick<
+    ObjectDiffContext,
+    "version" | "currentUser" | "defaultPrivilegeState"
+  >;
+}): void {
+  if (
+    !generatedColumnsRecreatedByExpressionFallback.has(columnId) ||
+    generatedColumnGrantRestoresAdded.has(columnId)
+  ) {
+    return;
+  }
+
+  const columnRef = parseColumnStableId(columnId);
+  if (!columnRef) {
+    return;
+  }
+
+  const branchTable =
+    branchCatalog.tables[stableId.table(columnRef.schema, columnRef.table)];
+  if (!branchTable) {
+    return;
+  }
+
+  generatedColumnGrantRestoresAdded.add(columnId);
+  additions.push(
+    ...buildRetainedColumnGrantChanges({
+      table: branchTable,
+      columnName: columnRef.column,
+      existingChanges,
+      diffContext,
+    }),
+  );
 }
 
 function parseSecurityLabelProvider(
@@ -2690,7 +2769,13 @@ function buildRetainedConstraintBackedIndexMetadataChanges(
   if (!(resolved.branch.is_owned_by_constraint || resolved.branch.is_primary)) {
     return [];
   }
-  return buildRetainedClusterChange(resolved);
+  return [
+    ...(resolved.branch.comment !== null
+      ? [new CreateCommentOnIndex({ index: resolved.branch })]
+      : []),
+    ...buildRetainedIndexStatisticsChanges(resolved.branch),
+    ...buildRetainedClusterChange(resolved),
+  ];
 }
 
 function buildReplaceChanges(
