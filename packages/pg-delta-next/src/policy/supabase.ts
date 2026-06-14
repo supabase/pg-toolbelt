@@ -67,11 +67,10 @@
  *         AUTHORIZATION clause
  *
  * Old-14: serialize skipSchema for extensions installing their own schema
- *         (pgmq, pgsodium, pgtle — extension name equals its self-created
- *         schema name for all three, so the name predicate is equivalent
- *         to the old extension/schema match)
- *         → serialize rule: { kind: extension, name: [pgmq, pgsodium,
- *         pgtle] } sets skipSchema
+ *         → REMOVED. The SCHEMA clause is now derived from the extension's
+ *         `relocatable` fact (pg_extension.extrelocatable): a non-relocatable
+ *         extension emits a bare CREATE EXTENSION. No name list, not
+ *         Supabase-specific. See docs/managed-view-architecture.md (move 2).
  *
  * BASELINE
  * The baseline field names the snapshot that represents "empty" on a Supabase
@@ -142,9 +141,7 @@ export const SUPABASE_SYSTEM_ROLES = [
 
 /**
  * The Supabase policy: port of every filterable behavior from the old
- * supabase.ts into DSL v2. Serialize parameters (skipAuthorization,
- * skipSchema) are not yet ported — they require additions to KNOWN_PARAMS in
- * src/plan/rules.ts.
+ * supabase.ts into DSL v2.
  */
 export const supabasePolicy: Policy = {
   id: "supabase",
@@ -168,17 +165,11 @@ export const supabasePolicy: Policy = {
       },
       params: { skipAuthorization: true },
     },
-    // Old-14: extensions whose install script creates its own schema
-    // cannot tolerate CREATE EXTENSION … SCHEMA <self> on a fresh
-    // database (the clause resolves before the script runs); their
-    // CREATE SCHEMA is filtered out as a system schema, so emit a bare
-    // CREATE EXTENSION and let the script create what it expects
-    {
-      match: {
-        all: [{ kind: "extension" }, { name: ["pgmq", "pgsodium", "pgtle"] }],
-      },
-      params: { skipSchema: true },
-    },
+    // Old-14 (REMOVED): the SCHEMA clause is now derived from the extension's
+    // `relocatable` fact (pg_extension.extrelocatable) in the extension rule —
+    // a non-relocatable extension (pgmq / pgsodium / pgtle) emits a bare
+    // CREATE EXTENSION with no name list and nothing Supabase-specific.
+    // See docs/managed-view-architecture.md (move 2).
   ],
 
   filter: [

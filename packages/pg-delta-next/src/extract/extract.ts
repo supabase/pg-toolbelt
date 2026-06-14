@@ -321,6 +321,7 @@ async function extractOnClient(
   // ── extensions (version deliberately excluded from the payload) ─────
   for (const row of await q(`
     SELECT e.extname AS name, n.nspname AS schema,
+           e.extrelocatable AS relocatable,
            obj_description(e.oid, 'pg_extension') AS comment
     FROM pg_extension e
     JOIN pg_namespace n ON n.oid = e.extnamespace
@@ -329,7 +330,10 @@ async function extractOnClient(
     pushWithMeta(
       {
         id: { kind: "extension", name: String(row["name"]) },
-        payload: { schema: String(row["schema"]) },
+        payload: {
+          schema: String(row["schema"]),
+          relocatable: Boolean(row["relocatable"]),
+        },
       },
       row,
     );

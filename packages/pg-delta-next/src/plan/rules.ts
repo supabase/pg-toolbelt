@@ -62,9 +62,6 @@ export const KNOWN_PARAMS: ReadonlySet<string> = new Set([
   // CREATE SCHEMA without AUTHORIZATION (platform roles a non-superuser
   // applier cannot impersonate)
   "skipAuthorization",
-  // CREATE EXTENSION without SCHEMA (self-installing extensions that
-  // refuse an explicit schema)
-  "skipSchema",
 ]);
 export type PlanParams = Record<string, unknown>;
 
@@ -600,12 +597,19 @@ export const RULES: Record<string, KindRules> = {
 
   extension: {
     weight: 2,
-    create: (fact, _view, params) => [
-      params?.["skipSchema"] === true
-        ? { sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)}` }
-        : {
+    // The SCHEMA clause is derived from the extension's `relocatable` fact
+    // (pg_extension.extrelocatable), not a serialize param: a relocatable
+    // extension honours `SCHEMA <s>` and must be ordered after that schema; a
+    // non-relocatable extension creates its own schema, so it emits a bare
+    // CREATE EXTENSION and requires no schema. See docs/managed-view-architecture.md.
+    create: (fact) => [
+      p(fact, "relocatable") === true
+        ? {
             sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)} SCHEMA ${qid(str(p(fact, "schema")))}`,
             consumes: [{ kind: "schema", name: str(p(fact, "schema")) }],
+          }
+        : {
+            sql: `CREATE EXTENSION ${qid((fact.id as { name: string }).name)}`,
           },
     ],
     drop: (fact) => ({
