@@ -99,13 +99,15 @@ data-preserving, instead of forcing a type rebuild. See `COVERAGE.md` for
 the full catalog-coverage map and deliberate exclusions (languages, large
 objects, …).
 
-Environment-gated leftovers: security labels are fully modeled (extraction
-+ rule + rendering, unit-proven) but their end-to-end proof needs an image
-with `shared_preload_libraries=dummy_seclabel`; the real-Supabase-image
-baseline proof needs a Supabase container (mechanism + generation script
-exist — run `scripts/generate-supabase-baseline.ts`). Stage 10 (cutover) is
-a product decision gated on the parity bar — the differential harness, soak
-quota at scale, and naming are deliberately not unilateral engineering calls.
+Environment-gated leftovers: security labels are fully modeled and proven
+end-to-end (`tests/security-label-proof.test.ts`) against a built
+`dummy_seclabel` image (`tests/dummy-seclabel.Dockerfile`); the image builds
+on first run and `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` skips it where the
+build CDNs are unreachable. The real-Supabase-image baseline proof needs a
+Supabase container (mechanism + generation script exist — run
+`scripts/generate-supabase-baseline.ts`). Stage 10 (cutover) is a product
+decision gated on the parity bar — the differential harness, soak quota at
+scale, and naming are deliberately not unilateral engineering calls.
 
 Known v1 simplifications:
 

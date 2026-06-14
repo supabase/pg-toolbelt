@@ -46,12 +46,18 @@ that would fail at apply.
 ## Environment-gated (modeled; integration proof needs a non-default image)
 
 - **Security labels** — extraction (`pg_seclabel` / `pg_shseclabel`), the
-  `securityLabel` rule, and rendering are implemented; the SQL shape is unit-
-  proven (`src/plan/security-label.test.ts`). End-to-end proof requires a
-  PostgreSQL image with a label-provider module loaded
-  (`shared_preload_libraries=dummy_seclabel`), which the default
-  `postgres:*-alpine` test image does not carry. Inert on label-free
-  databases (the catalogs are empty), so the corpus is unaffected.
+  `securityLabel` rule, and rendering are implemented and unit-proven
+  (`src/plan/security-label.test.ts`). The create / change-in-place / drop
+  cycle is now also proven **end-to-end** (`tests/security-label-proof.test.ts`)
+  against a `postgres:<major>-alpine` image with the `dummy_seclabel` test
+  module compiled in and preloaded (`tests/dummy-seclabel.Dockerfile`,
+  `tests/containers.ts::seclabelCluster`). The `dummy` provider stores labels
+  verbatim (clean apply → re-extract roundtrip), validating against its fixed
+  vocabulary (unclassified / classified / secret / top secret). The image is
+  built on first run; `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1` skips the proof in
+  sandboxes that cannot reach the Alpine / GitHub CDNs at build time. The main
+  corpus stays on stock `postgres:*-alpine` (label catalogs are empty there, so
+  it is unaffected); a CI prebuild of the image is a possible follow-up.
 
 ## Not modeled (deliberate)
 

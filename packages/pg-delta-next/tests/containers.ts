@@ -213,3 +213,75 @@ export async function supabaseCluster(): Promise<Cluster> {
   supabaseShared ??= startSupabaseCluster();
   return supabaseShared;
 }
+
+/** The security-label end-to-end proof needs a loaded label provider. We build
+ *  a `postgres:<major>-alpine` image with the `dummy_seclabel` test module
+ *  compiled in (tests/dummy-seclabel.Dockerfile) and preload it. Sandboxes that
+ *  cannot reach the Alpine / GitHub CDNs at build time set
+ *  `PGDELTA_SKIP_DUMMY_SECLABEL_BUILD=1`; the proof test skips itself. */
+export const skipSeclabelProof =
+  process.env["PGDELTA_SKIP_DUMMY_SECLABEL_BUILD"] === "1" ||
+  process.env["PGDELTA_SKIP_DUMMY_SECLABEL_BUILD"] === "true";
+
+const SECLABEL_PG_MAJOR = Number(/postgres:(\d+)/.exec(PG_IMAGE)?.[1] ?? "17");
+const ALPINE_TAG_FOR_PG_MAJOR: Record<number, string> = {
+  15: "3.19",
+  17: "3.23",
+  18: "3.23",
+};
+
+async function startSeclabelCluster(): Promise<Cluster> {
+  const major = SECLABEL_PG_MAJOR;
+  // build-or-reuse the dummy_seclabel image (Docker layer cache makes repeat
+  // runs cheap; the first build compiles the module from PG source)
+  const built = await GenericContainer.fromDockerfile(
+    import.meta.dir,
+    "dummy-seclabel.Dockerfile",
+  )
+    .withBuildArgs({
+      PG_MAJOR: String(major),
+      PG_BRANCH: `REL_${major}_STABLE`,
+      ALPINE_TAG: ALPINE_TAG_FOR_PG_MAJOR[major] ?? "3.23",
+    })
+    .withCache(true)
+    .build(`pg-delta-next-seclabel:${major}`, { deleteOnExit: false });
+  const container = await built
+    .withEnvironment({
+      POSTGRES_USER: "test",
+      POSTGRES_PASSWORD: "test",
+      POSTGRES_DB: "postgres",
+    })
+    .withCommand([
+      "postgres",
+      "-c",
+      "fsync=off",
+      "-c",
+      "full_page_writes=off",
+      "-c",
+      "max_connections=300",
+      "-c",
+      "wal_level=logical",
+      "-c",
+      "shared_preload_libraries=dummy_seclabel",
+    ])
+    .withExposedPorts(5432)
+    .withWaitStrategy(
+      Wait.forLogMessage(/database system is ready to accept connections/, 2),
+    )
+    .withStartupTimeout(240_000)
+    .start();
+  const uriFor = (db: string) =>
+    `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
+  const adminPool = new pg.Pool({
+    connectionString: uriFor("postgres"),
+    max: 3,
+  });
+  adminPool.on("error", () => {});
+  return new Cluster(container, adminPool, uriFor);
+}
+
+let seclabelShared: Promise<Cluster> | null = null;
+export async function seclabelCluster(): Promise<Cluster> {
+  seclabelShared ??= startSeclabelCluster();
+  return seclabelShared;
+}
