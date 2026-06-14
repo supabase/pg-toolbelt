@@ -18,6 +18,7 @@ import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
 import { resolveView, type Policy } from "../policy/policy.ts";
+import type { ApplierCapability } from "../policy/capability.ts";
 
 export interface ProofVerdict {
   ok: boolean;
@@ -80,6 +81,10 @@ export interface ProveOptions {
    *  re-extracted clone and the target — otherwise policy-scoped objects
    *  (system schemas/roles) reappear as drift (docs/managed-view-architecture.md). */
   policy?: Policy;
+  /** the applier capability the plan was produced with (move 6) — applied to
+   *  the proof's view symmetrically so a capability-excluded object (e.g. an
+   *  FDW ACL on a non-superuser target) doesn't reappear as drift. */
+  capability?: ApplierCapability;
 }
 
 interface TableStat {
@@ -383,12 +388,17 @@ export async function provePlan(
   // policy-scoped object (system schema/role) read as drift
   // (docs/managed-view-architecture.md). With no policy this is exactly the
   // extension-member projection, so the corpus proof is unchanged.
-  const provenFb = resolveView(proven.factBase, options.policy);
+  const provenFb = resolveView(
+    proven.factBase,
+    options.policy,
+    options.capability,
+  );
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
   const target = resolveView(
     projectTarget(desired, thePlan.filteredDeltas),
     options.policy,
+    options.capability,
   );
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);

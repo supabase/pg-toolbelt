@@ -58,6 +58,10 @@ import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
 import { excludeByProvenance, excludeFactsAndDescendants } from "./view.ts";
+import {
+  capabilityExcludedRoots,
+  type ApplierCapability,
+} from "./capability.ts";
 
 // ---------------------------------------------------------------------------
 // Predicate vocabulary
@@ -745,8 +749,15 @@ function factScopeExcluded(
 export function resolveView(
   fb: FactBase,
   policy: Policy | undefined,
+  capability?: ApplierCapability,
 ): FactBase {
-  const base = excludeByProvenance(fb, "memberOfExtension");
+  let base = excludeByProvenance(fb, "memberOfExtension");
+  // capability restriction (move 6): project out operations the applier cannot
+  // execute (e.g. FDW ACLs for a non-superuser). Additive; default unrestricted.
+  if (capability !== undefined) {
+    const capRoots = capabilityExcludedRoots(base, capability);
+    if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);
+  }
   if (!policy) return base;
   const rules = flattenPolicy(policy).filter;
   if (rules.length === 0) return base;

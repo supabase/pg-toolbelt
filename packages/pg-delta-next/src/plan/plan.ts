@@ -13,6 +13,7 @@ import {
   validatePolicy,
   type Policy,
 } from "../policy/policy.ts";
+import type { ApplierCapability } from "../policy/capability.ts";
 import { topoSort } from "./graph.ts";
 import {
   actionTieKey,
@@ -113,6 +114,10 @@ export interface PlanOptions {
    *  no graph edge crosses the merge. Cosmetic by contract — proof results
    *  never change (asserted by the compaction suite). Default: true. */
   compact?: boolean;
+  /** applier capability (move 6): operations the applier cannot execute (e.g.
+   *  FDW ACLs for a non-superuser) are projected out of the view. Probe with
+   *  probeApplierCapability(pool). Default unrestricted. */
+  capability?: ApplierCapability;
 }
 
 // Per-kind graph/suppression policy is DECLARED IN THE RULE TABLE
@@ -144,8 +149,8 @@ export function plan(
   // projected out at the FACT level on BOTH sides, so the proof stays honest by
   // construction. `verb` rules remain for the delta-level filter below. With no
   // policy this is exactly `excludeExtensionMembers`, so the corpus is unchanged.
-  source = resolveView(source, options?.policy);
-  desired = resolveView(desired, options?.policy);
+  source = resolveView(source, options?.policy, options?.capability);
+  desired = resolveView(desired, options?.policy, options?.capability);
   const params: PlanParams = options?.params ?? {};
   for (const name of Object.keys(params)) {
     if (!KNOWN_PARAMS.has(name)) {
