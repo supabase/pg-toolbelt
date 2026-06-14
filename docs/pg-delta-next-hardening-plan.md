@@ -1,9 +1,9 @@
 # pg-delta-next hardening plan: make the boundary semantics explicit
 
-- **Status**: **7 of 8 items shipped. Item 4b (the provenance flip) is DONE —
-  extension members are observed with provenance edges and projected by default;
-  full corpus green on PG15+17 and the differential clean. Only Item 7 (planner
-  module split) remains.** See the *Shipped* table below.
+- **Status**: **All 8 items shipped (+ a surfaced Item-2 fix). The hardening
+  plan is complete.** Item 4b (the provenance flip) and Item 7 (planner module
+  split) — the two large remaining efforts — both landed with full corpus green
+  on PG15+17 and the differential state-equivalent. See the *Shipped* table.
 - **Date**: 2026-06-13
 - **Branch / baseline**: `feat/pg-delta-next`. Items 1–6 + 8 landed in
   `c040e08..c918310`; the live head is `c918310`.
@@ -30,6 +30,7 @@ where relevant), `private:true` so no changeset.
 | 8 — Docs | folded in | README proof claim softened to coverage tiers + `contentMode`. |
 | schemaSig fix | `16ffeb4` | composite-type structure + `atttypmod` folded into the proof's `schemaSig` (repaired two Item-2 false-positive corpus scenarios). |
 | 4b — provenance flip | `99dee48`, `5a4fbf3`, `5b7f118` | members observed with `memberOfExtension` edges + projected by default; member-root families flipped (parity oracle GREEN); resolver collapse kept for ordering. **Gate: corpus 418/418 on PG15 AND PG17, differential 44/0 (zero regressions).** |
+| 7 — planner module split | `88af751` | extracted `buildActionGraph`, `actionTieKey`, `compactColumnFolds`, `computeSafetyReport` to `src/plan/internal.ts` behind the unchanged `plan()` API (−240 lines). **Pure refactor: corpus 418/418 on PG15+17, differential identical to pre-refactor.** |
 
 **What this means for correctness:** the bug 4b's review finding (#1) cited —
 CLI-1471 orphan satellites — is **already fixed by 4a**. The remaining 4b work
@@ -433,10 +434,11 @@ Item 8 (docs)           ── continuous, folded into each item
 5. ✅ **Item 4b** — the provenance flip, done as its own staged migration
    (Stages 0–4), gated by the parity oracle per family + full corpus +
    differential at the end.
-6. ⏳ **Item 7** — planner split, last, **after 4b**.
+6. ✅ **Item 7** — planner module split, done last, proven state-equivalent.
 
-**Where to pick up:** **Item 7** (planner module split) is the only remaining
-item — a pure refactor gated by state-equivalent corpus + differential.
+**Where to pick up:** nothing — all 8 items are shipped. The remaining
+`notExtensionMember` anti-joins (sub-entity + rare member-root families) are a
+documented, regression-free limitation in COVERAGE.md, not an open item.
 
 ## Relationship to the extension-intent work
 
@@ -488,7 +490,10 @@ Done (4b — the provenance flip):
   criterion met). Sub-entity families + rare member-root kinds remain filtered
   as a documented, regression-free limitation (COVERAGE.md).
 
-Remaining:
+Done (Item 7 — planner module split):
 
-- ⏳ **Item 7:** planner split with **state-equivalent plans** (zero behavior
-  change), done after 4b.
+- ✅ The cleanly-separable planner phases (`buildActionGraph`, `actionTieKey`,
+  `compactColumnFolds`, `computeSafetyReport`) live in `src/plan/internal.ts`
+  behind the unchanged `plan()` API; corpus 418/418 on PG15+17 and the
+  differential is identical to pre-refactor (state-equivalent). The cohesive
+  emit/rename/suppression core stays in `plan()` by design.
