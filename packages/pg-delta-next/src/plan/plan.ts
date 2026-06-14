@@ -13,7 +13,7 @@ import {
   validatePolicy,
   type Policy,
 } from "../policy/policy.ts";
-import type { ApplierCapability } from "../policy/capability.ts";
+import { canSetOwner, type ApplierCapability } from "../policy/capability.ts";
 import { topoSort } from "./graph.ts";
 import {
   actionTieKey,
@@ -604,6 +604,21 @@ export function plan(
       const newRoleId = delta.edge.to;
       if (newRoleId.kind !== "role") continue;
       const roleName = (newRoleId as { kind: "role"; name: string }).name;
+      // Owner residue (move 6): `ALTER … OWNER TO R` requires the applier to be
+      // a superuser or a member of R. If a capability is supplied and the
+      // applier cannot, fail fast at plan time with an actionable message —
+      // surfaced before any statement runs, and avoiding a non-converging
+      // "leave it applier-owned" (the owner is acldefault-relative). Unset only
+      // for owner CHANGES/creates (this is an owner link delta), not pre-existing
+      // unchanged ownership.
+      if (
+        options?.capability !== undefined &&
+        !canSetOwner(options.capability, roleName)
+      ) {
+        throw new Error(
+          `capability: cannot set owner of ${encodeId(objId)} to role "${roleName}" — applier "${options.capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
+        );
+      }
       const oldRoleId = oldOwnerByFact.get(objKey);
       pushAction(
         "alter",

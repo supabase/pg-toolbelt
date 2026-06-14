@@ -15,6 +15,7 @@ import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { provePlan } from "../src/proof/prove.ts";
 import type { Policy } from "../src/policy/policy.ts";
+import type { ApplierCapability } from "../src/policy/capability.ts";
 import {
   isolatedClusterPair,
   sharedCluster,
@@ -185,4 +186,49 @@ describe("owner edge: out-of-view owner role prunes ownership (skipAuth eliminat
     const ownerAction = thePlan.actions.find((a) => a.sql.includes("OWNER TO"));
     expect(ownerAction).toBeUndefined();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Test (d): owner residue (follow-up 1). A non-superuser applier that is not a
+// member of an object's owner role cannot run ALTER … OWNER TO. The owner can't
+// be silently skipped (acldefault is owner-relative → no convergence), so the
+// planner FAILS FAST with an actionable error, surfaced before any apply.
+// ---------------------------------------------------------------------------
+
+describe("owner edge: owner residue — applier can't set owner → fail fast", () => {
+  test("a non-superuser capability rejects a plan that must set an unsettable owner", async () => {
+    const cluster = await sharedCluster();
+    const src = await cluster.createDb("cap_owner_src");
+    const dst = await cluster.createDb("cap_owner_dst");
+    dbs.push(src, dst);
+    await cluster.adminPool
+      .query(`CREATE ROLE cap_other_owner NOLOGIN`)
+      .catch(() => {});
+    // desired: a schema + table owned by cap_other_owner
+    await dst.pool.query(`
+        CREATE SCHEMA caps AUTHORIZATION cap_other_owner;
+        CREATE TABLE caps.t (id int);
+        ALTER TABLE caps.t OWNER TO cap_other_owner;
+      `);
+
+    const [srcState, dstState] = await Promise.all([
+      extract(src.pool),
+      extract(dst.pool),
+    ]);
+
+    // an applier that is a member of NO role (so it cannot set owner to
+    // cap_other_owner). isSuperuser:false forces the capability check.
+    const capability: ApplierCapability = {
+      role: "applier",
+      isSuperuser: false,
+      memberOf: new Set(),
+    };
+
+    expect(() =>
+      plan(srcState.factBase, dstState.factBase, { capability }),
+    ).toThrow(/cannot set owner/);
+
+    // a superuser applier (or none) plans fine — the objects + owner ALTERs land
+    expect(() => plan(srcState.factBase, dstState.factBase)).not.toThrow();
+  }, 120_000);
 });

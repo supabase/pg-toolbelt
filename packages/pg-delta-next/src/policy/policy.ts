@@ -752,8 +752,11 @@ export function resolveView(
   capability?: ApplierCapability,
 ): FactBase {
   let base = excludeByProvenance(fb, "memberOfExtension");
-  // capability restriction (move 6): project out operations the applier cannot
-  // execute (e.g. FDW ACLs for a non-superuser). Additive; default unrestricted.
+  // capability restriction (move 6): project out facts whose action the applier
+  // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
+  // GRANTs and a leaf fact, so they project out cleanly. (The owner residue is
+  // NOT projected — it can't be skipped without an ACL ripple — it fail-fasts
+  // in plan() instead; see capability.canSetOwner.)
   if (capability !== undefined) {
     const capRoots = capabilityExcludedRoots(base, capability);
     if (capRoots.size > 0) base = excludeFactsAndDescendants(base, capRoots);

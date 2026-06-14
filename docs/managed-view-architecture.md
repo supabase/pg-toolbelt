@@ -104,12 +104,22 @@ interface ApplierCapability {
 }
 ```
 
-The view is then `view(facts, policy, capability)`, and capability-blocked
-operations are **projected out of the view with a reported diagnostic, never
-silently**. `skipAuthorization` and the FDW-ACL rule both *derive* from one
-probed capability model instead of being hand-set per platform. For a pure
-file-to-file diff with no applier connection, capability defaults to
-"unrestricted" and apply-time failures surface loudly (documented).
+The view is then `view(facts, policy, capability)`. Capability-blocked
+operations are handled by their *shape*, because not all of them can be skipped
+cleanly:
+
+- **FDW ACLs** (`GRANT/REVOKE ON FOREIGN DATA WRAPPER` is superuser-only) are a
+  **leaf fact** — projecting them out of the view converges with no ripple. So a
+  non-superuser's FDW ACLs are projected out (`capabilityExcludedRoots`). This
+  derives the exclusion the Supabase policy hard-codes as Rule 9.
+- **Ownership** (`ALTER … OWNER TO R` needs superuser or membership in R) **can
+  NOT** be silently skipped: leaving an object applier-owned ripples into its
+  acldefault-normalized ACL (owner-relative), so the state would not converge.
+  So an owner action the applier can't run is a **fail-fast at plan time**
+  (`canSetOwner` → a clear, actionable error), surfaced before any apply.
+
+For a pure file-to-file diff with no applier connection, capability defaults to
+"unrestricted" — the corpus/CI path is a no-op.
 
 ### 4. Filtering collapses to one grain
 
@@ -239,10 +249,11 @@ replaced in place.
    operation-`include`, so their non-protected deltas still need the full policy
    at the delta level. The current `resolveView` + full `filterDeltas` +
    minimized `projectTarget` IS the end state.
-6. **`ApplierCapability`** (remaining): probe the applier's role / superuser /
-   memberships; restrict the view (capability-blocked ops projected out with a
-   reported diagnostic); derive the FDW-ACL exclusion. Additive — keep the
-   working Supabase Rule 9 until the derivation is proven at parity.
+6. ✅ **`ApplierCapability`**: probe role / superuser / memberships
+   (`probeApplierCapability`); thread `capability` through plan()/prove(). FDW
+   ACLs (leaf) are projected out for a non-superuser; ownership (rippling) is a
+   plan-time **fail-fast** (`canSetOwner`). Additive + gated (default
+   unrestricted → corpus no-op). (shipped `5f6841d` + follow-up 1)
 7. **Cleanup** (remaining): `KNOWN_PARAMS = { concurrentIndexes }` ✅ (move 4);
    update `COVERAGE.md` + the Supabase policy comment block. NOTE: Rules 5
    (schema-name), 7 (role-name) and 10 (satellite-on-system-target) are **genuine

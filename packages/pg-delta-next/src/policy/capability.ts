@@ -70,3 +70,19 @@ export function capabilityExcludedRoots(
   }
   return roots;
 }
+
+/**
+ * Whether the applier can run `ALTER <obj> OWNER TO roleName` — PostgreSQL
+ * requires the applier to be a superuser or a member of the target role (the
+ * owner residue, move 6 / follow-up 1).
+ *
+ * Unlike an FDW ACL (a leaf fact that projects out cleanly), an owner cannot be
+ * silently skipped: leaving an object applier-owned ripples into its
+ * acldefault-normalized ACL (which is owner-relative), so the state can't
+ * converge. So an owner action the applier can't run is a FAIL-FAST at plan
+ * time (the planner throws a clear, actionable error) rather than a silent
+ * projection — surfaced before any statement is applied.
+ */
+export function canSetOwner(cap: ApplierCapability, roleName: string): boolean {
+  return cap.isSuperuser || cap.memberOf.has(roleName);
+}
