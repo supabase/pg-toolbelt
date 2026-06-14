@@ -265,3 +265,45 @@ End state: the policy DSL describes a view; the engine diffs `view(source)`
 against `view(desired)`; the proof re-extracts through the same view; serialize
 params hold only apply-strategy; and there is **zero Supabase-specific knowledge
 in core.**
+
+## Follow-ups (post-move-7)
+
+### Follow-up 1 — owner residue → fail-fast (shipped `2179e37`)
+
+`ALTER … OWNER TO R` needs superuser or membership in R. Unlike an FDW ACL (a
+leaf that projects cleanly), an owner can't be silently skipped — leaving the
+object applier-owned ripples into its acldefault-normalized ACL, so the state
+won't converge (a synthetic skip produced 58 drift deltas). So when a
+capability is supplied and the applier can't set an owner an owner-link delta
+requires, `plan()` fail-fasts with an actionable error (`canSetOwner`) before
+any apply. Gated (only fires for a non-superuser capability) → corpus no-op.
+
+### Follow-up 2 — capability vs Supabase Rule 9: parity finding (Rule 9 KEPT)
+
+The question was whether the applier-capability mechanism lets us *retire*
+Supabase Rule 9 (`{ acl, target fdw } → exclude`). The analysis — and the
+empirical check that **a non-superuser cannot GRANT on a FDW**
+(`tests/capability.test.ts`) — says: **keep Rule 9.**
+
+- Capability (move 6) derives Rule 9's *stated rationale* precisely: it drops
+  FDW ACLs exactly when the applier is non-superuser (so they're unappliable).
+- The two are **at parity for the real Supabase flow** (local + Cloud `postgres`
+  are both non-superuser → capability excludes, matching Rule 9).
+- They **diverge for a superuser applier**: capability would (correctly) *manage*
+  the FDW ACL; Rule 9 excludes *unconditionally*.
+- Rule 9 is a **self-contained policy guarantee** — it holds even if a caller
+  forgets to probe + pass capability. Capability depends on every caller
+  supplying it. Retiring Rule 9 would weaken an unconditional guarantee into a
+  caller obligation (forget it → CLI-1469 returns). So **retiring is a
+  regression in robustness, not an improvement.**
+
+Conclusion: capability is the **general** mechanism (any non-superuser applier,
+any policy, + the owner residue); Rule 9 is the Supabase policy's **unconditional
+belt-and-suspenders**. They are complementary, not redundant — Rule 9 stays.
+
+**Remaining productization (separable, not blocking):** wire the CLI to
+`probeApplierCapability` and thread it through `plan`/`diff`/`apply`/`prove`. For
+the multi-step `plan → apply/prove` flow this needs **capability persisted in the
+Plan artifact** (like `policy` is), so a separate `prove`/`apply` invocation
+recovers the same view (`ApplierCapability.memberOf` serialized as an array).
+The engine mechanism + the parity conclusion above stand without it.

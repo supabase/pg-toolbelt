@@ -297,9 +297,10 @@ export const supabasePolicy: Policy = {
 
     // Rule 9 (old rule): exclude ACL facts on FDWs.
     //
-    // GRANT/REVOKE on FOREIGN DATA WRAPPER requires superuser. On Supabase
-    // Cloud `postgres` has the elevated rights, but the local Docker image
-    // does not, so `supabase db reset` aborts with
+    // GRANT/REVOKE on FOREIGN DATA WRAPPER requires superuser (verified:
+    // tests/capability.test.ts "a non-superuser cannot GRANT on a FOREIGN DATA
+    // WRAPPER"). On Supabase Cloud `postgres` has the elevated rights, but the
+    // local Docker image does not, so `supabase db reset` aborts with
     // "permission denied for foreign-data wrapper". The owner rule above
     // already covers wrappers owned by `supabase_admin`, but pg_dump rewrites
     // OWNER TO to whoever ran the dump, so after a restore the FDW often ends
@@ -308,6 +309,19 @@ export const supabasePolicy: Policy = {
     // the ACL diff is not user-replayable. We do NOT apply the same blanket
     // rule to FOREIGN SERVER: server GRANT/REVOKE does not require superuser
     // and user-created servers carry legitimate user ACL that must roundtrip.
+    //
+    // RETAINED, not retired (follow-up 2). The applier-capability mechanism
+    // (move 6, capabilityExcludedRoots) now derives this exclusion precisely:
+    // it drops FDW ACLs whenever the applier is non-superuser. The two are at
+    // parity for the real Supabase flow (local + Cloud `postgres` are both
+    // non-superuser). They DIVERGE for a superuser applier — capability would
+    // (correctly) MANAGE the FDW ACL, while this rule excludes unconditionally.
+    // This rule is kept because it is a SELF-CONTAINED policy guarantee: the
+    // exclusion holds even if a caller forgets to probe + pass capability,
+    // whereas capability depends on every caller supplying it. Capability is
+    // the general mechanism (any non-superuser applier, any policy); this rule
+    // is the Supabase policy's unconditional belt-and-suspenders. See
+    // docs/managed-view-architecture.md (follow-up 2).
     {
       match: {
         all: [{ kind: "acl" }, { target: { kind: "fdw" } }],
