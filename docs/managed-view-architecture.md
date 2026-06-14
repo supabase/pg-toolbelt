@@ -207,19 +207,34 @@ function plan(rawSource, rawDesired, options) {
 This is a build order, not a migration — the old scope/serialize code is
 replaced in place.
 
-1. **`extrelocatable` → derive `SCHEMA`; delete `skipSchema`.** Extractor field
-   + extension-rule conditional. Smallest, self-contained; validates the loop.
-2. **`ownedBy` edge + owner-from-edge; delete `skipAuthorization`.** Extractor
-   emits `ownedBy`; rule table renders owner from the edge (inline for schema,
-   `ALTER … OWNER TO` action elsewhere, compactable into create).
-3. **`resolveView`**: fold `excludeManaged`, `excludeExtensionMembers`, and the
-   non-`verb` policy rules into one projection pass; both sides + proof reextract.
-4. **`applyOperationRules`**: reframe the remaining `verb` rules as the pre-diff
+> **Reordering note (discovered during implementation).** Owner-as-edge's
+> *skipAuthorization elimination* relies on **fact-level role projection pruning
+> the owner edge**, which is the view foundation; and turning an `owner` edge
+> link/unlink into an `ALTER … OWNER TO` action is **brand-new core machinery**
+> (today `link`/`unlink` deltas are emitted by `diff` but ignored by the planner
+> — edges only drive ordering). So the view foundation is built **before**
+> owner-as-edge. The ordering below reflects that.
+
+1. ✅ **`extrelocatable` → derive `SCHEMA`; delete `skipSchema`.** Extractor
+   field + extension-rule conditional. (shipped `6b74b7d`)
+2. ✅ **Projection primitive** — `excludeByProvenance` / `excludeFactsAndDescendants`
+   in `policy/view.ts`; `excludeManaged` + `excludeExtensionMembers` collapse
+   into it. The fact-level foundation. (shipped `d1883e9`)
+3. **`resolveView`**: classify policy filter rules into non-`verb` (fact-level
+   projection — compute root ids from the predicate, both sides + proof
+   reextract) vs `verb` (left for step 4). Folds the Supabase system-schema /
+   system-role / satellite excludes into the view.
+4. **`owner` edge + edge→action**: extractor emits an `owner` edge and drops the
+   payload `owner`; the planner gains an `owner`-edge-delta → `ALTER … OWNER TO`
+   path (reusing the per-kind prefixes); remove the `owner` attribute rules and
+   create-time owner specs; delete `skipAuthorization` (the edge is pruned when
+   the owner role is out of the view).
+5. **`applyOperationRules`**: reframe the remaining `verb` rules as the pre-diff
    desired-revert; shrink `projectTarget` to this; the guard becomes
    conflict-only.
-5. **`ApplierCapability`**: probe at connect; restrict the view; derive the
+6. **`ApplierCapability`**: probe at connect; restrict the view; derive the
    FDW-ACL exclusion and the owner-rendering residue. Delete Supabase Rule 9.
-6. **Cleanup**: `KNOWN_PARAMS = { concurrentIndexes }`; delete Supabase Rules
+7. **Cleanup**: `KNOWN_PARAMS = { concurrentIndexes }`; delete Supabase Rules
    5/7/9/10 (subsumed); update `COVERAGE.md` and the Supabase policy comment block.
 
 End state: the policy DSL describes a view; the engine diffs `view(source)`
