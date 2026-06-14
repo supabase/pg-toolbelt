@@ -16,6 +16,15 @@ publication, subscription, FDW, server, user mapping, foreign table.
 Global satellite facts (one rule each, any target kind): comment, ACL
 (acldefault-normalized), security label.
 
+Ownership is modeled as an `owner` EDGE (object --owner--> role), not a payload
+field: it diffs as an edge link/unlink that the planner renders as `ALTER …
+OWNER TO` (per-kind prefix), and an owner role projected out of the managed view
+prunes the edge so the object is created applier-owned — no `skipAuthorization`
+param. The `CREATE EXTENSION … SCHEMA` clause is likewise derived from the
+extension's `relocatable` fact, not a `skipSchema` param. The only serialize
+param is `concurrentIndexes` (an apply-time strategy). See
+[`../../docs/managed-view-architecture.md`](../../docs/managed-view-architecture.md).
+
 ## Sub-entity facts (granularity is one, §3.1)
 
 Composite-type attributes and publication members are full facts, not

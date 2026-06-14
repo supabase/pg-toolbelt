@@ -220,22 +220,35 @@ replaced in place.
 2. ✅ **Projection primitive** — `excludeByProvenance` / `excludeFactsAndDescendants`
    in `policy/view.ts`; `excludeManaged` + `excludeExtensionMembers` collapse
    into it. The fact-level foundation. (shipped `d1883e9`)
-3. **`resolveView`**: classify policy filter rules into non-`verb` (fact-level
-   projection — compute root ids from the predicate, both sides + proof
-   reextract) vs `verb` (left for step 4). Folds the Supabase system-schema /
-   system-role / satellite excludes into the view.
-4. **`owner` edge + edge→action**: extractor emits an `owner` edge and drops the
-   payload `owner`; the planner gains an `owner`-edge-delta → `ALTER … OWNER TO`
-   path (reusing the per-kind prefixes); remove the `owner` attribute rules and
-   create-time owner specs; delete `skipAuthorization` (the edge is pruned when
-   the owner role is out of the view).
-5. **`applyOperationRules`**: reframe the remaining `verb` rules as the pre-diff
-   desired-revert; shrink `projectTarget` to this; the guard becomes
-   conflict-only.
-6. **`ApplierCapability`**: probe at connect; restrict the view; derive the
-   FDW-ACL exclusion and the owner-rendering residue. Delete Supabase Rule 9.
-7. **Cleanup**: `KNOWN_PARAMS = { concurrentIndexes }`; delete Supabase Rules
-   5/7/9/10 (subsumed); update `COVERAGE.md` and the Supabase policy comment block.
+3. ✅ **`resolveView`**: non-`verb` policy rules → fact-level projection on both
+   sides + the proof reextract; `verb` rules left to the delta-level filter.
+   First-match-wins with over-projection safety (an operation-`include` protects
+   a fact a later scope-`exclude` would remove). (shipped `96fe441`, corpus 418/418)
+4. ✅ **`owner` edge + edge→action**: extractor emits an `owner` edge and drops
+   the payload `owner`; the planner emits `ALTER … OWNER TO` from `owner`-edge
+   link deltas (`KindRules.ownerAlterPrefix`); `diff.emitSubtree` emits edge
+   deltas for created/dropped subtrees; the `{ owner }` predicate resolves via
+   the edge; `skipAuthorization` deleted. (shipped `d840768`, corpus 418/418)
+5. ✅ **`applyOperationRules` — SUBSUMED by 3 + 4.** No separate change is
+   correct. After 3, `projectTarget` already handles only the `verb`-filtered
+   deltas (scope rules produce no filtered deltas — they're projected), and the
+   missing-requirement guard is already **conflict-only** (scope can't strand;
+   only a `verb` rule, e.g. don't-create a kept object's dependency, fires it —
+   pinned by policy.test.ts test 3). A clean "verb-only" delta pass is **not**
+   achievable: `resolveView` conservatively KEEPS facts protected by an
+   operation-`include`, so their non-protected deltas still need the full policy
+   at the delta level. The current `resolveView` + full `filterDeltas` +
+   minimized `projectTarget` IS the end state.
+6. **`ApplierCapability`** (remaining): probe the applier's role / superuser /
+   memberships; restrict the view (capability-blocked ops projected out with a
+   reported diagnostic); derive the FDW-ACL exclusion. Additive — keep the
+   working Supabase Rule 9 until the derivation is proven at parity.
+7. **Cleanup** (remaining): `KNOWN_PARAMS = { concurrentIndexes }` ✅ (move 4);
+   update `COVERAGE.md` + the Supabase policy comment block. NOTE: Rules 5
+   (schema-name), 7 (role-name) and 10 (satellite-on-system-target) are **genuine
+   scope rules that stay** — they are now applied fact-level via `resolveView`,
+   not deleted. Only Old-13 (skipAuthorization) and Old-14 (skipSchema) were
+   removed.
 
 End state: the policy DSL describes a view; the engine diffs `view(source)`
 against `view(desired)`; the proof re-extracts through the same view; serialize

@@ -18,9 +18,10 @@
  * could not be expressed with the initial vocabulary:
  *
  * ### `{ owner: string | string[] }`
- * Matches when `fact.payload["owner"]` is a string matching any of the given
- * globs. Needed for: excluding objects whose owner is a Supabase system role
- * (the old "star/owner" deny-list rule in supabase.ts).
+ * Matches when the fact's `owner` edge (object --owner--> role, move 2) points
+ * to a role whose name matches any of the given globs. Needed for: excluding
+ * objects whose owner is a Supabase system role (the old "star/owner" deny-list
+ * rule in supabase.ts).
  *
  * ### `{ idField: { field: string; glob: string | string[] } }`
  * Generic identity-field matcher: reads `(fact.id as Record<string, unknown>)[field]`,
@@ -108,8 +109,9 @@ export type AnyPredicate = { any: Predicate[] };
 export type NotPredicate = { not: Predicate };
 
 /**
- * Match when `fact.payload["owner"]` is a string matching any of the given
- * globs. Added for the Supabase system-role owner exclusion rule.
+ * Match when the fact's `owner` edge points to a role whose name matches any of
+ * the given globs (move 2: owner is an edge, not a payload field). Added for the
+ * Supabase system-role owner exclusion rule.
  */
 export type OwnerPredicate = { owner: string | string[] };
 
