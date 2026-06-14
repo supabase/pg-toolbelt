@@ -1575,7 +1575,10 @@ async function extractOnClient(
         FROM pg_class rc JOIN pg_namespace rn ON rn.oid = rc.relnamespace
         WHERE rc.oid = cls.objid AND rc.relkind IN ('v','m')))
       WHEN cls.classid = 'pg_proc'::regclass THEN COALESCE(
-        -- extension-member routines are not facts: resolve to the extension
+        -- a reference INTO an extension-member routine resolves to the
+        -- extension, not the member fact (4b Stage 3): the member is observed
+        -- but projected out by default, so a member-targeted edge would be
+        -- pruned with it and lose the dependent's ordering on the extension.
         (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
          FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
          WHERE ed.classid = 'pg_proc'::regclass AND ed.objid = cls.objid
@@ -1604,6 +1607,8 @@ async function extractOnClient(
          JOIN pg_namespace dn ON dn.oid = dt.typnamespace
          WHERE con.oid = cls.objid AND con.contypid <> 0))
       WHEN cls.classid = 'pg_type'::regclass THEN COALESCE(
+        -- reference INTO an extension-member type → the extension, not the
+        -- member fact (4b Stage 3; see the pg_proc branch for the rationale)
         (SELECT json_build_object('kind', 'extension', 'name', ext.extname)
          FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid
          WHERE ed.classid = 'pg_type'::regclass AND ed.objid = cls.objid

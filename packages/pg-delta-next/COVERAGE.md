@@ -69,14 +69,35 @@ that would fail at apply.
   platform pins versions out of band; including it produces phantom diffs).
 - **Collation `collversion`** — excluded (host-glibc/ICU dependent).
 
-## Extraction-time filtering (a stage-8 follow-up, documented)
+## Extension members: observed, projected by default (4b)
 
-Extension-member objects (functions, types, FDWs, …) are filtered at extract
-time via `pg_depend` `deptype='e'` anti-joins (`notExtensionMember`). The
-target architecture's end state is to extract them WITH `memberOfExtension`
-provenance edges and let the policy layer decide visibility (§3.1/§3.9). The
-anti-join is the v1 stand-in; the blast radius (every kind's extractor query)
-is the reason it has not yet flipped to edges.
+Extension-owned objects are **observed** at extraction as ordinary facts
+carrying a `memberOfExtension` edge to their extension — "provenance is data, an
+edge fact, not an extraction-time filter" (§3.1) — and then **projected out of
+the managed universe by default** in `plan()`/`prove()`
+(`excludeExtensionMembers`, the counterpart of `excludeManaged`). So policy-free
+behaviour is unchanged (members never diff), while raw `extract()` can see them
+with full ownership provenance.
+
+Flipped (member-ROOT families, each observed + tagged, verified by the
+`extension-member-parity` pg_depend oracle): schemas, tables, sequences,
+views/materialized views, routines (functions + procedures), aggregates,
+domains, enum/composite/range types, collations.
+
+A reference INTO a member (a user table column of an extension type, a default
+calling an extension function) resolves to the **extension**, not the member
+fact (the resolver's collapse branches): the member is projected out, so a
+member-targeted edge would be pruned with it and the dependent would lose its
+ordering on the extension. The collapsed edge points at the extension (which
+survives), so ordering holds — pinned by `extension-member-ordering`.
+
+**Still filtered (documented, regression-free):** sub-entity families (columns,
+constraints, indexes, triggers, policies, rewrite rules) and rare member-root
+kinds (foreign data wrappers, foreign servers, foreign tables, event triggers,
+publications) keep their `notExtensionMember` anti-joins. Their members ride out
+with the projected parent (sub-entities) or are vanishingly rare (the rest), so
+the default projected behaviour is identical either way; they were left to keep
+the migration bounded and fully parity-gated.
 
 ## Field-issue corpus (old-engine bugs, verified gone or fixed)
 
