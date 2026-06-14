@@ -54,7 +54,9 @@
 import type { Delta } from "../core/diff.ts";
 import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
+import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
+import { excludeByProvenance, excludeFactsAndDescendants } from "./view.ts";
 
 // ---------------------------------------------------------------------------
 // Predicate vocabulary
@@ -297,16 +299,17 @@ export function factMatches(
   predicate: Predicate,
   fact: Fact,
   view: FactBase,
+  opts?: { verbAssumed?: boolean },
 ): boolean {
   // Combinators
   if ("all" in predicate) {
-    return predicate.all.every((p) => factMatches(p, fact, view));
+    return predicate.all.every((p) => factMatches(p, fact, view, opts));
   }
   if ("any" in predicate) {
-    return predicate.any.some((p) => factMatches(p, fact, view));
+    return predicate.any.some((p) => factMatches(p, fact, view, opts));
   }
   if ("not" in predicate) {
-    return !factMatches(predicate.not, fact, view);
+    return !factMatches(predicate.not, fact, view, opts);
   }
 
   // kind
@@ -337,9 +340,10 @@ export function factMatches(
     return patterns.some((p) => globMatch(p, name));
   }
 
-  // verb — not applicable to bare fact matching; treat as no-match
+  // verb — not a property of a bare fact. By default no-match; under
+  // `verbAssumed` (the resolveView protection check) treat as satisfiable.
   if ("verb" in predicate) {
-    return false;
+    return opts?.verbAssumed === true;
   }
 
   // ownedByExtension
@@ -667,6 +671,83 @@ export function validatePolicy(policy: Policy): void {
   // Validate identity-field names in every filter + serialize predicate
   for (const rule of flat.filter) validateIdFields(rule.match, policy.id);
   for (const rule of flat.serialize) validateIdFields(rule.match, policy.id);
+}
+
+// ---------------------------------------------------------------------------
+// Fact-level scope projection (the managed view)
+// ---------------------------------------------------------------------------
+
+/** True if the predicate references `verb` anywhere (an operation rule). */
+function containsVerb(predicate: Predicate): boolean {
+  if ("verb" in predicate) return true;
+  if ("all" in predicate) return predicate.all.some(containsVerb);
+  if ("any" in predicate) return predicate.any.some(containsVerb);
+  if ("not" in predicate) return containsVerb(predicate.not);
+  return false;
+}
+
+/**
+ * Decide whether a fact is excluded from the view by the policy's SCOPE rules,
+ * respecting first-match-wins and over-projection safety
+ * (docs/managed-view-architecture.md move 3).
+ *
+ * Only pure-scope (no `verb`) rules can remove a fact wholesale. An operation
+ * (`verb`) `include` earlier in the list protects a fact whose non-verb part it
+ * matches — its deltas may be included, so we must keep the fact and let the
+ * delta-level filter handle the rest. A `verb` `exclude` never removes a fact
+ * wholesale (it bites a single verb), so it is skipped here. Erring toward
+ * KEEP (under-projection) is safe: the existing delta-level filter still runs;
+ * erring toward remove would silently drop managed objects.
+ */
+function factScopeExcluded(
+  fact: Fact,
+  rules: readonly FilterRule[],
+  view: FactBase,
+): boolean {
+  for (const rule of rules) {
+    if (containsVerb(rule.match)) {
+      // operation rule: only an include that could match (with the verb free)
+      // protects this fact; otherwise it cannot remove the fact wholesale.
+      if (
+        rule.action === "include" &&
+        (factMatches(rule.match, fact, view, { verbAssumed: true }) ||
+          factMatches(rule.match, fact, view))
+      ) {
+        return false;
+      }
+      continue;
+    }
+    if (factMatches(rule.match, fact, view)) {
+      return rule.action === "exclude";
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve the managed VIEW that the engine diffs: extension members are always
+ * projected out (provenance), then the policy's scope (non-`verb`) rules remove
+ * the facts they exclude — at the FACT level, on both sides and the proof
+ * re-extract, so `plan == prove == run` holds by construction. `verb` rules are
+ * left to the delta-level filter (filterDeltas). With no policy this is exactly
+ * `excludeExtensionMembers`, so the corpus path is unchanged.
+ */
+export function resolveView(
+  fb: FactBase,
+  policy: Policy | undefined,
+): FactBase {
+  const base = excludeByProvenance(fb, "memberOfExtension");
+  if (!policy) return base;
+  const rules = flattenPolicy(policy).filter;
+  if (rules.length === 0) return base;
+
+  const roots = new Set<string>();
+  for (const fact of base.facts()) {
+    if (factScopeExcluded(fact, rules, base)) {
+      roots.add(encodeId(fact.id));
+    }
+  }
+  return excludeFactsAndDescendants(base, roots);
 }
 
 // ---------------------------------------------------------------------------

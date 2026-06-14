@@ -126,8 +126,13 @@ describe("projectTarget — revert filtered deltas to source", () => {
   });
 });
 
-describe("plan target fingerprint reflects projection (review #2)", () => {
-  test("a policy-suppressed drop keeps the fact in the target fingerprint", () => {
+describe("plan target reflects the managed view (review #2)", () => {
+  test("a scope-excluded object is outside the view — never dropped, no action", () => {
+    // source has `legacy`; desired drops it; the policy scopes `legacy` OUT of
+    // the managed universe. In the managed-view model (move 3) `legacy` is
+    // projected from BOTH sides at the fact level, so it is not a "suppressed
+    // drop" delta — it simply isn't part of the diff. The user-facing guarantee
+    // (legacy is never dropped) holds, and the proof applies the same view.
     const source = buildFactBase(
       [
         makeFact(schemaPublic),
@@ -141,7 +146,7 @@ describe("plan target fingerprint reflects projection (review #2)", () => {
       [],
     );
     const policy: Policy = {
-      id: "suppress-legacy-drop",
+      id: "scope-out-legacy",
       filter: [
         {
           match: { all: [{ kind: "table" }, { name: "legacy" }] },
@@ -150,11 +155,9 @@ describe("plan target fingerprint reflects projection (review #2)", () => {
       ],
     };
     const p = plan(source, desired, { policy });
-    expect(p.filteredDeltas.length).toBe(1);
-    expect(p.actions.length).toBe(0); // the only change was suppressed
-    // the plan keeps `legacy`, so the target it actually reaches == source,
-    // NOT the full desired (which dropped legacy).
-    expect(p.target.fingerprint).toBe(source.rootHash);
-    expect(p.target.fingerprint).not.toBe(desired.rootHash);
+    expect(p.actions.length).toBe(0); // legacy is outside the view → nothing to do
+    // the plan is a no-op in the view: its target equals its (projected) source,
+    // so applying it drops nothing — legacy survives.
+    expect(p.target.fingerprint).toBe(p.source.fingerprint);
   });
 });

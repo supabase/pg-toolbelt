@@ -17,7 +17,7 @@ import type { StableId } from "../core/stable-id.ts";
 import { extract } from "../extract/extract.ts";
 import type { Action, Plan } from "../plan/plan.ts";
 import { projectTarget } from "../plan/project.ts";
-import { excludeExtensionMembers } from "../policy/extension-members.ts";
+import { resolveView, type Policy } from "../policy/policy.ts";
 
 export interface ProofVerdict {
   ok: boolean;
@@ -75,6 +75,11 @@ export interface ProveOptions {
    *  SAME view of state it diffed — otherwise operationally-managed objects
    *  (pg_partman children, …) reappear as drift (docs/extension-intent.md §6). */
   reextract?: (pool: Pool) => Promise<{ factBase: FactBase }>;
+  /** the policy the plan was produced with. The proof must compare the SAME
+   *  managed view it diffed, so `resolveView(.., policy)` is applied to both the
+   *  re-extracted clone and the target — otherwise policy-scoped objects
+   *  (system schemas/roles) reappear as drift (docs/managed-view-architecture.md). */
+  policy?: Policy;
 }
 
 interface TableStat {
@@ -372,15 +377,18 @@ export async function provePlan(
     };
   }
   const proven = await (options.reextract ?? extract)(clonePool);
-  // default projection (4b): extension members are out of the managed universe.
-  // The post-flip re-extract observes them, so subtract them from BOTH the
-  // proven state and the target — otherwise an extension's internals read as
-  // drift. Mirrors plan()'s projection (src/policy/extension-members.ts).
-  const provenFb = excludeExtensionMembers(proven.factBase);
+  // Compare the SAME managed view the plan diffed: resolveView projects out
+  // extension members + the policy's scope rules at the fact level, on BOTH the
+  // proven clone and the target — otherwise an extension's internals or a
+  // policy-scoped object (system schema/role) read as drift
+  // (docs/managed-view-architecture.md). With no policy this is exactly the
+  // extension-member projection, so the corpus proof is unchanged.
+  const provenFb = resolveView(proven.factBase, options.policy);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
-  const target = excludeExtensionMembers(
+  const target = resolveView(
     projectTarget(desired, thePlan.filteredDeltas),
+    options.policy,
   );
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);

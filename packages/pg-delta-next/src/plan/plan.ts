@@ -5,11 +5,11 @@
 import { diff, type Delta } from "../core/diff.ts";
 import type { Fact, FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { excludeExtensionMembers } from "../policy/extension-members.ts";
 import {
   factMatches,
   filterDeltas,
   flattenPolicy,
+  resolveView,
   validatePolicy,
   type Policy,
 } from "../policy/policy.ts";
@@ -138,14 +138,14 @@ export function plan(
   desired: FactBase,
   options?: PlanOptions,
 ): Plan {
-  // default projection (4b): extension-owned objects (carrying a
-  // `memberOfExtension` edge) are out of the managed universe — subtract them
-  // from BOTH sides so they never diff, the same fact-level treatment as
-  // `excludeManaged` (src/policy/extension-members.ts). No-op until extractors
-  // emit the edges (Stage 2); the fingerprints below reflect the projection.
-  source = excludeExtensionMembers(source);
-  desired = excludeExtensionMembers(desired);
   if (options?.policy) validatePolicy(options.policy);
+  // the managed VIEW the engine diffs (docs/managed-view-architecture.md): the
+  // policy's scope (non-`verb`) rules + extension-member provenance are
+  // projected out at the FACT level on BOTH sides, so the proof stays honest by
+  // construction. `verb` rules remain for the delta-level filter below. With no
+  // policy this is exactly `excludeExtensionMembers`, so the corpus is unchanged.
+  source = resolveView(source, options?.policy);
+  desired = resolveView(desired, options?.policy);
   const params: PlanParams = options?.params ?? {};
   for (const name of Object.keys(params)) {
     if (!KNOWN_PARAMS.has(name)) {

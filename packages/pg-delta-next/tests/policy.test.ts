@@ -10,7 +10,7 @@ import { apply } from "../src/apply/apply.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
-import type { Policy } from "../src/policy/policy.ts";
+import { resolveView, type Policy } from "../src/policy/policy.ts";
 import { sharedCluster } from "./containers.ts";
 
 // ---------------------------------------------------------------------------
@@ -52,8 +52,17 @@ describe("policy: managed-schema invisibility", () => {
         }
       }
 
-      // filteredDeltas must be non-empty (the auth objects are filtered, not silently dropped)
-      expect(policyPlan.filteredDeltas.length).toBeGreaterThan(0);
+      // auth objects are excluded by SCOPE → projected out of the managed view
+      // at the FACT level (move 3), not silently: the resolved view explicitly
+      // lacks them, while the raw (no-policy) plan below still contains them.
+      const view = resolveView(desiredState.factBase, supabasePolicy);
+      const viewHasAuth = view.facts().some((fct) => {
+        const id = fct.id as { schema?: string; kind: string; name?: string };
+        return (
+          id.schema === "auth" || (id.kind === "schema" && id.name === "auth")
+        );
+      });
+      expect(viewHasAuth).toBe(false);
 
       // public.user_stuff table IS in the plan
       const hasUserStuff = policyPlan.actions.some((a) =>
