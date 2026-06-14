@@ -52,6 +52,23 @@ describe("plan artifact v1", () => {
     expect(typeof delta.fact.payload["big"]).toBe("bigint");
   });
 
+  test("round-trips an inlined applier capability (follow-up 2)", () => {
+    const withCapability: Plan = {
+      ...samplePlan,
+      capability: {
+        role: "app_owner",
+        isSuperuser: false,
+        memberOf: ["app_owner", "readers"],
+      },
+    };
+    const parsed = parsePlan(serializePlan(withCapability));
+    expect(parsed.capability).toEqual({
+      role: "app_owner",
+      isSuperuser: false,
+      memberOf: ["app_owner", "readers"],
+    });
+  });
+
   test("rejects unknown formatVersion", () => {
     const mangled = serializePlan(samplePlan).replace(
       '"formatVersion": 1',

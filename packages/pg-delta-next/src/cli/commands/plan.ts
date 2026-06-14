@@ -19,6 +19,7 @@ import { extract } from "../../extract/extract.ts";
 import { plan } from "../../plan/plan.ts";
 import { serializePlan } from "../../plan/artifact.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
+import { probeApplierCapability } from "../../policy/capability.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import type { RenameMode } from "../../plan/renames.ts";
@@ -27,7 +28,7 @@ import { writeFileSync } from "node:fs";
 const USAGE =
   "Usage: pg-delta-next plan --source <pg-url> --desired <pg-url> " +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
-  "[--accept-rename <from>=<to>] ...\n";
+  "[--accept-rename <from>=<to>] ... [--restrict-to-applier]\n";
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -39,6 +40,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       "no-compact": { type: "boolean" },
       out: { type: "value" },
       "accept-rename": { type: "multi" },
+      "restrict-to-applier": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -100,10 +102,19 @@ export async function cmdPlan(args: string[]): Promise<void> {
       extract(dst.pool),
     ]);
 
-    const planOptions =
-      acceptRenames.length > 0
-        ? { renames, compact, acceptRenames }
-        : { renames, compact };
+    // --restrict-to-applier: probe the SOURCE connection's capability (the
+    // source is the apply target) and restrict the plan to what that role can
+    // execute — FDW ACLs for a non-superuser drop out; an unsettable owner
+    // fail-fasts. Default off preserves behaviour for source≠applier flows.
+    const capability = flags["restrict-to-applier"]
+      ? await probeApplierCapability(src.pool)
+      : undefined;
+    const planOptions = {
+      renames,
+      compact,
+      ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
+      ...(capability ? { capability } : {}),
+    };
     const thePlan = plan(
       sourceResult.factBase,
       desiredResult.factBase,

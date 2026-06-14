@@ -27,12 +27,12 @@ const tblAcl: StableId = { kind: "acl", target: tbl, grantee: "u" };
 const superuser: ApplierCapability = {
   role: "postgres",
   isSuperuser: true,
-  memberOf: new Set(),
+  memberOf: [],
 };
 const nonSuper: ApplierCapability = {
   role: "app",
   isSuperuser: false,
-  memberOf: new Set(),
+  memberOf: [],
 };
 
 describe("ApplierCapability — capability-restricted view (move 6)", () => {
@@ -71,7 +71,7 @@ describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
   const memberOfR1: ApplierCapability = {
     role: "app",
     isSuperuser: false,
-    memberOf: new Set(["r1"]),
+    memberOf: ["r1"],
   };
   const ownerEdge = (to: StableId) =>
     ({ from: schemaApp, to, kind: "owner" }) as const;

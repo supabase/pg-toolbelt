@@ -89,6 +89,10 @@ export interface Plan {
   filteredDeltas: Delta[];
   /** the policy that shaped this plan, inlined for reproducibility */
   policy?: Policy;
+  /** the applier capability the plan was produced with (move 6 / follow-up 2),
+   *  inlined so a later prove/apply recovers the SAME view. `memberOf` is an
+   *  array → the artifact round-trips losslessly. */
+  capability?: ApplierCapability;
   /** every rename candidate found, applied or not — "prompt" mode renders
    *  these as questions; near-misses explain why they degraded (§4.1) */
   renameCandidates: RenameCandidate[];
@@ -701,6 +705,7 @@ export function plan(
     deltas,
     filteredDeltas,
     ...(options?.policy ? { policy: options.policy } : {}),
+    ...(options?.capability ? { capability: options.capability } : {}),
     renameCandidates,
     actions: finalActions,
     safetyReport,

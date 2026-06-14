@@ -16,7 +16,10 @@ describe("probeApplierCapability (integration)", () => {
     // the container admin is a superuser
     expect(cap.role.length).toBeGreaterThan(0);
     expect(cap.isSuperuser).toBe(true);
-    expect(cap.memberOf instanceof Set).toBe(true);
+    // memberOf is a real parsed string[] (a role is a member of itself) — guards
+    // against the pg driver returning the array as an unparsed "{...}" literal.
+    expect(Array.isArray(cap.memberOf)).toBe(true);
+    expect(cap.memberOf).toContain(cap.role);
   }, 60_000);
 
   // The capability FDW-ACL gate is keyed on isSuperuser. This pins the rule it

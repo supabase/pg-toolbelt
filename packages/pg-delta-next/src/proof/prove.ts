@@ -388,17 +388,18 @@ export async function provePlan(
   // policy-scoped object (system schema/role) read as drift
   // (docs/managed-view-architecture.md). With no policy this is exactly the
   // extension-member projection, so the corpus proof is unchanged.
-  const provenFb = resolveView(
-    proven.factBase,
-    options.policy,
-    options.capability,
-  );
+  // policy + capability default to the values the plan was produced with (both
+  // are inlined on the plan artifact), so a separate `prove` invocation recovers
+  // the exact same view without the caller re-supplying them.
+  const policy = options.policy ?? thePlan.policy;
+  const capability = options.capability ?? thePlan.capability;
+  const provenFb = resolveView(proven.factBase, policy, capability);
   // target the PROJECTED desired: the plan only applies kept deltas, so it
   // converges to `desired` minus the policy-filtered changes (review #2).
   const target = resolveView(
     projectTarget(desired, thePlan.filteredDeltas),
-    options.policy,
-    options.capability,
+    policy,
+    capability,
   );
   const driftDeltas = diff(provenFb, target);
   const after = await tableStats(clonePool);

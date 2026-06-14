@@ -22,8 +22,10 @@ export interface ApplierCapability {
   role: string;
   /** superuser bypasses most permission checks (incl. FDW GRANT/REVOKE) */
   isSuperuser: boolean;
-  /** roles the applier is a member of (can SET ROLE / own objects as) */
-  memberOf: ReadonlySet<string>;
+  /** roles the applier is a member of (can SET ROLE / own objects as). A plain
+   *  array (not a Set) so the capability persists losslessly in the Plan
+   *  artifact's JSON (follow-up 2 productization). */
+  memberOf: readonly string[];
 }
 
 /** Probe the applier's capability from a live connection. */
@@ -34,7 +36,7 @@ export async function probeApplierCapability(
     SELECT current_user AS role,
            (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) AS is_superuser,
            ARRAY(
-             SELECT r.rolname FROM pg_catalog.pg_roles r
+             SELECT r.rolname::text FROM pg_catalog.pg_roles r
              WHERE pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER')
                AND r.rolname NOT LIKE 'pg\\_%'
            ) AS member_of
@@ -47,7 +49,7 @@ export async function probeApplierCapability(
   return {
     role: String(row.role),
     isSuperuser: Boolean(row.is_superuser),
-    memberOf: new Set(row.member_of ?? []),
+    memberOf: row.member_of ?? [],
   };
 }
 
@@ -84,5 +86,5 @@ export function capabilityExcludedRoots(
  * projection — surfaced before any statement is applied.
  */
 export function canSetOwner(cap: ApplierCapability, roleName: string): boolean {
-  return cap.isSuperuser || cap.memberOf.has(roleName);
+  return cap.isSuperuser || cap.memberOf.includes(roleName);
 }

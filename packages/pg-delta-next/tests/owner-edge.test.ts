@@ -221,7 +221,7 @@ describe("owner edge: owner residue — applier can't set owner → fail fast", 
     const capability: ApplierCapability = {
       role: "applier",
       isSuperuser: false,
-      memberOf: new Set(),
+      memberOf: [],
     };
 
     expect(() =>
