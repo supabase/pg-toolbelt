@@ -6,6 +6,10 @@
   pg-delta-next, tiered by *what kind of work it is* (engineering feature /
   product decision / productization / deliberate deferral). Built from a full
   review of all 16 `docs/` files cross-checked against the code.
+- **Detailed breakdown**: each tier and missing step is expanded into its own
+  implementation-detail document under [`remaining-work/`](remaining-work/) —
+  see [`remaining-work/README.md`](remaining-work/README.md) for the index. This
+  file stays the one-page overview; that folder is the how-to-build-it detail.
 
 ## Baseline — what is already done
 
