@@ -109,8 +109,13 @@ quota at scale, and naming are deliberately not unilateral engineering calls.
 
 Known v1 simplifications:
 
-- extension-member objects are filtered at extraction (full provenance
-  edges remain stage-8 follow-up work)
+- extension members of the common object kinds (tables, sequences, views,
+  routines, types, domains, collations, schemas) are observed at extraction
+  with `memberOfExtension` provenance edges and projected out by default
+  (4b); sub-entity families (columns, constraints, indexes, triggers,
+  policies, rules) and rare member-root kinds (fdw, server, foreign table,
+  event trigger, publication) are still filtered at extraction — a
+  documented, regression-free limitation (see COVERAGE.md)
 - capture is serial on one snapshot connection (parallel
   `pg_export_snapshot()` workers are a measured optimization)
 - a surviving dependent of a destroyed fact is force-rebuilt when its kind
