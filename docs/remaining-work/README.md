@@ -3,82 +3,73 @@
 - **Date**: 2026-06-14
 - **Branch**: `feat/pg-delta-next`
 - **Parent**: [`../pg-delta-next-remaining-work.md`](../pg-delta-next-remaining-work.md)
-  is the one-page tiered overview. This folder expands **each tier and each
-  missing step into its own document with implementation details** —
-  engine substrate that already exists → the surface still to build → concrete
-  steps → tests → cross-links.
+  is the one-page roadmap (the **correctness-first v1** plan). This folder is the
+  per-item implementation detail.
 
-## Baseline (what is already done)
+## Baseline (done + proven)
 
-The engine is **code-complete (stages 0–9)**, the **hardening plan is fully
-shipped** (all 8 items — [`../pg-delta-next-hardening-plan.md`](../pg-delta-next-hardening-plan.md)),
-**4b (the extension-member provenance flip)** is done, and the
-**security-label end-to-end proof** is done (`9da030d`). Everything in this
-folder is *beyond* that baseline. See
-[`../../packages/pg-delta-next/README.md`](../../packages/pg-delta-next/README.md)
-and [`../../packages/pg-delta-next/COVERAGE.md`](../../packages/pg-delta-next/COVERAGE.md).
+Engine code-complete (stages 0–9), hardening plan + 4b + security-label e2e, and
+the **managed-view architecture** ([`../managed-view-architecture.md`](../managed-view-architecture.md):
+`skipSchema`/`skipAuthorization` eliminated, ownership-as-edge, fact-level view,
+applier capability). The validation harness runs in CI on **PG 15/17/18**:
+corpus 211×2 under the proof loop (`EXPECTED_RED` empty), a new-vs-old
+**differential** with a hard regression gate, a **generative soak** with an
+enforced kind-coverage checklist, reviewed public API. **The engine + its
+correctness machinery are v1-ready** — see the parent doc for the cut plan.
 
 ## Status legend
 
 | Symbol | Meaning |
 |---|---|
-| 🔴 | Net-new engineering; blocked on a decision |
 | 🟠 | Net-new engineering; ready to start |
+| 🟢 | Validation / product / process (not new engine code) |
+| 🔴 | Net-new engineering; blocked on a decision |
 | 🟡 | Substrate exists; build the consumer/surface |
-| 🟢 | Product / process decision, not engineering |
 | ⚪ | Deliberate deferral (documented, regression-free) |
 
-## The documents
+## v1 — correctness blockers
 
-### Tier 1 — Unimplemented engineering feature
+- 🟠 **[Unmodeled-kind detection](v1-unmodeled-kind-detection.md)** — the one
+  real correctness gap: the engine silently omits user objects in kinds it
+  doesn't model. Fix = a provenance-aware catalog completeness check (diagnostic;
+  opt-in strict mode). v1 detects them; *modeling* them is post-v1.
+- 🟢 **Validation at scale** — run the gates to green for the record: full
+  differential (`=all`) triaged clean; generative soak at the agreed quota; one
+  large real-world schema through plan+prove; **commit the Supabase baseline**
+  ([service-migration-baselines](tier-3-service-migration-baselines.md)).
+- 🟢 **v1 scope statement** — publish what v1 manages / deliberately doesn't
+  (from `COVERAGE.md` + the completeness diagnostic).
 
-- 🔴 [Extension-intent Phase B](tier-1-extension-intent-phase-b.md) — replay
-  `pgmq.create` / `cron.schedule` / `partman.create_parent` on a from-scratch
-  rebuild. The single biggest open item; the *code plan* is ready, the
-  **declarative-format decision (CLI-1431)** is the real gate.
+## Post-v1 milestone A — performance
 
-### Tier 2 — Product / cutover decision
+- 🟡 [extractDepends perf](tier-3-extract-depends-perf.md) — parallel snapshot
+  extraction (the big win), `pg_depend` latency tuning, publish benchmark ≥ old.
 
-- 🟢 [Stage 10 cutover](tier-2-stage-10-cutover.md) — take the
-  `@supabase/pg-delta` name, deprecate the old engine, write the migration
-  guide. Gated on the six-condition parity bar (operationalized here).
-
-### Tier 3 — CLI / productization layer (engine ready, consumer not built)
+## Post-v1 milestone B — DX & cutover
 
 - 🟡 [Risk classification 2.0](tier-3-risk-classification.md) — CLI-1459–1464
 - 🟡 [Migration squash / repair](tier-3-migration-squash-repair.md) — CLI-1597, 1598, 1424
 - 🟡 [Object-filtering flags](tier-3-object-filtering-flags.md) — CLI-1006, 1169, 1432
-- 🟡 [Service-migration baselines](tier-3-service-migration-baselines.md) — CLI-1436
-- 🟡 [Stripe Sync Engine reset](tier-3-stripe-sync-engine-reset.md) — CLI-1582
 - 🟡 [Typed auth errors](tier-3-typed-auth-errors.md) — CLI-1607
-- 🟡 [extractDepends performance](tier-3-extract-depends-perf.md) — CLI-1603
+- 🟡 [Stripe Sync Engine reset](tier-3-stripe-sync-engine-reset.md) — CLI-1582
+- 🟡 **Applier-capability CLI wiring** — persistence shipped (`plan --restrict-to-applier`);
+  extend through the rest of the flow (`managed-view-architecture.md` follow-up 2).
+- 🔴 [Extension-intent Phase B](tier-1-extension-intent-phase-b.md) — replay on
+  rebuild; blocked on the CLI-1431 declarative-format decision (Phase A ships).
+- 🟢 [Stage 10 cutover](tier-2-stage-10-cutover.md) — naming, deprecation,
+  migration guide, after v1 + perf land.
 
-### Tier 4 — Deliberate deferrals
+## Deliberate deferrals (not blocking any milestone)
 
-- ⚪ [Deferrals](tier-4-deferrals.md) — 4b's deferred extractor families,
-  not-modeled object kinds, parallel snapshot extraction, the security-label CI
-  prebuild, and PGlite in the trusted path.
+- ⚪ [Deferrals](tier-4-deferrals.md) — 4b's deferred extractor families;
+  **modeling** specific not-modeled kinds (now *detected + reported*); the
+  security-label CI prebuild; PGlite in the trusted path.
 
-## Recommended order (if the goal is shipping pg-delta-next as the product)
+## Conventions
 
-1. **Decide the intent declarative format (CLI-1431)**, then build
-   **[Extension-intent Phase B](tier-1-extension-intent-phase-b.md)** — the only
-   remaining *engineering feature*.
-2. **Build the [Tier 3 layer](#tier-3--cli--productization-layer-engine-ready-consumer-not-built)** —
-   thin, independently shippable consumers over the ready engine. Risk
-   classification 2.0 and squash/repair are the meatiest; the filter flags,
-   baselines, auth errors, and perf tuning are small.
-3. **[Stage 10 cutover](tier-2-stage-10-cutover.md)** — a product decision once
-   the parity bar is demonstrably met.
-
-Tier 4 items are pick-up-anytime polish with no urgency.
-
-## Conventions used in these docs
-
-- **Code citations are workspace-relative** (`packages/pg-delta-next/src/...`)
-  and were verified on `feat/pg-delta-next` at the date above.
-- Every doc follows the repo's **Test-Driven Fixes** discipline: the
-  "Tests" section names the RED test to author *before* the production change.
-- Linear issue IDs map to the project *pg-delta: database diffing 2.0*; see
-  [`../pg-delta-next-linear-assessment.md`](../pg-delta-next-linear-assessment.md)
-  for the full per-issue verdicts.
+- Code citations are workspace-relative (`packages/pg-delta-next/src/...`),
+  verified on `feat/pg-delta-next` at the date above.
+- Every doc follows **Test-Driven Fixes**: the "Tests" section names the RED test
+  to author before the production change.
+- Linear IDs map to the project *pg-delta: database diffing 2.0*; see
+  [`../pg-delta-next-linear-assessment.md`](../pg-delta-next-linear-assessment.md).
