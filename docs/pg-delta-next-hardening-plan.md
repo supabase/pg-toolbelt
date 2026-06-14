@@ -1,8 +1,9 @@
 # pg-delta-next hardening plan: make the boundary semantics explicit
 
-- **Status**: **6 of 8 items shipped (correctness-complete). Two large items
-  remain — Item 4b (provenance flip) and Item 7 (planner split) — both deferred
-  to their own dedicated effort.** See the *Shipped* table below.
+- **Status**: **7 of 8 items shipped. Item 4b (the provenance flip) is DONE —
+  extension members are observed with provenance edges and projected by default;
+  full corpus green on PG15+17 and the differential clean. Only Item 7 (planner
+  module split) remains.** See the *Shipped* table below.
 - **Date**: 2026-06-13
 - **Branch / baseline**: `feat/pg-delta-next`. Items 1–6 + 8 landed in
   `c040e08..c918310`; the live head is `c918310`.
@@ -27,6 +28,8 @@ where relevant), `private:true` so no changeset.
 | 5 — Enum boundary | `603cc48` | `commitBoundaryAfter` unconditionally closes its segment in `segmentActions`; new corpus scenario the **old engine fails, new converges**. |
 | 6 — Loader robustness | `c918310` | explicit per-file `BEGIN/COMMIT` + `ROLLBACK`, raw re-run fallback for non-transactional statements (`CREATE INDEX CONCURRENTLY`). |
 | 8 — Docs | folded in | README proof claim softened to coverage tiers + `contentMode`. |
+| schemaSig fix | `16ffeb4` | composite-type structure + `atttypmod` folded into the proof's `schemaSig` (repaired two Item-2 false-positive corpus scenarios). |
+| 4b — provenance flip | `99dee48`, `5a4fbf3`, `5b7f118` | members observed with `memberOfExtension` edges + projected by default; member-root families flipped (parity oracle GREEN); resolver collapse kept for ordering. **Gate: corpus 418/418 on PG15 AND PG17, differential 44/0 (zero regressions).** |
 
 **What this means for correctness:** the bug 4b's review finding (#1) cited —
 CLI-1471 orphan satellites — is **already fixed by 4a**. The remaining 4b work
@@ -427,13 +430,13 @@ Item 8 (docs)           ── continuous, folded into each item
 2. ✅ **Item 3** — small; unblocks expressing provenance as policy.
 3. ✅ **Item 4a** — quick correctness win (CLI-1471), independent.
 4. ✅ **Item 5 + Item 6** — independent robustness (landed).
-5. ⏳ **Item 4b** — the large provenance flip, its own dedicated migration
-   (Stages 0–4 above), gated by the differential oracle after each family.
+5. ✅ **Item 4b** — the provenance flip, done as its own staged migration
+   (Stages 0–4), gated by the parity oracle per family + full corpus +
+   differential at the end.
 6. ⏳ **Item 7** — planner split, last, **after 4b**.
 
-**Where to pick up:** start with **Item 4b Stage 0** (the no-op default
-projection) — it de-risks the whole migration by proving the projection path
-preserves current behavior before any extractor changes.
+**Where to pick up:** **Item 7** (planner module split) is the only remaining
+item — a pure refactor gated by state-equivalent corpus + differential.
 
 ## Relationship to the extension-intent work
 
@@ -476,11 +479,16 @@ Shipped (Items 1–6 + 8):
 - ✅ SQL-file attempts are transactional; non-transactional statements load via
   the raw fallback, never silently stuck.
 
-Remaining (the dedicated efforts):
+Done (4b — the provenance flip):
 
-- ⏳ **Item 4b:** extension members are observed facts with `memberOfExtension`
-  edges, projected out by default; **policy-free corpus + differential stay
-  green** (the acceptance criterion); the parity harness asserts removed-set ==
-  newly-present-set per family.
+- ✅ Extension members are observed facts with `memberOfExtension` edges,
+  projected out by default; the parity oracle asserts soundness (every observed
+  member tagged) + completeness (every catalog member of a flipped kind
+  observed); corpus 418/418 on PG15+17 and differential clean (acceptance
+  criterion met). Sub-entity families + rare member-root kinds remain filtered
+  as a documented, regression-free limitation (COVERAGE.md).
+
+Remaining:
+
 - ⏳ **Item 7:** planner split with **state-equivalent plans** (zero behavior
   change), done after 4b.
