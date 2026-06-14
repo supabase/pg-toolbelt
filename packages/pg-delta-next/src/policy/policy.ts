@@ -357,9 +357,17 @@ export function factMatches(
     return fact.parent.kind === predicate.parentKind;
   }
 
-  // owner — matches when fact.payload["owner"] matches any glob
+  // owner — resolves via the `owner` edge (object --owner--> role) emitted by
+  // the extractor (move 2). Falls back to payload["owner"] for callers that
+  // still pass synthetic fact bases without edges (backward compat / tests).
   if ("owner" in predicate) {
-    const ownerVal = fact.payload["owner"];
+    const ownerEdge = view
+      .outgoingEdges(fact.id)
+      .find((e) => e.kind === "owner");
+    const ownerVal =
+      ownerEdge?.to.kind === "role"
+        ? (ownerEdge.to as { kind: "role"; name: string }).name
+        : (fact.payload["owner"] as string | undefined);
     if (typeof ownerVal !== "string") return false;
     const patterns = Array.isArray(predicate.owner)
       ? predicate.owner

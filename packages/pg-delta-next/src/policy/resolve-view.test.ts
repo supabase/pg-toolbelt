@@ -104,4 +104,23 @@ describe("resolveView — fact-level scope projection", () => {
     expect(viaResolve.facts().length).toBe(viaExclude.facts().length);
     expect(viaResolve.get(schema("public"))).toBeDefined();
   });
+
+  test("the { owner } predicate resolves via the owner edge (move 2)", () => {
+    // owner left the payload; an { owner } scope rule must match through the
+    // `owner` edge (object --owner--> role). This is the Supabase Rule 6 path.
+    const sys = role("sys");
+    const owned = table("public", "owned");
+    const free = table("public", "free");
+    const policy: Policy = {
+      id: "p",
+      filter: [{ match: { owner: "sys" }, action: "exclude" }],
+    };
+    const fb = buildFactBase(
+      [f(schema("public")), f(sys), f(owned), f(free)],
+      [{ from: owned, to: sys, kind: "owner" }],
+    );
+    const view = resolveView(fb, policy);
+    expect(view.get(owned)).toBeUndefined(); // matched by { owner } via the edge
+    expect(view.get(free)).toBeDefined(); // no owner edge → not matched
+  });
 });

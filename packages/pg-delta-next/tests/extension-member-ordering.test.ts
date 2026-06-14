@@ -48,9 +48,7 @@ describe("extension-member ordering (4b Stage 3): resolver collapse preserves or
 
     const desiredState = await extract(desired.pool);
     const sourceState = await extract(source.pool);
-    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
-      params: { skipAuthorization: true },
-    });
+    const thePlan = plan(sourceState.factBase, desiredState.factBase);
 
     // the table's CREATE must come after the extension's CREATE (identified by
     // the StableId each action produces — not by SQL text)

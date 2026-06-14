@@ -182,6 +182,19 @@ async function extractOnClient(
     }
   };
 
+  /** Emit an `owner` edge from `id` to its owning role when the owner value is
+   *  a non-empty string. buildFactBase prunes dangling edges silently (e.g. a
+   *  system-role owner not extracted) so out-of-view owners just get no edge. */
+  const pushOwnerEdge = (id: StableId, owner: unknown): void => {
+    if (typeof owner === "string" && owner.length > 0) {
+      edges.push({
+        from: id,
+        to: { kind: "role", name: owner },
+        kind: "owner",
+      });
+    }
+  };
+
   /** ACL subquery: aggregated per grantee, sorted, PUBLIC for grantee 0.
    *  A NULL acl column means "the built-in default" — coalescing through
    *  acldefault() (pg_dump's model) makes NULL and an explicitly
@@ -310,12 +323,13 @@ async function extractOnClient(
     pushWithMeta(
       {
         id,
-        payload: { owner: String(row["owner"]) },
+        payload: {},
       },
       row,
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── extensions (version deliberately excluded from the payload) ─────
@@ -380,7 +394,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           persistence: String(row["persistence"]),
           rowSecurity: Boolean(row["row_security"]),
           forceRowSecurity: Boolean(row["force_row_security"]),
@@ -407,6 +420,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
@@ -607,7 +621,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           dataType: String(row["data_type"]),
           start: String(row["start"]),
           increment: String(row["increment"]),
@@ -629,6 +642,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── views + materialized views ───────────────────────────────────────
@@ -653,12 +667,13 @@ async function extractOnClient(
       {
         id,
         parent: schemaId(row["schema"]),
-        payload: { owner: String(row["owner"]), def: String(row["def"]) },
+        payload: { def: String(row["def"]) },
       },
       row,
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── routines (functions + procedures; pg_get_functiondef canonical) ──
@@ -693,7 +708,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           def: String(row["def"]),
           routineKind: String(row["prokind"]),
         },
@@ -702,6 +716,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── triggers ─────────────────────────────────────────────────────────
@@ -819,7 +834,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           baseType: String(row["base_type"]),
           notNull: Boolean(row["not_null"]),
           default:
@@ -834,6 +848,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS domain, con.conname AS name,
@@ -893,7 +908,6 @@ async function extractOnClient(
         parent: schemaId(row["schema"]),
         payload: {
           variant: "enum",
-          owner: String(row["owner"]),
           values: (row["values"] as string[]).map(String),
         },
       },
@@ -901,6 +915,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
   for (const row of await q(`
     SELECT n.nspname AS schema, t.typname AS name, r.rolname AS owner,
@@ -933,12 +948,13 @@ async function extractOnClient(
       {
         id: typeId,
         parent: schemaId(row["schema"]),
-        payload: { variant: "composite", owner: String(row["owner"]) },
+        payload: { variant: "composite" },
       },
       row,
       parseAcl(row["acl"]),
     );
     pushMemberEdge(typeId, row);
+    pushOwnerEdge(typeId, row["owner"]);
     // each attribute is its own fact (granularity is one, §3.1) — enables
     // attribute-grain diffs and ALTER TYPE … RENAME ATTRIBUTE rename
     // detection. Positional order is not desired state (mirrors columns).
@@ -987,7 +1003,6 @@ async function extractOnClient(
         parent: schemaId(row["schema"]),
         payload: {
           variant: "range",
-          owner: String(row["owner"]),
           subtype: String(row["subtype"]),
           collation:
             row["collation"] == null ? null : (row["collation"] as string),
@@ -1001,6 +1016,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── collations (collversion deliberately excluded from equality) ─────
@@ -1030,7 +1046,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           provider: String(row["provider"]),
           deterministic: Boolean(row["deterministic"]),
           locale,
@@ -1041,6 +1056,7 @@ async function extractOnClient(
       row,
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── event triggers ───────────────────────────────────────────────────
@@ -1056,20 +1072,21 @@ async function extractOnClient(
     JOIN pg_roles r ON r.oid = e.evtowner
     WHERE ${notExtensionMember("pg_event_trigger", "e.oid")}
     ORDER BY e.evtname`)) {
+    const evtId: StableId = { kind: "eventTrigger", name: String(row["name"]) };
     pushWithMeta(
       {
-        id: { kind: "eventTrigger", name: String(row["name"]) },
+        id: evtId,
         payload: {
           event: String(row["event"]),
           enabled: String(row["enabled"]),
           tags: (row["tags"] as string[]).map(String).sort(),
-          owner: String(row["owner"]),
           functionSchema: String(row["func_schema"]),
           functionName: String(row["func_name"]),
         },
       },
       row,
     );
+    pushOwnerEdge(evtId, row["owner"]);
   }
 
   // ── rewrite rules (user rules; the view _RETURN rule is the view def) ─
@@ -1140,7 +1157,6 @@ async function extractOnClient(
         id,
         parent: schemaId(row["schema"]),
         payload: {
-          owner: String(row["owner"]),
           aggKind: String(row["agg_kind"]),
           numDirectArgs: Number(row["num_direct_args"]),
           sfunc: String(row["sfunc"]),
@@ -1155,6 +1171,7 @@ async function extractOnClient(
       parseAcl(row["acl"]),
     );
     pushMemberEdge(id, row);
+    pushOwnerEdge(id, row["owner"]);
   }
 
   // ── foreign data wrappers / servers / user mappings / foreign tables ─
@@ -1169,11 +1186,11 @@ async function extractOnClient(
     JOIN pg_roles r ON r.oid = f.fdwowner
     WHERE ${notExtensionMember("pg_foreign_data_wrapper", "f.oid")}
     ORDER BY f.fdwname`)) {
+    const fdwId: StableId = { kind: "fdw", name: String(row["name"]) };
     pushWithMeta(
       {
-        id: { kind: "fdw", name: String(row["name"]) },
+        id: fdwId,
         payload: {
-          owner: String(row["owner"]),
           handler: row["handler"] == null ? null : (row["handler"] as string),
           validator:
             row["validator"] == null ? null : (row["validator"] as string),
@@ -1183,6 +1200,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushOwnerEdge(fdwId, row["owner"]);
   }
   for (const row of await q(`
     SELECT s.srvname AS name, f.fdwname AS fdw, r.rolname AS owner,
@@ -1202,9 +1220,10 @@ async function extractOnClient(
     JOIN pg_roles r ON r.oid = s.srvowner
     WHERE ${notExtensionMember("pg_foreign_server", "s.oid")}
     ORDER BY s.srvname`)) {
+    const srvId: StableId = { kind: "server", name: String(row["name"]) };
     pushWithMeta(
       {
-        id: { kind: "server", name: String(row["name"]) },
+        id: srvId,
         // an extension-provided FDW has no fact of its own — parent the
         // server to the extension instead so the reference resolves
         parent:
@@ -1212,7 +1231,6 @@ async function extractOnClient(
             ? { kind: "extension", name: row["fdw_extension"] as string }
             : { kind: "fdw", name: String(row["fdw"]) },
         payload: {
-          owner: String(row["owner"]),
           fdw: String(row["fdw"]),
           type: row["type"] == null ? null : (row["type"] as string),
           version: row["version"] == null ? null : (row["version"] as string),
@@ -1222,6 +1240,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushOwnerEdge(srvId, row["owner"]);
   }
   for (const row of await q(`
     SELECT s.srvname AS server, COALESCE(r.rolname, 'PUBLIC') AS role,
@@ -1254,16 +1273,16 @@ async function extractOnClient(
     WHERE ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, c.relname`)) {
+    const ftId: StableId = {
+      kind: "foreignTable",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    };
     pushWithMeta(
       {
-        id: {
-          kind: "foreignTable",
-          schema: String(row["schema"]),
-          name: String(row["name"]),
-        },
+        id: ftId,
         parent: { kind: "server", name: String(row["server"]) },
         payload: {
-          owner: String(row["owner"]),
           server: String(row["server"]),
           options: (row["options"] as string[]).map(String),
         },
@@ -1271,6 +1290,7 @@ async function extractOnClient(
       row,
       parseAcl(row["acl"]),
     );
+    pushOwnerEdge(ftId, row["owner"]);
   }
 
   // ── publications ─────────────────────────────────────────────────────
@@ -1309,7 +1329,6 @@ async function extractOnClient(
       {
         id: pubId,
         payload: {
-          owner: String(row["owner"]),
           allTables: Boolean(row["all_tables"]),
           viaRoot: Boolean(row["via_root"]),
           publish,
@@ -1317,6 +1336,7 @@ async function extractOnClient(
       },
       row,
     );
+    pushOwnerEdge(pubId, row["owner"]);
     // each published table / schema is its own fact (granularity is one):
     // members are managed with ALTER PUBLICATION ADD/DROP, and a column-list
     // or WHERE change diffs at table grain instead of churning the whole
@@ -1365,11 +1385,11 @@ async function extractOnClient(
     JOIN pg_database d ON d.oid = s.subdbid
     WHERE d.datname = current_database()
     ORDER BY s.subname`)) {
+    const subId: StableId = { kind: "subscription", name: String(row["name"]) };
     pushWithMeta(
       {
-        id: { kind: "subscription", name: String(row["name"]) },
+        id: subId,
         payload: {
-          owner: String(row["owner"]),
           enabled: Boolean(row["enabled"]),
           conninfo: String(row["conninfo"]),
           slotName:
@@ -1379,6 +1399,7 @@ async function extractOnClient(
       },
       row,
     );
+    pushOwnerEdge(subId, row["owner"]);
   }
 
   // ── security labels (satellite facts, like comments) ────────────────

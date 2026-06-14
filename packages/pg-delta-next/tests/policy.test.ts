@@ -217,22 +217,21 @@ describe("policy: system-role invisibility", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test 3: dangling-requirement negative test
+// Test 3: out-of-view owner role drops ownership (skipAuthorization elimination)
 // ---------------------------------------------------------------------------
 
-describe("policy: dangling-requirement detection", () => {
-  test("plan throws missing-requirement error when policy hides a required role", async () => {
+describe("policy: missing-requirement guard fires on a genuine policy conflict (conflict-only)", () => {
+  test("excluding a role while keeping a schema whose ACL references it → guard throws", async () => {
     // Use an isolated cluster pair so the role exists only in the desired
     // cluster (not in source). sharedCluster is a single cluster where all
-    // databases share the same roles — creating a role there makes it
-    // visible in BOTH source and desired extracts, producing no add delta.
+    // databases share the same roles.
     const { isolatedClusterPair } = await import("./containers.ts");
     const [clusterA, clusterB] = await isolatedClusterPair();
 
-    const sourceDb = await clusterA.createDb("pol_dang_src");
-    const desiredDb = await clusterB.createDb("pol_dang_dst");
+    const sourceDb = await clusterA.createDb("pol_owner_prune_src");
+    const desiredDb = await clusterB.createDb("pol_owner_prune_dst");
 
-    const roleName = "app_owner_xyz_dang";
+    const roleName = "app_owner_xyz_prune";
     try {
       // Create the role ONLY in cluster B (desired side)
       await clusterB.adminPool.query(`CREATE ROLE "${roleName}" NOLOGIN`);
@@ -247,8 +246,21 @@ describe("policy: dangling-requirement detection", () => {
         extract(desiredDb.pool),
       ]);
 
-      // Policy that excludes all role deltas — should trigger a dangling requirement
-      // when the schema CREATE action consumes the role but its creation is filtered
+      // A policy that excludes ALL roles but KEEPS a schema owned by one is
+      // genuinely inconsistent. Owner-as-edge (move 2) removes the schema
+      // CREATE's dependency on the role (no AUTHORIZATION; the owner edge is
+      // pruned with its endpoint), but the schema's ACL still references the
+      // owner — `REVOKE ALL ON SCHEMA app FROM <role>` consumes the excluded
+      // role. The missing-requirement guard correctly fires on this conflict;
+      // it is now "conflict-only" — a genuine policy inconsistency, not a
+      // mechanism artifact of suppressing a single delta.
+      //
+      // The realistic Supabase case does NOT hit this: a schema owned by a
+      // system role is excluded WHOLESALE by the owner-predicate rule
+      // ({ owner: SYSTEM_ROLES }, now resolved via the owner edge), so no ACL
+      // survives. skipAuthorization-elimination is proven by
+      // tests/owner-edge.test.ts case (c): an object whose owner role is out of
+      // view is created ownerless, no dangling requirement.
       const roleExcludePolicy: Policy = {
         id: "t",
         filter: [{ match: { kind: "role" }, action: "exclude" }],

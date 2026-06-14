@@ -156,15 +156,13 @@ export const supabasePolicy: Policy = {
   baseline: "supabase-baseline",
 
   serialize: [
-    // Old-13: platform-owned schemas that survive filtering (e.g. a
-    // recreated public-like schema) render without AUTHORIZATION — a
-    // non-superuser applier cannot impersonate platform roles
-    {
-      match: {
-        all: [{ kind: "schema" }, { owner: [...SUPABASE_SYSTEM_ROLES] }],
-      },
-      params: { skipAuthorization: true },
-    },
+    // Old-13 (REMOVED): the skipAuthorization serialize rule is no longer needed.
+    // With owner-as-edge (move 2), when a schema is owned by a system role that
+    // is excluded from the view, the owner edge is pruned by buildFactBase before
+    // diffing — so no owner edge exists → no ALTER SCHEMA … OWNER TO is emitted
+    // → CREATE SCHEMA renders without AUTHORIZATION by construction, not via param.
+    // See docs/managed-view-architecture.md (move 2).
+    //
     // Old-14 (REMOVED): the SCHEMA clause is now derived from the extension's
     // `relocatable` fact (pg_extension.extrelocatable) in the extension rule —
     // a non-relocatable extension (pgmq / pgsodium / pgtle) emits a bare

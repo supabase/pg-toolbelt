@@ -461,7 +461,14 @@ export function plan(
     // in the rule table (`defaclObjtype`); absent → no default ACLs
     const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
     if (objtype === undefined) continue;
-    const owner = fact.payload["owner"];
+    // owner is now an edge, not a payload field (move 2)
+    const ownerEdge = desired
+      .outgoingEdges(fact.id)
+      .find((e) => e.kind === "owner");
+    const owner =
+      ownerEdge?.to.kind === "role"
+        ? (ownerEdge.to as { kind: "role"; name: string }).name
+        : undefined;
     if (typeof owner !== "string") continue;
     const schema = (fact.id as { schema?: string }).schema ?? null;
     for (const dp of desired.facts()) {
@@ -562,6 +569,46 @@ export function plan(
       for (const spec of Array.isArray(specs) ? specs : [specs]) {
         pushAction("alter", spec, { consumes: [fact.id] });
       }
+    }
+  }
+
+  // owner-edge changes: emit ALTER … OWNER TO from link/unlink deltas
+  // (move 2: owner is now an edge, not a payload attribute)
+  {
+    // collect old owner roles per fact so the link action can release them
+    const oldOwnerByFact = new Map<string, StableId>();
+    for (const delta of deltas) {
+      if (delta.verb !== "unlink" || delta.edge.kind !== "owner") continue;
+      oldOwnerByFact.set(encodeId(delta.edge.from), delta.edge.to);
+    }
+    for (const delta of deltas) {
+      if (delta.verb !== "link" || delta.edge.kind !== "owner") continue;
+      const objId = delta.edge.from;
+      const objKey = encodeId(objId);
+      // Created objects need this too: create no longer sets the owner (move 2),
+      // so a fresh object owned by a non-applier role needs an explicit
+      // ALTER … OWNER TO, ordered after its create (consumes: [objId]) and after
+      // the role. An owner role projected out of the view has no edge here (it
+      // was pruned), so the object is left applier-owned — skipAuthorization
+      // elimination falls out for free.
+      const fact = desired.get(objId);
+      if (!fact) continue;
+      const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
+      if (!ownerAlterPrefix) continue;
+      const prefix = ownerAlterPrefix(fact);
+      const newRoleId = delta.edge.to;
+      if (newRoleId.kind !== "role") continue;
+      const roleName = (newRoleId as { kind: "role"; name: string }).name;
+      const oldRoleId = oldOwnerByFact.get(objKey);
+      pushAction(
+        "alter",
+        {
+          sql: `${prefix} OWNER TO ${qid(roleName)}`,
+          consumes: [newRoleId],
+          ...(oldRoleId !== undefined ? { releases: [oldRoleId] } : {}),
+        },
+        { consumes: [objId] },
+      );
     }
   }
 

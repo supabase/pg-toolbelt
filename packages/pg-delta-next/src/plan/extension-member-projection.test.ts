@@ -24,8 +24,9 @@ const memberSchema: StableId = { kind: "schema", name: "pgmq_internal" };
 const f = (id: StableId, parent?: StableId): Fact =>
   parent ? { id, parent, payload: {} } : { id, payload: {} };
 
-// CREATE SCHEMA without AUTHORIZATION so the test needs no role fact
-const opts: PlanOptions = { params: { skipAuthorization: true } };
+// No skipAuthorization needed: facts have no owner payload → no owner edge →
+// CREATE SCHEMA needs no role (owner edge is absent, not suppressed).
+const opts: PlanOptions = {};
 
 describe("plan() — default extension-member projection (4b Stage 0)", () => {
   test("an extension-owned object never becomes a planned action", () => {

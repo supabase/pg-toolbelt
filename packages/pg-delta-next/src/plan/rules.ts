@@ -57,12 +57,7 @@ export interface ActionSpec {
 /** Named serialize parameters the rule table consumes. Policies (stage 8)
  *  set them; referencing an unknown name is a plan-time error, not a
  *  silent no-op. */
-export const KNOWN_PARAMS: ReadonlySet<string> = new Set([
-  "concurrentIndexes",
-  // CREATE SCHEMA without AUTHORIZATION (platform roles a non-superuser
-  // applier cannot impersonate)
-  "skipAuthorization",
-]);
+export const KNOWN_PARAMS: ReadonlySet<string> = new Set(["concurrentIndexes"]);
 export type PlanParams = Record<string, unknown>;
 
 export type AttributeRule =
@@ -108,6 +103,10 @@ export interface KindRules {
   attributes: Record<string, AttributeRule>;
   /** kind weight for deterministic tie-breaking (pg_dump-inspired) */
   weight: number;
+  /** Returns the `ALTER <KIND> <identifier>` prefix WITHOUT ` OWNER TO …`,
+   *  used by the planner to emit owner actions from owner-edge link deltas.
+   *  Absent for kinds that are not ownable (have no ALTER … OWNER TO). */
+  ownerAlterPrefix?: (fact: Fact) => string;
 
   // ── graph/suppression policy (guardrail 3: per-kind knowledge lives
   //    HERE, never in the planner body) ──────────────────────────────────
@@ -183,18 +182,6 @@ function roleFlagSql(payload: Fact["payload"]): string {
   return Object.entries(ROLE_FLAGS)
     .map(([key, [on, off]]) => (payload[key] ? on : off))
     .join(" ");
-}
-
-function ownerRule(alterPrefix: (fact: Fact) => string): AttributeRule {
-  return {
-    alter: (fact, from, to) => ({
-      sql: `${alterPrefix(fact)} OWNER TO ${qid(str(to))}`,
-      consumes: [{ kind: "role", name: str(to) }],
-      ...(from == null
-        ? {}
-        : { releases: [{ kind: "role", name: str(from) } as StableId] }),
-    }),
-  };
 }
 
 /** Identity payload: { generation: 'a'|'d', sequence: {schema,name} } | null.
@@ -577,22 +564,15 @@ export const RULES: Record<string, KindRules> = {
     rename: renameRule(
       (fact) => `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,
     ),
-    create: (fact, _view, params) => [
-      params?.["skipAuthorization"] === true
-        ? { sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)}` }
-        : {
-            sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)} AUTHORIZATION ${qid(str(p(fact, "owner")))}`,
-            consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-          },
+    create: (fact) => [
+      { sql: `CREATE SCHEMA ${qid((fact.id as { name: string }).name)}` },
     ],
     drop: (fact) => ({
       sql: `DROP SCHEMA ${qid((fact.id as { name: string }).name)}`,
     }),
-    attributes: {
-      owner: ownerRule(
-        (fact) => `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,
-      ),
-    },
+    ownerAlterPrefix: (fact) =>
+      `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,
+    attributes: {},
   },
 
   extension: {
@@ -664,7 +644,6 @@ export const RULES: Record<string, KindRules> = {
             ` INCREMENT BY ${str(p(fact, "increment"))} MINVALUE ${str(p(fact, "minValue"))}` +
             ` MAXVALUE ${str(p(fact, "maxValue"))} START WITH ${str(p(fact, "start"))}` +
             ` CACHE ${str(p(fact, "cache"))} ${p(fact, "cycle") ? "CYCLE" : "NO CYCLE"}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
         ...sequenceOwnedBySpecs(fact),
       ];
@@ -673,11 +652,11 @@ export const RULES: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP SEQUENCE ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER SEQUENCE ${rel(id.schema, id.name)}`;
-      }),
       dataType: {
         alter: (fact, _from, to) => {
           const id = fact.id as { schema: string; name: string };
@@ -761,9 +740,7 @@ export const RULES: Record<string, KindRules> = {
       } | null;
 
       let createSql: string;
-      const consumes: StableId[] = [
-        { kind: "role", name: str(p(fact, "owner")) },
-      ];
+      const consumes: StableId[] = [];
       const alsoProduces: StableId[] = [];
       if (bound != null && parentT != null) {
         // a partition: columns are inherited, the bound carries the shape
@@ -803,7 +780,7 @@ export const RULES: Record<string, KindRules> = {
       const specs: ActionSpec[] = [
         {
           sql: createSql,
-          consumes,
+          ...(consumes.length > 0 ? { consumes } : {}),
           alsoProduces,
           ...(foldable ? { acceptsColumnFolds: true } : {}),
         },
@@ -818,10 +795,6 @@ export const RULES: Record<string, KindRules> = {
       if (replident != null && replident !== "d") {
         specs.push(replicaIdentitySpec(fact, view));
       }
-      specs.push({
-        sql: `ALTER TABLE ${relName} OWNER TO ${qid(str(p(fact, "owner")))}`,
-        consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-      });
       return specs;
     },
     drop: (fact) => {
@@ -831,11 +804,11 @@ export const RULES: Record<string, KindRules> = {
         dataLoss: "destructive",
       };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER TABLE ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER TABLE ${rel(id.schema, id.name)}`;
-      }),
       persistence: {
         alter: (fact, _from, to) => {
           const id = fact.id as { schema: string; name: string };
@@ -1057,7 +1030,6 @@ export const RULES: Record<string, KindRules> = {
     create: (fact) => [
       {
         sql: str(p(fact, "def")),
-        consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
       },
     ],
     drop: (fact) => {
@@ -1066,25 +1038,16 @@ export const RULES: Record<string, KindRules> = {
         str(p(fact, "routineKind")) === "p" ? "PROCEDURE" : "FUNCTION";
       return { sql: `DROP ${keyword} ${routineSig(id)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string; args: string[] };
+      const keyword =
+        str(p(fact, "routineKind")) === "p" ? "PROCEDURE" : "FUNCTION";
+      return `ALTER ${keyword} ${routineSig(id)}`;
+    },
     attributes: {
       // return-type/strictness changes refuse CREATE OR REPLACE; replace +
       // forced dependent rebuild is always safe
       def: "replace",
-      owner: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as {
-            schema: string;
-            name: string;
-            args: string[];
-          };
-          const keyword =
-            str(p(fact, "routineKind")) === "p" ? "PROCEDURE" : "FUNCTION";
-          return {
-            sql: `ALTER ${keyword} ${routineSig(id)} OWNER TO ${qid(str(to))}`,
-            consumes: [{ kind: "role", name: str(to) }],
-          };
-        },
-      },
       routineKind: "replace",
     },
   },
@@ -1152,28 +1115,22 @@ export const RULES: Record<string, KindRules> = {
     }),
     create: (fact) => {
       const id = fact.id as { schema: string; name: string };
-      const specs: ActionSpec[] = [
+      return [
         {
           sql: `CREATE VIEW ${rel(id.schema, id.name)} AS ${str(p(fact, "def"))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-        },
-        {
-          sql: `ALTER VIEW ${rel(id.schema, id.name)} OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
-      return specs;
     },
     drop: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP VIEW ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER VIEW ${rel(id.schema, id.name)}`;
+    },
     attributes: {
       def: "replace",
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER VIEW ${rel(id.schema, id.name)}`;
-      }),
     },
   },
 
@@ -1191,11 +1148,6 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql: `CREATE MATERIALIZED VIEW ${rel(id.schema, id.name)} AS ${str(p(fact, "def"))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-        },
-        {
-          sql: `ALTER MATERIALIZED VIEW ${rel(id.schema, id.name)} OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
     },
@@ -1206,12 +1158,12 @@ export const RULES: Record<string, KindRules> = {
         dataLoss: "destructive",
       };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER MATERIALIZED VIEW ${rel(id.schema, id.name)}`;
+    },
     attributes: {
       def: "replace",
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER MATERIALIZED VIEW ${rel(id.schema, id.name)}`;
-      }),
     },
   },
 
@@ -1417,23 +1369,17 @@ export const RULES: Record<string, KindRules> = {
       const def = p(fact, "default");
       if (def != null) sql += ` DEFAULT ${str(def)}`;
       if (p(fact, "notNull")) sql += ` NOT NULL`;
-      return [
-        { sql, consumes: [{ kind: "role", name: str(p(fact, "owner")) }] },
-        {
-          sql: `ALTER DOMAIN ${rel(id.schema, id.name)} OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-        },
-      ];
+      return [{ sql }];
     },
     drop: (fact) => {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP DOMAIN ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER DOMAIN ${rel(id.schema, id.name)}`;
-      }),
       default: {
         alter: (fact, _from, to) => {
           const id = fact.id as { schema: string; name: string };
@@ -1495,12 +1441,7 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
           ...(alsoProduces.length > 0 ? { alsoProduces } : {}),
-        },
-        {
-          sql: `ALTER TYPE ${relName} OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
     },
@@ -1508,11 +1449,11 @@ export const RULES: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP TYPE ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER TYPE ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER TYPE ${rel(id.schema, id.name)}`;
-      }),
       values: {
         alter: (fact, from, to, view, sourceView) => {
           const id = fact.id as { schema: string; name: string };
@@ -1704,7 +1645,6 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql: `CREATE COLLATION ${rel(id.schema, id.name)} (${parts.join(", ")})`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
     },
@@ -1712,11 +1652,11 @@ export const RULES: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP COLLATION ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER COLLATION ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER COLLATION ${rel(id.schema, id.name)}`;
-      }),
       provider: "replace",
       deterministic: "replace",
       locale: "replace",
@@ -1744,7 +1684,7 @@ export const RULES: Record<string, KindRules> = {
       const specs: ActionSpec[] = [
         {
           sql,
-          consumes: [fnId, { kind: "role", name: str(p(fact, "owner")) }],
+          consumes: [fnId],
         },
       ];
       const enabled = p(fact, "enabled");
@@ -1758,16 +1698,14 @@ export const RULES: Record<string, KindRules> = {
     drop: (fact) => ({
       sql: `DROP EVENT TRIGGER ${qid((fact.id as { name: string }).name)}`,
     }),
+    ownerAlterPrefix: (fact) =>
+      `ALTER EVENT TRIGGER ${qid((fact.id as { name: string }).name)}`,
     attributes: {
       enabled: {
         alter: (fact, _from, to) => ({
           sql: `ALTER EVENT TRIGGER ${qid((fact.id as { name: string }).name)} ${enabledPhrase(str(to))}`,
         }),
       },
-      owner: ownerRule(
-        (fact) =>
-          `ALTER EVENT TRIGGER ${qid((fact.id as { name: string }).name)}`,
-      ),
       event: "replace",
       tags: "replace",
       functionSchema: "replace",
@@ -1817,11 +1755,6 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql: `CREATE AGGREGATE ${rel(id.schema, id.name)}(${aggSig(fact)}) (${parts.join(", ")})`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-        },
-        {
-          sql: `ALTER AGGREGATE ${rel(id.schema, id.name)}(${aggSig(fact)}) OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
     },
@@ -1831,16 +1764,11 @@ export const RULES: Record<string, KindRules> = {
         sql: `DROP AGGREGATE ${rel(id.schema, id.name)}(${aggSig(fact)})`,
       };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string; args: string[] };
+      return `ALTER AGGREGATE ${rel(id.schema, id.name)}(${aggSig(fact)})`;
+    },
     attributes: {
-      owner: {
-        alter: (fact, _from, to) => {
-          const id = fact.id as { schema: string; name: string };
-          return {
-            sql: `ALTER AGGREGATE ${rel(id.schema, id.name)}(${aggSig(fact)}) OWNER TO ${qid(str(to))}`,
-            consumes: [{ kind: "role", name: str(to) }],
-          };
-        },
-      },
       aggKind: "replace",
       numDirectArgs: "replace",
       sfunc: "replace",
@@ -1917,18 +1845,14 @@ export const RULES: Record<string, KindRules> = {
       const validator = p(fact, "validator");
       if (validator != null) sql += ` VALIDATOR ${str(validator)}`;
       sql += optionsClause((p(fact, "options") as string[]) ?? []);
-      return [
-        { sql, consumes: [{ kind: "role", name: str(p(fact, "owner")) }] },
-      ];
+      return [{ sql }];
     },
     drop: (fact) => ({
       sql: `DROP FOREIGN DATA WRAPPER ${qid((fact.id as { name: string }).name)}`,
     }),
+    ownerAlterPrefix: (fact) =>
+      `ALTER FOREIGN DATA WRAPPER ${qid((fact.id as { name: string }).name)}`,
     attributes: {
-      owner: ownerRule(
-        (fact) =>
-          `ALTER FOREIGN DATA WRAPPER ${qid((fact.id as { name: string }).name)}`,
-      ),
       options: {
         alter: (fact, from, to) => ({
           sql: `ALTER FOREIGN DATA WRAPPER ${qid((fact.id as { name: string }).name)} ${alterOptionsClause(
@@ -1961,17 +1885,14 @@ export const RULES: Record<string, KindRules> = {
       if (version != null) sql += ` VERSION ${lit(str(version))}`;
       sql += ` FOREIGN DATA WRAPPER ${qid(str(p(fact, "fdw")))}`;
       sql += optionsClause((p(fact, "options") as string[]) ?? []);
-      return [
-        { sql, consumes: [{ kind: "role", name: str(p(fact, "owner")) }] },
-      ];
+      return [{ sql }];
     },
     drop: (fact) => ({
       sql: `DROP SERVER ${qid((fact.id as { name: string }).name)}`,
     }),
+    ownerAlterPrefix: (fact) =>
+      `ALTER SERVER ${qid((fact.id as { name: string }).name)}`,
     attributes: {
-      owner: ownerRule(
-        (fact) => `ALTER SERVER ${qid((fact.id as { name: string }).name)}`,
-      ),
       version: {
         alter: (fact, _from, to) => ({
           sql: `ALTER SERVER ${qid((fact.id as { name: string }).name)} VERSION ${lit(str(to))}`,
@@ -2040,11 +1961,6 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql: `CREATE FOREIGN TABLE ${rel(id.schema, id.name)} () SERVER ${qid(str(p(fact, "server")))}${optionsClause((p(fact, "options") as string[]) ?? [])}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
-        },
-        {
-          sql: `ALTER FOREIGN TABLE ${rel(id.schema, id.name)} OWNER TO ${qid(str(p(fact, "owner")))}`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
     },
@@ -2052,11 +1968,11 @@ export const RULES: Record<string, KindRules> = {
       const id = fact.id as { schema: string; name: string };
       return { sql: `DROP FOREIGN TABLE ${rel(id.schema, id.name)}` };
     },
+    ownerAlterPrefix: (fact) => {
+      const id = fact.id as { schema: string; name: string };
+      return `ALTER FOREIGN TABLE ${rel(id.schema, id.name)}`;
+    },
     attributes: {
-      owner: ownerRule((fact) => {
-        const id = fact.id as { schema: string; name: string };
-        return `ALTER FOREIGN TABLE ${rel(id.schema, id.name)}`;
-      }),
       options: {
         alter: (fact, from, to) => {
           const id = fact.id as { schema: string; name: string };
@@ -2093,10 +2009,9 @@ export const RULES: Record<string, KindRules> = {
       return [
         {
           sql,
-          consumes: [
-            ...objects.consumes,
-            { kind: "role", name: str(p(fact, "owner")) },
-          ],
+          ...(objects.consumes.length > 0
+            ? { consumes: objects.consumes }
+            : {}),
           ...(objects.produced.length > 0
             ? { alsoProduces: objects.produced }
             : {}),
@@ -2106,11 +2021,9 @@ export const RULES: Record<string, KindRules> = {
     drop: (fact) => ({
       sql: `DROP PUBLICATION ${qid((fact.id as { name: string }).name)}`,
     }),
+    ownerAlterPrefix: (fact) =>
+      `ALTER PUBLICATION ${qid((fact.id as { name: string }).name)}`,
     attributes: {
-      owner: ownerRule(
-        (fact) =>
-          `ALTER PUBLICATION ${qid((fact.id as { name: string }).name)}`,
-      ),
       publish: {
         alter: (fact, _from, to) => ({
           sql: `ALTER PUBLICATION ${qid((fact.id as { name: string }).name)} SET (publish = ${lit(((to as string[] | null) ?? []).join(", "))})`,
@@ -2197,7 +2110,6 @@ export const RULES: Record<string, KindRules> = {
       const specs: ActionSpec[] = [
         {
           sql: `CREATE SUBSCRIPTION ${name} CONNECTION ${lit(str(p(fact, "conninfo")))} PUBLICATION ${publications} WITH (${withParts.join(", ")})`,
-          consumes: [{ kind: "role", name: str(p(fact, "owner")) }],
         },
       ];
       if (p(fact, "enabled")) {
@@ -2213,11 +2125,9 @@ export const RULES: Record<string, KindRules> = {
         ? {}
         : { transactionality: "nonTransactional" as const }),
     }),
+    ownerAlterPrefix: (fact) =>
+      `ALTER SUBSCRIPTION ${qid((fact.id as { name: string }).name)}`,
     attributes: {
-      owner: ownerRule(
-        (fact) =>
-          `ALTER SUBSCRIPTION ${qid((fact.id as { name: string }).name)}`,
-      ),
       enabled: {
         alter: (fact, _from, to) => ({
           sql: `ALTER SUBSCRIPTION ${qid((fact.id as { name: string }).name)} ${to ? "ENABLE" : "DISABLE"}`,
