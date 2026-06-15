@@ -29,7 +29,11 @@ export { serializeSnapshot, deserializeSnapshot } from "./core/snapshot.ts";
 export { diff, type Delta } from "./core/diff.ts";
 
 // ── extract ──────────────────────────────────────────────────────────────────
-export { extract, type ExtractResult } from "./extract/extract.ts";
+export {
+  extract,
+  ExtractionTimeoutError,
+  type ExtractResult,
+} from "./extract/extract.ts";
 
 // ── plan ─────────────────────────────────────────────────────────────────────
 export {

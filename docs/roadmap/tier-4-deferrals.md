@@ -67,12 +67,21 @@ snapshot is already consistent. Serial extraction is correct and simple.
 
 **What it'd take.** A lead `REPEATABLE READ` txn exports the snapshot; a worker
 pool imports it and runs the per-family queries in parallel; results merge into
-one fact base. Must preserve the single-snapshot consistency guarantee.
+one fact base. Must preserve the single-snapshot consistency guarantee — and
+refactor the 36 serial extractor blocks (which push into shared accumulators)
+into independent, mergeable units.
 
-**Trigger to revisit.** Profiling (see
-[`tier-3-extract-depends-perf.md`](tier-3-extract-depends-perf.md) step 1) shows
-extraction wall-time is the bottleneck on large schemas and single-connection
-tuning isn't enough.
+**Why deferred — with the number (milestone A re-profile).** After the set-based
+resolver rewrite ([`tier-3-extract-depends-perf.md`](tier-3-extract-depends-perf.md)),
+a cold `extract` is ~453 ms and its single largest cost is **one** query — the
+`pg_depend` resolver at ~204 ms (≈45%). A worker pool parallelizes *separate*
+queries; it cannot split that one. So the parallel ceiling is
+`max(resolver, longest other) + snapshot setup` ≈ ~250 ms — **under 2×** — for a
+large, consistency-critical refactor. The residual does not justify it today.
+
+**Trigger to revisit.** A future profile where the **residual** (the many small
+queries), not the resolver, dominates extraction wall-time — e.g. a schema shape
+where the resolver is cheap but per-family extraction is expensive.
 
 ---
 

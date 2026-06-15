@@ -45,10 +45,16 @@ correctness machinery are v1-ready** — see the parent doc for the cut plan.
 - 🟢 **v1 scope statement** — publish what v1 manages / deliberately doesn't
   (from `COVERAGE.md` + the completeness diagnostic).
 
-## Post-v1 milestone A — performance
+## Post-v1 milestone A — performance — ✅ shipped
 
-- 🟡 [extractDepends perf](tier-3-extract-depends-perf.md) — parallel snapshot
-  extraction (the big win), `pg_depend` latency tuning, publish benchmark ≥ old.
+- ✅ [extractDepends perf](tier-3-extract-depends-perf.md) — **shipped**.
+  Profiling showed one correlated `pg_depend` resolver query was 86% of
+  extraction (not round-trips, and not the parallel-extraction "big win" this
+  line originally guessed). Rewriting it set-based made extraction **~4.2×**
+  faster (the query itself **7×**), with byte-identical edges. Added a
+  statement-timeout budget + actionable diagnostic. Parallel snapshot extraction
+  is deferred — the re-profile shows it would now win < 2× for a large,
+  consistency-critical refactor (the resolver query caps the ceiling).
 
 ## Post-v1 milestone B — DX & cutover
 
