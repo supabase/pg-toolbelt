@@ -1733,7 +1733,10 @@ async function extractOnClient(
       -- not the member fact (4b Stage 3): the member is observed but projected
       -- out by default, so a member-targeted edge would be pruned with it and
       -- lose the dependent's ordering on the extension. One join keyed by
-      -- (classid, objid) replaces the old per-branch nested pg_depend lookups.
+      -- (classid, objid) replaces the old per-branch nested pg_depend lookups;
+      -- an object belongs to at most one extension, so (classid, objid) is
+      -- unique here and the join never multiplies dep rows (the old form's
+      -- LIMIT 1 was guarding the same single-membership invariant).
       SELECT ed.classid, ed.objid,
              json_build_object('kind','extension','name',ext.extname) AS id
       FROM pg_depend ed JOIN pg_extension ext ON ext.oid = ed.refobjid

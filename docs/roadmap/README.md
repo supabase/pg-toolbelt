@@ -12,7 +12,7 @@ Engine code-complete (stages 0–9), hardening plan + 4b + security-label e2e, a
 the **managed-view architecture** ([`../managed-view-architecture.md`](../architecture/managed-view-architecture.md):
 `skipSchema`/`skipAuthorization` eliminated, ownership-as-edge, fact-level view,
 applier capability). The validation harness runs in CI on **PG 15/17/18**:
-corpus 211×2 under the proof loop (`EXPECTED_RED` empty), a new-vs-old
+corpus 209×2 (418 cases) under the proof loop (`EXPECTED_RED` empty), a new-vs-old
 **differential** with a hard regression gate, a **generative soak** with an
 enforced kind-coverage checklist, reviewed public API. **The engine + its
 correctness machinery are v1-ready** — see the parent doc for the cut plan.
@@ -45,7 +45,7 @@ correctness machinery are v1-ready** — see the parent doc for the cut plan.
 - 🟢 **v1 scope statement** — publish what v1 manages / deliberately doesn't
   (from `COVERAGE.md` + the completeness diagnostic).
 
-## Post-v1 milestone A — performance — ✅ shipped
+## Post-v1 milestone A — performance
 
 - ✅ [extractDepends perf](tier-3-extract-depends-perf.md) — **shipped**.
   Profiling showed one correlated `pg_depend` resolver query was 86% of
@@ -55,6 +55,13 @@ correctness machinery are v1-ready** — see the parent doc for the cut plan.
   statement-timeout budget + actionable diagnostic. Parallel snapshot extraction
   is deferred — the re-profile shows it would now win < 2× for a large,
   consistency-critical refactor (the resolver query caps the ceiling).
+- 🟠 [Memory-optimal extraction & diff](tier-3-extract-memory.md) — measured: the
+  engine materializes both catalogs (held heap is lean ~660 B/fact, but `pg`
+  buffers full result sets → transient peak is the OOM edge; ~comparable to the
+  old engine). Plan: make held memory **O(changes)** via a two-pass
+  hash-manifest → fetch-changed diff. **Phase 1** (cursor-stream the unbounded
+  extractors + a `maxFacts` guard) is low-risk and ships the OOM-relevant win;
+  the full manifest diff is gated on a real 250k+-object catalog need.
 
 ## Post-v1 milestone B — DX & cutover
 
