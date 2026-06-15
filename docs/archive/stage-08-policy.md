@@ -1,6 +1,6 @@
 # Stage 8: Policy Layer (DSL v2 + Supabase package)
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.9).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.9).
 > Depends on: stages 4–6 (deltas and plans exist). Gate: policy scenarios;
 > baseline-subtraction proof against a real platform image.
 

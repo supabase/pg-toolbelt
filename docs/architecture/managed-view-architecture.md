@@ -2,8 +2,8 @@
 
 - **Status**: Canonical design. **Supersedes** the scope/serialize portions of
   [`target-architecture.md`](target-architecture.md) §3.9, and replaces the two
-  Tier-3 stubs ([object-filtering-flags](remaining-work/tier-3-object-filtering-flags.md),
-  parts of [service-migration-baselines](remaining-work/tier-3-service-migration-baselines.md))
+  Tier-3 stubs ([object-filtering-flags](../roadmap/tier-3-object-filtering-flags.md),
+  parts of [service-migration-baselines](../roadmap/tier-3-service-migration-baselines.md))
   with a single model.
 - **Scope**: `packages/pg-delta-next` only. This is a from-scratch design of how
   *context* (scope, ownership, applier identity) enters the engine — not a

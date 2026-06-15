@@ -1,6 +1,6 @@
 # Stage 5: The Planner (rule table · actions · graph · compaction)
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.4–3.6).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.4–3.6).
 > Depends on: stages 3–4 (the proof loop is the oracle — guardrail 5).
 > Gate: corpus green under proof; differential vs old engine; generative
 > soak; zero cycles. **The largest stage — plan for it to be many PRs.**

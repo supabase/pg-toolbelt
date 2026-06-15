@@ -264,6 +264,38 @@ pg-delta has 45+ integration test files across 3 PG versions, sharded across 15 
 
 - Run `bun run test:pg-delta` (full suite) only after all changes are complete and targeted tests pass
 
+### Test container hygiene & corpus progress (pg-delta-next)
+
+**No leaked containers.** Integration tests use testcontainers, whose Ryuk
+reaper removes a run's containers when the test process dies. **Keep Ryuk
+enabled** — never set `TESTCONTAINERS_RYUK_DISABLED`. Leaks still accumulate when
+the Docker daemon restarts (orphaning what Ryuk tracked) or a run is killed
+before Ryuk connects, and the shared cluster singletons in
+`packages/pg-delta-next/tests/containers.ts` are not stopped explicitly.
+Reclaim orphans with:
+
+```bash
+cd packages/pg-delta-next
+bun run docker:clean            # remove testcontainers older than 60m (safe during an active run)
+bun run docker:clean --dry-run  # preview only
+bun run docker:clean --all      # remove ALL testcontainers — only when no tests are running
+```
+
+It targets only the `org.testcontainers=true` label and is age-guarded, so a run
+in flight is never touched. Good as a periodic / CI post-step. Check for leaks
+with `docker ps` (look for many idle `postgres:1[58]-alpine` containers hours/days old).
+
+**Live corpus progress.** `bun test` buffers its own reporter when stdout is a
+pipe, so a piped/background corpus run (`bun test tests/engine.test.ts`) prints
+nothing until it finishes (~45 min). Set `PGDELTA_NEXT_PROGRESS=1` to stream a
+`corpus <image> [done/total pct%] PASS|FAIL <scenario>` line per scenario to
+stderr (a raw fd-2 write that bypasses the buffering). Off by default so an
+interactive TTY run keeps bun's native reporter clean.
+
+```bash
+PGDELTA_NEXT_PROGRESS=1 PGDELTA_TEST_IMAGE=postgres:17-alpine bun test tests/engine.test.ts
+```
+
 ### Running integration tests in a sandbox (no systemd, no Docker daemon)
 
 Cloud sandboxes (e.g. Claude Code on the web) typically ship with the Docker

@@ -2,7 +2,7 @@
 
 - **Status**: ⚪ Intentional, documented, regression-free. **Not oversights.**
 - Recorded in [`../../packages/pg-delta-next/COVERAGE.md`](../../packages/pg-delta-next/COVERAGE.md)
-  and [`../target-architecture.md`](../target-architecture.md) §7. Listed here so
+  and [`../target-architecture.md`](../architecture/target-architecture.md) §7. Listed here so
   they are not mistaken for gaps — each with *what it'd take* and *the trigger to
   revisit*.
 
@@ -106,7 +106,7 @@ seclabel coverage should run in CI by then.
 
 **What.** Using PGlite (WASM Postgres) as a zero-infra shadow/proof backend —
 evaluated and **ruled out of the trusted path today**
-([`../target-architecture.md`](../target-architecture.md) §7; Linear CLI-1389
+([`../target-architecture.md`](../architecture/target-architecture.md) §7; Linear CLI-1389
 `supa-shadow`).
 
 **Why safe / deferred.** Extension and version parity rule it out: a PGlite diff

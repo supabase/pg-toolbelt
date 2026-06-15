@@ -1,6 +1,6 @@
 # Stage 2: Extractor Port
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.1–3.2).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.1–3.2).
 > Depends on: stage 1. Gate: extractor fixture ring per PG version; pg_dump
 > observer; content cross-check against old-engine catalogs.
 

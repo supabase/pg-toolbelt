@@ -1,6 +1,6 @@
 # Stage 9: Renames + Public API & CLI
 
-> Part of the [north-star architecture](./target-architecture.md) (§4.1,
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§4.1,
 > §4.2, §4.5). Depends on: stages 5–7 (planner, artifacts; stage 7's
 > `loadSqlFiles` is what the export round-trip gate runs through); stage 1
 > designed the structural rollup this stage uses. Gate: rename corpus;

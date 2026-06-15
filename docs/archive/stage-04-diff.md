@@ -1,6 +1,6 @@
 # Stage 4: Generic Diff
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.3).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.3).
 > Depends on: stage 1 (rollups), stage 2 (real fact bases to test against).
 > Gate: fixture diffs; `diff(A, A) = ∅` generatively.
 

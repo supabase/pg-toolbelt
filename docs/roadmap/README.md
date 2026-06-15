@@ -2,14 +2,14 @@
 
 - **Date**: 2026-06-14
 - **Branch**: `feat/pg-delta-next`
-- **Parent**: [`../pg-delta-next-remaining-work.md`](../pg-delta-next-remaining-work.md)
+- **Parent**: [`../pg-delta-next-remaining-work.md`](v1.md)
   is the one-page roadmap (the **correctness-first v1** plan). This folder is the
   per-item implementation detail.
 
 ## Baseline (done + proven)
 
 Engine code-complete (stages 0–9), hardening plan + 4b + security-label e2e, and
-the **managed-view architecture** ([`../managed-view-architecture.md`](../managed-view-architecture.md):
+the **managed-view architecture** ([`../managed-view-architecture.md`](../architecture/managed-view-architecture.md):
 `skipSchema`/`skipAuthorization` eliminated, ownership-as-edge, fact-level view,
 applier capability). The validation harness runs in CI on **PG 15/17/18**:
 corpus 211×2 under the proof loop (`EXPECTED_RED` empty), a new-vs-old
@@ -29,14 +29,19 @@ correctness machinery are v1-ready** — see the parent doc for the cut plan.
 
 ## v1 — correctness blockers
 
-- 🟠 **[Unmodeled-kind detection](v1-unmodeled-kind-detection.md)** — the one
-  real correctness gap: the engine silently omits user objects in kinds it
-  doesn't model. Fix = a provenance-aware catalog completeness check (diagnostic;
-  opt-in strict mode). v1 detects them; *modeling* them is post-v1.
+- ✅ **[Unmodeled-kind detection](v1-unmodeled-kind-detection.md)** — **shipped**.
+  The provenance-aware catalog completeness check (diagnostic + `--strict-coverage`)
+  closes the one real correctness gap. v1 detects unmodeled kinds; *modeling*
+  them is post-v1.
+- ✅ **v1-readiness-review findings** ([../pg-delta-next-v1-readiness-review.md](../archive/v1-readiness-review.md))
+  — **shipped**: CLI diagnostic surfacing + `--strict-coverage`; `Policy.baseline`
+  fail-loud (`resolveBaseline`); SQL loader rejects self-managed transactions;
+  comment/status drift corrected.
 - 🟢 **Validation at scale** — run the gates to green for the record: full
   differential (`=all`) triaged clean; generative soak at the agreed quota; one
   large real-world schema through plan+prove; **commit the Supabase baseline**
-  ([service-migration-baselines](tier-3-service-migration-baselines.md)).
+  ([service-migration-baselines](tier-3-service-migration-baselines.md)). Record
+  it in [`../pg-delta-next-v1-evidence.md`](v1-evidence.md).
 - 🟢 **v1 scope statement** — publish what v1 manages / deliberately doesn't
   (from `COVERAGE.md` + the completeness diagnostic).
 
@@ -72,4 +77,4 @@ correctness machinery are v1-ready** — see the parent doc for the cut plan.
 - Every doc follows **Test-Driven Fixes**: the "Tests" section names the RED test
   to author before the production change.
 - Linear IDs map to the project *pg-delta: database diffing 2.0*; see
-  [`../pg-delta-next-linear-assessment.md`](../pg-delta-next-linear-assessment.md).
+  [`../pg-delta-next-linear-assessment.md`](../archive/linear-assessment.md).

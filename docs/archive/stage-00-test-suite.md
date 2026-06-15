@@ -1,6 +1,6 @@
 # Stage 0: The Red Test Suite (corpus first)
 
-> Part of the [north-star architecture](./target-architecture.md) (§4.3, §9).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§4.3, §9).
 > Read §10 (guardrails) before starting. Depends on: nothing — this is the
 > first thing built. Everything else depends on it.
 

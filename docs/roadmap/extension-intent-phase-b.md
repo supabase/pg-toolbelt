@@ -150,7 +150,7 @@ Order by complexity (validate the mechanism on the simplest first):
      → `extensionIntent{ext:"pgmq",intentKind:"queue",key:<name>}` facts (payload:
      type, partition/retention). Still emit the existing `managedBy` edges on
      `q_*`/`a_*` (Phase A).
-   - intentKind rule: `create` → `select pgmq.create[/_unlogged/_partitioned](…)`,
+   - intentKind rule: `create` → `select `pgmq.create` (or `_unlogged` / `_partitioned` variants)`,
      `drop` → `select pgmq.drop_queue(…)` (`dataLoss:"destructive"`), `produces`
      the queue + (via managedBy) its operational tables.
    - integration test: from-empty rebuild recreates the queue; drop removes it.

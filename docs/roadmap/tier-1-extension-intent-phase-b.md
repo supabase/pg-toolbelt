@@ -3,10 +3,10 @@
 - **Status**: 🔴 Net-new engineering, code plan ready, **blocked on a design
   decision** (the intent declarative-source format, Linear **CLI-1431**).
 - **The single biggest open engineering item.**
-- **Canonical code plan**: [`../extension-intent-phase-b-plan.md`](../extension-intent-phase-b-plan.md)
+- **Canonical code plan**: [`../extension-intent-phase-b-plan.md`](extension-intent-phase-b.md)
   — concrete files, contracts, sequencing, gotchas. *Do not duplicate it; this
   doc is the entry point + the decision that gates it.*
-- **Design context**: [`../extension-intent.md`](../extension-intent.md) (the
+- **Design context**: [`../extension-intent.md`](../architecture/extension-intent.md) (the
   *what* and *why*).
 - **Closes on completion**: CLI-1591 Deliverable B (partman `create_parent`),
   CLI-341 (pg_cron jobs), the schema-side of CLI-1385; depends on CLI-1430/1431.
@@ -41,7 +41,7 @@ exists (no pgmq / pg_cron handlers); no replay actions; no Phase B tests.
 ## The 4 implementation steps (from the canonical plan)
 
 Each is its own RED→GREEN commit. Summarized here; the **full contracts,
-signatures, and call sites are in [`../extension-intent-phase-b-plan.md`](../extension-intent-phase-b-plan.md) §3**.
+signatures, and call sites are in [`../extension-intent-phase-b-plan.md`](extension-intent-phase-b.md) §3**.
 
 1. **`extensionIntent` codec** — add
    `{ kind: "extensionIntent"; ext; intentKind; key }` to the `StableId` union +
@@ -111,7 +111,7 @@ PG15+17; `../extension-intent.md` §5 phase table updated (B → done).
 ## Cross-links
 
 - The 4 ❌ "needs-design" issues in
-  [`../pg-delta-next-linear-assessment.md`](../pg-delta-next-linear-assessment.md)
+  [`../pg-delta-next-linear-assessment.md`](../archive/linear-assessment.md)
   (CLI-1591 Deliverable B, CLI-1430, CLI-1431, the design half of CLI-1385) all
   collapse into this cluster. CLI-1555 ("don't drop partman partitions") is
   already **solved by Phase A** — that assessment entry is stale.

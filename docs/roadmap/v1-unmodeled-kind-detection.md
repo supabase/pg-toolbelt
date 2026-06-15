@@ -1,9 +1,21 @@
 # v1 correctness blocker — loud detection of unmodeled object kinds
 
-- **Status**: 🟠 Net-new engineering, ready to start. **The one true correctness
-  blocker for a v1 cut.**
+- **Status**: ✅ **SHIPPED.** `src/extract/unmodeled.ts` (`detectUnmodeledKinds`)
+  runs in `extractOnClient` and appends one `unmodeled_kind` warning per kind
+  found; the CLI surfaces it and `--strict-coverage` refuses to act on it (see
+  `src/cli/diagnostics.ts`). Tests: `tests/unmodeled-kinds.test.ts`,
+  `src/cli/diagnostics.test.ts`, the strict-coverage case in `tests/cli.test.ts`.
 - **One line**: the engine must never *silently* miss state — if a user-created
   object exists in a kind v1 doesn't model, the engine must say so, not omit it.
+
+> **As-implemented note (provenance filter).** The probe table below describes
+> the user-scope filter as "not extension-owned" + (originally) `pg_depend`
+> pin rows. The shipped filter uses **`oid >= FirstNormalObjectId` (16384)** to
+> exclude built-ins, NOT `pg_depend` deptype='p' pins — PostgreSQL 14 retired
+> those pin rows in favour of the OID cutoff, so the pin-based query would have
+> reported every built-in. (The `extension-member` anti-join, deptype='e', is
+> unchanged.) The provenance-aware test (`citext` extension → zero diagnostics)
+> caught this during RED→GREEN.
 
 ## The problem
 

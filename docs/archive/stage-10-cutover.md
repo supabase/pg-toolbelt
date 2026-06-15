@@ -1,6 +1,6 @@
 # Stage 10: Cutover at the Parity Bar
 
-> Part of the [north-star architecture](./target-architecture.md) (§9).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§9).
 > Depends on: everything. Gate: the parity bar itself.
 
 ## Goal

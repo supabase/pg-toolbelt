@@ -1,6 +1,6 @@
 # Stage 1: Identity Codec + Fact-Base Core
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.1).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.1).
 > Depends on: stage 0 (the package exists). Pure library code — no database,
 > no Docker. Gate: property tests for codec round-trip, rollup algebra, hash
 > stability.

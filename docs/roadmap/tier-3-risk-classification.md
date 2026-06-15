@@ -123,4 +123,4 @@ the GitLab Code Quality JSON shape (`description`, `severity`,
 
 - Supersedes the old engine's `packages/pg-delta/src/.../risk.ts`.
 - Lock content is already vetted in `packages/pg-delta-next/src/plan/locks.ts`.
-- Linear assessment: [`../pg-delta-next-linear-assessment.md`](../pg-delta-next-linear-assessment.md) §1 "substrate-ready" set.
+- Linear assessment: [`../pg-delta-next-linear-assessment.md`](../archive/linear-assessment.md) §1 "substrate-ready" set.

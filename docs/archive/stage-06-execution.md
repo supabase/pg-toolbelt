@@ -1,6 +1,6 @@
 # Stage 6: Execution + Plan Artifact v1
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.7–3.8).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.7–3.8).
 > Depends on: stage 5. Gate: end-to-end proof on the corpus including
 > segmented non-transactional actions.
 

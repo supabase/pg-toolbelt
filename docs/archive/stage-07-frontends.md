@@ -1,6 +1,6 @@
 # Stage 7: Frontends (shadow-DB SQL loader · snapshots)
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.2).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.2).
 > Depends on: stages 2, 6. Gate: declarative scenarios in the corpus;
 > loader rejection tests.
 

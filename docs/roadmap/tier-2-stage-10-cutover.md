@@ -4,7 +4,7 @@
   happened.** pg-delta-next is still a private clean-room build *behind* the old
   `packages/pg-delta` engine (which remains the shipped product and the
   differential oracle).
-- **Canonical plan**: [`../stage-10-cutover.md`](../stage-10-cutover.md) (states
+- **Canonical plan**: [`../stage-10-cutover.md`](../archive/stage-10-cutover.md) (states
   the bar and the product mechanics). *This doc operationalizes "how do we know
   each condition is met" with current status + the verification command.*
 

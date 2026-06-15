@@ -216,8 +216,17 @@ Item 3 (for 4b). **Effort/risk:** 4a small/low; **4b large/high** — recommend
 landing 4a immediately and scheduling 4b as its own gated effort (it may even
 be staged per extractor family).
 
-> **4a is shipped (`e605f83`); 4b is NOT started.** The detailed 4b migration
-> plan lives in its own section below ("Item 4b — dedicated migration plan").
+> **4a is shipped (`e605f83`). 4b is shipped for the common member-ROOT
+> families** (schemas, tables, sequences, views/matviews, routines, aggregates,
+> domains, enum/composite/range types, collations) — each observed with a
+> `memberOfExtension` edge and projected out by default, verified by the
+> `extension-member-parity` oracle. **Still filtered (documented, deferred):**
+> sub-entity families (columns, constraints, indexes, triggers, policies,
+> rewrite rules) and rare member-root kinds (FDW, server, foreign table, event
+> trigger, publication) keep their `notExtensionMember` anti-joins — a
+> regression-free limitation tracked in `COVERAGE.md` and
+> `docs/remaining-work/tier-4-deferrals.md`. The 4b migration plan lives in its
+> own section below ("Item 4b — dedicated migration plan").
 
 ### Item 5 — `commitBoundaryAfter` becomes an unconditional segment boundary  (review #6, **agree the concern; refine the fix**)
 

@@ -1,6 +1,6 @@
 # Stage 3: Proof Harness + Live Corpus
 
-> Part of the [north-star architecture](./target-architecture.md) (§3.7, §4.3).
+> Part of the [north-star architecture](../architecture/target-architecture.md) (§3.7, §4.3).
 > Depends on: stages 0–2. Guardrail 5: this stage lands **before** stage 5
 > (planner) starts. Gate: the harness proves extract → materialize →
 > re-extract fidelity over the corpus.
