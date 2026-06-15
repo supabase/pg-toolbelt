@@ -1,6 +1,6 @@
 /**
  * The single fact-level projection primitive behind the managed view
- * (docs/managed-view-architecture.md).
+ * (docs/architecture/managed-view-architecture.md).
  *
  * The engine diffs a *view* of the managed universe, never raw catalogs, and a
  * view is closed under the proof loop: a fact removed from one side is removed

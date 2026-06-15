@@ -27,6 +27,7 @@ import { loadSqlFiles } from "../../frontends/load-sql-files.ts";
 import { plan } from "../../plan/plan.ts";
 import { apply } from "../../apply/apply.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import type { RenameMode } from "../../plan/renames.ts";
@@ -61,11 +62,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
       source: { type: "value", required: true },
       "out-dir": { type: "value", required: true },
       layout: { type: "value" },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> [--layout ordered]\n`,
+        `${err.message}\nUsage: pg-delta-next schema export --source <pg-url> --out-dir <dir> [--layout ordered] [--strict-coverage]\n`,
       );
       process.exit(2);
     }
@@ -90,7 +92,12 @@ export async function cmdSchemaExport(args: string[]): Promise<void> {
   const src = makePool(sourceUrl);
   try {
     process.stderr.write("Extracting...\n");
-    const { factBase } = await extract(src.pool);
+    const { factBase, diagnostics } = await extract(src.pool);
+    printDiagnostics(diagnostics);
+    exitIfBlocking(diagnostics, {
+      strictCoverage: flags["strict-coverage"],
+      action: "export",
+    });
     const files = exportSqlFiles(factBase, { layout });
 
     for (const file of files) {
@@ -116,12 +123,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       renames: { type: "value" },
       force: { type: "boolean" },
       "accept-rename": { type: "multi" },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
         `${err.message}\nUsage: pg-delta-next schema apply --dir <dir> --shadow <pg-url> --target <pg-url> ` +
-          `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ...\n`,
+          `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... [--strict-coverage]\n`,
       );
       process.exit(2);
     }
@@ -186,6 +194,15 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
     process.stderr.write(
       `  Target: ${targetResult.factBase.facts().length} facts\n`,
     );
+
+    // surface loader + target extraction diagnostics; --strict-coverage refuses
+    // to apply while user objects the engine cannot manage exist (finding 2)
+    printDiagnostics(loadResult.diagnostics, { label: "shadow" });
+    printDiagnostics(targetResult.diagnostics, { label: "target" });
+    exitIfBlocking([...loadResult.diagnostics, ...targetResult.diagnostics], {
+      strictCoverage: flags["strict-coverage"],
+      action: "apply",
+    });
 
     const planOptions =
       acceptRenames.length > 0 ? { renames, acceptRenames } : { renames };

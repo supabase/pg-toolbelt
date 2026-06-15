@@ -1,7 +1,7 @@
 # @supabase/pg-delta-next
 
-Clean-room rebuild of pg-delta per [`docs/target-architecture.md`](../../docs/target-architecture.md)
-and the stage guides (`docs/stage-00` … `stage-10`). **Working name** —
+Clean-room rebuild of pg-delta per [`docs/architecture/target-architecture.md`](../../docs/architecture/target-architecture.md)
+and the stage guides (`docs/archive/stage-00` … `stage-10`). **Working name** —
 final naming is a stage-10 product decision. Private until the cutover
 parity bar.
 
@@ -140,7 +140,7 @@ bun scripts/benchmark.ts                                # timing numbers
 
 ## Guardrails
 
-See `docs/target-architecture.md` §10. The ones most often relevant here:
+See `docs/architecture/target-architecture.md` §10. The ones most often relevant here:
 no SQL parsing in the trusted path; no per-kind code outside the rule
 table; a cycle is a rule bug (there is no breaker module, ever); never
 assert SQL bytes in tests — assert state, data survival, or action shape.

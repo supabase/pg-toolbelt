@@ -581,7 +581,7 @@ export const RULES: Record<string, KindRules> = {
     // (pg_extension.extrelocatable), not a serialize param: a relocatable
     // extension honours `SCHEMA <s>` and must be ordered after that schema; a
     // non-relocatable extension creates its own schema, so it emits a bare
-    // CREATE EXTENSION and requires no schema. See docs/managed-view-architecture.md.
+    // CREATE EXTENSION and requires no schema. See docs/architecture/managed-view-architecture.md.
     create: (fact) => [
       p(fact, "relocatable") === true
         ? {

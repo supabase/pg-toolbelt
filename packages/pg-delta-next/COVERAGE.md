@@ -23,7 +23,7 @@ prunes the edge so the object is created applier-owned — no `skipAuthorization
 param. The `CREATE EXTENSION … SCHEMA` clause is likewise derived from the
 extension's `relocatable` fact, not a `skipSchema` param. The only serialize
 param is `concurrentIndexes` (an apply-time strategy). See
-[`../../docs/managed-view-architecture.md`](../../docs/managed-view-architecture.md).
+[`../../docs/architecture/managed-view-architecture.md`](../../docs/architecture/managed-view-architecture.md).
 
 ## Sub-entity facts (granularity is one, §3.1)
 
@@ -68,16 +68,26 @@ that would fail at apply.
   corpus stays on stock `postgres:*-alpine` (label catalogs are empty there, so
   it is unaffected); a CI prebuild of the image is a possible follow-up.
 
-## Not modeled (deliberate)
+## Not modeled (deliberate) — but DETECTED, never silently missed
+
+These kinds are not modeled, but a user-created object of one of them is no
+longer invisible: `extract()` runs a provenance-aware **catalog completeness
+check** (`src/extract/unmodeled.ts`) that emits an `unmodeled_kind` diagnostic
+naming each kind found, and the CLI's `--strict-coverage` refuses to plan while
+any exist. Built-in (OID < `FirstNormalObjectId`) and extension-owned objects
+are excluded — only genuine user state is reported. So the exclusions below are
+*enforced and visible*, not a silent gap (review finding 1).
 
 - **Languages** (`pg_language`) — the `language` StableId kind is reserved in
   the codec but not extracted; user-defined languages are rare and the
   built-ins (`sql`, `plpgsql`, `c`, `internal`) are not user state. Add a
   `language` extractor + rule when a real need appears.
-- **Large objects, FTS configs/dictionaries/parsers/templates, operator
-  classes/families as first-class facts, casts, transforms, statistics
-  objects** — out of v1 scope; none are modeled. Extension-provided variants
-  are filtered at extract time (see below).
+- **FTS configs/dictionaries/parsers/templates, operator classes/families as
+  first-class facts, casts, transforms, statistics objects** — out of v1 scope;
+  none are modeled, all are detected. Extension-provided variants are filtered
+  at extract time (see below).
+- **Large objects** — out of v1 scope; not modeled and (as data state rather
+  than schema DDL) not part of the unmodeled-kind schema check.
 - **Sequence `last_value`** — runtime state, not desired schema state
   (matches every comparable tool). Never extracted.
 - **Extension version** — excluded from the `extension` payload (a managed

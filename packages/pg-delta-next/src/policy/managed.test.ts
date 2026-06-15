@@ -2,7 +2,7 @@
  * Unit tests for managed-object exclusion (src/policy/managed.ts).
  * No Docker / database required.
  *
- * Stateful-extension intent, Deliverable A (docs/extension-intent.md §4.3):
+ * Stateful-extension intent, Deliverable A (docs/architecture/extension-intent.md §4.3):
  * objects an extension created operationally (pg_partman child partitions,
  * pgmq queue tables) carry a `managedBy` edge and must be excluded from the
  * schema fact base on BOTH sides — never diffed, so the plan never drops them

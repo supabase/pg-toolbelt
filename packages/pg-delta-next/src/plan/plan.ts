@@ -57,8 +57,12 @@ export interface Action {
     | "commitBoundaryAfter";
   /** documented lock level of this DDL form — reported, never certified */
   lockClass: LockClass;
-  /** executor must COMMIT the current segment before this action (placed
-   *  between a commitBoundaryAfter action and its first consumer) */
+  /** forces a COMMIT before this action. Set on the first consumer of a
+   *  commitBoundaryAfter action; consumed BOTH by apply (a segment boundary —
+   *  now belt-and-suspenders, since apply also closes the segment
+   *  unconditionally after a commitBoundaryAfter action, review #6) AND by
+   *  compaction, which must not fold a clause across this boundary
+   *  (internal.ts). The latter is its load-bearing role today. */
   newSegmentBefore: boolean;
   dataLoss: "none" | "destructive";
   rewriteRisk: boolean;
@@ -105,9 +109,16 @@ export interface PlanOptions {
    *  names are a plan-time error (stage 8 wires policies here) */
   params?: PlanParams;
   /** policy (§3.9): filters which deltas this plan manages and supplies
-   *  serialize parameters; baseline subtraction happens before plan() —
-   *  see subtractBaseline */
+   *  serialize parameters. If the policy DECLARES a baseline, the resolved
+   *  baseline FactBase must be passed as `baseline` below — plan() refuses an
+   *  unresolved declared baseline rather than silently ignoring it. */
   policy?: Policy;
+  /** resolved platform baseline (§3.9): facts present-and-identical here are
+   *  subtracted from both sides before diffing, so platform-managed objects are
+   *  invisible. Resolve a policy's declared baseline NAME into this FactBase
+   *  with `resolveBaseline(policy, { pgMajor })`. plan() stays pure — it
+   *  subtracts a provided FactBase, never reads a file. */
+  baseline?: FactBase;
   /** rename detection (§4.1, stage 9). "auto" applies unambiguous
    *  candidates; "prompt" reports candidates and applies only those in
    *  acceptRenames; "off" (default) preserves drop+create. */
@@ -148,13 +159,38 @@ export function plan(
   options?: PlanOptions,
 ): Plan {
   if (options?.policy) validatePolicy(options.policy);
-  // the managed VIEW the engine diffs (docs/managed-view-architecture.md): the
-  // policy's scope (non-`verb`) rules + extension-member provenance are
-  // projected out at the FACT level on BOTH sides, so the proof stays honest by
-  // construction. `verb` rules remain for the delta-level filter below. With no
-  // policy this is exactly `excludeExtensionMembers`, so the corpus is unchanged.
-  source = resolveView(source, options?.policy, options?.capability);
-  desired = resolveView(desired, options?.policy, options?.capability);
+  // a declared baseline must NEVER be silently ignored (review finding 3): if
+  // the policy names a baseline, the caller must resolve it (resolveBaseline)
+  // and pass it as options.baseline. Refuse otherwise — at every entry point.
+  if (
+    options?.policy?.baseline !== undefined &&
+    options.baseline === undefined
+  ) {
+    throw new Error(
+      `plan: policy "${options.policy.id}" declares baseline "${options.policy.baseline}" ` +
+        `but no resolved baseline was provided. Resolve it with ` +
+        `resolveBaseline(policy, { pgMajor }) and pass it as options.baseline, so ` +
+        `platform facts are actually subtracted — a declared baseline is never silently ignored.`,
+    );
+  }
+  // the managed VIEW the engine diffs (docs/architecture/managed-view-architecture.md): the
+  // platform baseline is subtracted, then the policy's scope (non-`verb`) rules
+  // + extension-member provenance are projected out at the FACT level on BOTH
+  // sides, so the proof stays honest by construction. `verb` rules remain for
+  // the delta-level filter below. With no policy/baseline this is exactly
+  // `excludeExtensionMembers`, so the corpus is unchanged.
+  source = resolveView(
+    source,
+    options?.policy,
+    options?.capability,
+    options?.baseline,
+  );
+  desired = resolveView(
+    desired,
+    options?.policy,
+    options?.capability,
+    options?.baseline,
+  );
   const params: PlanParams = options?.params ?? {};
   for (const name of Object.keys(params)) {
     if (!KNOWN_PARAMS.has(name)) {
@@ -655,9 +691,15 @@ export function plan(
     (i) => (actions[i] as Action).sql,
   );
 
-  // ── segment boundaries for commitBoundaryAfter actions (§3.8) ─────────
-  // a boundary goes before the FIRST graph successor of each such action;
-  // all other successors are topologically later, so one commit suffices
+  // ── compaction/segment boundary for commitBoundaryAfter actions (§3.8) ──
+  // Mark the FIRST graph successor of each commitBoundaryAfter action with
+  // newSegmentBefore. apply.ts ALREADY closes the transactional segment
+  // unconditionally after a commitBoundaryAfter action (review #6), so this
+  // flag is redundant for APPLY correctness; its load-bearing role now is
+  // COMPACTION PROTECTION — internal.ts refuses to fold a clause into a CREATE
+  // across a newSegmentBefore boundary, so the consumer cannot be merged back
+  // before the commit. Do NOT remove: this loop is the sole producer of
+  // newSegmentBefore.
   const positionOf = Array.from({ length: actions.length }, () => 0);
   order.forEach((actionIndex, position) => {
     positionOf[actionIndex] = position;

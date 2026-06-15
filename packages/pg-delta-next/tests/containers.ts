@@ -15,7 +15,7 @@ import pg from "pg";
 const PG_IMAGE = process.env["PGDELTA_TEST_IMAGE"] ?? "postgres:17-alpine";
 
 /** Supabase image (ships pg_partman / pgmq / pg_cron) for extension-intent
- *  integration tests (docs/extension-intent.md). */
+ *  integration tests (docs/architecture/extension-intent.md). */
 const SUPABASE_IMAGE =
   process.env["PGDELTA_SUPABASE_TEST_IMAGE"] ?? "supabase/postgres:17.6.1.135";
 

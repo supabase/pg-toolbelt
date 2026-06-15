@@ -197,6 +197,53 @@ describe("CLI: plan", () => {
   }, 60_000);
 });
 
+describe("CLI: strict coverage (unmodeled-kind surfacing)", () => {
+  // a user CAST is a kind the engine does not model — it must be surfaced, and
+  // --strict-coverage must refuse to plan rather than silently omit it.
+  const UNMODELED_DDL = `
+    CREATE DOMAIN clipostal AS text;
+    CREATE FUNCTION clipostal_to_int(clipostal) RETURNS integer
+      LANGUAGE sql IMMUTABLE AS 'SELECT length($1)';
+    CREATE CAST (clipostal AS integer) WITH FUNCTION clipostal_to_int(clipostal);
+  `;
+
+  test("plan surfaces the unmodeled warning; --strict-coverage refuses to plan", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("cli_strict_src");
+    const desired = await cluster.createDb("cli_strict_dst");
+    try {
+      await desired.pool.query(UNMODELED_DDL);
+
+      // default: the warning is surfaced on stderr but the plan still succeeds
+      const warn = await runCli([
+        "plan",
+        "--source",
+        source.uri,
+        "--desired",
+        desired.uri,
+      ]);
+      expect(warn.exitCode).toBe(0);
+      expect(warn.stderr).toContain("unmodeled");
+      expect(warn.stderr).toContain("cast");
+
+      // strict: refuses to plan, exits non-zero, names the reason
+      const strict = await runCli([
+        "plan",
+        "--source",
+        source.uri,
+        "--desired",
+        desired.uri,
+        "--strict-coverage",
+      ]);
+      expect(strict.exitCode).toBe(3);
+      expect(strict.stderr).toContain("unmodeled");
+      expect(strict.stderr.toLowerCase()).toContain("strict-coverage");
+    } finally {
+      await Promise.all([source.drop(), desired.drop()]);
+    }
+  }, 90_000);
+});
+
 describe("CLI: schema export", () => {
   test("schema export writes files to disk including schemas/<s>/tables/<t>.sql", async () => {
     const cluster = await sharedCluster();

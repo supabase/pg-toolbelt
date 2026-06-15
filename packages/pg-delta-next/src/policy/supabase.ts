@@ -70,7 +70,7 @@
  *         → REMOVED. The SCHEMA clause is now derived from the extension's
  *         `relocatable` fact (pg_extension.extrelocatable): a non-relocatable
  *         extension emits a bare CREATE EXTENSION. No name list, not
- *         Supabase-specific. See docs/managed-view-architecture.md (move 2).
+ *         Supabase-specific. See docs/architecture/managed-view-architecture.md (move 2).
  *
  * BASELINE
  * The baseline field names the snapshot that represents "empty" on a Supabase
@@ -146,14 +146,17 @@ export const SUPABASE_SYSTEM_ROLES = [
 export const supabasePolicy: Policy = {
   id: "supabase",
 
-  /**
-   * The baseline field names the snapshot that represents "empty" on a
-   * Supabase platform instance. Facts present-and-identical in the baseline
-   * are subtracted before diffing (via subtractBaseline), so platform-managed
-   * objects are invisible without requiring explicit filter rules for each one.
-   * Regenerate with: bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
-   */
-  baseline: "supabase-baseline",
+  // baseline (intentionally UNSET in v1): a baseline names the snapshot that
+  // represents "empty" on a Supabase instance; facts present-and-identical in
+  // it are subtracted before diffing (resolveBaseline → plan options.baseline),
+  // so platform-managed objects are invisible without a filter rule per object.
+  // No Supabase baseline snapshot is committed yet (a separate v1 validation
+  // item), so this policy does NOT declare one — a declared-but-unresolved
+  // baseline now fail-fasts (review finding 3) rather than being silently
+  // ignored. The `filter` rules below already hide platform objects; when the
+  // baseline snapshot lands, re-add `baseline: "supabase-baseline"` here and
+  // resolveBaseline will subtract it. Generate with:
+  //   bun run scripts/generate-supabase-baseline.ts <db-url> <pg-major>
 
   serialize: [
     // Old-13 (REMOVED): the skipAuthorization serialize rule is no longer needed.
@@ -161,13 +164,13 @@ export const supabasePolicy: Policy = {
     // is excluded from the view, the owner edge is pruned by buildFactBase before
     // diffing — so no owner edge exists → no ALTER SCHEMA … OWNER TO is emitted
     // → CREATE SCHEMA renders without AUTHORIZATION by construction, not via param.
-    // See docs/managed-view-architecture.md (move 2).
+    // See docs/architecture/managed-view-architecture.md (move 2).
     //
     // Old-14 (REMOVED): the SCHEMA clause is now derived from the extension's
     // `relocatable` fact (pg_extension.extrelocatable) in the extension rule —
     // a non-relocatable extension (pgmq / pgsodium / pgtle) emits a bare
     // CREATE EXTENSION with no name list and nothing Supabase-specific.
-    // See docs/managed-view-architecture.md (move 2).
+    // See docs/architecture/managed-view-architecture.md (move 2).
   ],
 
   filter: [
@@ -321,7 +324,7 @@ export const supabasePolicy: Policy = {
     // whereas capability depends on every caller supplying it. Capability is
     // the general mechanism (any non-superuser applier, any policy); this rule
     // is the Supabase policy's unconditional belt-and-suspenders. See
-    // docs/managed-view-architecture.md (follow-up 2).
+    // docs/architecture/managed-view-architecture.md (follow-up 2).
     {
       match: {
         all: [{ kind: "acl" }, { target: { kind: "fdw" } }],

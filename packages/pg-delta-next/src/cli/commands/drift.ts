@@ -8,6 +8,7 @@ import { diff } from "../../core/diff.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { extract } from "../../extract/extract.ts";
 import { loadSnapshot } from "../../frontends/snapshot-file.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 
@@ -17,11 +18,12 @@ export async function cmdDrift(args: string[]): Promise<void> {
     parsed = parseFlags(args, {
       env: { type: "value", required: true },
       snapshot: { type: "value", required: true },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file>\n`,
+        `${err.message}\nUsage: pg-delta-next drift --env <pg-url> --snapshot <file> [--strict-coverage]\n`,
       );
       process.exit(2);
     }
@@ -41,9 +43,16 @@ export async function cmdDrift(args: string[]): Promise<void> {
     );
 
     process.stderr.write("Extracting live environment...\n");
-    const { factBase: liveFb, pgVersion: livePgVersion } = await extract(
-      env.pool,
-    );
+    const {
+      factBase: liveFb,
+      pgVersion: livePgVersion,
+      diagnostics,
+    } = await extract(env.pool);
+    printDiagnostics(diagnostics);
+    exitIfBlocking(diagnostics, {
+      strictCoverage: flags["strict-coverage"],
+      action: "report drift",
+    });
     process.stderr.write(
       `Live: ${liveFb.facts().length} facts (pg ${livePgVersion})\n`,
     );

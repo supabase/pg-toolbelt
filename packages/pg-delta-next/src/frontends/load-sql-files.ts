@@ -48,10 +48,12 @@ function isNonTransactional(error: unknown): boolean {
  * Apply one file's SQL inside an EXPLICIT transaction (hardening Item 6 /
  * review #5), so a mid-file failure leaves NO partial state and the file can be
  * cleanly retried in a later round — instead of relying on PostgreSQL's
- * implicit multi-statement-query transaction. A statement that cannot run in a
- * transaction block (e.g. CREATE INDEX CONCURRENTLY) is re-run RAW on the
- * throwaway shadow, detected by effect (SQLSTATE 25001); its real error, if
- * any, still surfaces to the caller.
+ * implicit multi-statement-query transaction. This guarantee holds because
+ * `loadSqlFiles` first rejects any file that manages its own transaction
+ * (findTransactionControl), so the file cannot COMMIT partway through. A
+ * statement that cannot run in a transaction block (e.g. CREATE INDEX
+ * CONCURRENTLY) is re-run RAW on the throwaway shadow, detected by effect
+ * (SQLSTATE 25001); its real error, if any, still surfaces to the caller.
  */
 async function applyFile(client: PoolClient, sql: string): Promise<void> {
   try {
@@ -66,6 +68,122 @@ async function applyFile(client: PoolClient, sql: string): Promise<void> {
     }
     throw error;
   }
+}
+
+/**
+ * Blank out comments and string/identifier/dollar-quoted literals, replacing
+ * their contents (and any `;` inside them) with spaces so the remaining "code
+ * skeleton" can be scanned for statement-level keywords without a SQL grammar.
+ * This is literal masking, not dependency parsing — it does not violate the
+ * parser-free / "Postgres is the elaborator" principle.
+ */
+function maskLiteralsAndComments(sql: string): string {
+  const out: string[] = [];
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const c = sql[i] as string;
+    const next = sql[i + 1];
+    // line comment
+    if (c === "-" && next === "-") {
+      while (i < n && sql[i] !== "\n") i++;
+      continue;
+    }
+    // block comment (nested, as in PostgreSQL)
+    if (c === "/" && next === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") {
+          depth++;
+          i += 2;
+        } else if (sql[i] === "*" && sql[i + 1] === "/") {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+      out.push(" ");
+      continue;
+    }
+    // single-quoted string ('' is an escaped quote)
+    if (c === "'") {
+      i++;
+      while (i < n) {
+        if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
+        else if (sql[i] === "'") {
+          i++;
+          break;
+        } else i++;
+      }
+      out.push(" ");
+      continue;
+    }
+    // double-quoted identifier ("" is an escaped quote)
+    if (c === '"') {
+      i++;
+      while (i < n) {
+        if (sql[i] === '"' && sql[i + 1] === '"') i += 2;
+        else if (sql[i] === '"') {
+          i++;
+          break;
+        } else i++;
+      }
+      out.push(" ");
+      continue;
+    }
+    // dollar-quoted string: $tag$ ... $tag$ (tag may be empty)
+    if (c === "$") {
+      const tagMatch = /^\$[A-Za-z_]?[A-Za-z0-9_]*\$/.exec(sql.slice(i));
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        const end = sql.indexOf(tag, i + tag.length);
+        i = end === -1 ? n : end + tag.length;
+        out.push(" ");
+        continue;
+      }
+    }
+    out.push(c);
+    i++;
+  }
+  return out.join("");
+}
+
+/** Statement-leading transaction-control forms. `BEGIN ATOMIC` (a PG14+ SQL
+ *  function body) is explicitly NOT transaction control. */
+const TXN_CONTROL_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
+  { re: /^start\s+transaction\b/i, label: "START TRANSACTION" },
+  { re: /^prepare\s+transaction\b/i, label: "PREPARE TRANSACTION" },
+  { re: /^begin(?!\s+atomic\b)\b/i, label: "BEGIN" },
+  { re: /^commit\b/i, label: "COMMIT" },
+  { re: /^rollback\b/i, label: "ROLLBACK" },
+  { re: /^abort\b/i, label: "ABORT" },
+  { re: /^end\s+(work|transaction)\b/i, label: "END TRANSACTION" },
+  { re: /^savepoint\b/i, label: "SAVEPOINT" },
+  { re: /^release\b/i, label: "RELEASE" },
+];
+
+/**
+ * Return the transaction-control statement labels found at STATEMENT LEVEL in a
+ * SQL file (empty when clean). The loader rejects any non-empty result: a
+ * declarative file must not manage its own transaction, or it could commit
+ * partial DDL before a later statement fails (review finding 6). Keywords
+ * appearing inside comments, string/dollar-quoted literals, or PG14+
+ * `BEGIN ATOMIC` bodies are NOT flagged.
+ */
+export function findTransactionControl(sql: string): string[] {
+  const skeleton = maskLiteralsAndComments(sql);
+  const found: string[] = [];
+  for (const raw of skeleton.split(";")) {
+    const stmt = raw.trim();
+    if (stmt === "") continue;
+    for (const { re, label } of TXN_CONTROL_RULES) {
+      if (re.test(stmt)) {
+        found.push(label);
+        break;
+      }
+    }
+  }
+  return found;
 }
 
 export interface SqlFile {
@@ -120,6 +238,27 @@ export async function loadSqlFiles(
       AND n.nspname NOT LIKE 'pg\\_%'`);
   if ((preexisting.rows[0] as { n: number }).n > 0) {
     throw new ShadowLoadError("shadow database is not empty", []);
+  }
+
+  // reject files that manage their own transaction (review finding 6): an
+  // explicit COMMIT/BEGIN/SAVEPOINT/… would break the per-file atomic wrapper
+  // below, letting partial DDL commit before a later statement fails.
+  const txnControlDiags: Diagnostic[] = [];
+  for (const file of files) {
+    const offenders = findTransactionControl(file.sql);
+    if (offenders.length > 0) {
+      txnControlDiags.push({
+        code: "transaction_control",
+        severity: "error",
+        message: `${file.name}: declarative SQL must not contain transaction-control statements (found: ${[...new Set(offenders)].join(", ")})`,
+      });
+    }
+  }
+  if (txnControlDiags.length > 0) {
+    throw new ShadowLoadError(
+      `declarative files must not manage transactions — ${txnControlDiags.length} file(s) contain transaction-control statements`,
+      txnControlDiags,
+    );
   }
 
   // snapshot pg_roles + pg_auth_members before loading (databaseScratch only)

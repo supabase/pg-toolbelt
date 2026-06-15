@@ -2,7 +2,7 @@
  * Unit tests for extension-member exclusion (src/policy/extension-members.ts).
  * No Docker / database required.
  *
- * 4b (docs/pg-delta-next-hardening-plan.md, "Item 4b — provenance flip"):
+ * 4b (docs/archive/hardening-plan.md, "Item 4b — provenance flip"):
  * objects an extension OWNS (pgmq `q_*` queue tables, pg_cron's `cron.job`,
  * a contrib's functions) are observed at extraction as facts carrying a
  * `memberOfExtension` edge — "provenance is data" (§3.1) — and then projected

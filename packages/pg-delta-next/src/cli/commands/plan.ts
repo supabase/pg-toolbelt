@@ -20,6 +20,7 @@ import { plan } from "../../plan/plan.ts";
 import { serializePlan } from "../../plan/artifact.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { probeApplierCapability } from "../../policy/capability.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import type { RenameMode } from "../../plan/renames.ts";
@@ -28,7 +29,7 @@ import { writeFileSync } from "node:fs";
 const USAGE =
   "Usage: pg-delta-next plan --source <pg-url> --desired <pg-url> " +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
-  "[--accept-rename <from>=<to>] ... [--restrict-to-applier]\n";
+  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage]\n";
 
 export async function cmdPlan(args: string[]): Promise<void> {
   let parsed;
@@ -41,6 +42,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       out: { type: "value" },
       "accept-rename": { type: "multi" },
       "restrict-to-applier": { type: "boolean" },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -101,6 +103,18 @@ export async function cmdPlan(args: string[]): Promise<void> {
       extract(src.pool),
       extract(dst.pool),
     ]);
+
+    // surface extraction diagnostics (review finding 2); --strict-coverage
+    // refuses to plan while user objects the engine cannot manage exist
+    printDiagnostics(sourceResult.diagnostics, { label: "source" });
+    printDiagnostics(desiredResult.diagnostics, { label: "desired" });
+    exitIfBlocking(
+      [...sourceResult.diagnostics, ...desiredResult.diagnostics],
+      {
+        strictCoverage: flags["strict-coverage"],
+        action: "plan",
+      },
+    );
 
     // --restrict-to-applier: probe the SOURCE connection's capability (the
     // source is the apply target) and restrict the plan to what that role can

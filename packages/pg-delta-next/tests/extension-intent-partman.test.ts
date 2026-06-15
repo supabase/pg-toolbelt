@@ -1,6 +1,6 @@
 /**
  * Extension-intent Deliverable A, end-to-end against a real pg_partman DB
- * (docs/extension-intent.md §3.3, §4.3; CLI-1555 / CLI-1591).
+ * (docs/architecture/extension-intent.md §3.3, §4.3; CLI-1555 / CLI-1591).
  *
  * Reproduces the destructive bug — a declarative diff DROPs the partman child
  * partitions — and proves the pg_partman handler + `excludeManaged` stop it,

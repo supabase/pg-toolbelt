@@ -28,6 +28,7 @@ import {
 } from "../core/fact.ts";
 
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import { detectUnmodeledKinds } from "./unmodeled.ts";
 
 export interface ExtractResult {
   factBase: FactBase;
@@ -1836,5 +1837,8 @@ async function extractOnClient(
   const factBase = buildFactBase(pruned.facts, edges, source);
   // dangling edges (e.g. references to unextracted kinds) become diagnostics
   diagnostics.push(...factBase.diagnostics);
+  // catalog completeness: user objects in kinds we don't model are reported,
+  // never silently missed (review finding 1). Same snapshot, one round-trip.
+  diagnostics.push(...(await detectUnmodeledKinds(client)));
   return { factBase, pgVersion, diagnostics };
 }

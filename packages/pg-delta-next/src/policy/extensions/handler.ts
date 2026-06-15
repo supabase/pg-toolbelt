@@ -1,5 +1,5 @@
 /**
- * Extension handlers (docs/extension-intent.md §4.1).
+ * Extension handlers (docs/architecture/extension-intent.md §4.1).
  *
  * A handler is a data package that teaches the integration layer about ONE
  * stateful extension (pg_partman, pgmq, pg_cron, …). It reads the extension's

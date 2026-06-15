@@ -1,7 +1,7 @@
 /**
  * The `CREATE EXTENSION … SCHEMA` clause is derived from the extension's
  * `relocatable` fact (pg_extension.extrelocatable), not a `skipSchema` serialize
- * param (docs/managed-view-architecture.md, move 2). Two real-database proofs:
+ * param (docs/architecture/managed-view-architecture.md, move 2). Two real-database proofs:
  *
  *  A. a relocatable extension (hstore, stock alpine) extracts relocatable=true
  *     and roundtrips WITH a SCHEMA clause.

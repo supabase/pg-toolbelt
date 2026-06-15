@@ -1,5 +1,5 @@
 /**
- * Integration-aware extraction (docs/extension-intent.md §2, §4.1).
+ * Integration-aware extraction (docs/architecture/extension-intent.md §2, §4.1).
  *
  * `extractWithHandlers` = core `extract()` (pg_catalog only — stays pure) PLUS
  * the registered extension handlers' captures, merged into ONE fact base under
@@ -67,7 +67,7 @@ export async function extractWithHandlers(
 /**
  * Integration extraction for diffing AND for the proof re-extract: core +
  * handlers, then `excludeManaged` so operationally-created objects are gone on
- * BOTH sides and in the proof clone (docs/extension-intent.md §4.3, §6). Use
+ * BOTH sides and in the proof clone (docs/architecture/extension-intent.md §4.3, §6). Use
  * this — not bare `extract` — wherever a managed-extension integration is
  * active, including as `provePlan`'s `reextract`, so the proof stays
  * consistent (the plan you prove == the plan you run == the data-preserving

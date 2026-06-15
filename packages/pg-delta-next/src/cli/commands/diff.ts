@@ -5,6 +5,7 @@
 import { diff } from "../../core/diff.ts";
 import { encodeId } from "../../core/stable-id.ts";
 import { extract } from "../../extract/extract.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 import type { Delta } from "../../core/diff.ts";
@@ -41,11 +42,12 @@ export async function cmdDiff(args: string[]): Promise<void> {
     parsed = parseFlags(args, {
       source: { type: "value", required: true },
       desired: { type: "value", required: true },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next diff --source <pg-url> --desired <pg-url>\n`,
+        `${err.message}\nUsage: pg-delta-next diff --source <pg-url> --desired <pg-url> [--strict-coverage]\n`,
       );
       process.exit(2);
     }
@@ -65,6 +67,16 @@ export async function cmdDiff(args: string[]): Promise<void> {
       extract(dst.pool),
     ]);
     process.stderr.write("Extracting desired...\n");
+
+    printDiagnostics(sourceResult.diagnostics, { label: "source" });
+    printDiagnostics(desiredResult.diagnostics, { label: "desired" });
+    exitIfBlocking(
+      [...sourceResult.diagnostics, ...desiredResult.diagnostics],
+      {
+        strictCoverage: flags["strict-coverage"],
+        action: "diff",
+      },
+    );
 
     const deltas = diff(sourceResult.factBase, desiredResult.factBase);
 

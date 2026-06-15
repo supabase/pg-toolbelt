@@ -5,7 +5,10 @@
  * statement (CREATE INDEX CONCURRENTLY) still loads via a raw fallback.
  */
 import { describe, expect, test } from "bun:test";
-import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
+import {
+  loadSqlFiles,
+  ShadowLoadError,
+} from "../src/frontends/load-sql-files.ts";
 import { createTestDb } from "./containers.ts";
 
 describe("loadSqlFiles — per-file transactional apply", () => {
@@ -40,6 +43,42 @@ describe("loadSqlFiles — per-file transactional apply", () => {
       expect(
         result.factBase.has({ kind: "table", schema: "public", name: "b" }),
       ).toBe(true);
+    } finally {
+      await shadow.drop();
+    }
+  }, 60_000);
+
+  test("a file with an explicit COMMIT is rejected before any DDL is applied", async () => {
+    const shadow = await createTestDb("shadow_txn_control");
+    try {
+      // The COMMIT would end the loader's per-file transaction early, letting
+      // table a commit before the (failing) reference to a nonexistent table.
+      // The loader must refuse the file outright, leaving the shadow untouched.
+      let error: unknown;
+      try {
+        await loadSqlFiles(
+          [
+            {
+              name: "1_bad.sql",
+              sql: `CREATE TABLE public.a (id integer PRIMARY KEY);
+                    COMMIT;
+                    CREATE TABLE public.b (id integer REFERENCES public.missing);`,
+            },
+          ],
+          shadow.pool,
+        );
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(ShadowLoadError);
+
+      // nothing was applied — the shadow is still empty
+      const { rows } = await shadow.pool.query(
+        `SELECT count(*)::int AS n FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relkind = 'r'`,
+      );
+      expect((rows[0] as { n: number }).n).toBe(0);
     } finally {
       await shadow.drop();
     }

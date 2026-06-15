@@ -59,9 +59,13 @@ describe("extract: fixture ring", () => {
   const fb = () => result.factBase;
 
   test("schema, table, and column facts exist with normalized payloads", () => {
-    expect(fb().get({ kind: "schema", name: "app" })?.payload["owner"]).toBe(
-      "test",
+    // ownership is an `owner` EDGE (object --owner--> role), not a payload field
+    // (managed-view move 2); the schema "app" is owned by the connection role.
+    expect(fb().has({ kind: "schema", name: "app" })).toBe(true);
+    const schemaOwnerEdge = fb().edges.find(
+      (e) => e.kind === "owner" && encodeId(e.from) === "schema:app",
     );
+    expect(schemaOwnerEdge?.to).toEqual({ kind: "role", name: "test" });
     const table = fb().get({ kind: "table", schema: "app", name: "users" });
     expect(table?.payload).toMatchObject({
       persistence: "p",

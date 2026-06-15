@@ -1,5 +1,5 @@
 /**
- * Applier-capability-restricted view (docs/managed-view-architecture.md move 6).
+ * Applier-capability-restricted view (docs/architecture/managed-view-architecture.md move 6).
  *
  * The managed view is a function of (facts, policy, applier capability). An
  * operation the applier cannot execute is projected out — currently FDW ACLs,

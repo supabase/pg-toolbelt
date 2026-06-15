@@ -1,5 +1,5 @@
 /**
- * resolveView (docs/managed-view-architecture.md move 3): the policy's
+ * resolveView (docs/architecture/managed-view-architecture.md move 3): the policy's
  * non-`verb` scope rules are applied as a FACT-LEVEL projection (both sides +
  * proof reextract), so the proof stays honest by construction. First-match-wins
  * is respected, including the safety case where an operation (`verb`) include

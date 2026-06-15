@@ -1,6 +1,6 @@
 /**
  * The `CREATE EXTENSION … SCHEMA` clause is derived from the extension's
- * `relocatable` fact field (docs/managed-view-architecture.md, move 2), NOT a
+ * `relocatable` fact field (docs/architecture/managed-view-architecture.md, move 2), NOT a
  * `skipSchema` serialize param. A relocatable extension honours a SCHEMA clause
  * (and must be ordered after that schema); a non-relocatable extension creates
  * its own schema, so it neither emits SCHEMA nor requires the schema to exist.

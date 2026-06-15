@@ -15,7 +15,9 @@
  * here instead).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   buildFactBase,
   type DependencyEdge,
@@ -114,4 +116,42 @@ export function subtractBaseline(fb: FactBase, baseline: FactBase): FactBase {
 export function loadBaseline(path: string): FactBase {
   const json = readFileSync(path, "utf-8");
   return deserializeSnapshot(json).factBase;
+}
+
+/** Where committed baseline snapshots live (`src/policy/baselines/`). */
+const BASELINE_DIR = fileURLToPath(new URL("./baselines/", import.meta.url));
+
+/**
+ * Resolve a policy's declared baseline NAME to its committed snapshot FactBase
+ * (review finding 3) — the frontend seam that makes a declared baseline ACTUAL.
+ *
+ * Convention: `<dir>/<baseline>-<pgMajor>.json`, falling back to
+ * `<dir>/<baseline>.json`. Returns `undefined` when the policy declares no
+ * baseline.
+ *
+ * Fail-loud: if the policy DOES declare a baseline but no snapshot is committed,
+ * this THROWS rather than returning undefined — a declared baseline must never
+ * be silently ignored. (Until the platform baselines are committed — a separate
+ * v1 validation item — this is the expected behaviour for a policy that sets
+ * `baseline`.)
+ */
+export function resolveBaseline(
+  policy: { id: string; baseline?: string },
+  opts: { pgMajor: number; dir?: string },
+): FactBase | undefined {
+  if (policy.baseline === undefined) return undefined;
+  const dir = opts.dir ?? BASELINE_DIR;
+  const candidates = [
+    join(dir, `${policy.baseline}-${opts.pgMajor}.json`),
+    join(dir, `${policy.baseline}.json`),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) return loadBaseline(path);
+  }
+  throw new Error(
+    `policy "${policy.id}" declares baseline "${policy.baseline}" but no baseline ` +
+      `snapshot is committed (looked for: ${candidates.join(", ")}). ` +
+      `Generate and commit it, or remove the baseline from the policy — ` +
+      `a declared baseline must never be silently ignored.`,
+  );
 }

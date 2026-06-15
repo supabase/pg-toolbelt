@@ -1,5 +1,5 @@
 /**
- * Extension-member exclusion (docs/pg-delta-next-hardening-plan.md, "Item 4b —
+ * Extension-member exclusion (docs/archive/hardening-plan.md, "Item 4b —
  * provenance flip"; target-architecture §3.1 "provenance is data, an edge fact,
  * not an extraction-time filter").
  *

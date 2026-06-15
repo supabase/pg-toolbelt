@@ -1,5 +1,5 @@
 /**
- * Internal planner stages (Item 7 of docs/pg-delta-next-hardening-plan.md).
+ * Internal planner stages (Item 7 of docs/archive/hardening-plan.md).
  *
  * These are the cleanly-separable phases of `plan()` — they depend only on
  * explicit inputs plus module imports (encodeId, the rule table), never on

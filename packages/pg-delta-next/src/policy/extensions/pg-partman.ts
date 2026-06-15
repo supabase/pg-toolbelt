@@ -1,5 +1,5 @@
 /**
- * pg_partman handler (docs/extension-intent.md §3.3, Deliverable A).
+ * pg_partman handler (docs/architecture/extension-intent.md §3.3, Deliverable A).
  *
  * pg_partman child partitions are real user-schema tables that carry NO
  * `pg_depend` edge to the extension (so the core extractor's `deptype='e'`

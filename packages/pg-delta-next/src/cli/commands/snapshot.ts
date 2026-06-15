@@ -5,6 +5,7 @@
  */
 import { extract } from "../../extract/extract.ts";
 import { saveSnapshot } from "../../frontends/snapshot-file.ts";
+import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
 import { parseFlags, UsageError } from "../flags.ts";
 
@@ -14,11 +15,12 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
     parsed = parseFlags(args, {
       source: { type: "value", required: true },
       out: { type: "value", required: true },
+      "strict-coverage": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       process.stderr.write(
-        `${err.message}\nUsage: pg-delta-next snapshot --source <pg-url> --out <file>\n`,
+        `${err.message}\nUsage: pg-delta-next snapshot --source <pg-url> --out <file> [--strict-coverage]\n`,
       );
       process.exit(2);
     }
@@ -32,7 +34,12 @@ export async function cmdSnapshot(args: string[]): Promise<void> {
   const src = makePool(sourceUrl);
   try {
     process.stderr.write("Extracting...\n");
-    const { factBase, pgVersion } = await extract(src.pool);
+    const { factBase, pgVersion, diagnostics } = await extract(src.pool);
+    printDiagnostics(diagnostics);
+    exitIfBlocking(diagnostics, {
+      strictCoverage: flags["strict-coverage"],
+      action: "snapshot",
+    });
     saveSnapshot(factBase, pgVersion, outPath);
     process.stderr.write(
       `Snapshot saved to ${outPath} (${factBase.facts().length} facts, pg ${pgVersion})\n`,

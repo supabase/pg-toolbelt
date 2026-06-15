@@ -1,5 +1,5 @@
 /**
- * @supabase/pg-delta-next — clean-room rebuild per docs/target-architecture.md.
+ * @supabase/pg-delta-next — clean-room rebuild per docs/architecture/target-architecture.md.
  * Public API per §4.5; the complete vocabulary is listed here and reviewed
  * in API-REVIEW.md (stage-9 deliverable 8).
  */
@@ -78,5 +78,9 @@ export {
   type FilterRule,
   type SerializeRule,
 } from "./policy/policy.ts";
-export { subtractBaseline, loadBaseline } from "./policy/baseline.ts";
+export {
+  subtractBaseline,
+  loadBaseline,
+  resolveBaseline,
+} from "./policy/baseline.ts";
 export { supabasePolicy } from "./policy/supabase.ts";

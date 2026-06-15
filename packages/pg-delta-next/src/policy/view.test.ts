@@ -1,5 +1,5 @@
 /**
- * The single fact-level projection primitive (docs/managed-view-architecture.md
+ * The single fact-level projection primitive (docs/architecture/managed-view-architecture.md
  * move 4): `excludeByProvenance(fb, edgeKind)` removes every fact carrying an
  * outgoing edge of that kind plus its descendant subtree, and prunes edges with
  * a removed endpoint. `excludeManaged` / `excludeExtensionMembers` are thin

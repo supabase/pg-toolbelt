@@ -57,6 +57,7 @@ import type { DependencyEdge, EdgeKind, Fact, FactBase } from "../core/fact.ts";
 import type { FactKind, StableId } from "../core/stable-id.ts";
 import { encodeId } from "../core/stable-id.ts";
 import { KNOWN_PARAMS, type PlanParams } from "../plan/rules.ts";
+import { subtractBaseline } from "./baseline.ts";
 import { excludeByProvenance, excludeFactsAndDescendants } from "./view.ts";
 import {
   capabilityExcludedRoots,
@@ -125,7 +126,9 @@ export type OwnerPredicate = { owner: string | string[] };
  * Added for membership.member, membership.role, trigger.table, etc.
  *
  * NOTE: This is the one intentional dynamic-field escape hatch in the DSL.
- * A typo'd field name silently never matches — there is no compile-time check.
+ * There is no compile-time check on `field`, but it is NOT silent: a field name
+ * outside `KNOWN_ID_FIELDS` is rejected by validatePolicy (validateIdFields)
+ * with a "references unknown identity field" error, so a typo fails fast.
  */
 export type IdFieldPredicate = {
   idField: { field: string; glob: string | string[] };
@@ -703,7 +706,7 @@ function containsVerb(predicate: Predicate): boolean {
 /**
  * Decide whether a fact is excluded from the view by the policy's SCOPE rules,
  * respecting first-match-wins and over-projection safety
- * (docs/managed-view-architecture.md move 3).
+ * (docs/architecture/managed-view-architecture.md move 3).
  *
  * Only pure-scope (no `verb`) rules can remove a fact wholesale. An operation
  * (`verb`) `include` earlier in the list protects a fact whose non-verb part it
@@ -750,8 +753,14 @@ export function resolveView(
   fb: FactBase,
   policy: Policy | undefined,
   capability?: ApplierCapability,
+  baseline?: FactBase,
 ): FactBase {
-  let base = excludeByProvenance(fb, "memberOfExtension");
+  // baseline subtraction (§3.9): facts present-and-identical in the platform
+  // baseline drop out before anything else, so platform-managed objects are
+  // invisible without a filter rule per object. Same fact-level projection as
+  // extension-member / managed-object exclusion → the proof stays honest.
+  let base = baseline ? subtractBaseline(fb, baseline) : fb;
+  base = excludeByProvenance(base, "memberOfExtension");
   // capability restriction (move 6): project out facts whose action the applier
   // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
   // GRANTs and a leaf fact, so they project out cleanly. (The owner residue is

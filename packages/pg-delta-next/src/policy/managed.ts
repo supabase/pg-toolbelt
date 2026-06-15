@@ -1,5 +1,5 @@
 /**
- * Managed-object exclusion (docs/extension-intent.md §4.3, Deliverable A).
+ * Managed-object exclusion (docs/architecture/extension-intent.md §4.3, Deliverable A).
  *
  * Objects a stateful extension created operationally — pg_partman child
  * partitions, pgmq `q_*`/`a_*` queue tables — carry a `managedBy` edge

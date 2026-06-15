@@ -1,5 +1,5 @@
 /**
- * Projected plan target (docs/pg-delta-next-hardening-plan.md Item 1; review
+ * Projected plan target (docs/archive/hardening-plan.md Item 1; review
  * #2).
  *
  * `filterDeltas` (policy) removes deltas the plan will NOT apply, but the plan

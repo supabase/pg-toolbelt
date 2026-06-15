@@ -3,7 +3,7 @@
  * No Docker / database required.
  *
  * Extension members are projected OUT of the managed universe on BOTH sides
- * before diffing (docs/pg-delta-next-hardening-plan.md, "Item 4b"). This test
+ * before diffing (docs/archive/hardening-plan.md, "Item 4b"). This test
  * injects a `memberOfExtension` edge synthetically — decoupled from the
  * extractor flip (Stage 2) — so it pins the plan-side wiring on its own: a fact
  * an extension owns must never become a planned action, and the plan's target

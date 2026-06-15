@@ -74,12 +74,12 @@ export interface ProveOptions {
    *  `extract`. An integration with extension handlers MUST pass its
    *  managed-aware extractor (e.g. `extractManaged`) so the proof compares the
    *  SAME view of state it diffed — otherwise operationally-managed objects
-   *  (pg_partman children, …) reappear as drift (docs/extension-intent.md §6). */
+   *  (pg_partman children, …) reappear as drift (docs/architecture/extension-intent.md §6). */
   reextract?: (pool: Pool) => Promise<{ factBase: FactBase }>;
   /** the policy the plan was produced with. The proof must compare the SAME
    *  managed view it diffed, so `resolveView(.., policy)` is applied to both the
    *  re-extracted clone and the target — otherwise policy-scoped objects
-   *  (system schemas/roles) reappear as drift (docs/managed-view-architecture.md). */
+   *  (system schemas/roles) reappear as drift (docs/architecture/managed-view-architecture.md). */
   policy?: Policy;
   /** the applier capability the plan was produced with (move 6) — applied to
    *  the proof's view symmetrically so a capability-excluded object (e.g. an
@@ -386,7 +386,7 @@ export async function provePlan(
   // extension members + the policy's scope rules at the fact level, on BOTH the
   // proven clone and the target — otherwise an extension's internals or a
   // policy-scoped object (system schema/role) read as drift
-  // (docs/managed-view-architecture.md). With no policy this is exactly the
+  // (docs/architecture/managed-view-architecture.md). With no policy this is exactly the
   // extension-member projection, so the corpus proof is unchanged.
   // policy + capability default to the values the plan was produced with (both
   // are inlined on the plan artifact), so a separate `prove` invocation recovers
