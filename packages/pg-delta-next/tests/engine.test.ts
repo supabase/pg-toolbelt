@@ -5,6 +5,7 @@
  * EXPECTED_RED pins scenarios whose engine support hasn't landed: a pinned
  * test must fail; a pinned test that passes fails the suite.
  */
+import { writeSync } from "node:fs";
 import { describe, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { encodeId } from "../src/core/stable-id.ts";
@@ -161,14 +162,48 @@ async function runPinnedOrProve(
   );
 }
 
+// Live progress (opt-in via PGDELTA_NEXT_PROGRESS=1). `bun test` buffers its
+// own reporter when stdout is a pipe (background / CI), so a piped corpus run
+// shows nothing until it finishes. A raw write to fd 2 bypasses that capture and
+// streams a `[done/total]` line per scenario as it completes. Off by default so
+// an interactive TTY run keeps bun's native reporter clean.
+const CORPUS = loadCorpus();
+const CORPUS_TOTAL = CORPUS.length * 2;
+const SHOW_PROGRESS = /^(1|true)$/i.test(
+  process.env["PGDELTA_NEXT_PROGRESS"] ?? "",
+);
+let corpusDone = 0;
+function corpusProgress(label: string, ok: boolean): void {
+  corpusDone++;
+  if (!SHOW_PROGRESS) return;
+  const pct = Math.round((corpusDone / CORPUS_TOTAL) * 100);
+  const img = process.env["PGDELTA_TEST_IMAGE"] ?? "default";
+  writeSync(
+    2,
+    `corpus ${img} [${corpusDone}/${CORPUS_TOTAL} ${pct}%] ${ok ? "PASS" : "FAIL"} ${label}\n`,
+  );
+}
+
 describe("engine: corpus proof loop", () => {
-  for (const scenario of loadCorpus()) {
+  for (const scenario of CORPUS) {
     test(`${scenario.name} (a -> b)`, async () => {
-      await runPinnedOrProve(scenario, "forward");
+      let ok = false;
+      try {
+        await runPinnedOrProve(scenario, "forward");
+        ok = true;
+      } finally {
+        corpusProgress(`${scenario.name} (a->b)`, ok);
+      }
     }, 180_000);
 
     test(`${scenario.name} (b -> a, teardown direction)`, async () => {
-      await runPinnedOrProve(scenario, "reverse");
+      let ok = false;
+      try {
+        await runPinnedOrProve(scenario, "reverse");
+        ok = true;
+      } finally {
+        corpusProgress(`${scenario.name} (b->a)`, ok);
+      }
     }, 180_000);
   }
 });

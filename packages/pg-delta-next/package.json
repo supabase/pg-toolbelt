@@ -2,7 +2,7 @@
   "name": "@supabase/pg-delta-next",
   "version": "0.0.0",
   "private": true,
-  "description": "Clean-room rebuild of pg-delta per docs/target-architecture.md (working name; final naming is a stage-10 decision)",
+  "description": "Clean-room rebuild of pg-delta per docs/architecture/target-architecture.md (working name; final naming is a stage-10 decision)",
   "bin": {
     "pg-delta-next": "./src/cli/main.ts"
   },
@@ -21,7 +21,8 @@
     "check-types": "tsc --noEmit",
     "test": "bun test src/",
     "test:integration": "bun test tests/",
-    "test:all": "bun test src/ tests/"
+    "test:all": "bun test src/ tests/",
+    "docker:clean": "bun scripts/clean-testcontainers.ts"
   },
   "dependencies": {
     "debug": "^4.3.7",
