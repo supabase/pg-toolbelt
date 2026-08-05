@@ -20,6 +20,7 @@ Bun-based monorepo containing PostgreSQL tooling packages.
 
 - **packages/pg-delta** (`@supabase/pg-delta`): PostgreSQL schema diff and migration tool. Compares two live databases and generates DDL migration scripts.
 - **packages/pg-topo** (`@supabase/pg-topo`): Topological sorting for SQL DDL statements. Pure library that accepts SQL content strings, extracts dependencies, and produces a deterministic execution order. Includes an optional filesystem adapter for discovering/reading `.sql` files.
+- **packages/postgrest-typegen** (`@supabase/postgrest-typegen`): Type generation for PostgREST from a PostgreSQL schema (the engine behind `supabase gen types`, extracted from postgres-meta). Hard split between introspection (`introspect(db)` → `GeneratorMetadata`) and pure generation (`generateTypescript`/`generateGo`/`generatePython`/`generateSwift`); `GeneratorMetadata` is the pluggable contract. `GeneratorMetadata`/`Postgres*` types are derived from ArkType schemas in `src/types.ts` (single source of truth; a compile-time equivalence test pins the inferred types to the frozen interface contract), and `parseGeneratorMetadata` is an opt-in runtime validator — never baked into `introspect()`. Output must stay byte-identical to postgres-meta's templates (prettier pinned exact to 3.5.3) until parity is released.
 
 ## Quick Reference
 
@@ -165,6 +166,7 @@ The `Lint Pull Request` CI check (see `.github/workflows/lint-pull-request.yml`)
 - GitHub Actions with `dorny/paths-filter` detects which packages changed
 - Only affected packages are tested
 - pg-delta integration tests are sharded across 15 runners x 3 PG versions
+- pg-topo and postgrest-typegen each have a single `*-tests` job (Docker required); postgrest-typegen's integration/parity tests spin up a PostgreSQL container via testcontainers
 - Changesets automate releases on merge to main
 
 When changing shard count or PG versions, update all of these locations:
