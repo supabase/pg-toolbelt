@@ -14,6 +14,11 @@ const ROLES_SQL = `
     ORDER BY r.rolname`;
 
 // ── role memberships (cluster-level; multi-grantor rows deduped) ─────
+// PG16+ CREATEROLE non-superusers receive GRANT <new> TO <self> WITH ADMIN
+// OPTION from the bootstrap superuser (oid 10). Replaying that GRANT fails
+// with 0LP01; CREATE ROLE already recreates it. Drop those rows so live
+// extract matches load-time bootstrapMembershipStrip. Other grantors for
+// the same pair still collapse via bool_or(admin).
 const MEMBERSHIPS_SQL = `
     SELECT r1.rolname AS role, r2.rolname AS member,
            bool_or(m.admin_option) AS admin
@@ -21,6 +26,12 @@ const MEMBERSHIPS_SQL = `
     JOIN pg_roles r1 ON r1.oid = m.roleid
     JOIN pg_roles r2 ON r2.oid = m.member
     WHERE r1.rolname NOT LIKE 'pg\\_%' AND r2.rolname NOT LIKE 'pg\\_%'
+      AND NOT (
+        m.grantor = 10
+        AND r2.rolname = current_user
+        AND r2.rolcreaterole
+        AND NOT r2.rolsuper
+      )
     GROUP BY 1, 2
     ORDER BY 1, 2`;
 
