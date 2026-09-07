@@ -137,9 +137,17 @@ async function expectObserverLatencyExcluded(
       return Promise.resolve({ rows: [] });
     },
     release: () => {},
+    on: () => {},
+    removeListener: () => {},
   };
   const pool = {
-    connect: () => Promise.resolve(client),
+    connect: (
+      callback: (
+        error: undefined,
+        connectedClient: typeof client,
+        release: typeof client.release,
+      ) => void,
+    ) => callback(undefined, client, client.release),
   } as unknown as Pool;
 
   try {
@@ -194,10 +202,18 @@ function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
         : Promise.resolve({ rows: [] });
     },
     release: (error?: Error | boolean) => releases.push(error),
+    on: () => {},
+    removeListener: () => {},
   };
   return {
     pool: {
-      connect: () => Promise.resolve(client),
+      connect: (
+        callback: (
+          error: undefined,
+          connectedClient: typeof client,
+          release: typeof client.release,
+        ) => void,
+      ) => callback(undefined, client, client.release),
     } as unknown as Pool,
     queries,
     releases,

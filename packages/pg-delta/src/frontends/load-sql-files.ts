@@ -53,6 +53,7 @@
  * Extension-owned relations (pg_depend deptype 'e') are always out of scope.
  */
 import type { Pool, PoolClient, QueryResult } from "pg";
+import { connectWithErrorListener } from "../pg-client.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import { qid } from "../plan/render.ts";
 import { buildFactBase, type FactBase } from "../core/fact.ts";
@@ -1144,7 +1145,7 @@ export async function loadSqlFiles(
   let failuresBeforeReconnect: LoadFailure[] = [];
   let earlierSessionSettings: LoadAssistLocation[] = [];
   let failuresBeforeReorder: LoadFailure[] = [];
-  let client: PoolClient = await shadow.connect();
+  let client: PoolClient = await connectWithErrorListener(shadow);
   let clientOpen = true;
   const releaseClient = async (discard = false): Promise<void> => {
     if (!clientOpen) return;
@@ -1316,7 +1317,7 @@ export async function loadSqlFiles(
             persistentSessionSettingLocations,
           );
           await releaseClient(true);
-          client = await shadow.connect();
+          client = await connectWithErrorListener(shadow);
           clientOpen = true;
           await applyPreamble(client);
           reconnected = true;
