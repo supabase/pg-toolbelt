@@ -145,6 +145,11 @@ cleanly:
   **leaf fact** — projecting them out of the view converges with no ripple. So a
   non-superuser's FDW ACLs are projected out (`capabilityExcludedRoots`). This
   derives the exclusion the Supabase policy hard-codes as Rule 9.
+- **Event triggers whose function is superuser-owned** are the same shape
+  (supautils `T_CreateEventTrigStmt`; PostgreSQL rejects the create as a
+  duplicate or as an ownership violation). The function's `owner` edge and
+  the role fact's `superuser` payload decide; gated on `!isSuperuser` so the
+  corpus is a no-op.
 - **Ownership** (`ALTER … OWNER TO R` needs superuser or membership in R) **can
   NOT** be silently skipped: leaving an object applier-owned ripples into its
   acldefault-normalized ACL (owner-relative), so the state would not converge.
@@ -395,4 +400,6 @@ catalog). So a platform object that can wear either owner must be excluded
 Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`) are
 hard-excluded by name. They have no user-managed children (unlike
 publication membership), so reference-only would only add owner/comment
-noise.
+noise. The capability rule above is the general, policy-agnostic half: any
+non-superuser applier loses event triggers whose function is
+superuser-owned, whether or not the name is in that set.

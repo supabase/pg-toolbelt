@@ -2,11 +2,12 @@
  * Applier-capability-restricted view (docs/architecture/managed-view-architecture.md move 6).
  *
  * The managed view is a function of (facts, policy, applier capability). An
- * operation the applier cannot execute is projected out — currently FDW ACLs,
- * which require superuser to GRANT/REVOKE. This is additive: the Supabase
- * Rule 9 (`{ acl, target fdw } → exclude`) still stands; capability derives the
- * same exclusion for ANY non-superuser applier. With no capability (or a
- * superuser), the view is unrestricted — the corpus path is unchanged.
+ * operation the applier cannot execute is projected out — currently FDW ACLs
+ * (superuser GRANT/REVOKE) and event triggers whose function is superuser-owned
+ * (supautils T_CreateEventTrigStmt / PostgreSQL: a non-superuser cannot own an
+ * event trigger on a superuser-owned function). Additive: Supabase Rule 9 still
+ * stands for FDW ACLs. With no capability (or a superuser), the view is
+ * unrestricted — the corpus path is unchanged.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
@@ -59,6 +60,98 @@ describe("ApplierCapability — capability-restricted view (move 6)", () => {
     expect(capabilityExcludedRoots(fb, superuser).size).toBe(0);
     const roots = capabilityExcludedRoots(fb, nonSuper);
     expect(roots.size).toBe(1);
+  });
+});
+
+describe("ApplierCapability — event trigger on a superuser-owned function", () => {
+  // supautils (and PostgreSQL without it): a non-superuser may create an event
+  // trigger only if its function is not superuser-owned. Expressed on facts:
+  // the function's owner edge → role.payload.superuser.
+  const suRole: StableId = { kind: "role", name: "su" };
+  const appRole: StableId = { kind: "role", name: "app" };
+  const suFn: StableId = {
+    kind: "function",
+    schema: "public",
+    name: "on_ddl",
+    args: [],
+  };
+  const appFn: StableId = {
+    kind: "function",
+    schema: "public",
+    name: "user_fn",
+    args: [],
+  };
+  const suEt: StableId = { kind: "eventTrigger", name: "on_ddl_end" };
+  const appEt: StableId = { kind: "eventTrigger", name: "user_et" };
+
+  const role = (id: StableId, isSuper: boolean): Fact => ({
+    id,
+    payload: { superuser: isSuper },
+  });
+  const et = (id: StableId, fn: StableId): Fact => ({
+    id,
+    payload: {
+      event: "ddl_command_end",
+      enabled: "O",
+      tags: [],
+      functionSchema: (fn as { schema: string }).schema,
+      functionName: (fn as { name: string }).name,
+    },
+  });
+
+  const fb = buildFactBase(
+    [
+      role(suRole, true),
+      role(appRole, false),
+      f(suFn),
+      f(appFn),
+      et(suEt, suFn),
+      et(appEt, appFn),
+    ],
+    [
+      { from: suFn, to: suRole, kind: "owner" },
+      { from: appFn, to: appRole, kind: "owner" },
+    ],
+  );
+
+  test("non-superuser projects out an event trigger whose function is superuser-owned", () => {
+    const view = resolveView(fb, undefined, nonSuper);
+    expect(view.get(suEt)).toBeUndefined();
+    expect(view.get(appEt)).toBeDefined();
+    expect(view.get(suFn)).toBeDefined();
+  });
+
+  test("superuser and no-capability keep the event trigger (corpus path)", () => {
+    expect(resolveView(fb, undefined, superuser).get(suEt)).toBeDefined();
+    expect(resolveView(fb, undefined, undefined).get(suEt)).toBeDefined();
+  });
+
+  test("baseline-identical function/role still project the event trigger out", () => {
+    // subtractBaseline drops unchanged function + superuser role before
+    // capability runs; the lookup must still see them on the raw catalog.
+    const baseline = buildFactBase(
+      [role(suRole, true), f(suFn)],
+      [{ from: suFn, to: suRole, kind: "owner" }],
+    );
+    const view = resolveView(fb, undefined, nonSuper, baseline);
+    expect(view.get(suEt)).toBeUndefined();
+    expect(view.get(appEt)).toBeDefined();
+  });
+
+  test("non-superuser plan omits CREATE EVENT TRIGGER for the superuser-backed trigger", () => {
+    // Functions already present on both sides so the only deltas are the ETs.
+    const source = buildFactBase(
+      [role(suRole, true), role(appRole, false), f(suFn), f(appFn)],
+      [
+        { from: suFn, to: suRole, kind: "owner" },
+        { from: appFn, to: appRole, kind: "owner" },
+      ],
+    );
+    const sql = plan(source, fb, { capability: nonSuper })
+      .actions.map((a) => a.sql)
+      .join("\n");
+    expect(sql).not.toMatch(/CREATE EVENT TRIGGER "on_ddl_end"/);
+    expect(sql).toMatch(/CREATE EVENT TRIGGER "user_et"/);
   });
 });
 

@@ -502,6 +502,47 @@ describe("attributed projection audit", () => {
     expect(audit.summary.baseline).toBe(1);
   });
 
+  test("capability restriction attributes an event trigger on a superuser-owned function", () => {
+    const suRole: StableId = { kind: "role", name: "su" };
+    const fn: StableId = {
+      kind: "function",
+      schema: "public",
+      name: "on_ddl",
+      args: [],
+    };
+    const et: StableId = { kind: "eventTrigger", name: "on_ddl_end" };
+    const etFact = fact(et, {
+      event: "ddl_command_end",
+      enabled: "O",
+      tags: [],
+      functionSchema: "public",
+      functionName: "on_ddl",
+    });
+    const shared = [fact(suRole, { superuser: true }), fact(fn)] as const;
+    const owner = { from: fn, to: suRole, kind: "owner" } as const;
+    const source = buildFactBase([...shared], [owner]);
+    const desired = buildFactBase([...shared, etFact], [owner]);
+    const capability: ApplierCapability = {
+      role: "app",
+      isSuperuser: false,
+      memberOf: [],
+    };
+
+    expect(
+      auditManagedViewProjection(source, desired, { capability }).entries[0],
+    ).toMatchObject({
+      subject: { kind: "fact", id: et },
+      classification: "acknowledged",
+      suppressions: [
+        {
+          side: "desired",
+          stage: "capability",
+          reasonCode: "capability.event-trigger-superuser-function",
+        },
+      ],
+    });
+  });
+
   test("capability restriction attributes a differing FDW ACL", () => {
     const wrapper: StableId = { kind: "fdw", name: "remote" };
     const acl: StableId = { kind: "acl", target: wrapper, grantee: "reader" };

@@ -541,7 +541,8 @@ export const supabasePolicy: Policy = {
     // Identity, not owner: Rule 6 hides a supabase_admin-owned copy and keeps
     // a postgres-owned copy, so a same-named trigger becomes a false CREATE
     // (CLI-2341). Hard-exclude — nothing user-managed hangs off these, unlike
-    // assumedPublications.
+    // assumedPublications. Capability separately projects out any event
+    // trigger whose function is superuser-owned when restrictToApplier is on.
     {
       match: {
         all: [
