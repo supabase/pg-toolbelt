@@ -307,7 +307,7 @@ export async function apply(
   const client = await target.connect();
   let destroyClient = false;
   try {
-    const segmented =
+    const actions =
       options?.baselineCommitEvery !== undefined
         ? markBaselineCommitBoundaries(
             thePlan.actions,
@@ -318,8 +318,8 @@ export async function apply(
       await probeLockTableSettings(client),
       options?.lockTableReserveConnections,
     );
-    const segments = segmentActions(segmented);
-    assertSegmentsFitLockTable(segments, thePlan.actions, budget);
+    const segments = segmentActions(actions);
+    assertSegmentsFitLockTable(segments, actions, budget);
 
     const onEvent = options?.onEvent;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
@@ -338,7 +338,7 @@ export async function apply(
       if (!segment.transactional) {
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
-        const action = thePlan.actions[index]!;
+        const action = actions[index]!;
         // the failure return is deferred past the finally so segmentEnd stays
         // the segment's LAST event — after the RESET ALL control — on every
         // path; a trace must never show wire traffic after the outcome line.
@@ -474,7 +474,7 @@ export async function apply(
         };
       }
       for (let i = segment.start; i < segment.end; i++) {
-        const action = thePlan.actions[i]!;
+        const action = actions[i]!;
         emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
         const actionStartedAt = performance.now();
         try {

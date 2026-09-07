@@ -662,74 +662,52 @@ function tableCreatePlan(count: number): Plan {
 }
 
 describe("apply lock-table preflight", () => {
-  test("throws before BEGIN when a single segment exceeds the budget", async () => {
-    const tight = {
-      max_locks_per_transaction: 10,
-      max_connections: 10,
+  // One CREATE TABLE estimates 4 locks (catalog + toast pair).
+  function tightPool(maxLocksPerTransaction: number, queries?: string[]): Pool {
+    const row = {
+      max_locks_per_transaction: maxLocksPerTransaction,
+      max_connections: 1,
       max_prepared_transactions: 0,
       busy_others: 0,
-      other_backends: 1,
+      other_backends: 0,
       prepared_xacts: 0,
     };
-    const queries: string[] = [];
-    const pool = {
-      connect: () =>
-        Promise.resolve({
-          query: (sql: string) => {
-            queries.push(sql);
-            if (isLockTableProbe(sql)) {
-              return Promise.resolve({ rows: [tight] });
-            }
-            return Promise.resolve({ rows: [] });
-          },
-          release: () => {},
-        }),
+    const client = {
+      query: (sql: string) => {
+        queries?.push(sql);
+        if (isLockTableProbe(sql)) {
+          return Promise.resolve({ rows: [row] });
+        }
+        return Promise.resolve({ rows: [] });
+      },
+      release: () => {},
+    };
+    return {
+      connect: () => Promise.resolve(client),
     } as unknown as Pool;
+  }
 
-    let error: unknown;
-    try {
-      await apply(tableCreatePlan(30), pool, {
+  test("throws before BEGIN when a single segment exceeds the budget", async () => {
+    const queries: string[] = [];
+    await expect(
+      apply(tableCreatePlan(1), tightPool(3, queries), {
         fingerprintGate: false,
-        lockTableReserveConnections: 1,
-      });
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error).toBeInstanceOf(LockTableBudgetExceededError);
+        lockTableReserveConnections: 0,
+      }),
+    ).rejects.toBeInstanceOf(LockTableBudgetExceededError);
     expect(queries.every((sql) => isLockTableProbe(sql))).toBe(true);
     expect(queries.some((sql) => sql === "BEGIN")).toBe(false);
   });
 
   test("baselineCommitEvery splits the plan so preflight passes", async () => {
-    const tight = {
-      max_locks_per_transaction: 10,
-      max_connections: 10,
-      max_prepared_transactions: 0,
-      busy_others: 0,
-      other_backends: 1,
-      prepared_xacts: 0,
-    };
     const events: ApplyEvent[] = [];
-    const pool = {
-      connect: () =>
-        Promise.resolve({
-          query: (sql: string) => {
-            if (isLockTableProbe(sql)) {
-              return Promise.resolve({ rows: [tight] });
-            }
-            return Promise.resolve({ rows: [] });
-          },
-          release: () => {},
-        }),
-    } as unknown as Pool;
-
-    const report = await apply(tableCreatePlan(30), pool, {
+    const report = await apply(tableCreatePlan(2), tightPool(5), {
       fingerprintGate: false,
-      lockTableReserveConnections: 1,
-      baselineCommitEvery: 5,
+      lockTableReserveConnections: 0,
+      baselineCommitEvery: 1,
       onEvent: (event) => events.push(event),
     });
     expect(report.status).toBe("applied");
-    expect(events.filter((e) => e.kind === "segmentStart")).toHaveLength(6);
+    expect(events.filter((e) => e.kind === "segmentStart")).toHaveLength(2);
   });
 });
