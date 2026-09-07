@@ -87,6 +87,10 @@ export async function cmdPlan(args: string[]): Promise<void> {
   const compact = !flags["no-compact"];
   const outPath = flags["out"];
   const acceptRenameRaw = flags["accept-rename"]; // string[]
+  const baselineCommitEvery = parsePositiveIntFlag(
+    "baseline-commit-every",
+    flags["baseline-commit-every"],
+  );
 
   // --renames default for CLI is "prompt"
   let renames: RenameMode = "prompt";
@@ -165,10 +169,6 @@ export async function cmdPlan(args: string[]): Promise<void> {
       },
     );
 
-    const baselineCommitEvery = parsePositiveIntFlag(
-      "baseline-commit-every",
-      flags["baseline-commit-every"],
-    );
     const planOptions = {
       renames,
       compact,

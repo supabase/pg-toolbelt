@@ -47,6 +47,10 @@ export async function cmdApply(args: string[]): Promise<void> {
   const planPath = flags["plan"];
   const targetUrl = flags["target"];
   const force = flags["force"];
+  const baselineCommitEvery = parsePositiveIntFlag(
+    "baseline-commit-every",
+    flags["baseline-commit-every"],
+  );
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
@@ -102,10 +106,6 @@ export async function cmdApply(args: string[]): Promise<void> {
     );
     process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
 
-    const baselineCommitEvery = parsePositiveIntFlag(
-      "baseline-commit-every",
-      flags["baseline-commit-every"],
-    );
     const report = await apply(thePlan, tgt.pool, {
       fingerprintGate: !force,
       ...ctx.applyOptions, // reextract (handler-aware) + baseline

@@ -143,7 +143,7 @@ export function estimateSegmentLocks(
   return n;
 }
 
-const LOCK_TABLE_PROBE_SQL = `
+export const LOCK_TABLE_PROBE_SQL = `
   SELECT
     current_setting('max_locks_per_transaction')::int AS max_locks_per_transaction,
     current_setting('max_connections')::int AS max_connections,

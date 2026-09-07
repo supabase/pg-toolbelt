@@ -58,6 +58,21 @@ function destructivePlan(): string {
   return path;
 }
 
+test("apply rejects --baseline-commit-every before opening the target", async () => {
+  const error = await captureError(
+    cmdApply([
+      "--plan",
+      "/no-such-plan.json",
+      "--target",
+      "postgres://unused.invalid:5432/none",
+      "--baseline-commit-every",
+      "0",
+    ]),
+  );
+  expect(error).toBeInstanceOf(UsageError);
+  expect((error as Error).message).toMatch(/baseline-commit-every/);
+});
+
 test("apply refuses action-derived data loss before opening the target", async () => {
   const plan = destructivePlan();
   const error = await captureError(

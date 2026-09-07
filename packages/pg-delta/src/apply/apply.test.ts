@@ -625,3 +625,21 @@ describe("apply plan integrity", () => {
     expect(connected).toBe(false);
   });
 });
+
+describe("apply lock-table probe observer", () => {
+  test("emits the lock-table probe as a control event before BEGIN", async () => {
+    const events: ApplyEvent[] = [];
+    const scripted = scriptedApplyClient(new Set());
+    const report = await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      onEvent: (event) => events.push(event),
+    });
+    expect(report.status).toBe("applied");
+    const firstControl = events.find((event) => event.kind === "control");
+    expect(firstControl).toMatchObject({ kind: "control" });
+    expect((firstControl as { sql: string }).sql).toContain(
+      "max_locks_per_transaction",
+    );
+    expect(ddlQueries(scripted.queries)[0]).toBe("BEGIN");
+  });
+});

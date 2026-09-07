@@ -1570,3 +1570,44 @@ Codex P2s:
 - **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
+
+## PR #462 review triage (Codex) — lock-table preflight
+
+PR #462 adds apply-time lock-table preflight and opt-in `baselineCommitEvery`
+chunking so a single-transaction empty-target baseline fails before the
+first DDL instead of dying mid-apply with `out of shared memory`. The
+estimator is deliberately conservative and only looks at action
+`produces` / `destroys` / `consumes` plus a busy-backend reserve — not
+`pg_locks` occupancy, toast existence, or fact-base closures. Codex
+asked to close those gaps in-PR; they are real estimator limits, not
+defects in the CLI-2304 path (thousands of CREATE TABLE/INDEX/SEQUENCE
+on an empty target). Parked:
+
+- **Deferred — view/matview dependency locks (P1).** `CREATE VIEW` does
+  not put `pg_depend` edges on `consumes`. On an empty-target baseline
+  the referenced tables are usually produced in the same segment (and
+  PostgreSQL reuses that lock entry). The miss is incremental: many
+  views over *already-existing* relations. Carrying extract-time
+  depends into the estimate is a planner/apply contract change.
+- **Deferred — extension member closure (P1).** `CREATE EXTENSION`
+  produces only the `extension` fact; members are created in the same
+  statement and cannot be chunked. Apply does not have the desired
+  fact base. Stamp a member-lock estimate at plan time, or fail
+  CREATE EXTENSION when the extracted member set cannot fit.
+- **Deferred — deduct `pg_locks` occupancy (P1).**
+  `max_locks_per_transaction × busy backends` is the documented
+  capacity formula, not a live occupancy. Querying `pg_locks` is
+  racy, can be large, and needs extra privilege. The approved design
+  keeps the GUC × backend reserve.
+- **Deferred — dedupe lock identities in a segment (P2).** Summing
+  per-action overcounts ALTERs of the same relation (PostgreSQL
+  reuses the lock entry). False reject is the safe direction for
+  baselines; `baselineCommitEvery` is the escape hatch. Union-by-
+  identity needs stable lock keys on every action.
+- **Deferred — charge TOAST only when it exists (P2).** Fixed-width
+  and partitioned parents have no toast pair. Overcount can force
+  chunking on a fit-able plan. Needs a catalog toast/persistence
+  bit at extract time.
+
+Fixed in-PR: parse `--baseline-commit-every` before opening pools;
+emit the lock-table probe as an apply `control` event.

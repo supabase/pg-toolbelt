@@ -26,6 +26,7 @@ import {
   assertSegmentsFitLockTable,
   computeLockTableBudget,
   markBaselineCommitBoundaries,
+  LOCK_TABLE_PROBE_SQL,
   probeLockTableSettings,
 } from "./lock-table.ts";
 
@@ -72,11 +73,11 @@ export interface ApplyReport {
  *
  *  The applied statements are planner-rendered atomic DDL, not the authored
  *  declarative SQL, so `actionStart`/`actionEnd` alone are not a complete
- *  record of the wire: `control` covers every OTHER statement apply() sends
- *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`, `COMMIT`,
- *  `ROLLBACK` (including best-effort rollbacks on an error path), and
- *  `RESET ALL` — so a `--verbose` trace shows exactly what ran, transaction
- *  framing included. */
+ *  record of the wire:   `control` covers every OTHER statement apply() sends
+ *  on the same connection — the lock-table preflight SELECT, `BEGIN`, each
+ *  preamble `SET`/`SET LOCAL`, `COMMIT`, `ROLLBACK` (including best-effort
+ *  rollbacks on an error path), and `RESET ALL` — so a `--verbose` trace
+ *  shows exactly what ran, transaction framing included. */
 export type ApplyEvent =
   | {
       kind: "segmentStart";
@@ -314,14 +315,14 @@ export async function apply(
             options.baselineCommitEvery,
           )
         : thePlan.actions;
+    const onEvent = options?.onEvent;
+    emit(onEvent, { kind: "control", sql: LOCK_TABLE_PROBE_SQL });
     const budget = computeLockTableBudget(
       await probeLockTableSettings(client),
       options?.lockTableReserveConnections,
     );
     const segments = segmentActions(actions);
     assertSegmentsFitLockTable(segments, actions, budget);
-
-    const onEvent = options?.onEvent;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
       // segmentStart fires before the preamble/BEGIN for this segment, for

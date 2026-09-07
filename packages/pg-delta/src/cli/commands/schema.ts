@@ -69,8 +69,9 @@
  *   declarative SQL: the planner re-derives atomic DDL from the catalog diff
  *   between the shadow (desired) and target (current) states. --verbose shows
  *   every statement actually executed on the target connection — including
- *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never the
- *   authored files; --dry-run prints a portable executable script containing
+ *   transaction framing (BEGIN/COMMIT/ROLLBACK), session SETs, and the
+ *   lock-table preflight SELECT — never the authored files; --dry-run prints
+ *   a portable executable script containing
  *   the same successful-path statements and segment boundaries, without
  *   applying them. It must be dispatched statement by statement on one session,
  *   stopping at the first error, with autocommit outside its explicit
