@@ -1,5 +1,6 @@
 /** Stage-7 shadow loader: ordering convergence + the rejection behaviors. */
 import { describe, expect, test } from "bun:test";
+import pg from "pg";
 import {
   loadSqlFiles,
   ShadowLoadError,
@@ -487,6 +488,53 @@ describe("loadSqlFiles (shadow frontend)", () => {
       expect(dml[0]?.message).toContain(`"public"."widgets"`);
     } finally {
       await shadow.drop();
+    }
+  }, 90_000);
+
+  test("isolatedCluster mode: the DML probe never reads a table in an assumed (unmanaged) schema (supabase/cli#6453)", async () => {
+    const [clusterA] = await isolatedClusterPair();
+    const rolesBefore = await clusterA.listRoles();
+    const applier = `shadow_applier_${Date.now().toString(36)}`;
+    const shadow = await clusterA.createDb("shadow_assumed_unreadable");
+    let applierPool: pg.Pool | undefined;
+    try {
+      await clusterA.adminPool.query(
+        `CREATE ROLE "${applier}" LOGIN NOSUPERUSER PASSWORD 'applier'`,
+      );
+      await shadow.pool.query(`
+        CREATE SCHEMA _realtime;
+        CREATE TABLE _realtime.schema_migrations (
+          version bigint PRIMARY KEY, inserted_at timestamp(0));
+        INSERT INTO _realtime.schema_migrations VALUES (20210706140551, now());
+        CREATE TABLE _realtime.tenants (id integer PRIMARY KEY);
+        INSERT INTO _realtime.tenants VALUES (1);
+        GRANT USAGE ON SCHEMA _realtime TO "${applier}";
+        GRANT SELECT ON _realtime.tenants TO "${applier}";
+        GRANT ALL ON SCHEMA public TO "${applier}";
+      `);
+      const url = new URL(shadow.uri);
+      url.username = applier;
+      url.password = "applier";
+      applierPool = new pg.Pool({ connectionString: url.toString(), max: 5 });
+      applierPool.on("error", () => {});
+      const result = await loadSqlFiles(
+        [
+          {
+            name: "app.sql",
+            sql: "CREATE TABLE public.widgets (id integer PRIMARY KEY); INSERT INTO public.widgets VALUES (1);",
+          },
+        ],
+        applierPool,
+        { mode: "isolatedCluster", assumedSchemas: ["_realtime"] },
+      );
+      expect(result.preExistingPopulatedTables).toEqual([]);
+      const dml = result.diagnostics.filter((d) => d.code === "data_statement");
+      expect(dml).toHaveLength(1);
+      expect(dml[0]?.message).toContain(`"public"."widgets"`);
+    } finally {
+      await applierPool?.end();
+      await shadow.drop();
+      await clusterA.dropRolesExcept(rolesBefore, { strict: true });
     }
   }, 90_000);
 
