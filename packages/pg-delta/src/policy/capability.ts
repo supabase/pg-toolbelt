@@ -8,14 +8,19 @@
  * probed from the applier connection and threaded into plan()/prove() as an
  * option. Absent, the view is unrestricted (the default — superuser/CI path).
  *
- * v1 restriction: FDW ACLs. `GRANT`/`REVOKE ON FOREIGN DATA WRAPPER` requires
- * superuser, so a non-superuser applier cannot replay them. This derives, for
- * ANY non-superuser, the exclusion the Supabase policy hard-codes as Rule 9 —
- * additively (Rule 9 stays until the derivation is proven at parity).
+ * Restrictions for a non-superuser:
+ *   - FDW ACLs (`GRANT`/`REVOKE ON FOREIGN DATA WRAPPER` is superuser-only).
+ *     Derives, for ANY non-superuser, the exclusion Supabase hard-codes as
+ *     Rule 9 — additively (Rule 9 stays until the derivation is proven at
+ *     parity).
+ *   - Event triggers whose backing function is superuser-owned. That is
+ *     supautils' `T_CreateEventTrigStmt` rule (and PostgreSQL's without it):
+ *     a non-superuser may create an event trigger only if the function is
+ *     not superuser-owned. Read off the function fact's `owner` edge.
  */
 import type { Pool } from "pg";
-import type { FactBase } from "../core/fact.ts";
-import { encodeId } from "../core/stable-id.ts";
+import type { Fact, FactBase } from "../core/fact.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 
 export interface ApplierCapability {
   /** the role the migration is applied as (current_user) */
@@ -53,21 +58,46 @@ export async function probeApplierCapability(
   };
 }
 
+const CAPABILITY_FDW_ACL = "capability.fdw-acl";
+const CAPABILITY_EVENT_TRIGGER_SUPERUSER_FUNCTION =
+  "capability.event-trigger-superuser-function";
+
+function eventTriggerFunctionOwnedBySuperuser(
+  fb: FactBase,
+  fact: Fact,
+): boolean {
+  const schema = fact.payload["functionSchema"];
+  const name = fact.payload["functionName"];
+  if (typeof schema !== "string" || typeof name !== "string") return false;
+  const fnId: StableId = { kind: "function", schema, name, args: [] };
+  const fn = fb.get(fnId);
+  if (fn === undefined) return false;
+  const owner = fb.outgoingEdges(fn.id).find((e) => e.kind === "owner");
+  if (owner === undefined || owner.to.kind !== "role") return false;
+  return fb.get(owner.to)?.payload["superuser"] === true;
+}
+
 /**
- * Fact-id keys to project out for a given capability — the facts whose
- * corresponding action the applier cannot execute. A superuser is unrestricted.
- * Currently: FDW ACL facts (GRANT/REVOKE on a FOREIGN DATA WRAPPER is
- * superuser-only).
+ * Fact-id keys to project out for a given capability, mapped to the audit
+ * reason. A superuser is unrestricted. Currently: FDW ACL facts, and event
+ * triggers whose function is owned by a superuser.
  */
 export function capabilityExcludedRoots(
   fb: FactBase,
   cap: ApplierCapability,
-): Set<string> {
-  const roots = new Set<string>();
+): Map<string, string> {
+  const roots = new Map<string, string>();
   if (cap.isSuperuser) return roots;
   for (const fact of fb.facts()) {
     if (fact.id.kind === "acl" && fact.id.target.kind === "fdw") {
-      roots.add(encodeId(fact.id));
+      roots.set(encodeId(fact.id), CAPABILITY_FDW_ACL);
+      continue;
+    }
+    if (
+      fact.id.kind === "eventTrigger" &&
+      eventTriggerFunctionOwnedBySuperuser(fb, fact)
+    ) {
+      roots.set(encodeId(fact.id), CAPABILITY_EVENT_TRIGGER_SUPERUSER_FUNCTION);
     }
   }
   return roots;

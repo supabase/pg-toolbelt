@@ -1174,25 +1174,34 @@ export function resolveView(
     }
   }
   // capability restriction (move 6): project out facts whose action the applier
-  // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
-  // GRANTs and a leaf fact, so they project out cleanly. (The owner residue is
-  // NOT projected — it can't be skipped without an ACL ripple — it fail-fasts
-  // in plan() instead; see capability.canSetOwner.)
+  // cannot execute. Additive; default unrestricted. FDW ACLs and event
+  // triggers on a superuser-owned function project out cleanly. (The owner
+  // residue is NOT projected — it can't be skipped without an ACL ripple — it
+  // fail-fasts in plan() instead; see capability.canSetOwner.)
   if (capability !== undefined) {
-    const capRoots = capabilityExcludedRoots(base, capability);
+    // Classify on the RAW catalog: a baseline-identical function / superuser
+    // role is already subtracted from `base`, but an event trigger that
+    // survived (owner or payload differs) still needs that lookup.
+    const capRoots = new Map<string, string>();
+    for (const [key, reasonCode] of capabilityExcludedRoots(fb, capability)) {
+      if (base.getByEncoded(key) !== undefined) capRoots.set(key, reasonCode);
+    }
     if (capRoots.size > 0) {
       const before = base;
-      base = excludeFactsAndDescendants(base, capRoots);
+      base = excludeFactsAndDescendants(base, new Set(capRoots.keys()));
       if (collectSuppression !== undefined) {
-        const attribution: ProjectionSuppressionAttribution = {
-          stage: "capability",
-          reasonCode: "capability.fdw-acl",
-          classification: "acknowledged",
-        };
+        const attribution = new Map<string, ProjectionSuppressionAttribution>();
+        for (const [key, reasonCode] of capRoots) {
+          attribution.set(key, {
+            stage: "capability",
+            reasonCode,
+            classification: "acknowledged",
+          });
+        }
         collectRemovedSuppressions(
           before,
           base,
-          new Map([...capRoots].map((key) => [key, attribution])),
+          attribution,
           collectSuppression,
         );
       }

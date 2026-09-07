@@ -537,6 +537,26 @@ export const supabasePolicy: Policy = {
       action: "exclude",
     },
 
+    // Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`).
+    // Identity, not owner: Rule 6 hides a supabase_admin-owned copy and keeps
+    // a postgres-owned copy, so a same-named trigger becomes a false CREATE
+    // (CLI-2341). Hard-exclude — nothing user-managed hangs off these, unlike
+    // assumedPublications. Capability separately projects out any event
+    // trigger whose function is superuser-owned when restrictToApplier is on.
+    {
+      match: {
+        all: [
+          { kind: "eventTrigger" },
+          { name: ["issue_*", "pgrst_*", "graphql_watch_*"] },
+        ],
+      },
+      action: "exclude",
+      audit: {
+        reasonCode: "supabase.platform-event-trigger",
+        classification: "acknowledged",
+      },
+    },
+
     // Rule 6 (old rule): exclude objects whose payload owner is a system role.
     // Covers tables, views, schemas, sequences, etc. that are managed by
     // Supabase system roles.
