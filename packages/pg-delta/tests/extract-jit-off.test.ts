@@ -64,33 +64,33 @@ afterAll(async () => {
   await db.drop();
 });
 
-/** Wrap the next-checked-out client's `query` to record every statement text,
- *  run `fn`, then restore `pool.connect`. Mirrors the monkeypatch pattern in
- *  scripts/benchmark.ts's `withPerQueryTiming` — measurement only, never
- *  touches the library. */
+/** Observe checked-out clients to record every statement text while `fn` runs,
+ *  then restore their query methods — measurement only, never touches the library. */
 async function withQueryLog<T>(
   pool: pg.Pool,
   fn: () => Promise<T>,
 ): Promise<{ result: T; statements: string[] }> {
   const statements: string[] = [];
-  const origConnect = pool.connect.bind(pool);
-  (pool as { connect: unknown }).connect = async (...args: unknown[]) => {
-    const client = await (
-      origConnect as (...a: unknown[]) => Promise<pg.PoolClient>
-    )(...args);
+  const patched = new Map<pg.PoolClient, unknown>();
+  const onAcquire = (client: pg.PoolClient): void => {
+    if (patched.has(client)) return;
+    patched.set(client, (client as { query: unknown }).query);
     const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
     (client as { query: unknown }).query = (...qa: unknown[]) => {
       const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
       statements.push(sql);
       return origQuery(...qa);
     };
-    return client;
   };
   try {
+    pool.on("acquire", onAcquire);
     const result = await fn();
     return { result, statements };
   } finally {
-    (pool as { connect: unknown }).connect = origConnect;
+    pool.off("acquire", onAcquire);
+    for (const [client, query] of patched) {
+      (client as { query: unknown }).query = query;
+    }
   }
 }
 
@@ -108,19 +108,14 @@ async function withRejectedStatement<T>(
   makeError: () => Error,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const origConnect = pool.connect.bind(pool);
   // Patched clients go BACK into the pool when extract() releases them, so the
   // patch must be undone on exit or a later checkout of the same client would
   // still inject errors into an unrelated test.
   const patched = new Map<pg.PoolClient, unknown>();
-  (pool as { connect: unknown }).connect = async (...args: unknown[]) => {
-    const client = await (
-      origConnect as (...a: unknown[]) => Promise<pg.PoolClient>
-    )(...args);
+  const onAcquire = (client: pg.PoolClient): void => {
+    if (patched.has(client)) return;
     const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
-    if (!patched.has(client)) {
-      patched.set(client, (client as { query: unknown }).query);
-    }
+    patched.set(client, (client as { query: unknown }).query);
     (client as { query: unknown }).query = (...qa: unknown[]) => {
       const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
       if (pattern.test(sql)) {
@@ -128,12 +123,12 @@ async function withRejectedStatement<T>(
       }
       return origQuery(...qa);
     };
-    return client;
   };
+  pool.on("acquire", onAcquire);
   try {
     return await fn();
   } finally {
-    (pool as { connect: unknown }).connect = origConnect;
+    pool.off("acquire", onAcquire);
     for (const [client, query] of patched) {
       (client as { query: unknown }).query = query;
     }

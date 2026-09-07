@@ -13,6 +13,7 @@
  * inDoubt.
  */
 import type { Pool } from "pg";
+import { connectWithErrorListener } from "../pg-client.ts";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { assertPlanId } from "../plan/artifact.ts";
@@ -273,7 +274,7 @@ export async function apply(
   const segments = segmentActions(thePlan.actions);
   let appliedActions = 0;
 
-  const client = await target.connect();
+  const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
     const onEvent = options?.onEvent;

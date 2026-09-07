@@ -39,6 +39,7 @@
  */
 import createDebug from "debug";
 import type { Pool, PoolClient } from "pg";
+import { connectWithErrorListener } from "../pg-client.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import {
   buildFactBase,
@@ -345,7 +346,7 @@ export async function extract(
   // Validated BEFORE a client is checked out, so a bad option can never leak a
   // connection or an open transaction.
   const streams = resolveStreamCount(options.concurrency, pool.options?.max);
-  const client = await pool.connect();
+  const client = await connectWithErrorListener(pool);
   try {
     const result = await extractOnClient(
       client,

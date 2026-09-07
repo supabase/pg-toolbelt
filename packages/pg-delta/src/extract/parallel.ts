@@ -32,6 +32,7 @@
  */
 import createDebug from "debug";
 import type { Pool, PoolClient } from "pg";
+import { connectWithErrorListener } from "../pg-client.ts";
 import {
   makeBatchRunner,
   makeQueryRunner,
@@ -183,7 +184,7 @@ export async function reserveWorkerClients(
   const wanted = Math.min(count, spareCapacity(pool));
   if (wanted <= 0) return [];
   const settled = await Promise.allSettled(
-    Array.from({ length: wanted }, () => pool.connect()),
+    Array.from({ length: wanted }, () => connectWithErrorListener(pool)),
   );
   const clients: PoolClient[] = [];
   for (const outcome of settled) {
