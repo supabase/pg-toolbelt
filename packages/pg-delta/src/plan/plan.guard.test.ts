@@ -32,6 +32,9 @@ function isPlannerBodyModuleFilename(name: string): boolean {
 // with zero FactKind literal occurrences. Keep this table sorted by path.
 const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   "artifact.ts": 73,
+  // Created lock-holding kinds that occupy a lock-table slot until COMMIT.
+  // Used by opt-in baselineCommitEvery, not per-object planning knowledge.
+  "baseline-commit.ts": 8,
   "graph.ts": 0,
   "hazards.ts": 0,
   "identity-normalize.ts": 17,
