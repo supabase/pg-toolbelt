@@ -5,6 +5,7 @@
  */
 import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
+import { connectWithErrorListener } from "../pg-client.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
@@ -80,7 +81,7 @@ export async function probeUnmodeledIdentitiesPinned(
   pool: Pool,
   major: number,
 ): Promise<UnmodeledIdentities> {
-  const client = await pool.connect();
+  const client = await connectWithErrorListener(pool);
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL search_path TO pg_catalog");
@@ -573,7 +574,7 @@ export async function planSchemaFiles(
         ...(ctx.susetGucs !== undefined ? { susetGucs: ctx.susetGucs } : {}),
       });
       if (seed.sql !== "") {
-        const seedClient = await shadowPool.connect();
+        const seedClient = await connectWithErrorListener(shadowPool);
         try {
           // Same PG 16+ CREATEROLE non-superuser grant as loadSqlFiles: seed SQL
           // may CREATE SCHEMA … AUTHORIZATION for assumed owners.
