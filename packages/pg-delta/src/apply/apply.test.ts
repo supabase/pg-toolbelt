@@ -689,12 +689,16 @@ describe("apply lock-table preflight", () => {
 
   test("throws before BEGIN when a single segment exceeds the budget", async () => {
     const queries: string[] = [];
-    await expect(
-      apply(tableCreatePlan(1), tightPool(3, queries), {
+    let error: unknown;
+    try {
+      await apply(tableCreatePlan(1), tightPool(3, queries), {
         fingerprintGate: false,
         lockTableReserveConnections: 0,
-      }),
-    ).rejects.toBeInstanceOf(LockTableBudgetExceededError);
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(LockTableBudgetExceededError);
     expect(queries.every((sql) => isLockTableProbe(sql))).toBe(true);
     expect(queries.some((sql) => sql === "BEGIN")).toBe(false);
   });
