@@ -273,7 +273,8 @@ re-implemented inside an imperative diff.
     default, warned on rather than rejected.** DML would succeed in the
     shadow and then silently vanish from the schema-only plan. After
     loading, the loader checks for observable data: any managed
-    non-extension table with rows, never by parsing SQL. In an
+    non-extension table with rows (tables in the active policy's assumed
+    platform schemas are never probed), never by parsing SQL. In an
     isolated-cluster shadow (the default there), tables that already held
     rows *before* the load are exempt via `allowPreExistingRows` — a
     name-based exemption; row contents are never compared, so an INSERT

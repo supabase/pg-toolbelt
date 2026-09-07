@@ -537,12 +537,12 @@ export async function planSchemaFiles(
           .map((f) => (f.id as { name: string }).name)
       : [];
 
+  const flatProfile = ctx.planOptions.policy
+    ? flattenPolicy(ctx.planOptions.policy)
+    : undefined;
   let seededSchemas: string[] = [];
   let seededRoutines = new Map<string, string>();
   if (options.seedAssumedSchemas === true) {
-    const flatProfile = ctx.planOptions.policy
-      ? flattenPolicy(ctx.planOptions.policy)
-      : undefined;
     const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
     const profileAssumedPublications = flatProfile?.assumedPublications ?? [];
     // gate on EITHER assumed kind: a profile assuming only publications still
@@ -643,6 +643,8 @@ export async function planSchemaFiles(
     loadResult = await loadSqlFiles(loadInput, shadowPool, {
       extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
       ...(seededSchemas.length > 0 ? { seededSchemas, seededRoutines } : {}),
+      // assumed (platform) schemas are not the user's to manage — never probed
+      assumedSchemas: flatProfile?.assumedSchemas ?? [],
       strictFunctionBodies: options.strictFunctionBodies === true,
       strictDataStatements: options.strictDataStatements === true,
       // undefined = let the loader default it from the mode
