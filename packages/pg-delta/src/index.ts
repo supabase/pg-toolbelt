@@ -8,7 +8,11 @@
  */
 
 // ── core primitives ──────────────────────────────────────────────────────────
-export { NotImplementedError, type Diagnostic } from "./core/diagnostic.ts";
+export {
+  NotImplementedError,
+  LOCK_TABLE_BUDGET_EXCEEDED,
+  type Diagnostic,
+} from "./core/diagnostic.ts";
 export {
   encodeId,
   parseId,
@@ -73,12 +77,17 @@ export {
   apply,
   segmentActions,
   planSegments,
+  LockTableBudgetExceededError,
+  computeLockTableBudget,
+  markBaselineCommitBoundaries,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
   type ActionStatus,
   type Segment,
+  type LockTableBudget,
+  type LockTableSettings,
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────

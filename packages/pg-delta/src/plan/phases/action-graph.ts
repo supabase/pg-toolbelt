@@ -149,9 +149,11 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // ── commitBoundaryAfter segment boundary (§3.8) ───────────────────────
   // Mark the FIRST graph successor of each commitBoundaryAfter action with
   // newSegmentBefore. apply.ts already closes the segment unconditionally after
-  // a commitBoundaryAfter action (review #6), so this flag's load-bearing role
-  // now is COMPACTION PROTECTION — compaction refuses to fold a clause across a
-  // newSegmentBefore boundary. This loop is the sole producer of the flag.
+  // a commitBoundaryAfter action, so this flag's load-bearing role now is
+  // COMPACTION PROTECTION — compaction refuses to fold a clause across a
+  // newSegmentBefore boundary. Opt-in baseline chunking
+  // (`PlanOptions.baselineCommitEvery`) is a second producer: it runs AFTER
+  // compaction in plan() so it cannot fight CREATE TABLE folding.
   const positionOf = Array.from({ length: actions.length }, () => 0);
   order.forEach((actionIndex, position) => {
     positionOf[actionIndex] = position;

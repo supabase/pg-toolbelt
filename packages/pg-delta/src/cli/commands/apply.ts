@@ -9,7 +9,12 @@ import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
 import { apply } from "../../apply/apply.ts";
 import { makePool } from "../pool.ts";
-import { CliExit, parseFlags, UsageError } from "../flags.ts";
+import {
+  CliExit,
+  parseFlags,
+  parsePositiveIntFlag,
+  UsageError,
+} from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
@@ -27,11 +32,12 @@ export async function cmdApply(args: string[]): Promise<void> {
       profile: { type: "value" },
       force: { type: "boolean" },
       "allow-data-loss": { type: "boolean" },
+      "baseline-commit-every": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss]`,
+        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss] [--baseline-commit-every <n>]`,
       );
     }
     throw err;
@@ -96,10 +102,15 @@ export async function cmdApply(args: string[]): Promise<void> {
     );
     process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
 
+    const baselineCommitEvery = parsePositiveIntFlag(
+      "baseline-commit-every",
+      flags["baseline-commit-every"],
+    );
     const report = await apply(thePlan, tgt.pool, {
       fingerprintGate: !force,
       ...ctx.applyOptions, // reextract (handler-aware) + baseline
       reextract: (p) => ctx.extract(p, { redactSecrets }),
+      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
     });
 
     if (report.status === "applied") {

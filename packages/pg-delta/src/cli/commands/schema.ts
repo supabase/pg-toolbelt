@@ -181,7 +181,12 @@ import {
   isShadowProvisionError,
   provisionCoLocatedShadow,
 } from "../shadow.ts";
-import { CliExit, parseFlags, UsageError } from "../flags.ts";
+import {
+  CliExit,
+  parseFlags,
+  parsePositiveIntFlag,
+  UsageError,
+} from "../flags.ts";
 import { effectiveProfileId, PROFILE_IDS, profileById } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { assertDataLossAllowed } from "../data-loss-safety.ts";
@@ -735,6 +740,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "trusted-local-host": { type: "multi" },
       "allow-remote-shadow": { type: "boolean" },
       "allow-same-database-identity": { type: "boolean" },
+      "baseline-commit-every": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -742,7 +748,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
-          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity]\n` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--baseline-commit-every <n>]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
@@ -759,6 +765,10 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const dryRun = flags["dry-run"];
   const verbose = flags["verbose"];
   const outPlanPath = flags["out-plan"];
+  const baselineCommitEvery = parsePositiveIntFlag(
+    "baseline-commit-every",
+    flags["baseline-commit-every"],
+  );
 
   // The export directory's manifest (redaction mode, profile, scope), consulted
   // once and reused. Absent for hand-authored dirs / older exports.
@@ -1034,6 +1044,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       strictFunctionBodies: flags["strict-function-bodies"] === true,
       strictDataStatements: flags["strict-data-statements"] === true,
       reorder: !flags["no-reorder"],
+      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
       onWarning: (message) => {
         if (message.startsWith("the directory records no default owner")) {
           // already printed above for CLI parity
@@ -1222,6 +1233,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         planned.extract(p, { redactSecrets: planned.redactSecrets }),
       fingerprintGate: !force,
       ...(onEvent !== undefined ? { onEvent } : {}),
+      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
     });
 
     if (report.status === "applied") {

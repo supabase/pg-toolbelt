@@ -127,3 +127,18 @@ export function parseFlags<T extends FlagsDef>(
 
   return { flags: result as ParsedFlags<T>, positionals };
 }
+
+/** Parse a `--flag <n>` that must be a positive integer. Absent → undefined. */
+export function parsePositiveIntFlag(
+  flagName: string,
+  raw: string | undefined,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new UsageError(
+      `--${flagName} must be a positive integer, got ${raw}`,
+    );
+  }
+  return n;
+}

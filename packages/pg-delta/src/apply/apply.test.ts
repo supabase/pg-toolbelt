@@ -9,10 +9,28 @@ import type { Action, Plan } from "../plan/plan.ts";
 import { ENGINE_VERSION, stampPlanId } from "../plan/plan.ts";
 import {
   apply,
+  LockTableBudgetExceededError,
   type ApplyEvent,
   planSegments,
   segmentActions,
 } from "./apply.ts";
+
+const AMPLE_LOCK_TABLE_ROW = {
+  max_locks_per_transaction: 64,
+  max_connections: 100,
+  max_prepared_transactions: 0,
+  busy_others: 0,
+  other_backends: 0,
+  prepared_xacts: 0,
+};
+
+function isLockTableProbe(sql: string): boolean {
+  return sql.includes("max_locks_per_transaction");
+}
+
+function ddlQueries(queries: string[]): string[] {
+  return queries.filter((sql) => !isLockTableProbe(sql));
+}
 
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
@@ -130,6 +148,9 @@ async function expectObserverLatencyExcluded(
   const events: ApplyEvent[] = [];
   const client = {
     query: (sql: string) => {
+      if (isLockTableProbe(sql)) {
+        return Promise.resolve({ rows: [AMPLE_LOCK_TABLE_ROW] });
+      }
       if (sql === "SELECT 42") {
         monotonicNow += 7;
         wallNow -= 50;
@@ -189,6 +210,9 @@ function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
   const client = {
     query: (sql: string) => {
       queries.push(sql);
+      if (isLockTableProbe(sql)) {
+        return Promise.resolve({ rows: [AMPLE_LOCK_TABLE_ROW] });
+      }
       return failingSql.has(sql)
         ? Promise.reject(new Error(`scripted failure: ${sql}`))
         : Promise.resolve({ rows: [] });
@@ -230,7 +254,7 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(scripted.queries).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(ddlQueries(scripted.queries)).toEqual(["BEGIN", "ROLLBACK"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -265,7 +289,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(scripted.queries).toEqual([
+    expect(ddlQueries(scripted.queries)).toEqual([
       "BEGIN",
       "SET LOCAL lock_timeout = 5000",
       failingSet,
@@ -295,7 +319,11 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(scripted.queries).toEqual(["BEGIN", "SELECT 42", "ROLLBACK"]);
+    expect(ddlQueries(scripted.queries)).toEqual([
+      "BEGIN",
+      "SELECT 42",
+      "ROLLBACK",
+    ]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -319,7 +347,7 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(scripted.queries).toEqual([
+    expect(ddlQueries(scripted.queries)).toEqual([
       "BEGIN",
       "SELECT 42",
       "COMMIT",
@@ -354,7 +382,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(scripted.queries).toEqual([failingSet, "RESET ALL"]);
+    expect(ddlQueries(scripted.queries)).toEqual([failingSet, "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -383,7 +411,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(ddlQueries(scripted.queries)).toEqual(["SELECT 42", "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -411,7 +439,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(ddlQueries(scripted.queries)).toEqual(["SELECT 42", "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 1,
@@ -596,5 +624,112 @@ describe("apply plan integrity", () => {
     expect((error as Error).message).toMatch(/planId/);
     expect((error as Error).message).toMatch(/re-plan/);
     expect(connected).toBe(false);
+  });
+});
+
+function tableCreatePlan(count: number): Plan {
+  return stampPlanId({
+    formatVersion: 1,
+    engineVersion: ENGINE_VERSION,
+    source: { fingerprint: "source" },
+    target: { fingerprint: "target" },
+    preamble: [],
+    deltas: [],
+    filteredDeltas: [],
+    renameCandidates: [],
+    actions: Array.from({ length: count }, (_, i) => ({
+      sql: `CREATE TABLE app.t${String(i)} (id int)`,
+      verb: "create" as const,
+      produces: [
+        { kind: "table" as const, schema: "app", name: `t${String(i)}` },
+      ],
+      consumes: [],
+      destroys: [],
+      releases: [],
+      transactionality: "transactional" as const,
+      lockClass: "none" as const,
+      newSegmentBefore: false,
+      dataLoss: "none" as const,
+      rewriteRisk: false,
+    })),
+    safetyReport: {
+      destructiveActions: 0,
+      rewriteRiskActions: 0,
+      nonTransactionalActions: 0,
+      lockClasses: {},
+    },
+  });
+}
+
+describe("apply lock-table preflight", () => {
+  test("throws before BEGIN when a single segment exceeds the budget", async () => {
+    const tight = {
+      max_locks_per_transaction: 10,
+      max_connections: 10,
+      max_prepared_transactions: 0,
+      busy_others: 0,
+      other_backends: 1,
+      prepared_xacts: 0,
+    };
+    const queries: string[] = [];
+    const pool = {
+      connect: () =>
+        Promise.resolve({
+          query: (sql: string) => {
+            queries.push(sql);
+            if (isLockTableProbe(sql)) {
+              return Promise.resolve({ rows: [tight] });
+            }
+            return Promise.resolve({ rows: [] });
+          },
+          release: () => {},
+        }),
+    } as unknown as Pool;
+
+    let error: unknown;
+    try {
+      await apply(tableCreatePlan(30), pool, {
+        fingerprintGate: false,
+        lockTableReserveConnections: 1,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(LockTableBudgetExceededError);
+    expect(queries.every((sql) => isLockTableProbe(sql))).toBe(true);
+    expect(queries.some((sql) => sql === "BEGIN")).toBe(false);
+  });
+
+  test("baselineCommitEvery splits the plan so preflight passes", async () => {
+    const tight = {
+      max_locks_per_transaction: 10,
+      max_connections: 10,
+      max_prepared_transactions: 0,
+      busy_others: 0,
+      other_backends: 1,
+      prepared_xacts: 0,
+    };
+    const events: ApplyEvent[] = [];
+    const pool = {
+      connect: () =>
+        Promise.resolve({
+          query: (sql: string) => {
+            if (isLockTableProbe(sql)) {
+              return Promise.resolve({ rows: [tight] });
+            }
+            return Promise.resolve({ rows: [] });
+          },
+          release: () => {},
+        }),
+    } as unknown as Pool;
+
+    const report = await apply(tableCreatePlan(30), pool, {
+      fingerprintGate: false,
+      lockTableReserveConnections: 1,
+      baselineCommitEvery: 5,
+      onEvent: (event) => events.push(event),
+    });
+    expect(report.status).toBe("applied");
+    expect(events.filter((e) => e.kind === "segmentStart")).toHaveLength(6);
   });
 });

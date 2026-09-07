@@ -53,6 +53,9 @@ const desired = await extract(desiredPool);
 const migration = plan(source.factBase, desired.factBase);
 await provePlan(migration, clonePool, desired.factBase); // optional but recommended
 await apply(migration, sourcePool);
+// Empty-target baseline that will not fit in one lock table:
+// plan(..., { baselineCommitEvery: 200 }) and/or
+// apply(..., { baselineCommitEvery: 200 })
 ```
 
 ## Commands

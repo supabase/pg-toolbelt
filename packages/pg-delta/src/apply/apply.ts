@@ -4,6 +4,8 @@
  * maximal transactional runs, isolates nonTransactional actions, and
  * honors the planner's commitBoundaryAfter segment boundaries.
  * Segmentation changes transaction boundaries only, never order.
+ * Before the first DDL, apply probes the target lock table and refuses a
+ * segment whose estimated locks exceed the remaining budget.
  *
  * Mid-plan failure semantics are explicit: every action is reported
  * applied / unapplied / inDoubt, and the error identifies whether an action
@@ -20,6 +22,26 @@ import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
+import {
+  assertSegmentsFitLockTable,
+  computeLockTableBudget,
+  markBaselineCommitBoundaries,
+  probeLockTableSettings,
+} from "./lock-table.ts";
+
+export {
+  LockTableBudgetExceededError,
+  assertSegmentsFitLockTable,
+  computeLockTableBudget,
+  defaultLockTableReserveConnections,
+  estimateActionLocks,
+  estimateSegmentLocks,
+  markBaselineCommitBoundaries,
+  probeLockTableSettings,
+  type LockEstimateAction,
+  type LockTableBudget,
+  type LockTableSettings,
+} from "./lock-table.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -98,6 +120,16 @@ export interface ApplyOptions {
    *  boundaries as apply() executes. Purely additive — see `emit` below for
    *  the isolation guarantee. */
   onEvent?: (event: ApplyEvent) => void;
+  /** Opt-in commit boundaries for an empty/unobserved target: start a new
+   *  transactional segment after every N created lock-holding relations
+   *  (table/index/sequence/view/type). Never a default — mid-plan state is
+   *  visible to concurrent readers. Applied to a working copy; the artifact
+   *  is unchanged. */
+  baselineCommitEvery?: number;
+  /** Backends-worth of lock-table slots to keep free for connections that
+   *  may start during apply. Default: max(3, ceil(0.1 × max_connections)),
+   *  clamped to remaining backend slots. */
+  lockTableReserveConnections?: number;
 }
 
 export interface Segment {
@@ -270,12 +302,25 @@ export async function apply(
   }
 
   const statuses: ActionStatus[] = thePlan.actions.map(() => "unapplied");
-  const segments = segmentActions(thePlan.actions);
   let appliedActions = 0;
 
   const client = await target.connect();
   let destroyClient = false;
   try {
+    const segmented =
+      options?.baselineCommitEvery !== undefined
+        ? markBaselineCommitBoundaries(
+            thePlan.actions,
+            options.baselineCommitEvery,
+          )
+        : thePlan.actions;
+    const budget = computeLockTableBudget(
+      await probeLockTableSettings(client),
+      options?.lockTableReserveConnections,
+    );
+    const segments = segmentActions(segmented);
+    assertSegmentsFitLockTable(segments, thePlan.actions, budget);
+
     const onEvent = options?.onEvent;
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;

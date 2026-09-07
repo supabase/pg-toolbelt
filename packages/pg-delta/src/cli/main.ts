@@ -66,6 +66,7 @@ Commands:
                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
                  [--accept-rename <from>=<to>] ...
   apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
+                 [--baseline-commit-every <n>]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
                  [--strict-audit] [--audit-all]
@@ -86,6 +87,7 @@ Commands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
+                 [--baseline-commit-every <n>]
   schema lint    --dir <dir>
 
 Notes:
@@ -183,6 +185,12 @@ Notes:
   --out-plan <plan.json> (schema apply): write the plan artifact (same format
     as "plan --out") to this path right after planning, before apply (or the
     --dry-run script).
+  --baseline-commit-every <n> (plan, apply, schema apply): opt-in commit
+    boundaries for an empty/unobserved target. Starts a new transactional
+    segment after every N created lock-holding relations so a large baseline
+    fits the lock table. Never a default — concurrent readers would see
+    mid-plan state. Without it, apply fails fast with
+    lock-table-budget-exceeded rather than dying mid-DDL.
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
@@ -216,6 +224,7 @@ Subcommands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
+                 [--baseline-commit-every <n>]
   schema lint    --dir <dir>
                  Statically check the SQL files (pg-topo) for shadow-load
                  cycles and other issues, without touching a database.

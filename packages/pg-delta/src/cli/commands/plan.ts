@@ -20,7 +20,7 @@ import { serializePlan } from "../../plan/artifact.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import { parseFlags, parsePositiveIntFlag, UsageError } from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
@@ -37,7 +37,7 @@ const USAGE =
   `[--profile ${PROFILE_IDS}] ` +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
   "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
-  "[--unsafe-show-secrets]\n";
+  "[--unsafe-show-secrets] [--baseline-commit-every <n>]\n";
 
 export function formatPlanIdentityWarning(
   code: DatabaseIdentityObservationUnavailableCode,
@@ -72,6 +72,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       "restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
+      "baseline-commit-every": { type: "value" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -164,6 +165,10 @@ export async function cmdPlan(args: string[]): Promise<void> {
       },
     );
 
+    const baselineCommitEvery = parsePositiveIntFlag(
+      "baseline-commit-every",
+      flags["baseline-commit-every"],
+    );
     const planOptions = {
       renames,
       compact,
@@ -173,6 +178,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       redactSecrets,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
       ...ctx.planOptions, // policy, capability, baseline (from the profile)
+      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
     };
     const thePlan = plan(
       sourceResult.factBase,
