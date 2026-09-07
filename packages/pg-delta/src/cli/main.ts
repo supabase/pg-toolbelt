@@ -143,10 +143,6 @@ Notes:
     apply/schema apply refuse actions marked
     dataLoss:"destructive" unless --allow-data-loss is supplied; --force only
     skips the source fingerprint gate and never implies data-loss approval.
-    schema apply plans and applies in one process, so it gates against the
-    target extract taken at the start of planning rather than re-extracting
-    (sourceFactBase). That is only valid when nothing else writes to
-    --target between those steps. pgdelta apply --plan still re-extracts.
   --no-reorder (schema apply): skip the statement-reordering assist and load
     raw files at file granularity. Reorder is on by default — it splits files
     into one-statement units and topologically pre-sorts them so authoring

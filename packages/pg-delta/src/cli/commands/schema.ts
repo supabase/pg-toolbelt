@@ -46,11 +46,6 @@
  *   Read .sql files recursively (lexicographic), load into shadow, extract
  *   target, plan, apply.  Maps to old `declarative-apply` / `sync`.
  *
- *   Same-process apply gates against that planning extract (`sourceFactBase`)
- *   instead of re-extracting — only valid when nothing else writes to
- *   `--target` between extract and apply. `pgdelta apply --plan` still
- *   re-extracts. `--force` drops the gate entirely.
- *
  *   The recursive read includes `_custom/**\/*.sql`, which is how that folder
  *   feeds the SHADOW. Nothing in it is ever executed against the target: it is
  *   loaded, extracted, and whatever it created that the engine does not model
@@ -1223,10 +1218,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
 
     const report = await apply(thePlan, tgt.pool, {
       ...planned.applyOptions,
+      reextract: (p) =>
+        planned.extract(p, { redactSecrets: planned.redactSecrets }),
       fingerprintGate: !force,
-      // Same-process: the extract planSchemaFiles already took. Caller (this
-      // CLI) asserts exclusive write access to --target for the plan window.
-      sourceFactBase: planned.targetFactBase,
       ...(onEvent !== undefined ? { onEvent } : {}),
     });
 
