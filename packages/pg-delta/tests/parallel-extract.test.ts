@@ -193,20 +193,26 @@ const isSetupCall = (sql: string): boolean =>
  */
 function countRoundTrips(pool: pg.Pool): () => number {
   let calls = 0;
-  const realConnect = pool.connect.bind(pool);
-  // oxlint-disable-next-line no-explicit-any -- test double
-  (pool as any).connect = async () => {
-    const client = await realConnect();
+  const patched = new Map<pg.PoolClient, unknown>();
+  const onAcquire = (client: pg.PoolClient): void => {
+    if (patched.has(client)) return;
     const realQuery = client.query.bind(client);
+    patched.set(client, (client as { query: unknown }).query);
     // oxlint-disable-next-line no-explicit-any -- passthrough test double
     (client as any).query = (...args: any[]) => {
       if (typeof args[0] === "string") calls++;
       // oxlint-disable-next-line no-explicit-any -- passthrough test double
       return (realQuery as any)(...args);
     };
-    return client;
   };
-  return () => calls;
+  pool.on("acquire", onAcquire);
+  return () => {
+    pool.off("acquire", onAcquire);
+    for (const [client, query] of patched) {
+      (client as { query: unknown }).query = query;
+    }
+    return calls;
+  };
 }
 
 /** The GUCs and transaction characteristics that define the canonical extraction
@@ -226,7 +232,7 @@ interface ClientTrace {
 }
 
 /**
- * Wrap `pool.connect` so every checked-out client reports (a) how many setup
+ * Observe every checked-out client to report (a) how many setup
  * round trips it paid and (b) the session state it was left in — captured lazily,
  * immediately before its first non-setup query, which is the only moment where
  * "setup finished" is observable from outside without changing the ordering that
@@ -234,13 +240,13 @@ interface ClientTrace {
  */
 function traceSetup(pool: pg.Pool): () => ClientTrace[] {
   const traces: ClientTrace[] = [];
-  const realConnect = pool.connect.bind(pool);
-  // oxlint-disable-next-line no-explicit-any -- test double
-  (pool as any).connect = async () => {
-    const client = await realConnect();
+  const patched = new Map<pg.PoolClient, unknown>();
+  const onAcquire = (client: pg.PoolClient): void => {
+    if (patched.has(client)) return;
     const trace: ClientTrace = { setupCalls: 0 };
     traces.push(trace);
     const realQuery = client.query.bind(client);
+    patched.set(client, (client as { query: unknown }).query);
     let capturing = false;
     // oxlint-disable-next-line no-explicit-any -- passthrough test double
     (client as any).query = async (...args: any[]) => {
@@ -257,9 +263,15 @@ function traceSetup(pool: pg.Pool): () => ClientTrace[] {
       // oxlint-disable-next-line no-explicit-any -- passthrough test double
       return (realQuery as any)(...args);
     };
-    return client;
   };
-  return () => traces;
+  pool.on("acquire", onAcquire);
+  return () => {
+    pool.off("acquire", onAcquire);
+    for (const [client, query] of patched) {
+      (client as { query: unknown }).query = query;
+    }
+    return traces;
+  };
 }
 
 let db: TestDb;
@@ -358,10 +370,7 @@ describe("extract: bounded-parallel extraction", () => {
     // to run it. The rest of the streams are mid-query when it blows up, so this
     // is the "worker fails while others are in flight" cleanup path.
     const boom = new Error("poisoned pg_policy read");
-    const realConnect = pool.connect.bind(pool);
-    // oxlint-disable-next-line no-explicit-any -- test double, narrow on purpose
-    (pool as any).connect = async () => {
-      const client = await realConnect();
+    pool.on("acquire", (client) => {
       const realQuery = client.query.bind(client);
       // oxlint-disable-next-line no-explicit-any -- passthrough test double
       (client as any).query = (...args: any[]) => {
@@ -371,13 +380,12 @@ describe("extract: bounded-parallel extraction", () => {
         // oxlint-disable-next-line no-explicit-any -- passthrough test double
         return (realQuery as any)(...args);
       };
-      return client;
-    };
+    });
 
     expect(await rejection(extract(pool, { concurrency: 4 }))).toBe(boom);
     expectPoolDrained(pool, 5);
     // and the released clients are genuinely usable — no transaction left open
-    const probe = await realConnect();
+    const probe = await pool.connect();
     expect((await probe.query("SELECT 1 AS ok")).rows[0]).toEqual({ ok: 1 });
     probe.release();
     await pool.end();
@@ -423,10 +431,10 @@ describe("extract: bounded-parallel extraction", () => {
     // this also pins that the reservation has exactly one owner).
     const pool = new pg.Pool({ connectionString: db.uri, max: 5 });
     pool.on("error", () => {});
-    const realConnect = pool.connect.bind(pool);
-    // oxlint-disable-next-line no-explicit-any -- test double
-    (pool as any).connect = async () => {
-      const client = await realConnect();
+    const patched = new WeakSet<pg.PoolClient>();
+    const refuseSnapshot = (client: pg.PoolClient): void => {
+      if (patched.has(client)) return;
+      patched.add(client);
       const realQuery = client.query.bind(client);
       // oxlint-disable-next-line no-explicit-any -- passthrough test double
       (client as any).query = (...args: any[]) => {
@@ -446,11 +454,17 @@ describe("extract: bounded-parallel extraction", () => {
         // oxlint-disable-next-line no-explicit-any -- passthrough test double
         return (realQuery as any)(...args);
       };
-      return client;
     };
 
+    pool.on("acquire", refuseSnapshot);
     const serial = observe(await extract(db.pool));
-    const result = observe(await extract(pool, { concurrency: 4 }));
+    const result = await (async () => {
+      try {
+        return observe(await extract(pool, { concurrency: 4 }));
+      } finally {
+        pool.off("acquire", refuseSnapshot);
+      }
+    })();
     expect(result.rootHash).toBe(serial.rootHash);
     expect(result.facts).toEqual(serial.facts);
     expect(result.edges).toEqual(serial.edges);
