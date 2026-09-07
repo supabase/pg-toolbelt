@@ -6,6 +6,7 @@
 import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
+import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import {
   isSameDatabase,
@@ -353,6 +354,11 @@ export interface PlanSchemaFilesResult {
    */
   driftDiagnostics: Diagnostic[];
   skipped: { file: string; stmt: string }[];
+  /** Raw target extract used to produce `plan`. Pass to `apply()` as
+   *  `sourceFactBase` when the caller still holds exclusive write access
+   *  (same-process `schema apply`). The caller is asserting nothing else
+   *  wrote between this extract and apply. */
+  targetFactBase: FactBase;
   /** Same resolved profile bundles for a subsequent `apply()`. */
   applyOptions: ApplyOptions;
   planOptions: PlanOptions;
@@ -742,6 +748,7 @@ export async function planSchemaFiles(
     targetDiagnostics: targetResult.diagnostics,
     driftDiagnostics,
     skipped: prepared.skipped,
+    targetFactBase: targetResult.factBase,
     applyOptions: ctx.applyOptions,
     planOptions,
     extract: ctx.extract,

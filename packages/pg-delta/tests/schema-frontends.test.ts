@@ -277,8 +277,8 @@ describe("public schema frontends", () => {
 
         const report = await apply(planned.plan, target.pool, {
           ...planned.applyOptions,
-          reextract: (p) => planned.extract(p, { redactSecrets: true }),
           fingerprintGate: true,
+          sourceFactBase: planned.targetFactBase,
         });
         expect(report.status).toBe("applied");
       } finally {
