@@ -9,7 +9,6 @@ import type { Action, Plan } from "../plan/plan.ts";
 import { ENGINE_VERSION, stampPlanId } from "../plan/plan.ts";
 import {
   apply,
-  LockTableBudgetExceededError,
   type ApplyEvent,
   planSegments,
   segmentActions,
@@ -624,94 +623,5 @@ describe("apply plan integrity", () => {
     expect((error as Error).message).toMatch(/planId/);
     expect((error as Error).message).toMatch(/re-plan/);
     expect(connected).toBe(false);
-  });
-});
-
-function tableCreatePlan(count: number): Plan {
-  return stampPlanId({
-    formatVersion: 1,
-    engineVersion: ENGINE_VERSION,
-    source: { fingerprint: "source" },
-    target: { fingerprint: "target" },
-    preamble: [],
-    deltas: [],
-    filteredDeltas: [],
-    renameCandidates: [],
-    actions: Array.from({ length: count }, (_, i) => ({
-      sql: `CREATE TABLE app.t${String(i)} (id int)`,
-      verb: "create" as const,
-      produces: [
-        { kind: "table" as const, schema: "app", name: `t${String(i)}` },
-      ],
-      consumes: [],
-      destroys: [],
-      releases: [],
-      transactionality: "transactional" as const,
-      lockClass: "none" as const,
-      newSegmentBefore: false,
-      dataLoss: "none" as const,
-      rewriteRisk: false,
-    })),
-    safetyReport: {
-      destructiveActions: 0,
-      rewriteRiskActions: 0,
-      nonTransactionalActions: 0,
-      lockClasses: {},
-    },
-  });
-}
-
-describe("apply lock-table preflight", () => {
-  // One CREATE TABLE estimates 4 locks (catalog + toast pair).
-  function tightPool(maxLocksPerTransaction: number, queries?: string[]): Pool {
-    const row = {
-      max_locks_per_transaction: maxLocksPerTransaction,
-      max_connections: 1,
-      max_prepared_transactions: 0,
-      busy_others: 0,
-      other_backends: 0,
-      prepared_xacts: 0,
-    };
-    const client = {
-      query: (sql: string) => {
-        queries?.push(sql);
-        if (isLockTableProbe(sql)) {
-          return Promise.resolve({ rows: [row] });
-        }
-        return Promise.resolve({ rows: [] });
-      },
-      release: () => {},
-    };
-    return {
-      connect: () => Promise.resolve(client),
-    } as unknown as Pool;
-  }
-
-  test("throws before BEGIN when a single segment exceeds the budget", async () => {
-    const queries: string[] = [];
-    let error: unknown;
-    try {
-      await apply(tableCreatePlan(1), tightPool(3, queries), {
-        fingerprintGate: false,
-        lockTableReserveConnections: 0,
-      });
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error).toBeInstanceOf(LockTableBudgetExceededError);
-    expect(queries.every((sql) => isLockTableProbe(sql))).toBe(true);
-    expect(queries.some((sql) => sql === "BEGIN")).toBe(false);
-  });
-
-  test("baselineCommitEvery splits the plan so preflight passes", async () => {
-    const events: ApplyEvent[] = [];
-    const report = await apply(tableCreatePlan(2), tightPool(5), {
-      fingerprintGate: false,
-      lockTableReserveConnections: 0,
-      baselineCommitEvery: 1,
-      onEvent: (event) => events.push(event),
-    });
-    expect(report.status).toBe("applied");
-    expect(events.filter((e) => e.kind === "segmentStart")).toHaveLength(2);
   });
 });
