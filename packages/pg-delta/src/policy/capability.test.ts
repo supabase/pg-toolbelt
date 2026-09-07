@@ -4,8 +4,8 @@
  * The managed view is a function of (facts, policy, applier capability). An
  * operation the applier cannot execute is projected out — currently FDW ACLs
  * (superuser GRANT/REVOKE) and event triggers whose function is superuser-owned
- * (supautils T_CreateEventTrigStmt / PostgreSQL: a non-superuser cannot own an
- * event trigger on a superuser-owned function). Additive: Supabase Rule 9 still
+ * (supautils T_CreateEventTrigStmt; stock PostgreSQL has no function-owner
+ * carve-out). Additive: Supabase Rule 9 still
  * stands for FDW ACLs. With no capability (or a superuser), the view is
  * unrestricted — the corpus path is unchanged.
  */
@@ -64,9 +64,9 @@ describe("ApplierCapability — capability-restricted view (move 6)", () => {
 });
 
 describe("ApplierCapability — event trigger on a superuser-owned function", () => {
-  // supautils (and PostgreSQL without it): a non-superuser may create an event
-  // trigger only if its function is not superuser-owned. Expressed on facts:
-  // the function's owner edge → role.payload.superuser.
+  // supautils T_CreateEventTrigStmt: a privileged non-superuser may create an
+  // event trigger only if its function is not superuser-owned. Expressed on
+  // facts: the function's owner edge → role.payload.superuser.
   const suRole: StableId = { kind: "role", name: "su" };
   const appRole: StableId = { kind: "role", name: "app" };
   const suFn: StableId = {

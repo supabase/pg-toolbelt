@@ -14,9 +14,10 @@
  *     Rule 9 — additively (Rule 9 stays until the derivation is proven at
  *     parity).
  *   - Event triggers whose backing function is superuser-owned. That is
- *     supautils' `T_CreateEventTrigStmt` rule (and PostgreSQL's without it):
- *     a non-superuser may create an event trigger only if the function is
- *     not superuser-owned. Read off the function fact's `owner` edge.
+ *     supautils' `T_CreateEventTrigStmt`: a privileged non-superuser may
+ *     create an event trigger only if the function is not superuser-owned.
+ *     Stock PostgreSQL has no such carve-out (CREATE EVENT TRIGGER is
+ *     superuser-only). Read off the function fact's `owner` edge.
  */
 import type { Pool } from "pg";
 import type { Fact, FactBase } from "../core/fact.ts";

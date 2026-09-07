@@ -1570,3 +1570,28 @@ Codex P2s:
 - **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
+
+## PR #465 review triage (Codex) — event-trigger capability
+
+Capability projects out event triggers whose function is superuser-owned
+when `restrictToApplier` is on (supautils `T_CreateEventTrigStmt`). Two
+Codex findings were deferred; the stock-PostgreSQL wording in the
+capability header was fixed in-PR.
+
+- **Deferred — owner-asymmetric capability projection (P1).** Same
+  event-trigger identity on both sides, backing-function owner (or that
+  role's `superuser` flag) differs: one side is projected out, the other
+  is not, so `plan` can emit `CREATE EVENT TRIGGER` of a trigger that
+  already exists. `resolveView` is `view(facts, policy, capability)` per
+  catalog — classifying on the union of both sides would make
+  proof/fingerprint depend on the other catalog (the CLI-2341 design
+  constraint). Production platform names are covered by the identity
+  exclude in #464 and do not need capability. A user trigger under
+  `restrictToApplier` with a one-sided function-owner flip is still open.
+  Do not invent a cross-side capability view to close it.
+
+- **Deferred — project out every event trigger on stock PostgreSQL (P2).**
+  Vanilla `CREATE`/`ALTER`/`DROP EVENT TRIGGER` is superuser-only; this
+  layer only encodes the supautils function-owner exception. Hiding all
+  event triggers for a non-superuser on raw PG is a later capability
+  expansion and would change `restrictToApplier` beyond CLI-2341.

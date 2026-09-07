@@ -146,10 +146,10 @@ cleanly:
   non-superuser's FDW ACLs are projected out (`capabilityExcludedRoots`). This
   derives the exclusion the Supabase policy hard-codes as Rule 9.
 - **Event triggers whose function is superuser-owned** are the same shape
-  (supautils `T_CreateEventTrigStmt`; PostgreSQL rejects the create as a
-  duplicate or as an ownership violation). The function's `owner` edge and
+  under supautils (`T_CreateEventTrigStmt`). The function's `owner` edge and
   the role fact's `superuser` payload decide; gated on `!isSuperuser` so the
-  corpus is a no-op.
+  corpus is a no-op. Stock PostgreSQL has no function-owner carve-out —
+  `CREATE EVENT TRIGGER` is superuser-only there.
 - **Ownership** (`ALTER … OWNER TO R` needs superuser or membership in R) **can
   NOT** be silently skipped: leaving an object applier-owned ripples into its
   acldefault-normalized ACL (owner-relative), so the state would not converge.
