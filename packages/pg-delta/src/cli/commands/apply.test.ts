@@ -59,6 +59,19 @@ function destructivePlan(): string {
   return path;
 }
 
+test("apply accepts --batch-transactional as a known flag", async () => {
+  const error = await captureError(
+    cmdApply([
+      "--plan",
+      "/no-such-plan.json",
+      "--target",
+      "postgres://unused.invalid:5432/none",
+      "--batch-transactional",
+    ]),
+  );
+  expect((error as Error).message).not.toMatch(/unknown/i);
+});
+
 test("apply rejects --max-locks before opening the target", async () => {
   const error = await captureError(
     cmdApply([

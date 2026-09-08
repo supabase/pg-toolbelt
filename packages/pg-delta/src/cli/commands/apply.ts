@@ -35,11 +35,12 @@ export async function cmdApply(args: string[]): Promise<void> {
       "allow-data-loss": { type: "boolean" },
       "max-locks": { type: "value" },
       "split-to-fit": { type: "boolean" },
+      "batch-transactional": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss] [--max-locks <n>] [--split-to-fit]`,
+        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss] [--max-locks <n>] [--split-to-fit] [--batch-transactional]`,
       );
     }
     throw err;
@@ -117,6 +118,9 @@ export async function cmdApply(args: string[]): Promise<void> {
       fingerprintGate: !force,
       ...ctx.applyOptions, // reextract (handler-aware) + baseline
       reextract: (p) => ctx.extract(p, { redactSecrets }),
+      ...(flags["batch-transactional"] === true
+        ? { batchTransactional: true }
+        : {}),
     });
 
     if (report.status === "applied") {

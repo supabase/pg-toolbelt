@@ -750,6 +750,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "allow-same-database-identity": { type: "boolean" },
       "max-locks": { type: "value" },
       "split-to-fit": { type: "boolean" },
+      "batch-transactional": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -757,7 +758,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--no-restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
-          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--max-locks <n>] [--split-to-fit]\n` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--max-locks <n>] [--split-to-fit] [--batch-transactional]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
@@ -1230,8 +1231,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
               break;
             case "control":
               // every OTHER statement apply() sends on the wire — BEGIN,
-              // preamble SET/SET LOCAL, COMMIT, ROLLBACK, RESET ALL — prefixed
-              // to stay visually distinct from `[i/total] <action sql>` lines.
+              // preamble SET/SET LOCAL, transactional batches, COMMIT,
+              // ROLLBACK, RESET ALL — prefixed to stay visually distinct
+              // from `[i/total] <action sql>` lines.
               process.stderr.write(`  ; ${event.sql}\n`);
               break;
           }
@@ -1244,6 +1246,9 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         planned.extract(p, { redactSecrets: planned.redactSecrets }),
       fingerprintGate: !force,
       ...(onEvent !== undefined ? { onEvent } : {}),
+      ...(flags["batch-transactional"] === true
+        ? { batchTransactional: true }
+        : {}),
     });
 
     if (report.status === "applied") {
