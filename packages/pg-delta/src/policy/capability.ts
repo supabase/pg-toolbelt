@@ -8,10 +8,11 @@
  * probed from the applier connection and threaded into plan()/prove() as an
  * option. Absent, the view is unrestricted (the default — superuser/CI path).
  *
- * v1 restriction: FDW ACLs. `GRANT`/`REVOKE ON FOREIGN DATA WRAPPER` requires
- * superuser, so a non-superuser applier cannot replay them. This derives, for
- * ANY non-superuser, the exclusion the Supabase policy hard-codes as Rule 9 —
- * additively (Rule 9 stays until the derivation is proven at parity).
+ * Projected today:
+ *   - FDW ACLs (superuser-only GRANT/REVOKE), the exclusion Supabase Rule 9
+ *     hard-codes — additive until that derivation is proven at parity.
+ *   - PG16+ CREATEROLE self-ADMIN memberships: `GRANT role TO <applier>
+ *     WITH ADMIN OPTION` is 0LP01; CREATE ROLE already recreates the row.
  */
 import type { Pool } from "pg";
 import type { FactBase } from "../core/fact.ts";
@@ -26,7 +27,16 @@ export interface ApplierCapability {
    *  array (not a Set) so the capability persists losslessly in the Plan
    *  artifact's JSON (follow-up 2 productization). */
   memberOf: readonly string[];
+  /** CREATEROLE on the applying role. Omitted on legacy artifacts / hand-built
+   *  fixtures — membership projection stays off. */
+  createRole?: boolean;
+  /** Server major (e.g. 16). Omitted on legacy artifacts / hand-built fixtures. */
+  pgMajor?: number;
 }
+
+export const CAPABILITY_FDW_ACL = "capability.fdw-acl";
+export const CAPABILITY_CREATEROLE_SELF_ADMIN =
+  "capability.createrole-self-admin";
 
 /** Probe the applier's capability from a live connection. */
 export async function probeApplierCapability(
@@ -35,6 +45,8 @@ export async function probeApplierCapability(
   const res = await pool.query(`
     SELECT current_user AS role,
            (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) AS is_superuser,
+           (SELECT rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = current_user) AS create_role,
+           (current_setting('server_version_num')::int / 10000) AS pg_major,
            ARRAY(
              SELECT r.rolname::text FROM pg_catalog.pg_roles r
              WHERE pg_catalog.pg_has_role(current_user, r.oid, 'MEMBER')
@@ -44,30 +56,44 @@ export async function probeApplierCapability(
   const row = res.rows[0] as {
     role: string;
     is_superuser: boolean;
+    create_role: boolean;
+    pg_major: number;
     member_of: string[] | null;
   };
   return {
     role: String(row.role),
     isSuperuser: Boolean(row.is_superuser),
     memberOf: row.member_of ?? [],
+    createRole: Boolean(row.create_role),
+    pgMajor: Number(row.pg_major),
   };
 }
 
 /**
- * Fact-id keys to project out for a given capability — the facts whose
- * corresponding action the applier cannot execute. A superuser is unrestricted.
- * Currently: FDW ACL facts (GRANT/REVOKE on a FOREIGN DATA WRAPPER is
- * superuser-only).
+ * Fact-id keys to project out for a given capability, keyed by audit reason.
+ * A superuser is unrestricted. Missing `createRole` / `pgMajor` (legacy JSON)
+ * does not exclude memberships.
  */
 export function capabilityExcludedRoots(
   fb: FactBase,
   cap: ApplierCapability,
-): Set<string> {
-  const roots = new Set<string>();
+): Map<string, string> {
+  const roots = new Map<string, string>();
   if (cap.isSuperuser) return roots;
+  const selfAdmin =
+    cap.createRole === true && cap.pgMajor !== undefined && cap.pgMajor >= 16;
   for (const fact of fb.facts()) {
     if (fact.id.kind === "acl" && fact.id.target.kind === "fdw") {
-      roots.add(encodeId(fact.id));
+      roots.set(encodeId(fact.id), CAPABILITY_FDW_ACL);
+      continue;
+    }
+    if (
+      selfAdmin &&
+      fact.id.kind === "membership" &&
+      fact.id.member === cap.role &&
+      fact.payload["admin"] === true
+    ) {
+      roots.set(encodeId(fact.id), CAPABILITY_CREATEROLE_SELF_ADMIN);
     }
   }
   return roots;

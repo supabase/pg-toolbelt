@@ -2,4 +2,4 @@
 "@supabase/pg-delta": patch
 ---
 
-Live extraction now drops PG16+ implicit CREATEROLE ADMIN memberships granted by the bootstrap superuser, matching the shadow-load strip, so a baseline of roles created by a non-superuser `postgres` applies to an empty branch without `ADMIN option cannot be granted back to your own grantor`.
+A PG16+ CREATEROLE non-superuser cannot replay `GRANT <role> TO <self> WITH ADMIN OPTION` (SQLSTATE 0LP01); `CREATE ROLE` already recreates that membership. When plan/prove receive applier capability (the same opt-in as FDW ACLs), those admin self-memberships are projected out of the managed view. Extract stays a catalog dump.

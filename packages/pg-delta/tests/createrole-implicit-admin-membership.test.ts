@@ -1,14 +1,9 @@
 /**
- * On PG16+ a CREATEROLE non-superuser (Supabase `postgres`) that runs
- * `CREATE ROLE x` receives `GRANT x TO <creator> WITH ADMIN OPTION` whose
- * grantor is the bootstrap superuser (oid 10). Live extraction was
- * grantor-blind, so a baseline from that project planned the GRANT against
- * an empty branch and Postgres rejected it:
- *
- *   ADMIN option cannot be granted back to your own grantor  (SQLSTATE 0LP01)
- *
- * Shadow load already strips those rows (`bootstrapMembershipStrip`); this
- * file pins the same contract on live extract + apply.
+ * On PG16+ a CREATEROLE non-superuser that runs `CREATE ROLE x` receives
+ * `GRANT x TO <creator> WITH ADMIN OPTION`. Replaying that GRANT is 0LP01
+ * (`ADMIN option cannot be granted back to your own grantor`). Extract keeps
+ * the catalog row; capability projection drops it from the managed view so
+ * the plan is CREATE ROLE only (which recreates the membership).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import pg from "pg";
@@ -149,7 +144,7 @@ describe.skipIf(PG_MAJOR < 16)(
           role: created,
           member: applier,
         }),
-      ).toBe(false);
+      ).toBe(true);
       expect(
         desiredState.factBase.has({
           kind: "membership",

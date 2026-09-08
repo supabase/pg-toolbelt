@@ -24,6 +24,19 @@ function mockPool(opts: {
   return {
     // biome-ignore lint: minimal pg.Pool stand-in for unit tests
     query: async (sql: string) => {
+      if (sql.includes("current_user")) {
+        return {
+          rows: [
+            {
+              role: "applier",
+              is_superuser: opts.superuser ?? false,
+              create_role: false,
+              pg_major: Math.floor((opts.versionNum ?? 170004) / 10000),
+              member_of: opts.memberOf ?? [],
+            },
+          ],
+        };
+      }
       if (sql.includes("server_version_num")) {
         return { rows: [{ v: opts.versionNum ?? 170004 }] };
       }
