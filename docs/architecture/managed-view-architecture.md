@@ -378,3 +378,21 @@ the multi-step `plan → apply/prove` flow this needs **capability persisted in 
 Plan artifact** (like `policy` is), so a separate `prove`/`apply` invocation
 recovers the same view (`ApplierCapability.memberOf` serialized as an array).
 The engine mechanism + the parity conclusion above stand without it.
+
+### Follow-up 3 — owner-asymmetric identities are scoped by identity (CLI-2341)
+
+Owner-based exclusion (Supabase Rule 6) is evaluated **per side**. A
+same-identity object owned by `postgres` on one catalog and `supabase_admin`
+on the other is therefore in the view on one side and out on the other, and
+the differ emits a false create or drop.
+
+`resolveView` is `view(facts, policy, capability)` — one catalog, no
+cross-side dependency. Evaluating owner exclusion on the *union* of both
+sides would break that (proof / fingerprint would depend on the other
+catalog). So a platform object that can wear either owner must be excluded
+**by identity**, the same way `assumedPublications` names `supabase_realtime`.
+
+Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`) are
+hard-excluded by name. They have no user-managed children (unlike
+publication membership), so reference-only would only add owner/comment
+noise.

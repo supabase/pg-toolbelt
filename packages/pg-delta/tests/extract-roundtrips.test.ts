@@ -9,45 +9,17 @@
  * `.serverVersionNum` / `.pgMajor` in scope.ts for the combined replacement.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import type pg from "pg";
 import { extract } from "../src/extract/extract.ts";
-import { createTestDb, type TestDb } from "./containers.ts";
+import {
+  createTestDb,
+  withServerVersionProbeCount,
+  type TestDb,
+} from "./containers.ts";
 
 const dbs: TestDb[] = [];
 afterAll(async () => {
   await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
 });
-
-/** Observe every client checked out from `pool` for the duration of `fn`, counting
- *  queries whose SQL matches `/server_version/`. Restores instrumented clients
- *  when done — measurement only, never touches the library. */
-async function withServerVersionProbeCount<T>(
-  pool: pg.Pool,
-  fn: () => Promise<T>,
-): Promise<{ result: T; count: number }> {
-  let count = 0;
-  const patched = new Map<pg.PoolClient, unknown>();
-  const onAcquire = (client: pg.PoolClient): void => {
-    if (patched.has(client)) return;
-    patched.set(client, (client as { query: unknown }).query);
-    const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
-    (client as { query: unknown }).query = (...qa: unknown[]) => {
-      const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
-      if (/server_version/.test(sql)) count++;
-      return origQuery(...qa);
-    };
-  };
-  try {
-    pool.on("acquire", onAcquire);
-    const result = await fn();
-    return { result, count };
-  } finally {
-    pool.off("acquire", onAcquire);
-    for (const [client, query] of patched) {
-      (client as { query: unknown }).query = query;
-    }
-  }
-}
 
 describe("extract() server-version probe count", () => {
   test("probes server_version exactly once per extraction", async () => {

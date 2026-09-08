@@ -50,7 +50,8 @@
  * schema, so refusing to read the schema back would block every directory that
  * carries incidental data. Set `strictDataStatements: true` (CLI
  * `--strict-data-statements`) to restore the fatal `ShadowLoadError` for CI.
- * Extension-owned relations (pg_depend deptype 'e') are always out of scope.
+ * Extension-owned relations (pg_depend deptype 'e') and the policy's assumed
+ * schemas (`assumedSchemas`) are always out of scope.
  */
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { connectWithErrorListener } from "../pg-client.ts";
@@ -695,10 +696,10 @@ export interface LoadResult {
   pgVersion: string;
   diagnostics: Diagnostic[];
   rounds: number;
-  /** Managed non-extension tables that already held rows BEFORE the load, as
-   *  `"schema"."table"`, and are therefore exempt from the post-load DML
-   *  observation. Empty unless `allowPreExistingRows` is in effect (it defaults
-   *  to true in `"isolatedCluster"` mode). */
+  /** Managed non-extension tables (outside `assumedSchemas`) that already held
+   *  rows BEFORE the load, as `"schema"."table"`, and are therefore exempt from
+   *  the post-load DML observation. Empty unless `allowPreExistingRows` is in
+   *  effect (it defaults to true in `"isolatedCluster"` mode). */
   preExistingPopulatedTables: string[];
   /** Files that could not commit atomically and were demoted to per-statement
    *  apply this load. Empty when `statementFallback` is off or every file
@@ -820,20 +821,28 @@ async function restoreScratchClusterState(
  *
  * "Managed user table" must mean the SAME thing the diff path manages, so reuse
  * the extraction scope predicate (USER_SCHEMA_FILTER drops pg_catalog /
- * information_schema / pg_toast / pg_temp) and exclude extension-owned relations
- * (pg_depend deptype 'e'). Otherwise a declarative file that installs an
- * extension whose CREATE EXTENSION seeds internal config rows — or a platform
- * object — is wrongly read as if the user wrote DML (P2).
+ * information_schema / pg_toast / pg_temp), exclude extension-owned relations
+ * (pg_depend deptype 'e'), and skip the policy's assumed schemas — the one
+ * scope axis the loader can honour without a fact base (filter rules act on
+ * facts). Otherwise a declarative file that installs an extension that seeds
+ * internal config rows — or a platform object — is wrongly read as if the user
+ * wrote DML (P2), and a platform table the connecting role cannot read fails
+ * the whole load (supabase/cli#6453, `_realtime.schema_migrations`).
  */
 async function listPopulatedManagedTables(
   db: Pick<PoolClient, "query">,
+  assumedSchemas: readonly string[],
 ): Promise<string[]> {
-  const tables = await db.query(`
+  const tables = await db.query(
+    `
     SELECT n.nspname AS schema, c.relname AS name
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relkind = 'r'
       AND ${USER_SCHEMA_FILTER}
-      AND ${notExtensionMember("pg_class", "c.oid")}`);
+      AND n.nspname <> ALL($1::text[])
+      AND ${notExtensionMember("pg_class", "c.oid")}`,
+    [assumedSchemas],
+  );
   const populated: string[] = [];
   for (const row of tables.rows as { schema: string; name: string }[]) {
     const qualified = `"${row.schema.replaceAll('"', '""')}"."${row.name.replaceAll('"', '""')}"`;
@@ -887,13 +896,13 @@ export interface LoadSqlFilesOptions {
    *  dedicated shadow may be pre-provisioned by a platform — the Supabase CLI
    *  boots auth / storage / realtime against it, and those services write their
    *  own migration bookkeeping rows — long before declarative SQL is loaded.
-   *  When enabled the loader snapshots which managed non-extension tables are
-   *  populated before the load and exempts exactly those from the post-load DML
-   *  observation, silently; the exempted set is returned as
-   *  {@link LoadResult.preExistingPopulatedTables}. Exemption is by qualified
-   *  table NAME (no data comparison, ever), so a pre-populated table stays
-   *  exempt even if a declarative file inserts into it — an accepted limitation
-   *  of observing rather than parsing. */
+   *  When enabled the loader snapshots which managed non-extension tables
+   *  (outside `assumedSchemas`) are populated before the load and exempts
+   *  exactly those from the post-load DML observation, silently; the exempted
+   *  set is returned as {@link LoadResult.preExistingPopulatedTables}.
+   *  Exemption is by qualified table NAME (no data comparison, ever), so a
+   *  pre-populated table stays exempt even if a declarative file inserts into
+   *  it — an accepted limitation of observing rather than parsing. */
   allowPreExistingRows?: boolean;
   /** Escalate the post-load DML observation back to a fatal error (default
    *  `false`). By default a managed non-extension table holding rows the load
@@ -907,6 +916,12 @@ export interface LoadSqlFilesOptions {
    *  CLI adapter must pass `true` so declarative DML is rejected rather than
    *  warned. */
   strictDataStatements?: boolean;
+  /** Schemas the active policy assumes but does not manage
+   *  (`Policy.assumedSchemas`). Never probed by the DML observation, in either
+   *  the pre-load snapshot or the post-load check: their rows are platform
+   *  state, and the connecting role may not be allowed to read them
+   *  (supabase/cli#6453). */
+  assumedSchemas?: string[];
   /** After a file-atomic apply fails with a Postgres error, replay statements
    *  one at a time and retry only the remainder (default `true`). `false`
    *  restores whole-file rollback + whole-file retry. Policy
@@ -1008,6 +1023,7 @@ export async function loadSqlFiles(
   const seededRoutines = options.seededRoutines;
   const strictFunctionBodies = options.strictFunctionBodies ?? false;
   const strictDataStatements = options.strictDataStatements ?? false;
+  const assumedSchemas = options.assumedSchemas ?? [];
   // A dedicated (isolatedCluster) shadow may legitimately arrive pre-provisioned
   // with a platform baseline whose services already wrote bookkeeping rows — the
   // Supabase CLI declarative seam. A co-located scratch database never can (the
@@ -1040,7 +1056,7 @@ export async function loadSqlFiles(
   // declarative files, so attributing them to the user's SQL would be wrong.
   // Exemption is exact string-set subtraction against the identical query.
   const preExistingPopulatedTables = allowPreExistingRows
-    ? await listPopulatedManagedTables(shadow)
+    ? await listPopulatedManagedTables(shadow, assumedSchemas)
     : [];
   const preExistingPopulatedSet = new Set(preExistingPopulatedTables);
 
@@ -1721,9 +1737,9 @@ export async function loadSqlFiles(
     // tables that already held rows before the load (see the pre-load snapshot).
     // Tables exempted there are dropped SILENTLY — their rows are not the user's
     // DML, so there is nothing to tell the caller about.
-    const populated = (await listPopulatedManagedTables(client)).filter(
-      (t) => !preExistingPopulatedSet.has(t),
-    );
+    const populated = (
+      await listPopulatedManagedTables(client, assumedSchemas)
+    ).filter((t) => !preExistingPopulatedSet.has(t));
     if (populated.length > 0) {
       // FATAL only under the strictDataStatements opt-in. By default this is a
       // loud warning and the load proceeds: pg-delta diffs schema only, so rows

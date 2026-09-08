@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import type { ApplyOptions } from "../apply/apply.ts";
 import { connectWithErrorListener } from "../pg-client.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
+import type { FactBase } from "../core/fact.ts";
 import type { StableId } from "../core/stable-id.ts";
 import {
   isSameDatabase,
@@ -354,6 +355,11 @@ export interface PlanSchemaFilesResult {
    */
   driftDiagnostics: Diagnostic[];
   skipped: { file: string; stmt: string }[];
+  /** Raw target extract used to produce `plan`. Pass to `apply()` as
+   *  `sourceFactBase` when the caller still holds exclusive write access
+   *  (same-process `schema apply`). The caller is asserting nothing else
+   *  wrote between this extract and apply. */
+  targetFactBase: FactBase;
   /** Same resolved profile bundles for a subsequent `apply()`. */
   applyOptions: ApplyOptions;
   planOptions: PlanOptions;
@@ -537,12 +543,12 @@ export async function planSchemaFiles(
           .map((f) => (f.id as { name: string }).name)
       : [];
 
+  const flatProfile = ctx.planOptions.policy
+    ? flattenPolicy(ctx.planOptions.policy)
+    : undefined;
   let seededSchemas: string[] = [];
   let seededRoutines = new Map<string, string>();
   if (options.seedAssumedSchemas === true) {
-    const flatProfile = ctx.planOptions.policy
-      ? flattenPolicy(ctx.planOptions.policy)
-      : undefined;
     const profileAssumedSchemas = flatProfile?.assumedSchemas ?? [];
     const profileAssumedPublications = flatProfile?.assumedPublications ?? [];
     // gate on EITHER assumed kind: a profile assuming only publications still
@@ -643,6 +649,8 @@ export async function planSchemaFiles(
     loadResult = await loadSqlFiles(loadInput, shadowPool, {
       extract: (p, o) => ctx.extract(p, { ...o, redactSecrets }),
       ...(seededSchemas.length > 0 ? { seededSchemas, seededRoutines } : {}),
+      // assumed (platform) schemas are not the user's to manage — never probed
+      assumedSchemas: flatProfile?.assumedSchemas ?? [],
       strictFunctionBodies: options.strictFunctionBodies === true,
       strictDataStatements: options.strictDataStatements === true,
       // undefined = let the loader default it from the mode
@@ -743,6 +751,7 @@ export async function planSchemaFiles(
     targetDiagnostics: targetResult.diagnostics,
     driftDiagnostics,
     skipped: prepared.skipped,
+    targetFactBase: targetResult.factBase,
     applyOptions: ctx.applyOptions,
     planOptions,
     extract: ctx.extract,
