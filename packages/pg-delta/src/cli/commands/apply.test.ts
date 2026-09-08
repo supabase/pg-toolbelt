@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { serializePlan, stampPlanId } from "../../plan/artifact.ts";
 import { ENGINE_VERSION } from "../../plan/plan.ts";
 import { cmdApply } from "./apply.ts";
+import { cmdPlan } from "./plan.ts";
 import { UsageError } from "../flags.ts";
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
@@ -58,19 +59,49 @@ function destructivePlan(): string {
   return path;
 }
 
-test("apply rejects --baseline-commit-every before opening the target", async () => {
+test("apply rejects --max-locks before opening the target", async () => {
   const error = await captureError(
     cmdApply([
       "--plan",
       "/no-such-plan.json",
       "--target",
       "postgres://unused.invalid:5432/none",
-      "--baseline-commit-every",
+      "--max-locks",
       "0",
     ]),
   );
   expect(error).toBeInstanceOf(UsageError);
-  expect((error as Error).message).toMatch(/baseline-commit-every/);
+  expect((error as Error).message).toMatch(/max-locks/);
+});
+
+test("apply rejects --max-locks together with --split-to-fit", async () => {
+  const error = await captureError(
+    cmdApply([
+      "--plan",
+      "/no-such-plan.json",
+      "--target",
+      "postgres://unused.invalid:5432/none",
+      "--max-locks",
+      "40",
+      "--split-to-fit",
+    ]),
+  );
+  expect(error).toBeInstanceOf(UsageError);
+  expect((error as Error).message).toMatch(/max-locks/);
+});
+
+test("plan rejects --split-to-fit", async () => {
+  const error = await captureError(
+    cmdPlan([
+      "--source",
+      "postgres://unused.invalid:5432/none",
+      "--desired",
+      "postgres://unused.invalid:5432/other",
+      "--split-to-fit",
+    ]),
+  );
+  expect(error).toBeInstanceOf(UsageError);
+  expect((error as Error).message).toMatch(/Unknown flag: --split-to-fit/);
 });
 
 test("apply refuses action-derived data loss before opening the target", async () => {

@@ -69,8 +69,8 @@
  *   declarative SQL: the planner re-derives atomic DDL from the catalog diff
  *   between the shadow (desired) and target (current) states. --verbose shows
  *   every statement actually executed on the target connection — including
- *   transaction framing (BEGIN/COMMIT/ROLLBACK), session SETs, and the
- *   lock-table preflight SELECT — never the authored files; --dry-run prints
+ *   transaction framing (BEGIN/COMMIT/ROLLBACK) and session SETs — never
+ *   the authored files; --dry-run prints
  *   a portable executable script containing
  *   the same successful-path statements and segment boundaries, without
  *   applying them. It must be dispatched statement by statement on one session,
@@ -171,7 +171,12 @@ import {
 } from "../reorder-display.ts";
 import { serializePlan } from "../../plan/artifact.ts";
 import type { ManagementScope } from "../../policy/view.ts";
-import { apply, type ApplyEvent } from "../../apply/apply.ts";
+import {
+  apply,
+  estimateLockTableBudget,
+  type ApplyEvent,
+} from "../../apply/apply.ts";
+import { splitPlan } from "../../plan/baseline-commit.ts";
 import { renderApplyScript } from "../../frontends/render-apply-script.ts";
 import { isDestructiveAction } from "../render.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
@@ -185,7 +190,7 @@ import {
 import {
   CliExit,
   parseFlags,
-  parsePositiveIntFlag,
+  parseLockSplitFlags,
   UsageError,
 } from "../flags.ts";
 import { effectiveProfileId, PROFILE_IDS, profileById } from "../profile.ts";
@@ -741,7 +746,8 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "trusted-local-host": { type: "multi" },
       "allow-remote-shadow": { type: "boolean" },
       "allow-same-database-identity": { type: "boolean" },
-      "baseline-commit-every": { type: "value" },
+      "max-locks": { type: "value" },
+      "split-to-fit": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -749,7 +755,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
           `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
-          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--baseline-commit-every <n>]\n` +
+          `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--max-locks <n>] [--split-to-fit]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
       );
@@ -766,10 +772,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const dryRun = flags["dry-run"];
   const verbose = flags["verbose"];
   const outPlanPath = flags["out-plan"];
-  const baselineCommitEvery = parsePositiveIntFlag(
-    "baseline-commit-every",
-    flags["baseline-commit-every"],
-  );
+  const lockSplit = parseLockSplitFlags(flags);
 
   // The export directory's manifest (redaction mode, profile, scope), consulted
   // once and reused. Absent for hand-authored dirs / older exports.
@@ -1045,7 +1048,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       strictFunctionBodies: flags["strict-function-bodies"] === true,
       strictDataStatements: flags["strict-data-statements"] === true,
       reorder: !flags["no-reorder"],
-      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
       onWarning: (message) => {
         if (message.startsWith("the directory records no default owner")) {
           // already printed above for CLI parity
@@ -1099,7 +1101,13 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       },
     );
 
-    const thePlan = planned.plan;
+    let thePlan = planned.plan;
+    if (lockSplit.splitToFit) {
+      const budget = await estimateLockTableBudget(tgt.pool);
+      thePlan = splitPlan(thePlan, { maxLocks: budget.available });
+    } else if (lockSplit.maxLocks !== undefined) {
+      thePlan = splitPlan(thePlan, { maxLocks: lockSplit.maxLocks });
+    }
     process.stderr.write(`Planning: ${thePlan.actions.length} action(s)\n`);
 
     if (renames === "prompt" && thePlan.renameCandidates.length > 0) {
@@ -1234,7 +1242,6 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
         planned.extract(p, { redactSecrets: planned.redactSecrets }),
       fingerprintGate: !force,
       ...(onEvent !== undefined ? { onEvent } : {}),
-      ...(baselineCommitEvery !== undefined ? { baselineCommitEvery } : {}),
     });
 
     if (report.status === "applied") {

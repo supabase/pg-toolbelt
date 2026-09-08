@@ -82,12 +82,6 @@ export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
  *  without a cross-layer import. */
 export const VAULT_PRESENCE = "vault_presence";
 
-/** Apply-time lock-table preflight: a transactional segment's estimated
- *  lock count exceeds what the target can hold after reserving slots for
- *  other backends. The throw site (`LockTableBudgetExceededError.code`)
- *  and this constant are the same string. */
-export const LOCK_TABLE_BUDGET_EXCEEDED = "lock-table-budget-exceeded";
-
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {

@@ -317,9 +317,6 @@ export interface PlanSchemaFilesOptions {
   /** Forwarded to {@link loadSqlFiles}. Default: true (per-statement fallback
    *  after a file-atomic failure). `false` restores whole-file rollback. */
   statementFallback?: boolean;
-  /** Opt-in commit boundaries for an empty/unobserved target. Forwarded to
-   *  {@link plan} so the artifact and `--dry-run` script include the COMMITs. */
-  baselineCommitEvery?: number;
   /** Soft warnings (reorder fallback, ADP caveat, …). */
   onWarning?: (message: string) => void;
   /** Optional rewrite of a ShadowLoadError after reorder (CLI attaches file:line). */
@@ -735,9 +732,6 @@ export async function planSchemaFiles(
     // unredacted plan would read as redacted and trip the fingerprint gate
     // on an unchanged target.
     redactSecrets,
-    ...(options.baselineCommitEvery !== undefined
-      ? { baselineCommitEvery: options.baselineCommitEvery }
-      : {}),
   };
 
   const thePlan = plan(targetResult.factBase, loadResult.factBase, planOptions);

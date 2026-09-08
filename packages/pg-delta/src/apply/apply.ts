@@ -4,8 +4,8 @@
  * maximal transactional runs, isolates nonTransactional actions, and
  * honors the planner's commitBoundaryAfter segment boundaries.
  * Segmentation changes transaction boundaries only, never order.
- * Before the first DDL, apply probes the target lock table and refuses a
- * segment whose estimated locks exceed the remaining budget.
+ * Apply honors `newSegmentBefore` already on the plan and does not
+ * probe or split. Callers who want extra COMMITs run `splitPlan` first.
  *
  * Mid-plan failure semantics are explicit: every action is reported
  * applied / unapplied / inDoubt, and the error identifies whether an action
@@ -22,27 +22,23 @@ import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
-import {
-  assertSegmentsFitLockTable,
-  computeLockTableBudget,
-  markBaselineCommitBoundaries,
-  LOCK_TABLE_PROBE_SQL,
-  probeLockTableSettings,
-} from "./lock-table.ts";
 
 export {
-  LockTableBudgetExceededError,
-  assertSegmentsFitLockTable,
   computeLockTableBudget,
   defaultLockTableReserveConnections,
-  estimateActionLocks,
-  estimateSegmentLocks,
-  markBaselineCommitBoundaries,
+  estimateLockTableBudget,
   probeLockTableSettings,
-  type LockEstimateAction,
   type LockTableBudget,
   type LockTableSettings,
 } from "./lock-table.ts";
+export {
+  LOCK_HOLDING_RELATION_KINDS,
+  estimateActionLocks,
+  estimateSegmentLocks,
+  splitActions,
+  splitPlan,
+  type LockEstimateAction,
+} from "../plan/baseline-commit.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -74,10 +70,10 @@ export interface ApplyReport {
  *  The applied statements are planner-rendered atomic DDL, not the authored
  *  declarative SQL, so `actionStart`/`actionEnd` alone are not a complete
  *  record of the wire:   `control` covers every OTHER statement apply() sends
- *  on the same connection — the lock-table preflight SELECT, `BEGIN`, each
- *  preamble `SET`/`SET LOCAL`, `COMMIT`, `ROLLBACK` (including best-effort
- *  rollbacks on an error path), and `RESET ALL` — so a `--verbose` trace
- *  shows exactly what ran, transaction framing included. */
+ *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`,
+ *  `COMMIT`, `ROLLBACK` (including best-effort rollbacks on an error path),
+ *  and `RESET ALL` — so a `--verbose` trace shows exactly what ran,
+ *  transaction framing included. */
 export type ApplyEvent =
   | {
       kind: "segmentStart";
@@ -121,16 +117,6 @@ export interface ApplyOptions {
    *  boundaries as apply() executes. Purely additive — see `emit` below for
    *  the isolation guarantee. */
   onEvent?: (event: ApplyEvent) => void;
-  /** Opt-in commit boundaries for an empty/unobserved target: start a new
-   *  transactional segment after every N created lock-holding relations
-   *  (table/index/sequence/view/type). Never a default — mid-plan state is
-   *  visible to concurrent readers. Applied to a working copy; the artifact
-   *  is unchanged. */
-  baselineCommitEvery?: number;
-  /** Backends-worth of lock-table slots to keep free for connections that
-   *  may start during apply. Default: max(3, ceil(0.1 × max_connections)),
-   *  clamped to remaining backend slots. */
-  lockTableReserveConnections?: number;
 }
 
 export interface Segment {
@@ -308,21 +294,8 @@ export async function apply(
   const client = await target.connect();
   let destroyClient = false;
   try {
-    const actions =
-      options?.baselineCommitEvery !== undefined
-        ? markBaselineCommitBoundaries(
-            thePlan.actions,
-            options.baselineCommitEvery,
-          )
-        : thePlan.actions;
     const onEvent = options?.onEvent;
-    emit(onEvent, { kind: "control", sql: LOCK_TABLE_PROBE_SQL });
-    const budget = computeLockTableBudget(
-      await probeLockTableSettings(client),
-      options?.lockTableReserveConnections,
-    );
-    const segments = segmentActions(actions);
-    assertSegmentsFitLockTable(segments, actions, budget);
+    const segments = segmentActions(thePlan.actions);
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
       // segmentStart fires before the preamble/BEGIN for this segment, for
@@ -339,7 +312,7 @@ export async function apply(
       if (!segment.transactional) {
         // a lone non-transactional action; session-level settings, reset after
         const index = segment.start;
-        const action = actions[index]!;
+        const action = thePlan.actions[index]!;
         // the failure return is deferred past the finally so segmentEnd stays
         // the segment's LAST event — after the RESET ALL control — on every
         // path; a trace must never show wire traffic after the outcome line.
@@ -475,7 +448,7 @@ export async function apply(
         };
       }
       for (let i = segment.start; i < segment.end; i++) {
-        const action = actions[i]!;
+        const action = thePlan.actions[i]!;
         emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
         const actionStartedAt = performance.now();
         try {

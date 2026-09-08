@@ -44,7 +44,11 @@ pgdelta schema apply  --dir ./schema --shadow postgres://…/scratch --target po
 ```ts
 import { extract } from "@supabase/pg-delta/extract";
 import { plan } from "@supabase/pg-delta/plan";
-import { apply } from "@supabase/pg-delta/apply";
+import {
+  apply,
+  estimateLockTableBudget,
+  splitPlan,
+} from "@supabase/pg-delta/apply";
 import { provePlan } from "@supabase/pg-delta/proof";
 
 const source = await extract(sourcePool);
@@ -54,8 +58,8 @@ const migration = plan(source.factBase, desired.factBase);
 await provePlan(migration, clonePool, desired.factBase); // optional but recommended
 await apply(migration, sourcePool);
 // Empty-target baseline that will not fit in one lock table:
-// plan(..., { baselineCommitEvery: 200 }) and/or
-// apply(..., { baselineCommitEvery: 200 })
+// const budget = await estimateLockTableBudget(sourcePool);
+// await apply(splitPlan(migration, { maxLocks: budget.available }), sourcePool);
 ```
 
 ## Commands

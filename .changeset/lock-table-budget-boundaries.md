@@ -2,11 +2,12 @@
 "@supabase/pg-delta": minor
 ---
 
-Apply now probes the target lock table before the first DDL and fails fast with
-`lock-table-budget-exceeded` when a transactional segment would not fit, instead
-of dying mid-baseline with `out of shared memory`. The estimate reserves slots
-for busy backends plus a new-connection margin.
+Empty-target baselines can exhaust PostgreSQL's lock table in one
+transaction. Call `estimateLockTableBudget` on the apply target, then
+optionally `splitPlan({ maxLocks })` so each segment tries to stay under
+that many lock slots. `apply` honors the marks and does not refuse.
 
-Opt in to commit chunks with `baselineCommitEvery` / `--baseline-commit-every`
-(plan and/or apply). Valid only when nothing else reads the target during apply;
-off by default, so existing plans and the corpus are unchanged.
+CLI: `--max-locks <n>` (plan / apply / schema apply) and `--split-to-fit`
+(apply / schema apply; probes the target). Extra COMMITs are only safe
+when nothing else reads the target; off by default, so existing plans
+and the corpus are unchanged.

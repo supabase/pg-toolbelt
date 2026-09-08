@@ -14,7 +14,7 @@ This guide maps the old surface onto the new one.
 |---|---|---|
 | `extractCatalog(pool)` | `extract(pool)` → `{ factBase, pgVersion }` | catalogs are gone; the fact base is the only state model |
 | `createPlan(source, target, opts)` | `plan(extract(source).factBase, extract(target).factBase, opts)` | plan is pure — extraction is explicit and reusable |
-| `applyPlan(plan, pool)` | `apply(plan, pool, { fingerprintGate? })` | the gate re-extracts and refuses stale plans by default. Apply also probes the target lock table and throws `LockTableBudgetExceededError` (`lock-table-budget-exceeded`) before the first DDL if a transactional segment cannot fit. Opt in to commit chunks with `baselineCommitEvery` (plan and/or apply) — only valid on an empty/unobserved target |
+| `applyPlan(plan, pool)` | `apply(plan, pool, { fingerprintGate? })` | the gate re-extracts and refuses stale plans by default. A large empty-target baseline can opt into extra COMMITs via `estimateLockTableBudget` + `splitPlan({ maxLocks })` (CLI: `--max-locks` / `--split-to-fit`) — only valid when nothing else reads the target |
 | `plan.statements` / serialized SQL list | `plan.actions[].sql` + `serializePlan(plan)` | plans are version-tagged JSON artifacts, never bare SQL lists |
 | post-apply verification (built into applyPlan) | `provePlan(plan, clonePool, desiredFactBase)` | opt-in, and stronger: state proof + data-preservation proof |
 | `declarativeApply(files, pool)` (round-apply against live targets) | `loadSqlFiles(files, shadowPool)` → `plan` → `apply` | bounded rounds run against a throwaway shadow ONLY; the live target gets a planned, provable artifact |
@@ -61,11 +61,11 @@ you WILL see against old-engine output:
    of the new value). Mid-plan failure reporting tells you exactly
    which actions are applied/unapplied/in doubt. A large **baseline**
    (empty target, thousands of creates) can also opt into extra commit
-   boundaries via `baselineCommitEvery` / `--baseline-commit-every`
-   so each segment stays inside the target's lock-table budget. Off by
-   default: concurrent readers would see mid-plan state. Without the
-   flag, apply fails fast with `lock-table-budget-exceeded` rather than
-   dying mid-DDL with `out of shared memory`.
+   boundaries via `splitPlan({ maxLocks })` / `--max-locks` /
+   `--split-to-fit` so each segment tries to stay inside the target's
+   lock-table budget. Off by default: concurrent readers would see
+   mid-plan state. Without a split, Postgres may still die mid-DDL
+   with `out of shared memory`.
 5. Plans never contain `SET check_function_bodies` statements — session
    settings ride in `plan.preamble`. The `check_function_bodies = off`
    entry appears there only when the plan touches a routine-family

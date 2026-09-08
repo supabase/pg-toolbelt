@@ -1,25 +1,17 @@
 /**
- * Lock-table preflight and opt-in baseline commit boundaries.
- *
- * A single transactional apply segment holds every created relation lock
- * until COMMIT. The lock table is sized from
+ * Lock-table budget probe. Capacity is
  * `max_locks_per_transaction × (max_connections + max_prepared_transactions)`
- * (PostgreSQL "Lock Management"); one baseline can exhaust it. We estimate
- * per existing segment, reserve slots for backends that are already busy
- * plus a new-connection margin, and fail before the first DDL. Chunking is
- * opt-in (`baselineCommitEvery`) and only valid when nothing else reads
- * the target during apply.
+ * (PostgreSQL "Lock Management"). `available` subtracts busy backends,
+ * a new-connection reserve, and in-flight prepared transactions.
+ *
+ * Call `estimateLockTableBudget` on the apply target, then
+ * `splitPlan({ maxLocks: budget.available })` if you want extra COMMITs.
+ * Apply does not probe or refuse.
  */
-import { LOCK_TABLE_BUDGET_EXCEEDED } from "../core/diagnostic.ts";
-import {
-  LOCK_HOLDING_RELATION_KINDS,
-  markBaselineCommitBoundaries,
-} from "../plan/baseline-commit.ts";
 
-export { markBaselineCommitBoundaries };
-
-/** Heap relations that also create a toast table + toast index. */
-const TOAST_KINDS = new Set(["table", "materializedView"]);
+interface Queryable {
+  query(sql: string): Promise<{ rows: unknown[] }>;
+}
 
 export interface LockTableSettings {
   maxLocksPerTransaction: number;
@@ -41,36 +33,6 @@ export interface LockTableBudget {
   maxLocksPerTransaction: number;
   maxConnections: number;
   maxPreparedTransactions: number;
-}
-
-export interface LockEstimateAction {
-  verb: "create" | "alter" | "drop";
-  produces: ReadonlyArray<{ kind: string }>;
-  destroys: ReadonlyArray<{ kind: string }>;
-  consumes?: ReadonlyArray<{ kind: string }>;
-}
-
-interface Queryable {
-  query(sql: string): Promise<{ rows: unknown[] }>;
-}
-
-export class LockTableBudgetExceededError extends Error {
-  readonly code = LOCK_TABLE_BUDGET_EXCEEDED;
-  readonly estimate: number;
-  readonly budget: LockTableBudget;
-  readonly segmentIndex: number;
-
-  constructor(opts: {
-    segmentIndex: number;
-    estimate: number;
-    budget: LockTableBudget;
-  }) {
-    super(formatLockTableBudgetMessage(opts));
-    this.name = "LockTableBudgetExceededError";
-    this.segmentIndex = opts.segmentIndex;
-    this.estimate = opts.estimate;
-    this.budget = opts.budget;
-  }
 }
 
 /** Floor of 3, otherwise 10% of `max_connections`. */
@@ -118,32 +80,7 @@ export function computeLockTableBudget(
   };
 }
 
-function relationLockSlots(kind: string): number {
-  if (!LOCK_HOLDING_RELATION_KINDS.has(kind)) return 0;
-  return TOAST_KINDS.has(kind) ? 3 : 1;
-}
-
-export function estimateActionLocks(action: LockEstimateAction): number {
-  let n = 1;
-  for (const id of action.produces) n += relationLockSlots(id.kind);
-  for (const id of action.destroys) n += relationLockSlots(id.kind);
-  // Existing subjects (ALTER / CREATE INDEX on a live table). Toast already
-  // exists; count the relation once.
-  for (const id of action.consumes ?? []) {
-    if (LOCK_HOLDING_RELATION_KINDS.has(id.kind)) n += 1;
-  }
-  return n;
-}
-
-export function estimateSegmentLocks(
-  actions: readonly LockEstimateAction[],
-): number {
-  let n = 0;
-  for (const action of actions) n += estimateActionLocks(action);
-  return n;
-}
-
-export const LOCK_TABLE_PROBE_SQL = `
+const LOCK_TABLE_PROBE_SQL = `
   SELECT
     current_setting('max_locks_per_transaction')::int AS max_locks_per_transaction,
     current_setting('max_connections')::int AS max_connections,
@@ -166,7 +103,7 @@ function intField(row: Record<string, unknown>, key: string): number {
   const value = row[key];
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) {
-    throw new Error(`apply: lock-table probe: missing ${key}`);
+    throw new Error(`lock-table probe: missing ${key}`);
   }
   return n;
 }
@@ -177,7 +114,7 @@ export async function probeLockTableSettings(
   const res = await client.query(LOCK_TABLE_PROBE_SQL);
   const row = res.rows[0];
   if (row === undefined || typeof row !== "object" || row === null) {
-    throw new Error("apply: lock-table probe returned no row");
+    throw new Error("lock-table probe returned no row");
   }
   const rec = row as Record<string, unknown>;
   return {
@@ -190,41 +127,13 @@ export async function probeLockTableSettings(
   };
 }
 
-export function assertSegmentsFitLockTable(
-  segments: ReadonlyArray<{ start: number; end: number }>,
-  actions: readonly LockEstimateAction[],
-  budget: LockTableBudget,
-): void {
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i]!;
-    const estimate = estimateSegmentLocks(
-      actions.slice(segment.start, segment.end),
-    );
-    if (estimate > budget.available) {
-      throw new LockTableBudgetExceededError({
-        segmentIndex: i,
-        estimate,
-        budget,
-      });
-    }
-  }
-}
-
-function formatLockTableBudgetMessage(opts: {
-  segmentIndex: number;
-  estimate: number;
-  budget: LockTableBudget;
-}): string {
-  const { budget } = opts;
-  return (
-    `apply: ${LOCK_TABLE_BUDGET_EXCEEDED} — segment ${String(opts.segmentIndex)} ` +
-    `estimate ${String(opts.estimate)} locks exceeds available ${String(budget.available)} ` +
-    `(capacity ${String(budget.capacity)} = ${String(budget.maxLocksPerTransaction)} × ` +
-    `(${String(budget.maxConnections)} + ${String(budget.maxPreparedTransactions)}); ` +
-    `${String(budget.busyOthers)} busy backends; reserved ${String(budget.reserveNew)} ` +
-    `connection(s) × ${String(budget.maxLocksPerTransaction)}). ` +
-    `Set plan/apply option baselineCommitEvery so each segment fits, or raise ` +
-    `max_locks_per_transaction. baselineCommitEvery counts created relations ` +
-    `(table/index/sequence/view/type), not lock slots.`
+/** Probe the apply target and return its remaining lock-slot budget. */
+export async function estimateLockTableBudget(
+  target: Queryable,
+  reserveConnections?: number,
+): Promise<LockTableBudget> {
+  return computeLockTableBudget(
+    await probeLockTableSettings(target),
+    reserveConnections,
   );
 }

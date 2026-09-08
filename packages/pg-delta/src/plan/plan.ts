@@ -34,7 +34,6 @@ import {
 } from "./rules.ts";
 import { roleReferencesOf } from "./rules/helpers.ts";
 import { stampPlanId } from "./artifact.ts";
-import { markBaselineCommitBoundaries } from "./baseline-commit.ts";
 
 /** Engine version stamped into plan artifacts; apply refuses artifacts
  *  from an engine it does not understand (stage 6 deliverable 1).
@@ -295,12 +294,6 @@ export interface PlanOptions {
    *  the artifact (it holds functions); `apply`/`prove` reconstruct it from the
    *  same profile. */
   intentRules?: IntentRuleIndex;
-  /** Opt-in commit boundaries for an empty/unobserved target: after
-   *  compaction, mark `newSegmentBefore` every N created lock-holding
-   *  relations. Never a default — concurrent readers would see mid-plan
-   *  state. `apply` honors the marks; pass the same value on ApplyOptions
-   *  to chunk a plan that was produced without it. */
-  baselineCommitEvery?: number;
 }
 
 /** Rebuild the intent id an {@link INTENT_UNSUPPORTED} diagnostic WOULD have
@@ -759,17 +752,9 @@ export function plan(
     foldConstraints: options?.foldConstraints,
     rulesForId,
   });
-  // After compaction so CREATE TABLE folding is not split apart. Opt-in only.
-  const finalActions =
-    options?.baselineCommitEvery !== undefined
-      ? markBaselineCommitBoundaries(
-          finalized.actions,
-          options.baselineCommitEvery,
-        )
-      : finalized.actions;
   const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalActions);
+  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
 
   return stampPlanId({
     formatVersion: 1,
@@ -791,7 +776,7 @@ export function plan(
       // cosmetic compaction pass (./preamble.ts); compact:false restores the
       // unconditional preamble as the conservative opt-out.
       ...(options?.compact === false ||
-      needsCheckFunctionBodiesOff(finalActions)
+      needsCheckFunctionBodiesOff(finalized.actions)
         ? [{ name: "check_function_bodies", value: "off" }]
         : []),
     ],
@@ -828,7 +813,7 @@ export function plan(
           })),
         }
       : {}),
-    actions: finalActions,
+    actions: finalized.actions,
     safetyReport,
     // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
     // secret values/keys are not schema state. Omitted when empty so corpus

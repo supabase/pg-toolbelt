@@ -151,9 +151,8 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // newSegmentBefore. apply.ts already closes the segment unconditionally after
   // a commitBoundaryAfter action, so this flag's load-bearing role now is
   // COMPACTION PROTECTION — compaction refuses to fold a clause across a
-  // newSegmentBefore boundary. Opt-in baseline chunking
-  // (`PlanOptions.baselineCommitEvery`) is a second producer: it runs AFTER
-  // compaction in plan() so it cannot fight CREATE TABLE folding.
+  // newSegmentBefore boundary. `splitPlan` is a second producer: it runs
+  // on an already-planned artifact so it cannot fight CREATE TABLE folding.
   const positionOf = Array.from({ length: actions.length }, () => 0);
   order.forEach((actionIndex, position) => {
     positionOf[actionIndex] = position;

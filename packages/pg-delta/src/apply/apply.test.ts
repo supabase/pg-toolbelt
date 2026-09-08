@@ -14,23 +14,6 @@ import {
   segmentActions,
 } from "./apply.ts";
 
-const AMPLE_LOCK_TABLE_ROW = {
-  max_locks_per_transaction: 64,
-  max_connections: 100,
-  max_prepared_transactions: 0,
-  busy_others: 0,
-  other_backends: 0,
-  prepared_xacts: 0,
-};
-
-function isLockTableProbe(sql: string): boolean {
-  return sql.includes("max_locks_per_transaction");
-}
-
-function ddlQueries(queries: string[]): string[] {
-  return queries.filter((sql) => !isLockTableProbe(sql));
-}
-
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
   newSegmentBefore,
@@ -147,9 +130,6 @@ async function expectObserverLatencyExcluded(
   const events: ApplyEvent[] = [];
   const client = {
     query: (sql: string) => {
-      if (isLockTableProbe(sql)) {
-        return Promise.resolve({ rows: [AMPLE_LOCK_TABLE_ROW] });
-      }
       if (sql === "SELECT 42") {
         monotonicNow += 7;
         wallNow -= 50;
@@ -209,9 +189,6 @@ function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
   const client = {
     query: (sql: string) => {
       queries.push(sql);
-      if (isLockTableProbe(sql)) {
-        return Promise.resolve({ rows: [AMPLE_LOCK_TABLE_ROW] });
-      }
       return failingSql.has(sql)
         ? Promise.reject(new Error(`scripted failure: ${sql}`))
         : Promise.resolve({ rows: [] });
@@ -253,7 +230,7 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(ddlQueries(scripted.queries)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(scripted.queries).toEqual(["BEGIN", "ROLLBACK"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -288,7 +265,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(ddlQueries(scripted.queries)).toEqual([
+    expect(scripted.queries).toEqual([
       "BEGIN",
       "SET LOCAL lock_timeout = 5000",
       failingSet,
@@ -318,11 +295,7 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(ddlQueries(scripted.queries)).toEqual([
-      "BEGIN",
-      "SELECT 42",
-      "ROLLBACK",
-    ]);
+    expect(scripted.queries).toEqual(["BEGIN", "SELECT 42", "ROLLBACK"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -346,7 +319,7 @@ describe("apply control-error attribution", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(ddlQueries(scripted.queries)).toEqual([
+    expect(scripted.queries).toEqual([
       "BEGIN",
       "SELECT 42",
       "COMMIT",
@@ -381,7 +354,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(ddlQueries(scripted.queries)).toEqual([failingSet, "RESET ALL"]);
+    expect(scripted.queries).toEqual([failingSet, "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -410,7 +383,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(ddlQueries(scripted.queries)).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 0,
@@ -438,7 +411,7 @@ describe("apply control-error attribution", () => {
       },
     );
 
-    expect(ddlQueries(scripted.queries)).toEqual(["SELECT 42", "RESET ALL"]);
+    expect(scripted.queries).toEqual(["SELECT 42", "RESET ALL"]);
     expect(report).toMatchObject({
       status: "failed",
       appliedActions: 1,
@@ -623,23 +596,5 @@ describe("apply plan integrity", () => {
     expect((error as Error).message).toMatch(/planId/);
     expect((error as Error).message).toMatch(/re-plan/);
     expect(connected).toBe(false);
-  });
-});
-
-describe("apply lock-table probe observer", () => {
-  test("emits the lock-table probe as a control event before BEGIN", async () => {
-    const events: ApplyEvent[] = [];
-    const scripted = scriptedApplyClient(new Set());
-    const report = await apply(planWithAction("transactional"), scripted.pool, {
-      fingerprintGate: false,
-      onEvent: (event) => events.push(event),
-    });
-    expect(report.status).toBe("applied");
-    const firstControl = events.find((event) => event.kind === "control");
-    expect(firstControl).toMatchObject({ kind: "control" });
-    expect((firstControl as { sql: string }).sql).toContain(
-      "max_locks_per_transaction",
-    );
-    expect(ddlQueries(scripted.queries)[0]).toBe("BEGIN");
   });
 });

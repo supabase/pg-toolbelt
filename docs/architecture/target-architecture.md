@@ -488,15 +488,14 @@ presents them as *reported*, not certified.
 Sequential, lock-aware, segmented: actions self-declare transactionality, so
 the executor groups maximal transactional runs and isolates the exceptions
 (`CREATE INDEX CONCURRENTLY`, `ALTER TYPE … ADD VALUE` commit boundaries).
-Before the first DDL, `apply` reads the target's `max_locks_per_transaction`,
-`max_connections`, and `max_prepared_transactions`, estimates locks per
-segment, and refuses with `lock-table-budget-exceeded` when a segment would
-exhaust the lock table (reserving slots for busy backends plus a
-new-connection margin). A baseline that will not fit in one transaction can
-opt into `baselineCommitEvery` — the planner (after compaction) or the
-executor then inserts `newSegmentBefore` marks so apply commits in chunks.
-That mode is never a default: it is only valid when nothing else reads the
-target during apply. Parallel DDL stays rejected — `ACCESS EXCLUSIVE` locks
+`apply` honors `newSegmentBefore` already on the plan and does not probe
+or refuse. A baseline that will not fit in one transaction can call
+`estimateLockTableBudget` on the target, then `splitPlan({ maxLocks })`,
+which packs actions by estimated lock slots and inserts `newSegmentBefore`
+marks so apply commits in chunks. That mode is never a default: it is only
+valid when nothing else reads the target during apply. A single action
+that still exceeds the budget stays in its own segment; Postgres may still
+fail mid-statement. Parallel DDL stays rejected — `ACCESS EXCLUSIVE` locks
 make it a deadlock machine, and the transaction is the atomicity contract.
 Per-statement error attribution replaces a joined-string megaquery.
 

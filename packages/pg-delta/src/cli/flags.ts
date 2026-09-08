@@ -142,3 +142,16 @@ export function parsePositiveIntFlag(
   }
   return n;
 }
+
+/** `--max-locks` and `--split-to-fit` are mutually exclusive. */
+export function parseLockSplitFlags(flags: {
+  "max-locks"?: string | undefined;
+  "split-to-fit"?: boolean | undefined;
+}): { maxLocks?: number | undefined; splitToFit: boolean } {
+  const maxLocks = parsePositiveIntFlag("max-locks", flags["max-locks"]);
+  const splitToFit = flags["split-to-fit"] === true;
+  if (maxLocks !== undefined && splitToFit) {
+    throw new UsageError("use only one of --max-locks and --split-to-fit");
+  }
+  return { maxLocks, splitToFit };
+}

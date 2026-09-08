@@ -8,11 +8,7 @@
  */
 
 // ── core primitives ──────────────────────────────────────────────────────────
-export {
-  NotImplementedError,
-  LOCK_TABLE_BUDGET_EXCEEDED,
-  type Diagnostic,
-} from "./core/diagnostic.ts";
+export { NotImplementedError, type Diagnostic } from "./core/diagnostic.ts";
 export {
   encodeId,
   parseId,
@@ -77,9 +73,10 @@ export {
   apply,
   segmentActions,
   planSegments,
-  LockTableBudgetExceededError,
   computeLockTableBudget,
-  markBaselineCommitBoundaries,
+  estimateLockTableBudget,
+  splitActions,
+  splitPlan,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
