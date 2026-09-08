@@ -10,7 +10,7 @@
  *   });
  *
  * - "value" flags consume the next argv token as their value.
- * - "boolean" flags are true when present, absent = undefined.
+ * - "boolean" flags are true when present, absent = false.
  * - "multi" flags are repeatable; each occurrence appends one value; result is string[].
  * - required: true on a "value" flag makes parseFlags throw a UsageError when absent.
  * - Unknown flags throw a UsageError (exit code 2 semantics).
@@ -126,4 +126,21 @@ export function parseFlags<T extends FlagsDef>(
   }
 
   return { flags: result as ParsedFlags<T>, positionals };
+}
+
+/** Tri-state for resolveProfile: omitted → default probe; true → probe;
+ *  false → unrestricted. CLI booleans are `false` when absent, so callers
+ *  must not pass that through as `restrictToApplier`. */
+export function restrictToApplierFromFlags(flags: {
+  "restrict-to-applier": boolean;
+  "no-restrict-to-applier": boolean;
+}): boolean | undefined {
+  if (flags["restrict-to-applier"] && flags["no-restrict-to-applier"]) {
+    throw new UsageError(
+      "cannot combine --restrict-to-applier and --no-restrict-to-applier",
+    );
+  }
+  if (flags["no-restrict-to-applier"]) return false;
+  if (flags["restrict-to-applier"]) return true;
+  return undefined;
 }

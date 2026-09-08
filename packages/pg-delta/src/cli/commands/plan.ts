@@ -20,7 +20,11 @@ import { serializePlan } from "../../plan/artifact.ts";
 import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { exitIfBlocking, printDiagnostics } from "../diagnostics.ts";
 import { makePool } from "../pool.ts";
-import { parseFlags, UsageError } from "../flags.ts";
+import {
+  parseFlags,
+  restrictToApplierFromFlags,
+  UsageError,
+} from "../flags.ts";
 import { PROFILE_IDS, resolveCliProfile } from "../profile.ts";
 import type { RenameMode } from "../../plan/renames.ts";
 import { writeFileSync } from "node:fs";
@@ -36,7 +40,7 @@ const USAGE =
   "Usage: pgdelta plan --source <pg-url> --desired <pg-url> " +
   `[--profile ${PROFILE_IDS}] ` +
   "[--renames auto|prompt|off] [--no-compact] [--out <plan.json>] " +
-  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--strict-coverage] " +
+  "[--accept-rename <from>=<to>] ... [--restrict-to-applier] [--no-restrict-to-applier] [--strict-coverage] " +
   "[--unsafe-show-secrets]\n";
 
 export function formatPlanIdentityWarning(
@@ -70,6 +74,7 @@ export async function cmdPlan(args: string[]): Promise<void> {
       out: { type: "value" },
       "accept-rename": { type: "multi" },
       "restrict-to-applier": { type: "boolean" },
+      "no-restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "unsafe-show-secrets": { type: "boolean" },
     });
@@ -127,11 +132,11 @@ export async function cmdPlan(args: string[]): Promise<void> {
     // would hash differently and silently stop subtracting).
     const redactSecrets = !flags["unsafe-show-secrets"];
     // Resolve the profile against the SOURCE pool (the source is the apply
-    // target): this composes handler-aware extraction, the profile's policy +
-    // baseline, and — with --restrict-to-applier — the applier capability. All
-    // three flow into planOptions so plan == prove == apply (P0/P2).
+    // target): handler-aware extraction + policy + baseline + capability
+    // share one view so plan == prove == apply (P0/P2).
+    const restrictToApplier = restrictToApplierFromFlags(flags);
     const ctx = await resolveCliProfile(src.pool, flags["profile"], {
-      restrictToApplier: flags["restrict-to-applier"],
+      ...(restrictToApplier !== undefined ? { restrictToApplier } : {}),
       redactSecrets,
     });
 

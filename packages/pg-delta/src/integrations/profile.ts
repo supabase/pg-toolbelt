@@ -65,8 +65,11 @@ export interface IntegrationProfile {
 }
 
 export interface ResolveProfileOptions {
-  /** Probe the source pool's applier capability and restrict the managed view to
-   *  operations that applier can execute (e.g. drop superuser-only FDW ACLs). */
+  /** Restrict the managed view to operations the resolved connection can
+   *  execute (FDW ACLs, PG16+ CREATEROLE self-ADMIN memberships).
+   *  Omitted/`true`: probe and restrict. `false`: unrestricted view — for
+   *  plan-here / apply-as-a-more-privileged-role-there. A superuser probe
+   *  excludes nothing. */
   restrictToApplier?: boolean;
   /** Directory to resolve a policy's declared baseline snapshot from (defaults
    *  to the committed `src/policy/baselines/`). */
@@ -134,11 +137,12 @@ async function probePgMajor(pool: Pool): Promise<number> {
 }
 
 /**
- * Resolve a profile against the SOURCE pool: probe capability (if requested) and
- * the declared baseline (if any) once, then hand back option bundles whose
- * policy / capability / baseline are shared by reference across plan, prove, and
- * apply. Re-extraction for proof and the apply fingerprint gate is the SAME
- * handler-aware extractor, so the projected view never diverges.
+ * Resolve a profile against the SOURCE pool: probe capability (unless
+ * `restrictToApplier: false`) and the declared baseline (if any) once, then
+ * hand back option bundles whose policy / capability / baseline are shared by
+ * reference across plan, prove, and apply. Re-extraction for proof and the
+ * apply fingerprint gate is the SAME handler-aware extractor, so the projected
+ * view never diverges.
  */
 export async function resolveProfile(
   pool: Pool,
@@ -147,9 +151,10 @@ export async function resolveProfile(
 ): Promise<ResolvedProfile> {
   const { handlers, policy } = profile;
 
-  const capability = options.restrictToApplier
-    ? await probeApplierCapability(pool)
-    : undefined;
+  const capability =
+    options.restrictToApplier === false
+      ? undefined
+      : await probeApplierCapability(pool);
 
   // Superuser-context (SUSET) GUCs: a real Supabase-Cloud `postgres` is a
   // privileged NON-superuser, so a seeded routine's `SET <suset-guc> TO …`
@@ -161,11 +166,10 @@ export async function resolveProfile(
   // safe to strip from the seed. Only relevant when the profile's policy
   // actually declares `assumedSchemas` (nothing to seed otherwise), and only
   // when the applier is NOT a superuser (a superuser needs no stripping — the
-  // seed's routine replays as-is). Reuses the capability probed above when
-  // `restrictToApplier` was requested; otherwise probes locally without
-  // threading that probe into `planOptions`/`capability` (those stay governed
-  // strictly by `restrictToApplier`). The `pool` this resolves against is the
-  // same connection `schema apply` extracts the target from, which shares the
+  // seed's routine replays as-is). Reuses the capability probed above unless
+  // `restrictToApplier: false` (then probes locally without threading it into
+  // planOptions). The `pool` this resolves against is the same connection
+  // `schema apply` extracts the target from, which shares the
   // co-located shadow's cluster + role, so its GUC catalog and role are
   // authoritative for the shadow. Gated on the FLATTENED policy's
   // `assumedSchemas` (not the policy's own field) — a policy can inherit

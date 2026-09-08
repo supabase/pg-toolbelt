@@ -6,7 +6,8 @@
  * silently emitted to fail at apply time. Capability is a property of WHO
  * applies, not of the objects — so it is not derivable from the catalog; it is
  * probed from the applier connection and threaded into plan()/prove() as an
- * option. Absent, the view is unrestricted (the default — superuser/CI path).
+ * option. Absent from bare `plan()`, the view is unrestricted. `resolveProfile`
+ * probes by default; a superuser probe excludes nothing (local CI no-op).
  *
  * Projected today:
  *   - FDW ACLs (superuser-only GRANT/REVOKE), the exclusion Supabase Rule 9
