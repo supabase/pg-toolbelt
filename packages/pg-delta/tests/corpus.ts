@@ -12,6 +12,10 @@ export interface ScenarioMeta {
   minVersion?: number;
   /** Rename-candidate handling for this scenario's plans. */
   renames?: RenameMode;
+  /** Apply SQL, extract, and prove as a CREATEROLE non-superuser so PG16+
+   *  implicit bootstrap ADMIN memberships are in the catalog. Implies
+   *  isolatedCluster (roles are cluster-global). */
+  createroleApplier?: boolean;
 }
 
 export interface Scenario {

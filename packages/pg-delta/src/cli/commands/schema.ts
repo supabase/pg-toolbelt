@@ -191,6 +191,7 @@ import {
   CliExit,
   parseFlags,
   parseLockSplitFlags,
+  restrictToApplierFromFlags,
   UsageError,
 } from "../flags.ts";
 import { effectiveProfileId, PROFILE_IDS, profileById } from "../profile.ts";
@@ -730,6 +731,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       "accept-rename": { type: "multi" },
       profile: { type: "value" },
       "restrict-to-applier": { type: "boolean" },
+      "no-restrict-to-applier": { type: "boolean" },
       "strict-coverage": { type: "boolean" },
       "strict-function-bodies": { type: "boolean" },
       "strict-data-statements": { type: "boolean" },
@@ -754,7 +756,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       throw new UsageError(
         `${err.message}\nUsage: pgdelta schema apply --dir <dir> --target <pg-url> [--shadow <pg-url>] ` +
           `[--renames auto|prompt|off] [--force] [--accept-rename <from>=<to>] ... ` +
-          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
+          `[--profile ${PROFILE_IDS}] [--restrict-to-applier] [--no-restrict-to-applier] [--strict-coverage] [--strict-function-bodies] [--strict-data-statements] [--no-reorder] [--unsafe-show-secrets] [--isolated-shadow] [--scope database|cluster] [--skip-cluster-ddl] [--keep-shadow] [--allow-data-loss] ` +
           `[--trusted-local-host <hostname>]... [--allow-remote-shadow] [--allow-same-database-identity] [--max-locks <n>] [--split-to-fit]\n` +
           `  [--dry-run] (print the portable apply script to stdout; apply nothing; see pgdelta --help for execution requirements) [--verbose] (stream per-statement progress to stderr) [--out-plan <plan.json>] (write the plan artifact)\n` +
           `  --shadow omitted: a co-located shadow database is created on the target's cluster (database scope only) and dropped after.`,
@@ -773,6 +775,7 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
   const verbose = flags["verbose"];
   const outPlanPath = flags["out-plan"];
   const lockSplit = parseLockSplitFlags(flags);
+  const restrictToApplier = restrictToApplierFromFlags(flags);
 
   // The export directory's manifest (redaction mode, profile, scope), consulted
   // once and reused. Absent for hand-authored dirs / older exports.
@@ -1042,9 +1045,8 @@ export async function cmdSchemaApply(args: string[]): Promise<void> {
       seedAssumedSchemas: coLocated !== undefined,
       renames,
       ...(acceptRenames.length > 0 ? { acceptRenames } : {}),
-      resolveOptions: {
-        restrictToApplier: flags["restrict-to-applier"],
-      },
+      resolveOptions:
+        restrictToApplier !== undefined ? { restrictToApplier } : {},
       strictFunctionBodies: flags["strict-function-bodies"] === true,
       strictDataStatements: flags["strict-data-statements"] === true,
       reorder: !flags["no-reorder"],
