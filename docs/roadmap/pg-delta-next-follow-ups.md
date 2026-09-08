@@ -1609,3 +1609,10 @@ target). Parked:
   and partitioned parents have no toast pair. Overcount can force
   chunking on a fit-able plan. Needs a catalog toast/persistence
   bit at extract time.
+- **Deferred — honor `newSegmentBefore` on `commitBoundaryAfter`
+  (P2).** `splitPlan` can mark ADD VALUE when the running estimate plus
+  that action exceeds `maxLocks`, but `segmentActions` closes after the
+  boundary and never reads the mark. ADD VALUE stays with the preceding
+  run (typically ~2 extra slots). Order and the required COMMIT after
+  ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
+  contract change, not a packer fix.
