@@ -60,7 +60,7 @@ describe("proveOptionsFromProfile", () => {
       },
       reextract: async () => ({ factBase: buildFactBase([], []) }),
     });
-    expect(fromClone.capability).toBeUndefined();
+    expect("capability" in fromClone).toBe(false);
     expect(fromClone.reextract).toBeDefined();
   });
 });
