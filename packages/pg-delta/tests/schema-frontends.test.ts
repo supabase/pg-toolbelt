@@ -193,6 +193,83 @@ describe("public schema frontends", () => {
     }
   }, 120_000);
 
+  test("planSchemaFiles never probes the profile's assumed schemas in an isolated shadow (supabase/cli#6453)", async () => {
+    const platformProfile: IntegrationProfile = {
+      id: "test-platform-unreadable",
+      handlers: [],
+      policy: {
+        id: "test-platform-unreadable",
+        filter: [
+          {
+            match: { any: [{ schema: "_realtime" }, { name: "_realtime" }] },
+            action: "exclude",
+          },
+          {
+            match: {
+              all: [
+                { kind: ["acl", "comment", "securityLabel"] },
+                {
+                  any: [
+                    { target: { schema: "_realtime" } },
+                    { target: { kind: "schema", name: "_realtime" } },
+                  ],
+                },
+              ],
+            },
+            action: "exclude",
+          },
+        ],
+        assumedSchemas: ["_realtime"],
+      },
+    };
+    const [clusterA, clusterB] = await isolatedClusterPair();
+    const rolesBeforeA = await clusterA.listRoles();
+    const rolesBeforeB = await clusterB.listRoles();
+    const applier = `frontend_applier_${Date.now().toString(36)}`;
+    const target = await clusterA.createDb("frontend_unreadable_target");
+    const shadow = await clusterB.createDb("frontend_unreadable_shadow");
+    let applierPool: pg.Pool | undefined;
+    try {
+      const USER_SQL = "CREATE TABLE public.widgets (id integer PRIMARY KEY);";
+      await target.pool.query(`
+        CREATE ROLE "${applier}";
+        GRANT ALL ON SCHEMA public TO "${applier}";
+        ${USER_SQL}
+        ALTER TABLE public.widgets OWNER TO "${applier}";
+      `);
+      await clusterB.adminPool.query(
+        `CREATE ROLE "${applier}" LOGIN NOSUPERUSER PASSWORD 'applier'`,
+      );
+      await shadow.pool.query(`
+        CREATE SCHEMA _realtime;
+        CREATE TABLE _realtime.schema_migrations (version bigint PRIMARY KEY);
+        INSERT INTO _realtime.schema_migrations VALUES (20210706140551);
+        GRANT USAGE ON SCHEMA _realtime TO "${applier}";
+        GRANT ALL ON SCHEMA public TO "${applier}";
+      `);
+      const url = new URL(shadow.uri);
+      url.username = applier;
+      url.password = "applier";
+      applierPool = new pg.Pool({ connectionString: url.toString(), max: 5 });
+      applierPool.on("error", () => {});
+      const files: SqlFile[] = [{ name: "app.sql", sql: USER_SQL }];
+      const planned = await planSchemaFiles(target.pool, applierPool, files, {
+        profile: platformProfile,
+        scope: "database",
+        isolatedShadow: true,
+        strictDataStatements: true,
+      });
+      expect(planned.plan.actions).toEqual([]);
+    } finally {
+      await applierPool?.end();
+      await Promise.all([target.drop(), shadow.drop()]);
+      await Promise.all([
+        clusterA.dropRolesExcept(rolesBeforeA, { strict: true }),
+        clusterB.dropRolesExcept(rolesBeforeB, { strict: true }),
+      ]);
+    }
+  }, 120_000);
+
   test("planSchemaFiles permits a non-isolated database-scope sibling from the same lineage", async () => {
     const cluster = await sharedCluster();
     const target = await cluster.createDb("frontend_sibling_target");
@@ -277,8 +354,8 @@ describe("public schema frontends", () => {
 
         const report = await apply(planned.plan, target.pool, {
           ...planned.applyOptions,
-          reextract: (p) => planned.extract(p, { redactSecrets: true }),
           fingerprintGate: true,
+          sourceFactBase: planned.targetFactBase,
         });
         expect(report.status).toBe("applied");
       } finally {

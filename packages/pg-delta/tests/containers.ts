@@ -663,3 +663,35 @@ export async function stopAllClusters(): Promise<void> {
   }
   await Promise.all(clusters.map((c) => c.stop()));
 }
+
+/** Observe every client checked out from `pool` for the duration of `fn`, counting
+ *  queries whose SQL matches `/server_version/`. Restores instrumented clients
+ *  when done — measurement only, never touches the library. Extract always
+ *  probes `server_version`; apply's own session does not. */
+export async function withServerVersionProbeCount<T>(
+  pool: pg.Pool,
+  fn: () => Promise<T>,
+): Promise<{ result: T; count: number }> {
+  let count = 0;
+  const patched = new Map<pg.PoolClient, unknown>();
+  const onAcquire = (client: pg.PoolClient): void => {
+    if (patched.has(client)) return;
+    patched.set(client, (client as { query: unknown }).query);
+    const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
+    (client as { query: unknown }).query = (...qa: unknown[]) => {
+      const sql = typeof qa[0] === "string" ? qa[0] : String(qa[0]);
+      if (/server_version/.test(sql)) count++;
+      return origQuery(...qa);
+    };
+  };
+  try {
+    pool.on("acquire", onAcquire);
+    const result = await fn();
+    return { result, count };
+  } finally {
+    pool.off("acquire", onAcquire);
+    for (const [client, query] of patched) {
+      (client as { query: unknown }).query = query;
+    }
+  }
+}

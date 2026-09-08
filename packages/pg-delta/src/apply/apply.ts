@@ -15,6 +15,7 @@
  * inDoubt.
  */
 import type { Pool } from "pg";
+import { connectWithErrorListener } from "../pg-client.ts";
 import type { FactBase } from "../core/fact.ts";
 import { extract } from "../extract/extract.ts";
 import { assertPlanId } from "../plan/artifact.ts";
@@ -105,6 +106,14 @@ export interface ApplyOptions {
    *  artifact. If the plan's policy declares a baseline and this is absent, the
    *  gate fails loudly rather than mis-comparing. */
   baseline?: FactBase;
+  /** Raw target extract the caller already holds (the same `FactBase`
+   *  `reextract` would return — not a pre-resolved view). When set, the gate
+   *  reconstructs the managed view from this base and skips re-extraction.
+   *  Only valid when nothing else can write to the target between the extract
+   *  that produced this base and apply; the caller is asserting that. A
+   *  mismatched base still fails the gate. Ignored when `fingerprintGate` is
+   *  `false`. Takes precedence over `reextract`. */
+  sourceFactBase?: FactBase;
   /** how to re-extract the target for the fingerprint gate. Defaults to the core
    *  `extract`. An integration with extension handlers MUST pass a handler-aware
    *  re-extractor — `extract(pool, { handlers })`, which the resolved profile
@@ -236,10 +245,11 @@ export async function apply(
   if (options?.fingerprintGate !== false) {
     // Gate against the SAME managed view the plan was produced from (P0-2).
     // plan() fingerprints the resolveView'd source (extension-member + policy +
-    // capability + baseline projection), so the raw re-extract must be resolved
-    // the same way before comparing — otherwise an excluded object that is
-    // present on the real database (an extension's internals, a policy-scoped
-    // schema/role) reads as drift and rejects a valid scoped plan.
+    // capability + baseline projection), so the raw source (re-extract or
+    // caller-held sourceFactBase) must be resolved the same way before
+    // comparing — otherwise an excluded object that is present on the real
+    // database (an extension's internals, a policy-scoped schema/role) reads
+    // as drift and rejects a valid scoped plan.
     if (
       thePlan.policy?.baseline !== undefined &&
       options?.baseline === undefined
@@ -251,18 +261,26 @@ export async function apply(
           `gate with fingerprintGate:false if convergence was already proven.`,
       );
     }
-    // re-extract the target with the SAME redaction mode the plan was
-    // fingerprinted with (Plan.redactSecrets, default true) — a custom
-    // `reextract` is trusted to already bake in the right mode (the CLI's
-    // profile-aware reextractors do); the bare default must be told
-    // explicitly, or a plan built from `extract({ redactSecrets: false })`
+    // Prefer a caller-held raw extract when they still hold exclusive write
+    // access (sourceFactBase). Otherwise re-extract with the SAME redaction
+    // mode the plan was fingerprinted with (Plan.redactSecrets, default true)
+    // — a custom `reextract` is trusted to already bake in the right mode
+    // (the CLI's profile-aware reextractors do); the bare default must be
+    // told explicitly, or a plan built from `extract({ redactSecrets: false })`
     // state is spuriously rejected here (placeholder vs real secret hashes).
-    const current = await (options?.reextract
-      ? options.reextract(target)
-      : extract(target, { redactSecrets: thePlan.redactSecrets ?? true }));
+    const raw =
+      options?.sourceFactBase !== undefined
+        ? options.sourceFactBase
+        : (
+            await (options?.reextract
+              ? options.reextract(target)
+              : extract(target, {
+                  redactSecrets: thePlan.redactSecrets ?? true,
+                }))
+          ).factBase;
     // reconstruct the SAME managed-view-under-scope the plan fingerprinted
     // (`reconstructManagedView` seals resolveView → scope; defaults cluster).
-    const view = reconstructManagedView(current.factBase, {
+    const view = reconstructManagedView(raw, {
       policy: thePlan.policy,
       capability: thePlan.capability,
       baseline: options?.baseline,
@@ -291,7 +309,7 @@ export async function apply(
   const statuses: ActionStatus[] = thePlan.actions.map(() => "unapplied");
   let appliedActions = 0;
 
-  const client = await target.connect();
+  const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
     const onEvent = options?.onEvent;

@@ -14,7 +14,7 @@ This guide maps the old surface onto the new one.
 |---|---|---|
 | `extractCatalog(pool)` | `extract(pool)` → `{ factBase, pgVersion }` | catalogs are gone; the fact base is the only state model |
 | `createPlan(source, target, opts)` | `plan(extract(source).factBase, extract(target).factBase, opts)` | plan is pure — extraction is explicit and reusable |
-| `applyPlan(plan, pool)` | `apply(plan, pool, { fingerprintGate? })` | the gate re-extracts and refuses stale plans by default. A large empty-target baseline can opt into extra COMMITs via `estimateLockTableBudget` + `splitPlan({ maxLocks })` (CLI: `--max-locks` / `--split-to-fit`) — only valid when nothing else reads the target |
+| `applyPlan(plan, pool)` | `apply(plan, pool, { fingerprintGate?, sourceFactBase? })` | the gate re-extracts and refuses stale plans by default; pass the raw planning extract as `sourceFactBase` only when the caller still holds exclusive write access |
 | `plan.statements` / serialized SQL list | `plan.actions[].sql` + `serializePlan(plan)` | plans are version-tagged JSON artifacts, never bare SQL lists |
 | post-apply verification (built into applyPlan) | `provePlan(plan, clonePool, desiredFactBase)` | opt-in, and stronger: state proof + data-preservation proof |
 | `declarativeApply(files, pool)` (round-apply against live targets) | `loadSqlFiles(files, shadowPool)` → `plan` → `apply` | bounded rounds run against a throwaway shadow ONLY; the live target gets a planned, provable artifact |

@@ -150,7 +150,8 @@ Notes:
     into one-statement units and topologically pre-sorts them so authoring
     order within a file no longer matters.
   --strict-data-statements (schema apply): fail (instead of warn) when
-    declarative files leave rows in managed user tables. By default a
+    declarative files leave rows in managed user tables (tables in the
+    profile's assumed platform schemas are never probed). By default a
     populated table observed after loading is either exempt (pre-existing
     rows in --isolated-shadow mode, reported on the result) or downgraded to
     a "data_statement" warning diagnostic, and the load proceeds with a
