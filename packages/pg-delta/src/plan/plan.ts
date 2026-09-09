@@ -728,6 +728,7 @@ export function plan(
     serializeRules,
     capability: options?.capability,
     rulesForId,
+    implicitOwner: options?.defaultOwner ?? policyDefaultOwner,
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

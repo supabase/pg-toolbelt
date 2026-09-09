@@ -40,13 +40,20 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 30 → 29: the ADP gate's `desired.facts()` rescan became a prebuilt objtype
   // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
   // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
-  "internal.ts": 29,
+  // 29 → 32: ALTER OWNER TO before REVOKE of the old owner's grantable ACL
+  // (aclnewowner remaps revoked entries onto the new owner) — 2 role
+  // discriminators + 1 acl id reconstruction. Not object-kind knowledge:
+  // the pairing is the owner-alter / acl-drop graph edge.
+  "internal.ts": 32,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
   // never builds the member-closure index — 1 deliberate literal (the closure
   // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
-  "phases/action-emitter.ts": 11,
+  // 11 → 13: unlink-only reown to policy defaultOwner constructs a role id
+  // and discriminates the released owner as a role — 2 literals, same shape
+  // as the existing owner-link ALTER path.
+  "phases/action-emitter.ts": 13,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

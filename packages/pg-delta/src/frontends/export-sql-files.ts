@@ -18,7 +18,12 @@
  * historical "nested". Nothing below the root differs between the styles.
  */
 import { createHash } from "node:crypto";
-import { buildFactBase, type FactBase } from "../core/fact.ts";
+import {
+  buildFactBase,
+  retainBuiltinOwnerDangling,
+  retainOwnerRoleDangling,
+  type FactBase,
+} from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
@@ -936,6 +941,16 @@ export function exportSqlFiles(
     return fb.referenceOnly.has(key) && !members.has(key);
   });
   const baseline = buildFactBase(pristine, []);
+  // PG15+ `public` is owned by `pg_database_owner`. That edge is real in a live
+  // extract (so DB→DB can reown) but it is platform default in a dump — emitting
+  // `OWNER TO pg_database_owner` fails on PG14 and fights a postgres-owned public.
+  const exportDesired = buildFactBase(
+    [...fb.facts()],
+    fb.edges.filter((e) => !retainBuiltinOwnerDangling(e)),
+    fb.source,
+    fb.referenceOnly,
+    { allowDangling: retainOwnerRoleDangling },
+  );
   // FKs inside a cross-table reference cycle stay as ALTERs (routed to a
   // sibling `.fk.sql`); everything else folds inline. Computed BEFORE the plan
   // so the fold pass can exclude them.
@@ -946,7 +961,7 @@ export function exportSqlFiles(
   // objects (review P1). `foldConstraints` renders validated table constraints
   // INLINE in their CREATE TABLE (export files are consumed by the retry /
   // reorder loader, where that is safe — see PlanOptions.foldConstraints).
-  const rendered = plan(baseline, fb, {
+  const rendered = plan(baseline, exportDesired, {
     foldConstraints: { exclude: cyclicFks },
     ...(options.assumedSchemas !== undefined
       ? { assumedSchemas: options.assumedSchemas }

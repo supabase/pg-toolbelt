@@ -52,6 +52,10 @@ export interface ActionEmitterInput {
   /** id-keyed rule resolver (schema kinds via the static RULES table,
    *  `extensionIntent` via the profile's intent rules) */
   rulesForId: RulesForId;
+  /** Policy `defaultOwner`: desired ownership by this role is implicit (no
+   *  owner edge after projection). An owner unlink with no matching link is
+   *  reown-to this role. Unset (raw/corpus) leaves unlink-only silent. */
+  implicitOwner?: string | undefined;
 }
 
 export interface ActionEmitterOutput {
@@ -83,6 +87,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     serializeRules,
     capability,
     rulesForId,
+    implicitOwner,
   } = input;
 
   const actions: Action[] = [];
@@ -558,6 +563,44 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         { consumes: [objId] },
       );
       ownerEmitted.add(objKey);
+    }
+
+    // Desired owner is implicit (defaultOwner edge pruned). Source still has
+    // a non-implicit owner: unlink-only is an owner CHANGE to the applier.
+    // Ordered before REVOKE of the old owner's schema ACL (buildActionGraph:
+    // aclnewowner remaps revoked entries onto the new owner).
+    if (implicitOwner !== undefined) {
+      for (const [objKey, oldRoleId] of oldOwnerByFact) {
+        if (ownerEmitted.has(objKey)) continue;
+        if (removed.has(objKey)) continue;
+        if (replaceIds.has(objKey)) continue;
+        if (oldRoleId.kind === "role" && oldRoleId.name === implicitOwner) {
+          continue;
+        }
+        const fact = projectedDesired.getByEncoded(objKey);
+        if (!fact) continue;
+        const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
+        if (!ownerAlterPrefix) continue;
+        if (
+          capability !== undefined &&
+          !canSetOwner(capability, implicitOwner)
+        ) {
+          throw new Error(
+            `capability: cannot set owner of ${objKey} to role "${implicitOwner}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
+          );
+        }
+        const newRoleId: StableId = { kind: "role", name: implicitOwner };
+        pushAction(
+          "alter",
+          {
+            sql: `${ownerAlterPrefix(fact)} OWNER TO ${qid(implicitOwner)}`,
+            consumes: [newRoleId],
+            releases: [oldRoleId],
+          },
+          { consumes: [fact.id] },
+        );
+        ownerEmitted.add(objKey);
+      }
     }
 
     // Replaced facts (drop + recreate) revert to the applying role's ownership;

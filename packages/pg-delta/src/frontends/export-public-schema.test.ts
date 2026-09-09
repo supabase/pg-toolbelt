@@ -7,7 +7,11 @@
  * (PR #307 review: public-schema ACL/comment preservation). Pure — no DB.
  */
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact } from "../core/fact.ts";
+import {
+  buildFactBase,
+  retainOwnerRoleDangling,
+  type Fact,
+} from "../core/fact.ts";
 import { exportSqlFiles } from "./export-sql-files.ts";
 
 function exportOf(facts: Fact[]): string {
@@ -47,5 +51,28 @@ describe("export preserves public-schema customizations", () => {
     ]);
     expect(sql).toContain(`SCHEMA "public"`);
     expect(sql).toContain("REVOKE ALL ON SCHEMA");
+  });
+
+  test("export does not serialize OWNER TO pg_database_owner on public", () => {
+    const publicId = { kind: "schema" as const, name: "public" };
+    const sql = exportSqlFiles(
+      buildFactBase(
+        [{ id: publicId, payload: {} }],
+        [
+          {
+            from: publicId,
+            to: { kind: "role", name: "pg_database_owner" },
+            kind: "owner",
+          },
+        ],
+        "liveDb",
+        new Set(),
+        { allowDangling: retainOwnerRoleDangling },
+      ),
+    )
+      .map((f) => f.sql)
+      .join("\n");
+    expect(sql).not.toContain("OWNER TO");
+    expect(sql).not.toContain("pg_database_owner");
   });
 });

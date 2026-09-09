@@ -559,6 +559,15 @@ export const supabasePolicy: Policy = {
     // Rule 6 (old rule): exclude objects whose payload owner is a system role.
     // Covers tables, views, schemas, sequences, etc. that are managed by
     // Supabase system roles.
+    //
+    // `public` is the user schema even when a PG14-era catalog still lists
+    // `supabase_admin` (bootstrap) as nspowner. Excluding it would DROP SCHEMA
+    // public on a branch whose public is owned by pg_database_owner. Include
+    // first-match so Rule 6 still hides system-owned *contents* of public.
+    {
+      match: { all: [{ kind: "schema" }, { name: "public" }] },
+      action: "include",
+    },
     {
       match: { owner: [...SUPABASE_SYSTEM_ROLES] },
       action: "exclude",
