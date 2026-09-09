@@ -16,22 +16,41 @@ export function queryText(first: unknown): string {
   return String(first);
 }
 
+function tapQueries(client: pg.PoolClient, queries: string[]): void {
+  const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
+  (client as { query: unknown }).query = (...qa: unknown[]) => {
+    queries.push(queryText(qa[0]));
+    return origQuery(...qa);
+  };
+}
+
 export async function withApplyQueries<T>(
   pool: pg.Pool,
   fn: () => Promise<T>,
 ): Promise<{ result: T; queries: string[] }> {
   const queries: string[] = [];
   const origConnect = pool.connect.bind(pool);
-  (pool as { connect: unknown }).connect = async (...args: unknown[]) => {
-    const client = await (
-      origConnect as (...a: unknown[]) => Promise<pg.PoolClient>
-    )(...args);
-    const origQuery = client.query.bind(client) as (...a: unknown[]) => unknown;
-    (client as { query: unknown }).query = (...qa: unknown[]) => {
-      queries.push(queryText(qa[0]));
-      return origQuery(...qa);
-    };
-    return client;
+  (pool as { connect: unknown }).connect = (
+    callback?: (
+      error?: Error,
+      client?: pg.PoolClient,
+      release?: (releaseError?: Error | boolean) => void,
+    ) => void,
+  ) => {
+    if (typeof callback === "function") {
+      return origConnect((error, client, release) => {
+        if (error !== undefined || client === undefined) {
+          callback(error, client, release);
+          return;
+        }
+        tapQueries(client, queries);
+        callback(undefined, client, release);
+      });
+    }
+    return origConnect().then((client) => {
+      tapQueries(client, queries);
+      return client;
+    });
   };
   try {
     return { result: await fn(), queries };
