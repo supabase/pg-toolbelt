@@ -7,9 +7,15 @@
  */
 import { readFileSync } from "node:fs";
 import { parsePlan } from "../../plan/artifact.ts";
-import { apply } from "../../apply/apply.ts";
+import { apply, estimateLockTableBudget } from "../../apply/apply.ts";
+import { splitPlan } from "../../plan/baseline-commit.ts";
 import { makePool } from "../pool.ts";
-import { CliExit, parseFlags, UsageError } from "../flags.ts";
+import {
+  CliExit,
+  parseFlags,
+  parseLockSplitFlags,
+  UsageError,
+} from "../flags.ts";
 import {
   effectiveProfileId,
   PROFILE_IDS,
@@ -27,11 +33,13 @@ export async function cmdApply(args: string[]): Promise<void> {
       profile: { type: "value" },
       force: { type: "boolean" },
       "allow-data-loss": { type: "boolean" },
+      "max-locks": { type: "value" },
+      "split-to-fit": { type: "boolean" },
     });
   } catch (err) {
     if (err instanceof UsageError) {
       throw new UsageError(
-        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss]`,
+        `${err.message}\nUsage: pgdelta apply --plan <plan.json> --target <pg-url> [--profile ${PROFILE_IDS}] [--force] [--allow-data-loss] [--max-locks <n>] [--split-to-fit]`,
       );
     }
     throw err;
@@ -41,6 +49,7 @@ export async function cmdApply(args: string[]): Promise<void> {
   const planPath = flags["plan"];
   const targetUrl = flags["target"];
   const force = flags["force"];
+  const lockSplit = parseLockSplitFlags(flags);
 
   const json = readFileSync(planPath, "utf8");
   const thePlan = parsePlan(json);
@@ -96,7 +105,15 @@ export async function cmdApply(args: string[]): Promise<void> {
     );
     process.stderr.write(`Applying ${thePlan.actions.length} action(s)...\n`);
 
-    const report = await apply(thePlan, tgt.pool, {
+    let executable = thePlan;
+    if (lockSplit.splitToFit) {
+      const budget = await estimateLockTableBudget(tgt.pool);
+      executable = splitPlan(thePlan, { maxLocks: budget.available });
+    } else if (lockSplit.maxLocks !== undefined) {
+      executable = splitPlan(thePlan, { maxLocks: lockSplit.maxLocks });
+    }
+
+    const report = await apply(executable, tgt.pool, {
       fingerprintGate: !force,
       ...ctx.applyOptions, // reextract (handler-aware) + baseline
       reextract: (p) => ctx.extract(p, { redactSecrets }),

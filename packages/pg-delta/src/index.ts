@@ -73,12 +73,18 @@ export {
   apply,
   segmentActions,
   planSegments,
+  computeLockTableBudget,
+  estimateLockTableBudget,
+  splitActions,
+  splitPlan,
   type ApplyError,
   type ApplyReport,
   type ApplyOptions,
   type ApplyEvent,
   type ActionStatus,
   type Segment,
+  type LockTableBudget,
+  type LockTableSettings,
 } from "./apply/apply.ts";
 
 // ── proof ────────────────────────────────────────────────────────────────────

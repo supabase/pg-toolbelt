@@ -64,8 +64,9 @@ pgdelta <command> [options]
 Commands:
   plan           --source <pg-url> --desired <pg-url>
                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
-                 [--accept-rename <from>=<to>] ...
+                 [--accept-rename <from>=<to>] ... [--max-locks <n>]
   apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
+                 [--max-locks <n>] [--split-to-fit]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
                  [--strict-audit] [--audit-all]
@@ -86,6 +87,7 @@ Commands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
+                 [--max-locks <n>] [--split-to-fit]
   schema lint    --dir <dir>
 
 Notes:
@@ -184,6 +186,13 @@ Notes:
   --out-plan <plan.json> (schema apply): write the plan artifact (same format
     as "plan --out") to this path right after planning, before apply (or the
     --dry-run script).
+  --max-locks <n> (plan, apply, schema apply): pack the plan so each
+    transactional segment's estimated lock slots try to stay under N.
+    Extra COMMITs are only safe when nothing else reads the target.
+  --split-to-fit (apply, schema apply): probe the target lock table and
+    pack with the remaining budget. Mutually exclusive with --max-locks.
+    A single action that still exceeds the budget stays in its own
+    segment; Postgres may still fail mid-statement.
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
@@ -217,6 +226,7 @@ Subcommands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
+                 [--max-locks <n>] [--split-to-fit]
   schema lint    --dir <dir>
                  Statically check the SQL files (pg-topo) for shadow-load
                  cycles and other issues, without touching a database.

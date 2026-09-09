@@ -1195,24 +1195,30 @@ export function resolveView(
   }
   // capability restriction (move 6): project out facts whose action the applier
   // cannot execute. Additive; default unrestricted. FDW ACLs are superuser-only
-  // GRANTs and a leaf fact, so they project out cleanly. (The owner residue is
-  // NOT projected — it can't be skipped without an ACL ripple — it fail-fasts
-  // in plan() instead; see capability.canSetOwner.)
+  // GRANTs and a leaf fact, so they project out cleanly. PG16+ CREATEROLE
+  // self-ADMIN memberships are the same class (GRANT … TO <self> WITH ADMIN
+  // OPTION is 0LP01). (The owner residue is NOT projected — it can't be skipped
+  // without an ACL ripple — it fail-fasts in plan() instead; see
+  // capability.canSetOwner.)
   if (capability !== undefined) {
     const capRoots = capabilityExcludedRoots(base, capability);
     if (capRoots.size > 0) {
       const before = base;
-      base = excludeFactsAndDescendants(base, capRoots);
+      base = excludeFactsAndDescendants(base, new Set(capRoots.keys()));
       if (collectSuppression !== undefined) {
-        const attribution: ProjectionSuppressionAttribution = {
-          stage: "capability",
-          reasonCode: "capability.fdw-acl",
-          classification: "acknowledged",
-        };
         collectRemovedSuppressions(
           before,
           base,
-          new Map([...capRoots].map((key) => [key, attribution])),
+          new Map(
+            [...capRoots].map(([key, reasonCode]) => [
+              key,
+              {
+                stage: "capability" as const,
+                reasonCode,
+                classification: "acknowledged" as const,
+              },
+            ]),
+          ),
           collectSuppression,
         );
       }

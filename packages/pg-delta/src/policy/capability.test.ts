@@ -2,18 +2,19 @@
  * Applier-capability-restricted view (docs/architecture/managed-view-architecture.md move 6).
  *
  * The managed view is a function of (facts, policy, applier capability). An
- * operation the applier cannot execute is projected out — currently FDW ACLs,
- * which require superuser to GRANT/REVOKE. This is additive: the Supabase
- * Rule 9 (`{ acl, target fdw } → exclude`) still stands; capability derives the
- * same exclusion for ANY non-superuser applier. With no capability (or a
- * superuser), the view is unrestricted — the corpus path is unchanged.
+ * operation the applier cannot execute is projected out — FDW ACLs (superuser
+ * GRANT/REVOKE) and PG16+ CREATEROLE self-ADMIN memberships (0LP01). With no
+ * capability (or a superuser), the view is unrestricted — the corpus path is
+ * unchanged.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { resolveView } from "./policy.ts";
 import { plan } from "../plan/plan.ts";
 import {
+  CAPABILITY_CREATEROLE_SELF_ADMIN,
+  CAPABILITY_FDW_ACL,
   capabilityExcludedRoots,
   type ApplierCapability,
 } from "./capability.ts";
@@ -59,6 +60,93 @@ describe("ApplierCapability — capability-restricted view (move 6)", () => {
     expect(capabilityExcludedRoots(fb, superuser).size).toBe(0);
     const roots = capabilityExcludedRoots(fb, nonSuper);
     expect(roots.size).toBe(1);
+    expect(roots.get(encodeId(fdwAcl))).toBe(CAPABILITY_FDW_ACL);
+  });
+});
+
+describe("ApplierCapability — PG16+ CREATEROLE self-ADMIN membership", () => {
+  const created: StableId = { kind: "role", name: "created" };
+  const parent: StableId = { kind: "role", name: "parent" };
+  const child: StableId = { kind: "role", name: "child" };
+  const selfAdmin: StableId = {
+    kind: "membership",
+    role: "created",
+    member: "app",
+  };
+  const peerGrant: StableId = {
+    kind: "membership",
+    role: "parent",
+    member: "child",
+  };
+  const selfPlain: StableId = {
+    kind: "membership",
+    role: "created",
+    member: "app",
+  };
+  const createrolePg16: ApplierCapability = {
+    role: "app",
+    isSuperuser: false,
+    memberOf: [],
+    createRole: true,
+    pgMajor: 16,
+  };
+  const membershipFb = () =>
+    buildFactBase(
+      [
+        f(created),
+        f(parent),
+        f(child),
+        { id: selfAdmin, payload: { admin: true } },
+        { id: peerGrant, payload: { admin: false } },
+      ],
+      [],
+    );
+
+  test("excludes admin self-membership for a PG16+ CREATEROLE non-superuser", () => {
+    const fb = membershipFb();
+    const roots = capabilityExcludedRoots(fb, createrolePg16);
+    expect(roots.get(encodeId(selfAdmin))).toBe(
+      CAPABILITY_CREATEROLE_SELF_ADMIN,
+    );
+    expect(roots.has(encodeId(peerGrant))).toBe(false);
+    expect(
+      resolveView(fb, undefined, createrolePg16).get(selfAdmin),
+    ).toBeUndefined();
+    expect(
+      resolveView(fb, undefined, createrolePg16).get(peerGrant),
+    ).toBeDefined();
+  });
+
+  test("keeps a non-admin self-membership", () => {
+    const fb = buildFactBase(
+      [f(created), { id: selfPlain, payload: { admin: false } }],
+      [],
+    );
+    expect(capabilityExcludedRoots(fb, createrolePg16).size).toBe(0);
+  });
+
+  test("superuser, PG < 16, or omitted probe fields do not exclude", () => {
+    const fb = membershipFb();
+    expect(capabilityExcludedRoots(fb, superuser).size).toBe(0);
+    expect(
+      capabilityExcludedRoots(fb, {
+        ...createrolePg16,
+        pgMajor: 15,
+      }).size,
+    ).toBe(0);
+    expect(
+      capabilityExcludedRoots(fb, {
+        role: "app",
+        isSuperuser: false,
+        memberOf: [],
+      }).size,
+    ).toBe(0);
+    expect(
+      capabilityExcludedRoots(fb, {
+        ...createrolePg16,
+        createRole: false,
+      }).size,
+    ).toBe(0);
   });
 });
 

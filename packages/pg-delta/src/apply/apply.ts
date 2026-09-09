@@ -4,6 +4,8 @@
  * maximal transactional runs, isolates nonTransactional actions, and
  * honors the planner's commitBoundaryAfter segment boundaries.
  * Segmentation changes transaction boundaries only, never order.
+ * Apply honors `newSegmentBefore` already on the plan and does not
+ * probe or split. Callers who want extra COMMITs run `splitPlan` first.
  *
  * Mid-plan failure semantics are explicit: every action is reported
  * applied / unapplied / inDoubt, and the error identifies whether an action
@@ -21,6 +23,23 @@ import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
+
+export {
+  computeLockTableBudget,
+  defaultLockTableReserveConnections,
+  estimateLockTableBudget,
+  probeLockTableSettings,
+  type LockTableBudget,
+  type LockTableSettings,
+} from "./lock-table.ts";
+export {
+  LOCK_HOLDING_RELATION_KINDS,
+  estimateActionLocks,
+  estimateSegmentLocks,
+  splitActions,
+  splitPlan,
+  type LockEstimateAction,
+} from "../plan/baseline-commit.ts";
 
 export type ActionStatus = "applied" | "unapplied" | "inDoubt";
 
@@ -51,11 +70,11 @@ export interface ApplyReport {
  *
  *  The applied statements are planner-rendered atomic DDL, not the authored
  *  declarative SQL, so `actionStart`/`actionEnd` alone are not a complete
- *  record of the wire: `control` covers every OTHER statement apply() sends
- *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`, `COMMIT`,
- *  `ROLLBACK` (including best-effort rollbacks on an error path), and
- *  `RESET ALL` — so a `--verbose` trace shows exactly what ran, transaction
- *  framing included. */
+ *  record of the wire:   `control` covers every OTHER statement apply() sends
+ *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`,
+ *  `COMMIT`, `ROLLBACK` (including best-effort rollbacks on an error path),
+ *  and `RESET ALL` — so a `--verbose` trace shows exactly what ran,
+ *  transaction framing included. */
 export type ApplyEvent =
   | {
       kind: "segmentStart";
@@ -288,13 +307,13 @@ export async function apply(
   }
 
   const statuses: ActionStatus[] = thePlan.actions.map(() => "unapplied");
-  const segments = segmentActions(thePlan.actions);
   let appliedActions = 0;
 
   const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
     const onEvent = options?.onEvent;
+    const segments = segmentActions(thePlan.actions);
     for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       const segment = segments[segIdx]!;
       // segmentStart fires before the preamble/BEGIN for this segment, for
