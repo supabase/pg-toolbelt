@@ -107,6 +107,19 @@ export function expandReplacements(
     const worklist = [...targets];
     while (worklist.length > 0) {
       const toKey = worklist.pop() as string;
+      // Scan childrenOf as well as incoming `depends`. Views/policies often
+      // depend on columns, not the table; partitions hang off the schema and
+      // are found via inherit `depends` on the parent table itself. Children
+      // stay scan-only here — ancestor trim + subtree recreate own them.
+      const toFact = source.getByEncoded(toKey);
+      if (toFact !== undefined && fullDestroy.has(toKey)) {
+        for (const child of source.childrenOf(toFact.id)) {
+          const childKey = encodeId(child.id);
+          if (targets.has(childKey)) continue;
+          targets.add(childKey);
+          worklist.push(childKey);
+        }
+      }
       for (const edge of source.incomingEdgesByEncoded(toKey)) {
         const fromKey = encodeId(edge.from);
         if (targets.has(fromKey)) continue;
