@@ -236,10 +236,22 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     const emitReplaceDrop = (rootFact: Fact): void => {
       const destroys: StableId[] = [rootFact.id];
       const rootKey = encodeId(rootFact.id);
-      for (const [foldedKey, root] of dropRootOf) {
-        if (root !== rootKey || foldedKey === rootKey) continue;
+      const isRemovedId = (id: StableId): boolean =>
+        removed.has(encodeId(id)) || replaceIds.has(encodeId(id));
+      // Only facts whose dropRootRedirect target is THIS fact. Walking
+      // dropRootOf would also pick up attached child indexes that redirected
+      // to a parent index which then folded into this table — listing those
+      // on DROP TABLE orders it before DROP partition (child teardown) while
+      // inherit requires DROP partition first.
+      for (const foldedKey of dropRootOf.keys()) {
         const folded = source.getByEncoded(foldedKey);
-        if (folded !== undefined) destroys.push(folded.id);
+        if (folded === undefined) continue;
+        const redirect = rulesForId(folded.id).dropRootRedirect?.(
+          folded,
+          isRemovedId,
+        );
+        if (redirect === undefined || encodeId(redirect) !== rootKey) continue;
+        destroys.push(folded.id);
       }
       const walk = (fact: Fact): void => {
         for (const child of source.childrenOf(fact.id)) {

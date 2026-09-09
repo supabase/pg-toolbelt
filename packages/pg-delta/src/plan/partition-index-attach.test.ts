@@ -251,4 +251,17 @@ describe("add index on partitioned parent with existing partitions", () => {
       true,
     );
   });
+
+  test("replacing a partitioned parent while dropping partitions does not cycle", () => {
+    const heapParent: Fact = {
+      ...parentFact,
+      payload: tablePayload(),
+    };
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxFact, childIdxFact],
+      [inherit],
+    );
+    const desired = buildFactBase([schema, heapParent, ...columns], []);
+    expect(() => plan(source, desired)).not.toThrow();
+  });
 });
