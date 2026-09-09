@@ -51,7 +51,6 @@ describe("apply() batched failure attribution", () => {
     const { result, queries } = await withApplyQueries(db.pool, () =>
       apply(planFromActions(actions), db.pool, {
         fingerprintGate: false,
-        lockTableReserveConnections: 1,
         batchTransactional: true,
       }),
     );
@@ -124,7 +123,6 @@ describe("apply() batched failure attribution", () => {
 
     const result = await apply(planFromActions(actions), db.pool, {
       fingerprintGate: false,
-      lockTableReserveConnections: 1,
       batchTransactional: true,
     });
 
@@ -156,7 +154,6 @@ describe("apply() batched failure attribution", () => {
 
     const result = await apply(planFromActions(actions), db.pool, {
       fingerprintGate: false,
-      lockTableReserveConnections: 1,
       batchTransactional: true,
     });
 
@@ -184,7 +181,6 @@ describe("apply() batched failure attribution", () => {
 
     const result = await apply(planFromActions(actions), db.pool, {
       fingerprintGate: false,
-      lockTableReserveConnections: 1,
       batchTransactional: true,
     });
 
@@ -218,7 +214,6 @@ describe("apply() batched failure attribution", () => {
 
     const result = await apply(planFromActions(actions), db.pool, {
       fingerprintGate: false,
-      lockTableReserveConnections: 1,
       batchTransactional: true,
     });
 
@@ -276,7 +271,6 @@ describe("apply() batched failure attribution", () => {
     const { result, queries } = await withApplyQueries(db.pool, () =>
       apply(planFromActions(actions), db.pool, {
         fingerprintGate: false,
-        lockTableReserveConnections: 1,
         batchTransactional: true,
         onEvent: (event) => events.push(event),
       }),

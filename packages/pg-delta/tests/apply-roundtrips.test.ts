@@ -1,7 +1,7 @@
 /**
  * Apply must send each transactional segment as O(1) round trips (bounded
  * multi-statement batches + a separate COMMIT), not one query per action.
- * The lock-table preflight is one extra RTT on this branch.
+ * Lock-table packing (`splitPlan`) happens before apply, not on this wire.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
@@ -13,8 +13,8 @@ import {
 } from "./apply-test-helpers.ts";
 
 const ACTION_COUNT = 200;
-/** probe + one transactional batch + COMMIT (sub-batches stay well under 500). */
-const MAX_ROUND_TRIPS = 4;
+/** one transactional batch + COMMIT (sub-batches stay well under 500). */
+const MAX_ROUND_TRIPS = 3;
 
 const dbs: TestDb[] = [];
 afterAll(async () => {
@@ -36,7 +36,6 @@ describe("apply() transactional round trips", () => {
       apply(thePlan, db.pool, {
         fingerprintGate: false,
         lockTimeoutMs: 5000,
-        lockTableReserveConnections: 1,
         batchTransactional: true,
       }),
     );
@@ -64,7 +63,6 @@ describe("apply() transactional round trips", () => {
       apply(thePlan, db.pool, {
         fingerprintGate: false,
         lockTimeoutMs: 5000,
-        lockTableReserveConnections: 1,
       }),
     );
 
