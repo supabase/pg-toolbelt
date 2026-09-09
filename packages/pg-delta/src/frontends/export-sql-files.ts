@@ -951,6 +951,9 @@ export function exportSqlFiles(
     fb.referenceOnly,
     { allowDangling: retainOwnerRoleDangling },
   );
+  // Rebuild drops diagnostics; plan() gates on desired-side extract warnings
+  // (INTENT_UNKEYED / INTENT_UNSUPPORTED).
+  exportDesired.diagnostics.push(...fb.diagnostics);
   // FKs inside a cross-table reference cycle stay as ALTERs (routed to a
   // sibling `.fk.sql`); everything else folds inline. Computed BEFORE the plan
   // so the fold pass can exclude them.

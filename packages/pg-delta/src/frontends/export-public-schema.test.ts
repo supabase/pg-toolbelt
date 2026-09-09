@@ -7,6 +7,7 @@
  * (PR #307 review: public-schema ACL/comment preservation). Pure — no DB.
  */
 import { describe, expect, test } from "bun:test";
+import { INTENT_UNKEYED } from "../core/diagnostic.ts";
 import {
   buildFactBase,
   retainOwnerRoleDangling,
@@ -108,5 +109,20 @@ describe("export preserves public-schema customizations", () => {
       .map((f) => f.sql)
       .join("\n");
     expect(sql).toContain(`OWNER TO "pg_database_owner"`);
+  });
+
+  test("export refuses a desired-side unkeyed intent", () => {
+    const fb = buildFactBase(
+      [{ id: { kind: "schema", name: "public" }, payload: {} }],
+      [],
+    );
+    fb.diagnostics.push({
+      code: INTENT_UNKEYED,
+      severity: "warning",
+      message:
+        "cron job (command: delete from x) has no jobname and cannot be managed",
+      context: { ext: "pg_cron", intentKind: "job" },
+    });
+    expect(() => exportSqlFiles(fb)).toThrow(/cannot key|unnamed|no jobname/i);
   });
 });
