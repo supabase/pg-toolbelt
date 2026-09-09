@@ -1653,3 +1653,48 @@ Deferred:
 - **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
   trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
   the match cannot slide over the rest of the string.
+
+## PR #470 review triage (Codex) — partition replace + index attach
+
+PR #470 recreates partitions/views/publicationRel across a parent-table
+replace and emits child indexes plus `ALTER INDEX … ATTACH PARTITION`.
+Codex round 1 on `36f77e2a`. One apply bug was in-scope; the rest are
+unusual desired states or a resolver contract change.
+
+- **Fixed — fold attached child index drops into parent-index replace
+  (P1).** `dropRootRedirect` ran only over `removed`. A parent-index
+  `def` replace also replaces attached children; both entered
+  `replaceIds` and the plan emitted `DROP INDEX child`. PostgreSQL
+  refuses that while the parent still requires the child. Redirect
+  now covers `replaceIds` and the parent replace `destroys` those
+  children. Unit test in `partition-index-attach.test.ts`.
+- **Deferred — synthesize publicationRel→table via pg_depend (P1).**
+  The edge is extract-time from `pg_publication_rel` (same catalog
+  relationship pg_depend records). The resolver's `pubrel` CTE
+  currently *folds* those rows onto the publication id on purpose
+  (`seed-assumed-schemas`: a shell publication must not inherit member
+  replay requirements). Un-folding `pg_publication_rel` onto
+  `publicationRel` is a resolver + seed contract change, not a bug in
+  the membership rebuild this PR landed.
+- **Deferred — alsoProduces vs renamed/custom child indexes (P1).**
+  `PARTITION OF` after a parent index clones a default-named child.
+  `alsoProduces` suppresses the desired child CREATE when
+  `attachedTo` is set. A desired child with a different name or
+  reloptions than that clone would drift. Corpus and pg_dump-healthy
+  trees use the inherited name. Custom names need a follow-up that
+  only alsoProduces when identity/payload match the clone, or that
+  emits RENAME/ALTER after inherit.
+- **Deferred — attachedTo → null / re-parent ATTACH (P2).** There is
+  no `ALTER INDEX … DETACH PARTITION` grammar we emit. Detach is
+  `replaceWhen`. Re-ATTACH to a different parent while still attached
+  is rejected by PostgreSQL. Both require rebuilding the old parent
+  index hierarchy. Not a schema-first dump path (you drop or replace
+  the parent index).
+- **Deferred — consume parent indexes only when the new partition has
+  an attached child (P1).** Unconditional consume forces `CREATE INDEX
+  ON ONLY` before `PARTITION OF`, which clones children. Desired SQL
+  that is `PARTITION OF` then `ON ONLY` with *no* child facts (an
+  incomplete parent) would then fail proof. This PR's corpus and
+  pg_dump-style trees include the child facts; the incomplete parent
+  is the state we force-valid and do not round-trip as a goal.
+

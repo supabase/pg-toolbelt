@@ -213,8 +213,16 @@ export function expandReplacements(
   for (const fact of removed.values()) findDropRoot(fact);
 
   // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
-  // into its owning column/table) — declared per-kind via dropRootRedirect.
-  for (const fact of removed.values()) {
+  // into its owning column/table, an attached child index into its parent
+  // index) — declared per-kind via dropRootRedirect. Replaced facts are not
+  // in `removed`; without this pass their DROP is emitted next to the parent
+  // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+  const redirectFacts: Fact[] = [...removed.values()];
+  for (const key of replaceIds) {
+    const fact = source.getByEncoded(key);
+    if (fact !== undefined) redirectFacts.push(fact);
+  }
+  for (const fact of redirectFacts) {
     const redirect = rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId);
     if (redirect === undefined) continue;
     const redirectKey = encodeId(redirect);

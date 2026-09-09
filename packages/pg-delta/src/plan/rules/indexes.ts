@@ -61,7 +61,9 @@ export const indexRules: Record<string, KindRules> = {
       return { sql: `DROP INDEX ${rel(id.schema, id.name)}` };
     },
     // Attached child indexes vanish with DROP INDEX on the parent; PostgreSQL
-    // refuses DROP on the child while the parent still requires it.
+    // refuses DROP on the child while the parent still requires it. Same
+    // redirect applies when the parent is replaced (def change), not only
+    // when it is removed.
     dropRootRedirect: (fact, isRemoved) => {
       const attachedTo = p(fact, "attachedTo") as {
         schema: string;

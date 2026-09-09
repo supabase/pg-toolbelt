@@ -235,6 +235,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // drop. Without this the bare DROP SERVER fails on its surviving dependents.
     const emitReplaceDrop = (rootFact: Fact): void => {
       const destroys: StableId[] = [rootFact.id];
+      const rootKey = encodeId(rootFact.id);
+      for (const [foldedKey, root] of dropRootOf) {
+        if (root !== rootKey || foldedKey === rootKey) continue;
+        const folded = source.getByEncoded(foldedKey);
+        if (folded !== undefined) destroys.push(folded.id);
+      }
       const walk = (fact: Fact): void => {
         for (const child of source.childrenOf(fact.id)) {
           if (cascadesToChildren(fact.id.kind)) {
@@ -257,7 +263,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         destroys,
       });
     };
-    emitReplaceDrop(oldFact);
+    // Attached child indexes fold into the parent-index replace via
+    // dropRootRedirect. Skip this DROP (PG cascades it); still CREATE.
+    const foldedInto = dropRootOf.get(key);
+    if (foldedInto === undefined || foldedInto === key) {
+      emitReplaceDrop(oldFact);
+    }
     emitCreate(newFact, projectedDesired);
     // recreate surviving descendants from the PROJECTED plan target (satellites,
     // sub-facts). Descendants with their own attribute deltas are covered: the

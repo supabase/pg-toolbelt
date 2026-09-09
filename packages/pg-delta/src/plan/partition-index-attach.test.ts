@@ -214,4 +214,41 @@ describe("add index on partitioned parent with existing partitions", () => {
       ),
     ).toBe(true);
   });
+
+  test("replacing a parent index def does not DROP attached children", () => {
+    const parentIdxNext: Fact = {
+      ...parentIdxFact,
+      payload: {
+        ...parentIdxFact.payload,
+        def: `CREATE INDEX idx_parent_status ON ONLY s1.parent USING btree (status, id)`,
+      },
+    };
+    const childIdxNext: Fact = {
+      ...childIdxFact,
+      payload: {
+        ...childIdxFact.payload,
+        def: `CREATE INDEX p1_status_idx ON s1.p1 USING btree (status, id)`,
+      },
+    };
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxFact, childIdxFact],
+      [inherit],
+    );
+    const desired = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxNext, childIdxNext],
+      [inherit],
+    );
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    expect(
+      sqls.some((s) => s.includes(`DROP INDEX`) && s.includes(`p1_status_idx`)),
+    ).toBe(false);
+    expect(
+      sqls.some(
+        (s) => s.includes(`DROP INDEX`) && s.includes(`idx_parent_status`),
+      ),
+    ).toBe(true);
+    expect(sqls.some((s) => s.startsWith(`CREATE INDEX p1_status_idx`))).toBe(
+      true,
+    );
+  });
 });
