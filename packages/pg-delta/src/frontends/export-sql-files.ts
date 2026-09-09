@@ -20,7 +20,7 @@
 import { createHash } from "node:crypto";
 import {
   buildFactBase,
-  retainBuiltinOwnerDangling,
+  isPlatformDefaultPublicOwner,
   retainOwnerRoleDangling,
   type FactBase,
 } from "../core/fact.ts";
@@ -946,7 +946,7 @@ export function exportSqlFiles(
   // `OWNER TO pg_database_owner` fails on PG14 and fights a postgres-owned public.
   const exportDesired = buildFactBase(
     [...fb.facts()],
-    fb.edges.filter((e) => !retainBuiltinOwnerDangling(e)),
+    fb.edges.filter((e) => !isPlatformDefaultPublicOwner(e)),
     fb.source,
     fb.referenceOnly,
     { allowDangling: retainOwnerRoleDangling },

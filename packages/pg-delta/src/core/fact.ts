@@ -63,6 +63,17 @@ export const retainBuiltinOwnerDangling = (edge: DependencyEdge): boolean =>
   "name" in edge.to &&
   edge.to.name.startsWith("pg_");
 
+/** PG15+ catalog default (`public` → `pg_database_owner`). Live extract keeps
+ *  the edge so DB→DB can reown; a dump must not emit `OWNER TO` for it. Other
+ *  `pg_*` owners are user-visible and still serialize. */
+export const isPlatformDefaultPublicOwner = (edge: DependencyEdge): boolean =>
+  retainBuiltinOwnerDangling(edge) &&
+  edge.from.kind === "schema" &&
+  "name" in edge.from &&
+  edge.from.name === "public" &&
+  "name" in edge.to &&
+  edge.to.name === "pg_database_owner";
+
 interface Entry {
   fact: Fact;
   encoded: string;

@@ -492,6 +492,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // the destination link never looks up — review P1 #1: drop old role too
     // early).
     const renamedOwnerId = new Map<string, StableId>();
+    const renamedSrcToDst = new Map<string, string>();
     for (const { from, to } of acceptedRenames) {
       const srcIds = subtreeIds(source, from.id);
       const dstIds = subtreeIds(desired, to.id);
@@ -499,6 +500,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         const srcId = srcIds[i];
         const dstId = dstIds[i];
         if (srcId === undefined || dstId === undefined) continue;
+        renamedSrcToDst.set(encodeId(srcId), encodeId(dstId));
         const ownerEdge = source
           .outgoingEdges(srcId)
           .find((e) => e.kind === "owner");
@@ -571,13 +573,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // aclnewowner remaps revoked entries onto the new owner).
     if (implicitOwner !== undefined) {
       for (const [objKey, oldRoleId] of oldOwnerByFact) {
-        if (ownerEmitted.has(objKey)) continue;
-        if (removed.has(objKey)) continue;
-        if (replaceIds.has(objKey)) continue;
+        const destKey = renamedSrcToDst.get(objKey) ?? objKey;
+        if (ownerEmitted.has(destKey)) continue;
+        if (removed.has(objKey) && !renamedSrcToDst.has(objKey)) continue;
+        if (replaceIds.has(destKey) || replaceIds.has(objKey)) continue;
         if (oldRoleId.kind === "role" && oldRoleId.name === implicitOwner) {
           continue;
         }
-        const fact = projectedDesired.getByEncoded(objKey);
+        const fact = projectedDesired.getByEncoded(destKey);
         if (!fact) continue;
         const ownerAlterPrefix = ruleFlag(fact.id.kind, "ownerAlterPrefix");
         if (!ownerAlterPrefix) continue;
@@ -586,7 +589,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           !canSetOwner(capability, implicitOwner)
         ) {
           throw new Error(
-            `capability: cannot set owner of ${objKey} to role "${implicitOwner}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
+            `capability: cannot set owner of ${destKey} to role "${implicitOwner}" — applier "${capability.role}" is not a superuser or a member of that role; grant membership or apply as a member/superuser`,
           );
         }
         const newRoleId: StableId = { kind: "role", name: implicitOwner };
@@ -599,7 +602,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           },
           { consumes: [fact.id] },
         );
-        ownerEmitted.add(objKey);
+        ownerEmitted.add(destKey);
       }
     }
 

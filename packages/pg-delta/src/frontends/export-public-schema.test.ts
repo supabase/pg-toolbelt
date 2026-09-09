@@ -75,4 +75,38 @@ describe("export preserves public-schema customizations", () => {
     expect(sql).not.toContain("OWNER TO");
     expect(sql).not.toContain("pg_database_owner");
   });
+
+  test("export still serializes OWNER TO pg_database_owner on a user table", () => {
+    const publicId = { kind: "schema" as const, name: "public" };
+    const tableId = {
+      kind: "table" as const,
+      schema: "public",
+      name: "t",
+    };
+    const sql = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: publicId, payload: {} },
+          {
+            id: tableId,
+            parent: publicId,
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          {
+            from: tableId,
+            to: { kind: "role", name: "pg_database_owner" },
+            kind: "owner",
+          },
+        ],
+        "liveDb",
+        new Set(),
+        { allowDangling: retainOwnerRoleDangling },
+      ),
+    )
+      .map((f) => f.sql)
+      .join("\n");
+    expect(sql).toContain(`OWNER TO "pg_database_owner"`);
+  });
 });

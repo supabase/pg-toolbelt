@@ -138,9 +138,46 @@ describe("plan() — built-in owner unlink to implicit defaultOwner", () => {
     const sqls = plan(source, desired, {
       scope: "database",
       defaultOwner: "app_owner",
-      assumedRoles: ["app_owner"],
     }).actions.map((a) => a.sql);
     expect(sqls).toContain(`ALTER SCHEMA "public" OWNER TO "app_owner"`);
+  });
+
+  test("accepted rename + unlink-only still OWNER TO defaultOwner", () => {
+    const oldT: StableId = { kind: "table", schema: "public", name: "old_t" };
+    const newT: StableId = { kind: "table", schema: "public", name: "new_t" };
+    const tablePayload = {
+      persistence: "p",
+      rowSecurity: false,
+      forceRowSecurity: false,
+      replicaIdentity: "d",
+      replicaIdentityIndex: null,
+      partitionKey: null,
+      partitionBound: null,
+      parentTable: null,
+    };
+    const source = buildFactBase(
+      [
+        f(publicSchema),
+        { id: oldT, parent: publicSchema, payload: tablePayload },
+      ],
+      [{ from: oldT, to: pgDatabaseOwner, kind: "owner" }],
+      "liveDb",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
+    );
+    const desired = buildFactBase(
+      [
+        f(publicSchema),
+        { id: newT, parent: publicSchema, payload: tablePayload },
+      ],
+      [],
+    );
+    const sqls = plan(source, desired, {
+      policy: implicitApplierPolicy,
+      renames: "auto",
+    }).actions.map((a) => a.sql);
+    expect(sqls.some((s) => s.includes("RENAME TO"))).toBe(true);
+    expect(sqls).toContain(`ALTER TABLE "public"."new_t" OWNER TO "postgres"`);
   });
 });
 

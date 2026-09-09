@@ -1570,3 +1570,26 @@ Codex P2s:
 - **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
+
+## PR #471 review triage (Codex) — `pg_*` owner unlink
+
+PR #471 keeps extract-time owner edges to `pg_*` roles (PG15+ `public` →
+`pg_database_owner`) so applyBaseline can `ALTER … OWNER TO` the implicit
+applier before revoking the old owner's schema ACL.
+
+**Fixed in the PR:** unlink-only `OWNER TO` remapped across accepted
+renames (source id is in `removed`); dumps omit only `public` →
+`pg_database_owner`, not every `pg_*` owner; `defaultOwner` is added to
+the assumed-role set so the requirement guard does not demand a role fact
+that the implicit-owner path never carries as an edge.
+
+**Deferred:** `probeApplierCapability()` still drops every `pg_*` name
+from `memberOf` (`rolname NOT LIKE 'pg\_%'`). A *reverse* DB→DB plan
+(`postgres`-owned `public` → desired `pg_database_owner`) with a probed
+non-superuser capability therefore fail-fasts in `canSetOwner`, even
+though the database owner is a member of `pg_database_owner` and
+PostgreSQL would accept the `ALTER`. applyBaseline (CLI-2301 E1) is the
+forward direction and does not hit this; corpus/proof use an unrestricted
+applier. Track as: either keep `pg_database_owner` in `memberOf` when
+`pg_has_role` is true, or treat it as settable when the applier is the
+database owner.
