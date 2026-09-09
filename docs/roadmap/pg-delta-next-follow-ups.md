@@ -1603,3 +1603,49 @@ edges, so a pre-upgrade PG15+ snapshot of an unchanged database will
 where the edge never existed). Recapture snapshots after upgrading; a
 narrower compatibility story (engine stamp, ignore that one default
 edge in drift) can land separately.
+
+## PR #462 review triage (Codex) — lock-table split-to-fit
+
+PR #462 adds `estimateLockTableBudget` plus optional `splitPlan({ maxLocks })`
+so a large empty-target baseline can commit in chunks. Apply does not
+refuse; a single action that still exceeds the budget stays in its own
+segment (Postgres may still fail mid-statement). The estimator is
+deliberately conservative and only looks at action `produces` /
+`destroys` / `consumes` plus a busy-backend reserve — not `pg_locks`
+occupancy, toast existence, or fact-base closures. Codex asked to close
+those gaps in-PR; they are real estimator limits, not defects in the
+CLI-2304 path (thousands of CREATE TABLE/INDEX/SEQUENCE on an empty
+target). Parked:
+
+- **Deferred — view/matview dependency locks (P1).** `CREATE VIEW` does
+  not put `pg_depend` edges on `consumes`. On an empty-target baseline
+  the referenced tables are usually produced in the same segment (and
+  PostgreSQL reuses that lock entry). The miss is incremental: many
+  views over *already-existing* relations. Carrying extract-time
+  depends into the estimate is a planner contract change. Split cannot
+  help a single action that under-counts those deps.
+- **Deferred — extension member closure (P1).** `CREATE EXTENSION`
+  produces only the `extension` fact; members are created in the same
+  statement and cannot be split. Stamp a member-lock estimate at plan
+  time if a later caller wants a better pack, but one action still
+  applies as one statement.
+- **Deferred — deduct `pg_locks` occupancy (P1).**
+  `max_locks_per_transaction × busy backends` is the documented
+  capacity formula, not a live occupancy. Querying `pg_locks` is
+  racy, can be large, and needs extra privilege. The approved design
+  keeps the GUC × backend reserve.
+- **Deferred — dedupe lock identities in a segment (P2).** Summing
+  per-action overcounts ALTERs of the same relation (PostgreSQL
+  reuses the lock entry). Over-estimate can split more than needed.
+  Union-by-identity needs stable lock keys on every action.
+- **Deferred — charge TOAST only when it exists (P2).** Fixed-width
+  and partitioned parents have no toast pair. Overcount can force
+  chunking on a fit-able plan. Needs a catalog toast/persistence
+  bit at extract time.
+- **Deferred — honor `newSegmentBefore` on `commitBoundaryAfter`
+  (P2).** `splitPlan` can mark ADD VALUE when the running estimate plus
+  that action exceeds `maxLocks`, but `segmentActions` closes after the
+  boundary and never reads the mark. ADD VALUE stays with the preceding
+  run (typically ~2 extra slots). Order and the required COMMIT after
+  ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
+  contract change, not a packer fix.

@@ -8,6 +8,7 @@
 import { writeSync } from "node:fs";
 import os from "node:os";
 import { describe, test } from "bun:test";
+import pg from "pg";
 import { apply } from "../src/apply/apply.ts";
 import { encodeId } from "../src/core/stable-id.ts";
 import { extract } from "../src/extract/extract.ts";
@@ -23,8 +24,40 @@ import {
   isolatedClusterPair,
   sharedCluster,
   type Cluster,
+  type TestDb,
 } from "./containers.ts";
 import { EXPECTED_RED } from "./expected-red.ts";
+
+/** Login used when `meta.createroleApplier` is set. Same name on both sides
+ *  so the role fact cancels in the diff. */
+const CREATEROLE_APPLIER = "crl_applier";
+const CREATEROLE_APPLIER_PASSWORD = "crl";
+
+async function ensureCreateroleApplier(cluster: Cluster): Promise<void> {
+  await cluster.adminPool.query(`DROP ROLE IF EXISTS "${CREATEROLE_APPLIER}"`);
+  await cluster.adminPool.query(
+    `CREATE ROLE "${CREATEROLE_APPLIER}" LOGIN PASSWORD '${CREATEROLE_APPLIER_PASSWORD}' CREATEROLE NOSUPERUSER INHERIT`,
+  );
+  await cluster.adminPool.query(
+    `GRANT "${CREATEROLE_APPLIER}" TO CURRENT_USER`,
+  );
+}
+
+async function grantDatabaseToCreateroleApplier(db: TestDb): Promise<void> {
+  await db.cluster.adminPool.query(
+    `GRANT CONNECT, CREATE ON DATABASE "${db.name}" TO "${CREATEROLE_APPLIER}"`,
+  );
+  await db.pool.query(`GRANT ALL ON SCHEMA public TO "${CREATEROLE_APPLIER}"`);
+}
+
+function poolAsCreateroleApplier(db: TestDb): pg.Pool {
+  const url = new URL(db.uri);
+  url.username = CREATEROLE_APPLIER;
+  url.password = CREATEROLE_APPLIER_PASSWORD;
+  const pool = new pg.Pool({ connectionString: url.toString(), max: 5 });
+  pool.on("error", () => {});
+  return pool;
+}
 
 const COMPACT_MODES = [true, false] as const;
 type ModeRunner = (key: string, run: () => Promise<void>) => Promise<void>;
@@ -106,23 +139,44 @@ async function proveOn(
   fromSql: string,
   toSql: string,
   seed: string | undefined,
+  createroleApplier: boolean,
 ): Promise<void> {
+  if (createroleApplier) {
+    await ensureCreateroleApplier(clusterA);
+    if (clusterB !== clusterA) await ensureCreateroleApplier(clusterB);
+  }
+
   const source = await clusterA.createDb("src");
   const desired = await clusterB.createDb("dst");
+  const extraPools: pg.Pool[] = [];
+  const work = async (db: TestDb): Promise<pg.Pool> => {
+    if (!createroleApplier) return db.pool;
+    await grantDatabaseToCreateroleApplier(db);
+    const pool = poolAsCreateroleApplier(db);
+    extraPools.push(pool);
+    return pool;
+  };
+  const endPool = async (pool: pg.Pool, dbPool: pg.Pool): Promise<void> => {
+    if (pool === dbPool) return;
+    await pool.end().catch(() => {});
+    const i = extraPools.indexOf(pool);
+    if (i >= 0) extraPools.splice(i, 1);
+  };
   try {
-    await source.pool.query(fromSql);
-    await desired.pool.query(toSql);
-    if (seed) await source.pool.query(seed);
+    const sourceWork = await work(source);
+    const desiredWork = await work(desired);
+    await sourceWork.query(fromSql);
+    await desiredWork.query(toSql);
+    if (seed) await sourceWork.query(seed);
 
     const [sourceState, desiredState] = [
-      await extractState(source.pool),
-      await extractState(desired.pool),
+      await extractState(sourceWork),
+      await extractState(desiredWork),
     ];
-    // probe the applier (connection user `test`, a superuser here) so the corpus
-    // exercises the capability-gated compaction (Rule 2 owner-ALTER elision).
-    // Superuser → canSetOwner never fail-fasts, so this only adds the cosmetic
-    // elision; the proof still validates convergence, not SQL bytes.
-    const capability = await probeApplierCapability(source.pool);
+    // Probe the connection that will apply (superuser `test`, or the
+    // CREATEROLE login when `createroleApplier` is set) so capability-gated
+    // compaction sees the same role as extract/prove.
+    const capability = await probeApplierCapability(sourceWork);
     const thePlan = plan(sourceState.factBase, desiredState.factBase, {
       capability,
       compact,
@@ -136,17 +190,22 @@ async function proveOn(
       direction,
     );
 
+    // TEMPLATE clone requires zero extra connections on the source.
+    await endPool(sourceWork, source.pool);
     const clone = await source.clone();
     // the original source DB would block cluster-wide DROP ROLE actions
     // (the role still owns its objects there); the clone is the proof target
     await source.drop();
     try {
+      const cloneWork = await work(clone);
       // TEMPLATE cloning skips shared-catalog state (subscriptions): presync
       // the clone to the source's fact base before proving the real plan
-      const cloneState = await extractState(clone.pool);
+      const cloneState = await extractState(cloneWork);
       if (cloneState.factBase.rootHash !== sourceState.factBase.rootHash) {
-        const presync = plan(cloneState.factBase, sourceState.factBase);
-        const presyncReport = await apply(presync, clone.pool, {
+        const presync = plan(cloneState.factBase, sourceState.factBase, {
+          capability,
+        });
+        const presyncReport = await apply(presync, cloneWork, {
           fingerprintGate: false,
         });
         if (presyncReport.status !== "applied") {
@@ -157,7 +216,7 @@ async function proveOn(
       }
       const verdict = await provePlan(
         thePlan,
-        clone.pool,
+        cloneWork,
         desiredState.factBase,
         {
           // corpus-only flip (P3): the library default stays opt-in. Seeding every
@@ -165,6 +224,7 @@ async function proveOn(
           // scenarios that ship no seed.sql; the coverage contract below then
           // requires every non-seed to be an EXPECTED class-23 skip.
           autoSeed: true,
+          ...(createroleApplier ? { capability } : {}),
         },
       );
       enforceSeedCoverage(scenarioName, direction, name, verdict);
@@ -203,9 +263,16 @@ async function proveOn(
         );
       }
     } finally {
+      // Close the clone applier pool before DROP DATABASE.
+      await Promise.all(
+        extraPools
+          .filter((p) => p !== desiredWork)
+          .map((p) => p.end().catch(() => {})),
+      );
       await clone.drop();
     }
   } finally {
+    await Promise.all(extraPools.map((p) => p.end().catch(() => {})));
     await Promise.all([source.drop(), desired.drop()]);
   }
 }
@@ -245,6 +312,7 @@ async function runDirection(
             fromSql,
             toSql,
             seed,
+            scenario.meta.createroleApplier === true,
           ),
         ),
       );
@@ -282,7 +350,7 @@ async function runDirection(
     if (cleanupFailed) throw cleanupError;
   };
 
-  if (scenario.meta.isolatedCluster) {
+  if (scenario.meta.isolatedCluster || scenario.meta.createroleApplier) {
     const [clusterA, clusterB] = await isolatedClusterPair();
     if (scenario.meta.minVersion !== undefined) {
       if ((await clusterA.pgMajor()) < scenario.meta.minVersion) return;

@@ -488,14 +488,17 @@ presents them as *reported*, not certified.
 
 Sequential, lock-aware, segmented: actions self-declare transactionality, so
 the executor groups maximal transactional runs and isolates the exceptions
-(`CREATE INDEX CONCURRENTLY`, …) instead of today's all-or-nothing single
-concatenated script
-(`apply.ts:125-131`, with its
-own `TODO` admitting the gap at
-`apply.ts:122`). Parallel DDL
-execution stays rejected — `ACCESS EXCLUSIVE` locks make it a deadlock
-machine, and the transaction is the atomicity contract. Per-statement error
-attribution replaces the joined-string megaquery.
+(`CREATE INDEX CONCURRENTLY`, `ALTER TYPE … ADD VALUE` commit boundaries).
+`apply` honors `newSegmentBefore` already on the plan and does not probe
+or refuse. A baseline that will not fit in one transaction can call
+`estimateLockTableBudget` on the target, then `splitPlan({ maxLocks })`,
+which packs actions by estimated lock slots and inserts `newSegmentBefore`
+marks so apply commits in chunks. That mode is never a default: it is only
+valid when nothing else reads the target during apply. A single action
+that still exceeds the budget stays in its own segment; Postgres may still
+fail mid-statement. Parallel DDL stays rejected — `ACCESS EXCLUSIVE` locks
+make it a deadlock machine, and the transaction is the atomicity contract.
+Per-statement error attribution replaces a joined-string megaquery.
 
 ### 3.9 Integrations: a policy layer over deltas
 

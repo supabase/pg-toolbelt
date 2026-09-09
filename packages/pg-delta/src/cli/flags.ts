@@ -10,7 +10,7 @@
  *   });
  *
  * - "value" flags consume the next argv token as their value.
- * - "boolean" flags are true when present, absent = undefined.
+ * - "boolean" flags are true when present, absent = false.
  * - "multi" flags are repeatable; each occurrence appends one value; result is string[].
  * - required: true on a "value" flag makes parseFlags throw a UsageError when absent.
  * - Unknown flags throw a UsageError (exit code 2 semantics).
@@ -126,4 +126,49 @@ export function parseFlags<T extends FlagsDef>(
   }
 
   return { flags: result as ParsedFlags<T>, positionals };
+}
+
+/** Parse a `--flag <n>` that must be a positive integer. Absent → undefined. */
+export function parsePositiveIntFlag(
+  flagName: string,
+  raw: string | undefined,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new UsageError(
+      `--${flagName} must be a positive integer, got ${raw}`,
+    );
+  }
+  return n;
+}
+
+/** `--max-locks` and `--split-to-fit` are mutually exclusive. */
+export function parseLockSplitFlags(flags: {
+  "max-locks"?: string | undefined;
+  "split-to-fit"?: boolean | undefined;
+}): { maxLocks?: number | undefined; splitToFit: boolean } {
+  const maxLocks = parsePositiveIntFlag("max-locks", flags["max-locks"]);
+  const splitToFit = flags["split-to-fit"] === true;
+  if (maxLocks !== undefined && splitToFit) {
+    throw new UsageError("use only one of --max-locks and --split-to-fit");
+  }
+  return { maxLocks, splitToFit };
+}
+
+/** Tri-state for resolveProfile: omitted → default probe; true → probe;
+ *  false → unrestricted. CLI booleans are `false` when absent, so callers
+ *  must not pass that through as `restrictToApplier`. */
+export function restrictToApplierFromFlags(flags: {
+  "restrict-to-applier": boolean;
+  "no-restrict-to-applier": boolean;
+}): boolean | undefined {
+  if (flags["restrict-to-applier"] && flags["no-restrict-to-applier"]) {
+    throw new UsageError(
+      "cannot combine --restrict-to-applier and --no-restrict-to-applier",
+    );
+  }
+  if (flags["no-restrict-to-applier"]) return false;
+  if (flags["restrict-to-applier"]) return true;
+  return undefined;
 }
