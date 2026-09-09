@@ -1,13 +1,10 @@
 /**
- * The assumed-schema ambient exemption must not cover objects that DON'T exist
- * on the target (PR #307 review #3499413404). A managed object that references a
- * NEW object in an assumed schema (e.g. `auth.extra`) which is absent from the
- * target is kept reference-only on the desired side, so its creation is
- * suppressed; the requirement guard previously treated any id in an assumed
- * schema as ambient and let the dependent plan through, only to fail at apply
- * time against the missing relation. It must instead fail at PLAN time like any
- * other filtered-away requirement. An existing assumed-schema object
- * (`auth.users`-style, present on the target) stays satisfied via `source.has`.
+ * A managed object that references a NEW user-owned object in an assumed schema
+ * (e.g. `auth.extra`) is hard-pruned with its dependents (CLI-2300): the view
+ * is skipped with `excluded-by-cascade` instead of planning a CREATE that would
+ * fail at apply against the missing relation. An existing platform-provisioned
+ * assumed-schema object (`auth.users`-style, present on the target) stays
+ * reference-only via `source.has`.
  *
  * The fail-fast must NOT cover PLATFORM-provisioned members of assumed schemas
  * (Sentry SUPABASE-API-8CX): a DB-webhook trigger depends on
@@ -20,6 +17,7 @@
  * Docker required.
  */
 import { afterAll, describe, expect, test } from "bun:test";
+import { EXCLUDED_BY_CASCADE } from "../src/core/diagnostic.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
@@ -31,7 +29,7 @@ afterAll(async () => {
 });
 
 describe("assumed-schema requirement guard", () => {
-  test("a managed dependent on a non-existent assumed-schema object fails at plan time", async () => {
+  test("a managed dependent on a user-owned assumed-schema object is cascaded out", async () => {
     const cluster = await sharedCluster();
     const source = await cluster.createDb("assumed_req_src");
     const desired = await cluster.createDb("assumed_req_dst");
@@ -39,8 +37,8 @@ describe("assumed-schema requirement guard", () => {
 
     // target has the assumed schema but NOT `auth.extra`.
     await source.pool.query(`CREATE SCHEMA auth`);
-    // desired adds `auth.extra` (filtered to reference-only by the profile) and a
-    // managed public view that depends on it.
+    // desired adds a user-owned `auth.extra` (hard-pruned) and a public view
+    // that depends on it (cascaded out).
     await desired.pool.query(`
       CREATE SCHEMA auth;
       CREATE TABLE auth.extra (id integer);
@@ -52,14 +50,15 @@ describe("assumed-schema requirement guard", () => {
       extract(desired.pool),
     ]);
 
-    // RED before the fix: this does NOT throw — the view plans through because
-    // `auth.extra` is treated as ambient, and apply would later fail against the
-    // missing relation.
-    expect(() =>
-      plan(sourceState.factBase, desiredState.factBase, {
-        policy: supabasePolicy,
-      }),
-    ).toThrow(/missing requirement[\s\S]*auth.*extra/);
+    const thePlan = plan(sourceState.factBase, desiredState.factBase, {
+      policy: supabasePolicy,
+    });
+    expect(
+      thePlan.actions.some((a) => /needs_extra|CREATE VIEW/i.test(a.sql)),
+    ).toBe(false);
+    expect(
+      thePlan.diagnostics?.some((d) => d.code === EXCLUDED_BY_CASCADE),
+    ).toBe(true);
   }, 120_000);
 
   test("a DB-webhook trigger plans when the target lacks the platform's supabase_functions infra", async () => {

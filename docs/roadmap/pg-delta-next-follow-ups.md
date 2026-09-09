@@ -1594,6 +1594,28 @@ target). Parked:
   (P2).** `splitPlan` can mark ADD VALUE when the running estimate plus
   that action exceeds `maxLocks`, but `segmentActions` closes after the
   boundary and never reads the mark. ADD VALUE stays with the preceding
-  run (typically ~2 extra slots). Order and the required COMMIT after
+  run (typically ~2 extra slots). Order and   the required COMMIT after
   ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
   contract change, not a packer fix.
+
+## PR #472 review triage (Codex) — exclusion cascade
+
+PR #472 walks reverse `depends` / extension membership / seclabel provider
+so satellites of a hard-pruned object leave the managed view with an
+`excluded-by-cascade` diagnostic. In-PR: assumed-schema owner
+discriminator is skipped when the policy names no `assumedRoles` (custom
+profiles keep the previous all-reference-only behavior); `plan` keeps
+desired-side identities that the source already marked reference-only, so a
+shadow-seeded `auth.users` that re-extracts as `postgres` is not hard-pruned
+(`postgres` cannot `OWNER TO supabase_admin` at seed replay); `assumedExtensions`
+is included in the seed gate like `assumedPublications`. Parked:
+
+- **Deferred — cascade diagnostics on export / `diff` (P2).**
+  `excludedByCascadeDiagnostics` is attached from `plan()`. `schema
+  export` and database `diff` project through `resolveView` without
+  collecting suppressions, so a view over a hard-pruned wrappers /
+  pgsodium object is omitted with only extraction diagnostics. Pre-
+  existing: those frontends never surfaced projection-suppression
+  info. Threading suppressions through every projection-only path is
+  a frontend contract change, not required for the CLI-2300 / CLI-2342
+  plan/apply fix.

@@ -163,6 +163,7 @@ export function buildChangeSet(
     baseline: options?.baseline,
     scope: options?.scope,
     defaultOwner: options?.defaultOwner,
+    keepAssumedIds: physicalSource.referenceOnly,
     collectSuppression: (suppression) =>
       projectionSuppressions.push({ side: "desired", suppression }),
   });

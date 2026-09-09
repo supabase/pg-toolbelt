@@ -50,6 +50,8 @@ interface ReconstructManagedViewOptions {
   collectSuppression?:
     | ((suppression: ProjectionSuppression) => void)
     | undefined;
+  /** Encoded ids the peer catalog kept reference-only (see `resolveView`). */
+  keepAssumedIds?: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -67,6 +69,7 @@ export function reconstructManagedView(
     opts.capability,
     opts.baseline,
     opts.collectSuppression,
+    opts.keepAssumedIds,
   );
   return projectManagementScope(view, scope, {
     ...(opts.defaultOwner !== undefined

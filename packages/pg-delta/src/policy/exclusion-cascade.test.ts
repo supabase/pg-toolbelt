@@ -142,6 +142,50 @@ describe("CLI-2300 — user trigger on an excluded user-owned system table", () 
     const p = plan(source, desiredAuth, { policy: supabasePolicy });
     expect(mentions(sqlOf(p), /CREATE TRIGGER/i)).toBe(true);
   });
+
+  test("a shadow-seeded postgres-owned copy of a live platform table still accepts a user trigger", () => {
+    const admin: StableId = { kind: "role", name: "supabase_admin" };
+    const postgres: StableId = { kind: "role", name: "postgres" };
+    const authSchema: StableId = { kind: "schema", name: "auth" };
+    const users: StableId = { kind: "table", schema: "auth", name: "users" };
+    const authTrigger: StableId = {
+      kind: "trigger",
+      schema: "auth",
+      table: "users",
+      name: "on_auth_user_created",
+    };
+    const live = buildFactBase(
+      [
+        f(admin),
+        f(authSchema),
+        f(users, authSchema, { persistence: "p" }),
+        f(publicSchema),
+      ],
+      [{ from: users, to: admin, kind: "owner" }],
+    );
+    const shadow = buildFactBase(
+      [
+        f(postgres),
+        f(authSchema),
+        f(users, authSchema, { persistence: "p" }),
+        f(publicSchema),
+        f(fn, publicSchema, {
+          def: "CREATE FUNCTION public.on_mig() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
+          kind: "f",
+        }),
+        f(authTrigger, users, {
+          def: "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.on_mig()",
+          enabled: "O",
+        }),
+      ],
+      [
+        { from: users, to: postgres, kind: "owner" },
+        { from: authTrigger, to: fn, kind: "depends" },
+      ],
+    );
+    const p = plan(live, shadow, { policy: supabasePolicy });
+    expect(mentions(sqlOf(p), /CREATE TRIGGER/i)).toBe(true);
+  });
 });
 
 describe("CLI-2342 — dependents of an excluded platform extension", () => {

@@ -1105,6 +1105,12 @@ export function resolveView(
   capability?: ApplierCapability,
   baseline?: FactBase,
   collectSuppression?: ProjectionSuppressionCollector,
+  /** Encoded ids that a peer catalog already kept reference-only. A
+   *  shadow-seeded copy of `auth.users` re-extracts as the applier
+   *  (`postgres`) and would otherwise be hard-pruned; if the live side kept
+   *  the same id, keep it reference-only here too so user triggers still
+   *  attach. */
+  keepAssumedIds?: ReadonlySet<string>,
 ): FactBase {
   // Identity fast path. With no policy, no capability and no baseline, every
   // stage below is already a no-op that hands `fb` back BY REFERENCE — but
@@ -1271,7 +1277,9 @@ export function resolveView(
   // (present via CREATE EXTENSION), and platform-provisioned members of
   // assumed schemas (system-role-owned, not the policy default owner).
   // No-owner facts stay reference-only — the same conservative default as
-  // before this discriminator existed.
+  // before this discriminator existed. A policy that never names assumedRoles
+  // cannot tell platform from user-created, so every assumed member stays
+  // reference-only (custom profiles, alpine fixtures).
   const keepAssumedReferenceOnly = (fact: Fact): boolean => {
     if (!isAssumed(fact.id)) return false;
     if (
@@ -1285,6 +1293,8 @@ export function resolveView(
     // user-owned relations. Hard-pruning them cascades public defaults /
     // views / columns off the member.
     if (memberRefOnly.has(encodeId(fact.id))) return true;
+    if (assumedRoleNames.size === 0) return true;
+    if (keepAssumedIds?.has(encodeId(fact.id))) return true;
     const owner = ownerName(fact);
     if (owner === undefined) return true;
     if (policyDefaultOwner !== undefined && owner === policyDefaultOwner) {
