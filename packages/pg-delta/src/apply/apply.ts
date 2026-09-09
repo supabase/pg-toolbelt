@@ -331,6 +331,12 @@ export async function apply(
   const statuses: ActionStatus[] = thePlan.actions.map(() => "unapplied");
   let appliedActions = 0;
 
+  // Plan invariant, not a mid-apply failure: refuse empty / txn-control
+  // SQL before connecting so a later segment cannot commit earlier ones.
+  for (const action of thePlan.actions) {
+    assertActionSqlBatchable(action.sql);
+  }
+
   const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
@@ -460,9 +466,6 @@ export async function apply(
       }
 
       if (options?.batchTransactional !== true) {
-        for (let i = segment.start; i < segment.end; i++) {
-          assertActionSqlBatchable(thePlan.actions[i]!.sql);
-        }
         let setupSql = "BEGIN";
         try {
           emit(onEvent, { kind: "control", sql: "BEGIN" });
@@ -582,7 +585,6 @@ export async function apply(
       }
       for (let i = segment.start; i < segment.end; i++) {
         const action = thePlan.actions[i]!;
-        assertActionSqlBatchable(action.sql);
         batchStatements.push({
           kind: "action",
           sql: action.sql,

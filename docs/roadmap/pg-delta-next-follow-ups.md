@@ -1639,4 +1639,17 @@ when CommandComplete walks off the end of the batch (multi-statement
 `action.sql` and no position), blame the last action instead of `BEGIN`;
 queue `actionStart` before submit and set `actionEnd.ms` to the batch
 duration; settle `CountingQuery` via `callback` so a client
-`query_timeout` cannot hang.
+`query_timeout` cannot hang; reject empty / transaction-control action
+SQL before connecting so a later-segment invariant failure cannot
+commit earlier segments and then throw without an `ApplyReport`.
+
+Deferred:
+
+- **CommandComplete → action (not slot) when `POSITION` is absent.**
+  Without a SQL parser we cannot know how many completions one
+  `action.sql` emits. `POSITION` is the primary path; completions are
+  1:1 best-effort, and walk-off-end blames the last action instead of
+  `BEGIN`. A `;` heuristic would be another regex over SQL.
+- **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
+  trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
+  the match cannot slide over the rest of the string.

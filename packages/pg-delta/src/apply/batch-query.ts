@@ -107,8 +107,10 @@ export function assertActionSqlBatchable(sql: string): void {
   }
 }
 
+const TEXT_ENCODER = new TextEncoder();
+
 function utf8Bytes(text: string): number {
-  return Buffer.byteLength(text, "utf8");
+  return TEXT_ENCODER.encode(text).length;
 }
 
 function terminatedBytes(sql: string): number {

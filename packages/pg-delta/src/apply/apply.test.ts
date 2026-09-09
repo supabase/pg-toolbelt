@@ -521,6 +521,26 @@ describe("apply control-error attribution", () => {
     expect((error as Error).message).toMatch(/transaction control/);
     expect(scripted.queries).toEqual([]);
   });
+
+  test("rejects a later-segment transaction-control action before applying earlier segments", async () => {
+    const scripted = scriptedApplyClient(new Set());
+    const base = planWithAction("transactional");
+    const { planId: _planId, ...rest } = base;
+    const good = rest.actions[0]!;
+    const thePlan = stampPlanId({
+      ...rest,
+      actions: [good, { ...good, sql: "BEGIN", newSegmentBefore: true }],
+    });
+    let error: unknown;
+    try {
+      await apply(thePlan, scripted.pool, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/transaction control/);
+    expect(scripted.queries).toEqual([]);
+  });
 });
 
 describe("apply plan integrity", () => {
