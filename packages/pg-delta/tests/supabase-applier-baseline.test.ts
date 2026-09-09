@@ -86,5 +86,105 @@ describe.skipIf(!runSupabaseBareTests)(
         await base.drop();
       }
     }, 120_000);
+
+    test("E3: user objects depending on excluded pgsodium apply without referencing it", async () => {
+      const branch: TestDb = await cluster.createDb("e3_branch");
+      const base: TestDb = await cluster.createDb("e3_base");
+      const applier = new pg.Pool({
+        connectionString: branch.postgresUri!,
+        max: 1,
+      });
+      applier.on("error", () => {});
+      try {
+        await base.pool.query(`CREATE EXTENSION IF NOT EXISTS pgsodium`);
+        await base.pool.query(`
+          CREATE TABLE public.creds (
+            id int primary key,
+            secret text,
+            key_id uuid default (pgsodium.create_key()).id,
+            nonce bytea default pgsodium.crypto_aead_det_noncegen());
+          SECURITY LABEL FOR pgsodium ON COLUMN public.creds.secret
+            IS 'ENCRYPT WITH KEY COLUMN key_id NONCE nonce';
+        `);
+
+        const profile = await resolveProfile(applier, supabaseProfile);
+        const [src, desired] = await Promise.all([
+          profile.extract(applier),
+          profile.extract(base.pool),
+        ]);
+        const migration = plan(src.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        const report = await apply(migration, applier, {
+          ...profile.applyOptions,
+        });
+
+        expect(report.status).toBe("applied");
+        expect(migration.actions.some((a) => /pgsodium/i.test(a.sql))).toBe(
+          false,
+        );
+        expect(
+          migration.actions.some((a) => /CREATE EXTENSION/i.test(a.sql)),
+        ).toBe(false);
+      } finally {
+        await applier.end().catch(() => {});
+        await branch.drop();
+        await base.drop();
+      }
+    }, 120_000);
+
+    test("CLI-2300: user trigger on postgres-owned schema_migrations is not created on the branch", async () => {
+      const branch: TestDb = await cluster.createDb("cli2300_branch");
+      const base: TestDb = await cluster.createDb("cli2300_base");
+      const applier = new pg.Pool({
+        connectionString: branch.postgresUri!,
+        max: 1,
+      });
+      applier.on("error", () => {});
+      try {
+        await base.pool.query(`
+          CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+          CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+            version text PRIMARY KEY
+          );
+          ALTER TABLE supabase_migrations.schema_migrations OWNER TO postgres;
+          CREATE FUNCTION public.on_mig() RETURNS trigger LANGUAGE plpgsql
+            AS $$ BEGIN RETURN NEW; END $$;
+          CREATE TRIGGER block_writes
+            BEFORE INSERT ON supabase_migrations.schema_migrations
+            FOR EACH ROW EXECUTE FUNCTION public.on_mig();
+        `);
+
+        const profile = await resolveProfile(applier, supabaseProfile);
+        const [src, desired] = await Promise.all([
+          profile.extract(applier),
+          profile.extract(base.pool),
+        ]);
+        const migration = plan(src.factBase, desired.factBase, {
+          ...profile.planOptions,
+          renames: "off",
+          compact: true,
+        });
+        const report = await apply(migration, applier, {
+          ...profile.applyOptions,
+        });
+
+        expect(report.status).toBe("applied");
+        expect(
+          migration.actions.some(
+            (a) => /CREATE TRIGGER/i.test(a.sql) && /block_writes/i.test(a.sql),
+          ),
+        ).toBe(false);
+        expect(
+          migration.actions.some((a) => /schema_migrations/i.test(a.sql)),
+        ).toBe(false);
+      } finally {
+        await applier.end().catch(() => {});
+        await branch.drop();
+        await base.drop();
+      }
+    }, 120_000);
   },
 );

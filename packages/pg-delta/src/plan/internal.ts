@@ -27,6 +27,8 @@ import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
+const FILTER_HIDDEN_HINT =
+  " — a filter may be hiding its creation (dependents of excluded facts are cascaded out of the view; this throw means a genuine missing producer)";
 const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
 const EVALUATED_KIND_SET = new Set<string>(EVALUATED_EXPRESSION_KINDS);
 /** parent kind -> child kinds the evaluator reachability walk descends into. */
@@ -76,10 +78,11 @@ export function buildActionGraph(
   // e.g. Supabase's `supabase_functions.http_request()` (the DB-webhook trigger
   // function, owned by `supabase_functions_admin`). The platform guarantee that
   // makes their schema assumed extends to them, so a kept dependent (a user
-  // webhook trigger) is valid even when the target lacks the object — unlike a
-  // USER-created object in an assumed schema, which stays a plan-time failure
-  // (see `isAmbient`). Computed by plan() (plan.ts); affects ONLY whether the
-  // missing-requirement guard fires, never ordering/edges.
+  // webhook trigger) is valid even when the target lacks the object. A
+  // USER-created object in an assumed schema is hard-pruned and its dependents
+  // cascade out of the view (see `isAmbient` for leftover consumers). Computed
+  // by plan() (plan.ts); affects ONLY whether the missing-requirement guard
+  // fires, never ordering/edges.
   assumedPresentIds: ReadonlySet<string> = new Set(),
   // OUT-param (optional): collects the indices of EVALUATOR actions — actions
   // that make PostgreSQL RUN a user expression while the statement applies.
@@ -346,7 +349,7 @@ export function buildActionGraph(
         !memberExtensionPresent(key)
       ) {
         throw new Error(
-          `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? " — a filter may be hiding its creation" : ""}`,
+          `missing requirement: action "${action.sql}" consumes ${key}, which neither exists on the target nor is produced by this plan${desired.has(id) ? FILTER_HIDDEN_HINT : ""}`,
         );
       }
     }
@@ -465,7 +468,7 @@ export function buildActionGraph(
             throw new Error(
               `missing requirement: action "${action.sql}" produces ${encodeId(id)}, ` +
                 `which depends on ${targetKey} — neither produced by this plan nor ` +
-                `present on the target${desired.has(edge.to) ? " (a filter may be hiding its creation)" : ""}`,
+                `present on the target${desired.has(edge.to) ? FILTER_HIDDEN_HINT : ""}`,
             );
           }
         }

@@ -49,12 +49,13 @@ describe("excludeByProvenance — generic fact-level projection", () => {
 
     const out = excludeByProvenance(fb, "memberOfExtension");
 
-    // member root + its column descendant are gone; user + public + ext stay
+    // member root + its column descendant are gone; a user object that depends
+    // on the member is cascaded out too (the depends edge would otherwise be
+    // pruned and leave a managed consumer with no producer).
     expect(out.get(memberTable)).toBeUndefined();
     expect(out.get(memberCol)).toBeUndefined();
-    expect(out.get(userTable)).toBeDefined();
+    expect(out.get(userTable)).toBeUndefined();
     expect(out.get(pub)).toBeDefined();
-    // the depends edge into the removed member is pruned
     expect(out.edges.some((e) => e.kind === "depends")).toBe(false);
   });
 

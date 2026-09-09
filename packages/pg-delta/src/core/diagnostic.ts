@@ -82,6 +82,11 @@ export const USER_MAPPING_UNREADABLE = "user-mapping-unreadable";
  *  without a cross-layer import. */
 export const VAULT_PRESENCE = "vault_presence";
 
+/** A fact was removed from the managed view because it depends on (or is a
+ *  child of) a policy-excluded object — not because a rule matched it
+ *  directly. Info: the plan proceeds without creating or dropping it. */
+export const EXCLUDED_BY_CASCADE = "excluded-by-cascade";
+
 /** Thrown by public API stubs for not-yet-implemented stages (stage 0). */
 export class NotImplementedError extends Error {
   constructor(feature: string) {

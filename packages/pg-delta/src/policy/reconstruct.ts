@@ -14,12 +14,19 @@
  * Bare `resolveView` (without scope) stays legitimate for diff/seed paths.
  */
 import { diff, subjectOf, type Delta } from "../core/diff.ts";
+import { EXCLUDED_BY_CASCADE, type Diagnostic } from "../core/diagnostic.ts";
 import type { DependencyEdge, FactBase } from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
-import { encodeId, parseId, type StableId } from "../core/stable-id.ts";
+import {
+  encodeId,
+  isSatelliteId,
+  parseId,
+  type StableId,
+} from "../core/stable-id.ts";
 import type { ApplierCapability } from "./capability.ts";
 import { resolveView, type Policy } from "./policy.ts";
 import {
+  EXCLUDED_BY_CASCADE_REASON,
   projectManagementScope,
   type ManagementScope,
   type ProjectionAuditClassification,
@@ -421,6 +428,41 @@ export function auditManagedViewProjection(
 export interface TracedSuppression {
   side: "source" | "desired";
   suppression: ProjectionSuppression;
+}
+
+const CASCADE_DIAG_SKIP = new Set(["column", "default", "constraint"]);
+
+/** Info diagnostics for facts skipped because a policy-excluded parent or
+ *  dependency pulled them out of the view. Deduped across sides. */
+export function excludedByCascadeDiagnostics(
+  suppressions: readonly TracedSuppression[],
+): Diagnostic[] {
+  const seen = new Set<string>();
+  const out: Diagnostic[] = [];
+  for (const { suppression } of suppressions) {
+    if (suppression.subject.kind !== "fact") continue;
+    if (suppression.stage !== "policyScopeRule") continue;
+    const cascaded =
+      suppression.reasonCode === EXCLUDED_BY_CASCADE_REASON ||
+      suppression.viaDescendantOf !== undefined;
+    if (!cascaded) continue;
+    const id = suppression.subject.id;
+    if (isSatelliteId(id) || CASCADE_DIAG_SKIP.has(id.kind)) continue;
+    const key = encodeId(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const via = suppression.viaDescendantOf;
+    out.push({
+      code: EXCLUDED_BY_CASCADE,
+      severity: "info",
+      subject: id,
+      message:
+        via === undefined
+          ? `${key} excluded by cascade`
+          : `${key} excluded by cascade from ${encodeId(via)}`,
+    });
+  }
+  return out;
 }
 
 /** Freshly allocated each call — `entries` is a mutable array the caller owns. */

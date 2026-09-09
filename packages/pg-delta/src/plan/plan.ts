@@ -15,6 +15,7 @@ import { flattenPolicy, type Policy } from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
   projectionAuditFrom,
+  excludedByCascadeDiagnostics,
   type ProjectionAudit,
 } from "../policy/reconstruct.ts";
 import type { ManagementScope } from "../policy/view.ts";
@@ -754,6 +755,8 @@ export function plan(
   });
 
   const vaultDiags = vaultPresenceDiagnostics(desired, finalActions);
+  const cascadeDiags = excludedByCascadeDiagnostics(projectionSuppressions);
+  const diagnostics = [...vaultDiags, ...cascadeDiags];
 
   return stampPlanId({
     formatVersion: 1,
@@ -817,6 +820,6 @@ export function plan(
     // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
     // secret values/keys are not schema state. Omitted when empty so corpus
     // artifacts stay byte-identical. Not hashed into planId.
-    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
   });
 }

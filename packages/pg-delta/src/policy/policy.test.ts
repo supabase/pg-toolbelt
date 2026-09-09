@@ -658,6 +658,29 @@ describe("flattenPolicy — extends composition", () => {
     const flat = flattenPolicy({ id: "no-assumed-schemas" });
     expect(flat.assumedSchemas).toEqual([]);
   });
+
+  test("assumedExtensions compose across extends and de-duplicate", () => {
+    const parent: Policy = {
+      id: "parent-assumed-exts",
+      assumedExtensions: ["supabase_vault", "pg_graphql"],
+    };
+    const child: Policy = {
+      id: "child-assumed-exts",
+      assumedExtensions: ["supabase_vault", "pg_stat_statements"],
+      extends: [parent],
+    };
+    const flat = flattenPolicy(child);
+    expect([...flat.assumedExtensions].sort()).toEqual([
+      "pg_graphql",
+      "pg_stat_statements",
+      "supabase_vault",
+    ]);
+  });
+
+  test("assumedExtensions defaults to empty array when unset", () => {
+    const flat = flattenPolicy({ id: "no-assumed-exts" });
+    expect(flat.assumedExtensions).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

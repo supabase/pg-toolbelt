@@ -396,3 +396,45 @@ Platform event triggers (`issue_*` / `pgrst_*` / `graphql_watch_*`) are
 hard-excluded by name. They have no user-managed children (unlike
 publication membership), so reference-only would only add owner/comment
 noise.
+
+### Follow-up 4 — exclusion cascades to dependents (CLI-2300 / CLI-2342)
+
+`computeExclusion` removes a hard-prune root, its parent-chain descendants,
+**and** every fact with a `depends` or `memberOfExtension` edge into the
+removed set, plus `securityLabel` facts whose `provider` equals a removed
+extension's name (`pg_seclabel` has no `pg_depend` to the provider).
+
+Without that reverse walk, a policy that hides a table or extension left its
+non-child dependents in the view after the edge was pruned: a user trigger
+on `supabase_migrations.schema_migrations` threw missing-requirement against
+an empty branch (CLI-2300), and TCE artefacts of excluded `pgsodium`
+(`decrypted_*` views, encrypt triggers, column defaults, security labels)
+were planned as CREATE on a branch that never gets the extension, or as DROP
+against a live catalog (CLI-2342 / CLI-1024).
+
+Assumed-schema **reference-only** is restricted to:
+
+- the assumed schema / publication / extension objects themselves;
+- objects in those schemas owned by a policy `assumedRoles` entry other than
+  `defaultOwner` (platform-provisioned: `auth.users` owned by
+  `supabase_admin`);
+- extension members in assumed schemas (`uuid-ossp` in `extensions`).
+
+A user-owned excluded relation (`postgres`-owned `schema_migrations`) is
+hard-pruned so include-protected satellites cascade out. User triggers on
+platform tables still attach to a reference-only parent.
+
+`pgsodium` and `wrappers` stay hard-pruned: they are not present on a fresh
+branch / are dashboard-conditional, so dependents cascade out with an
+`excluded-by-cascade` info diagnostic. Image-provisioned
+`SUPABASE_SYSTEM_EXTENSIONS` entries (`pg_graphql`, `pg_stat_statements`,
+`supabase_vault`) are `assumedExtensions` — reference-only — so a user view
+over `vault.decrypted_secrets` still plans. The user table without pgsodium
+defaults remains managed. Genuine missing-requirement throws still fire —
+the filter hint names this cascade so a leftover consumer is diagnosed as a
+real missing producer, not an unhandled filter.
+
+This is the principled fix for CLI-2178 (a user view over a suppressed
+wrappers foreign table): the view's `depends` edge now pulls it out of the
+view with the same diagnostic instead of planning a CREATE that fails at
+apply.

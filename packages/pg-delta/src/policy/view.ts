@@ -60,10 +60,19 @@ export type ProjectionSuppressionAttribution = Omit<
 const edgeKey = (edge: DependencyEdge): string =>
   `${encodeId(edge.from)}|${edge.kind}|${encodeId(edge.to)}`;
 
+/** Reason code for a fact removed because it depends on an excluded object
+ *  (not because a scope rule matched it, and not parent-chain descent). */
+export const EXCLUDED_BY_CASCADE_REASON = "policy.excluded-by-cascade";
+
+function isCascadeEdge(kind: EdgeKind): boolean {
+  return kind === "depends" || kind === "memberOfExtension";
+}
+
 /** Emit fact + independently-pruned-edge suppression records for a projection.
  * The root map names the actual exclusion decisions; collateral descendants
- * point back to that decision through `viaDescendantOf`. Kept off the normal
- * projection hot path unless a caller explicitly supplies a collector. */
+ * and depends-cascaded facts point back to that decision through
+ * `viaDescendantOf`. Kept off the normal projection hot path unless a caller
+ * explicitly supplies a collector. */
 export function collectRemovedSuppressions(
   before: FactBase,
   after: FactBase,
@@ -80,6 +89,40 @@ export function collectRemovedSuppressions(
       const attribution = roots.get(encodeId(cursor));
       if (attribution !== undefined) return { id: cursor, attribution };
       cursor = before.get(cursor)?.parent;
+    }
+    const visited = new Set<string>();
+    const queue: StableId[] = [id];
+    // Children of a depends-cascaded fact have no outgoing cascade edge of
+    // their own; walk ancestors so attribution still reaches the excluded root.
+    let ancestor = before.get(id)?.parent;
+    while (ancestor !== undefined) {
+      queue.push(ancestor);
+      ancestor = before.get(ancestor)?.parent;
+    }
+    while (queue.length > 0) {
+      const current = queue.shift() as StableId;
+      const key = encodeId(current);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const attribution = roots.get(key);
+      if (attribution !== undefined) {
+        return {
+          id: current,
+          attribution: {
+            ...attribution,
+            reasonCode: EXCLUDED_BY_CASCADE_REASON,
+          },
+        };
+      }
+      for (const edge of before.outgoingEdges(current)) {
+        if (isCascadeEdge(edge.kind)) queue.push(edge.to);
+      }
+      if (current.kind === "securityLabel") {
+        queue.push({
+          kind: "extension",
+          name: (current as { provider: string }).provider,
+        });
+      }
     }
     return undefined;
   };
@@ -177,8 +220,67 @@ function resolveRemoval(
 }
 
 /**
+ * After parent-chain removal, also remove every fact that `depends` on (or is
+ * a `memberOfExtension` of) a removed fact, plus security labels whose
+ * provider is a removed extension. Fixpoint BFS. Owner edges are not walked.
+ */
+function expandDependentClosure(
+  fb: FactBase,
+  removed: Set<string>,
+  kept: Set<string>,
+): void {
+  if (removed.size === 0) return;
+
+  const seclabelsByProvider = new Map<string, StableId[]>();
+  for (const fact of fb.facts()) {
+    if (fact.id.kind !== "securityLabel") continue;
+    const provider = (fact.id as { provider: string }).provider;
+    const list = seclabelsByProvider.get(provider) ?? [];
+    list.push(fact.id);
+    seclabelsByProvider.set(provider, list);
+  }
+
+  const pending = [...removed];
+  const queued = new Set(removed);
+
+  const take = (id: StableId): void => {
+    const stack: StableId[] = [id];
+    while (stack.length > 0) {
+      const current = stack.pop() as StableId;
+      const key = encodeId(current);
+      const already = removed.has(key);
+      removed.add(key);
+      kept.delete(key);
+      if (!queued.has(key)) {
+        queued.add(key);
+        pending.push(key);
+      }
+      if (already) continue;
+      for (const child of fb.childrenOf(current)) stack.push(child.id);
+    }
+  };
+
+  while (pending.length > 0) {
+    const key = pending.pop() as string;
+    for (const edge of fb.incomingEdgesByEncoded(key)) {
+      if (isCascadeEdge(edge.kind)) take(edge.from);
+    }
+    const fact = fb.getByEncoded(key);
+    if (fact?.id.kind === "extension") {
+      const name = (fact.id as { name: string }).name;
+      for (const seclabel of seclabelsByProvider.get(name) ?? [])
+        take(seclabel);
+    }
+  }
+}
+
+/**
  * The exclusion of `rootIds` and their descendant subtrees, COMPUTED but not yet
- * built into a FactBase.
+ * built into a FactBase. The closure also includes facts that depend on a
+ * removed fact (`depends` / `memberOfExtension`) and security labels whose
+ * provider is a removed extension — otherwise those dependents stay managed
+ * after their edge is pruned and the planner either throws or emits
+ * unreplayable SQL.
  *
  * Split out so `resolveView` — which has to attach ADDITIONAL reference-only
  * marks on top of this projection — can do the whole thing in ONE
@@ -194,17 +296,21 @@ export interface ComputedExclusion {
   referenceOnly: Set<string>;
 }
 
-/** Compute (without building) the exclusion of `rootIds` + descendants. An empty
- *  `rootIds` keeps every fact and every edge — the identity projection. */
+/** Compute (without building) the exclusion of `rootIds` + descendants +
+ *  reverse-depends closure. An empty `rootIds` keeps every fact and every
+ *  edge — the identity projection. */
 export function computeExclusion(
   fb: FactBase,
   rootIds: ReadonlySet<string>,
 ): ComputedExclusion {
   const removed = new Set<string>();
   const kept = new Set<string>();
+  for (const fact of fb.facts())
+    resolveRemoval(fb, rootIds, removed, kept, fact);
+  expandDependentClosure(fb, removed, kept);
   const keptFacts: Fact[] = fb
     .facts()
-    .filter((f) => !resolveRemoval(fb, rootIds, removed, kept, f));
+    .filter((f) => !removed.has(encodeId(f.id)));
   const survives = new Set(keptFacts.map((f) => encodeId(f.id)));
   const keptEdges: DependencyEdge[] = fb.edges.filter((e) => {
     const fromSurvives = survives.has(encodeId(e.from));
@@ -248,9 +354,10 @@ export function buildExclusion(
 }
 
 /**
- * Return a new FactBase with `rootIds` and their entire descendant subtrees
- * removed; edges with a removed endpoint are pruned. If `rootIds` is empty, `fb`
- * is returned unchanged (referential identity preserved for cheap no-ops).
+ * Return a new FactBase with `rootIds`, their descendant subtrees, and facts
+ * that depend on them removed; edges with a removed endpoint are pruned. If
+ * `rootIds` is empty, `fb` is returned unchanged (referential identity
+ * preserved for cheap no-ops).
  */
 export function excludeFactsAndDescendants(
   fb: FactBase,
@@ -265,9 +372,10 @@ export type ManagementScope = "database" | "cluster";
 
 /**
  * Encoded ids removed by excluding `rootIds` and their descendant subtrees (a
- * fact is removed if it is a root or has a removed ancestor). Mirrors the
- * removal walk in `excludeFactsAndDescendants`; used by `projectManagementScope`
- * so it agrees on the removal closure while handling edges specially.
+ * fact is removed if it is a root or has a removed ancestor). Parent-chain
+ * only — unlike `computeExclusion`, this does not walk reverse `depends`.
+ * Used by `projectManagementScope` so role/membership exclusion does not
+ * cascade-remove every object that merely referenced a role.
  */
 function removedClosure(
   fb: FactBase,

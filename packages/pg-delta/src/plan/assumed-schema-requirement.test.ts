@@ -17,13 +17,14 @@
  *    computed by plan() from the raw owner edges) → ambient, satisfied even when
  *    kept in `desired` and absent from `source` (e.g. Supabase's
  *    `supabase_functions.http_request()`, Sentry SUPABASE-API-8CX);
- *  - otherwise kept in `desired` (reference-only) but absent from `source` → the
- *    desired side wants something the target lacks and nothing will provision →
- *    NOT exempt → throws.
+ *  - otherwise a user-owned object in an assumed schema is hard-pruned and
+ *    its dependents cascade out of the view (CLI-2300) instead of remaining
+ *    as a kept consumer that throws missing-requirement.
  */
 import { describe, expect, test } from "bun:test";
+import { EXCLUDED_BY_CASCADE } from "../core/diagnostic.ts";
 import { buildFactBase, type Fact } from "../core/fact.ts";
-import type { StableId } from "../core/stable-id.ts";
+import { encodeId, type StableId } from "../core/stable-id.ts";
 import { supabasePolicy } from "../policy/supabase.ts";
 import { buildActionGraph } from "./internal.ts";
 import { type Action, plan } from "./plan.ts";
@@ -193,23 +194,37 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     ).toBe(false);
   });
 
-  test("the fail-fast is preserved when the assumed-schema dependency is owned by the default owner", () => {
-    // A default-owner-owned (i.e. user-created) object in an assumed schema
-    // absent from the target still fails at plan time (PR #307 review P2) —
-    // nothing will provision it at apply time.
-    expect(() =>
-      plan(sourceBase(), desiredBase("postgres"), {
-        policy: supabasePolicy,
-      }),
-    ).toThrow(/missing requirement/);
+  test("a user-owned assumed-schema dependency cascades the consumer out instead of throwing", () => {
+    // postgres-owned (default owner) object in an assumed schema is user-
+    // created, not platform-provisioned — hard-pruned, and the public trigger
+    // that depends on it is skipped with a cascade diagnostic.
+    const p = plan(sourceBase(), desiredBase("postgres"), {
+      policy: supabasePolicy,
+    });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(false);
+    expect(
+      p.diagnostics?.some(
+        (d) =>
+          d.code === EXCLUDED_BY_CASCADE &&
+          d.subject !== undefined &&
+          encodeId(d.subject) === encodeId(trigger),
+      ),
+    ).toBe(true);
   });
 
-  test("the fail-fast is preserved when the assumed-schema dependency is owned by a user role", () => {
-    expect(() =>
-      plan(sourceBase(), desiredBase("app_admin"), {
-        policy: supabasePolicy,
-      }),
-    ).toThrow(/missing requirement/);
+  test("a user-role-owned assumed-schema dependency also cascades the consumer", () => {
+    const p = plan(sourceBase(), desiredBase("app_admin"), {
+      policy: supabasePolicy,
+    });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(false);
+    expect(
+      p.diagnostics?.some(
+        (d) =>
+          d.code === EXCLUDED_BY_CASCADE &&
+          d.subject !== undefined &&
+          encodeId(d.subject) === encodeId(trigger),
+      ),
+    ).toBe(true);
   });
 
   test("a custom options.defaultOwner does not turn default-owner-owned objects into platform ones", () => {
@@ -217,14 +232,14 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     // The PROVENANCE judgment must stay the policy's own: `postgres` is the
     // supabase policy's declared default owner, so a postgres-owned object in
     // an assumed schema is user-created no matter what the run-level default
-    // owner is — nothing will provision it (Codex P1 #2 on PR #407).
-    expect(() =>
-      plan(sourceBase(), desiredBase("postgres"), {
-        policy: supabasePolicy,
-        scope: "database",
-        defaultOwner: "custom_owner",
-      }),
-    ).toThrow(/missing requirement/);
+    // owner is — dependents cascade out rather than planning a CREATE against
+    // a function nothing will provision.
+    const p = plan(sourceBase(), desiredBase("postgres"), {
+      policy: supabasePolicy,
+      scope: "database",
+      defaultOwner: "custom_owner",
+    });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(false);
   });
 
   test("the exemption covers descendants of a platform-provisioned object", () => {
@@ -314,13 +329,12 @@ describe("plan() — platform-provisioned members of assumed schemas", () => {
     // target through options.assumedRoles (schema-plan.ts) so grants/ownership
     // against filtered role objects resolve. That supplemental set must not
     // feed the platform-provisioned discriminator: an assumed-schema object
-    // owned by a pre-existing USER role is still user-created, and nothing
-    // will provision it on the target (Codex P1 on PR #407).
-    expect(() =>
-      plan(sourceBase(), desiredBase("app_admin"), {
-        policy: supabasePolicy,
-        assumedRoles: ["app_admin"],
-      }),
-    ).toThrow(/missing requirement/);
+    // owned by a pre-existing USER role is still user-created, so dependents
+    // cascade out rather than treating the function as ambient.
+    const p = plan(sourceBase(), desiredBase("app_admin"), {
+      policy: supabasePolicy,
+      assumedRoles: ["app_admin"],
+    });
+    expect(p.actions.some((a) => /CREATE TRIGGER/i.test(a.sql))).toBe(false);
   });
 });

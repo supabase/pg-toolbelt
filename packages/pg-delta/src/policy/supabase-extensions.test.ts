@@ -1,11 +1,9 @@
 /**
  * supabase/cli#5555: a declarative sync must not drop platform-managed
- * extensions (the reported `DROP EXTENSION pg_graphql`). The supabase policy
- * projects those extensions out of the managed view entirely — so an extension
- * present on the target but absent from the declarative source produces no
- * remove delta and thus no DROP — while leaving user-declarable extensions
- * (pg_trgm, …) fully managed. Before the fix, pg_graphql was kept in the view
- * and would be dropped. Pure policy level — no DB.
+ * extensions (the reported `DROP EXTENSION pg_graphql`). Image-provisioned
+ * ones (`pg_graphql`, …) stay REFERENCE-ONLY — present so members resolve,
+ * never a create/drop delta. `pgsodium` / `wrappers` hard-prune. User
+ * extensions (pg_trgm, …) stay fully managed. Pure policy level — no DB.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
@@ -22,16 +20,18 @@ const pgTrgm: StableId = { kind: "extension", name: "pg_trgm" };
 const wrappers: StableId = { kind: "extension", name: "wrappers" };
 
 describe("supabase policy — platform extensions", () => {
-  test("projects out pg_graphql but keeps a user extension", () => {
+  test("keeps pg_graphql reference-only and a user extension managed", () => {
     const fb = buildFactBase(
       [ext("pg_graphql", "graphql"), ext("pg_trgm", "extensions")],
       [],
     );
     const view = resolveView(fb, supabasePolicy);
-    // platform-managed → invisible → never dropped (the #5555 fix)
-    expect(view.get(pgGraphql)).toBeUndefined();
+    // platform-provisioned → reference-only → never dropped (the #5555 fix)
+    expect(view.get(pgGraphql)).toBeDefined();
+    expect(view.isReferenceOnly(pgGraphql)).toBe(true);
     // user-declarable → still managed
     expect(view.get(pgTrgm)).toBeDefined();
+    expect(view.isReferenceOnly(pgTrgm)).toBe(false);
   });
 
   test("projects out the wrappers extension (dashboard-installed, CLI-1470)", () => {
