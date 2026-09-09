@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { plan } from "../plan/plan.ts";
 import { USER_MAPPING_UNREADABLE } from "./diagnostic.ts";
-import { buildFactBase, type Fact } from "./fact.ts";
+import { buildFactBase, retainOwnerRoleDangling, type Fact } from "./fact.ts";
 import { deserializeSnapshot, serializeSnapshot } from "./snapshot.ts";
 import type { StableId } from "./stable-id.ts";
 
@@ -30,6 +30,28 @@ describe("snapshot", () => {
     const restored = deserializeSnapshot(json);
     expect(restored.factBase.rootHash).toBe(fb.rootHash);
     expect(restored.pgVersion).toBe("17.6");
+    expect(restored.factBase.edges).toHaveLength(1);
+  });
+
+  test("round-trips a dangling pg_* owner edge (PG15+ public)", () => {
+    const publicId: StableId = { kind: "schema", name: "public" };
+    const source = buildFactBase(
+      [{ id: publicId, payload: {} }],
+      [
+        {
+          from: publicId,
+          to: { kind: "role", name: "pg_database_owner" },
+          kind: "owner",
+        },
+      ],
+      "liveDb",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
+    );
+    const restored = deserializeSnapshot(
+      serializeSnapshot(source, { pgVersion: "17.6" }),
+    );
+    expect(restored.factBase.rootHash).toBe(source.rootHash);
     expect(restored.factBase.edges).toHaveLength(1);
   });
 

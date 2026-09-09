@@ -6,6 +6,7 @@
 import type { Diagnostic } from "./diagnostic.ts";
 import {
   buildFactBase,
+  retainOwnerRoleDangling,
   type DependencyEdge,
   type EdgeKind,
   FactBase,
@@ -168,7 +169,12 @@ export function deserializeSnapshot(json: string): {
     to: parseId(e.to),
     kind: e.kind,
   }));
-  const factBase = buildFactBase(facts, edges, "snapshot");
+  // Extract retains dangling `pg_*` owner edges (`pg_database_owner` on
+  // PG15+ `public`); a database-scope view retains owner→role edges too.
+  // Dropping them here changes rootHash and fails the digest check.
+  const factBase = buildFactBase(facts, edges, "snapshot", undefined, {
+    allowDangling: retainOwnerRoleDangling,
+  });
   if (factBase.rootHash !== doc.digest) {
     throw new Error(
       `snapshot digest mismatch — content is corrupt or was edited (expected ${doc.digest}, computed ${factBase.rootHash})`,
