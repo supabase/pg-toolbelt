@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { plan } from "../plan/plan.ts";
 import { USER_MAPPING_UNREADABLE } from "./diagnostic.ts";
-import { buildFactBase, type Fact } from "./fact.ts";
+import { buildFactBase, retainOwnerRoleDangling, type Fact } from "./fact.ts";
 import { deserializeSnapshot, serializeSnapshot } from "./snapshot.ts";
 import type { StableId } from "./stable-id.ts";
 
@@ -33,11 +33,41 @@ describe("snapshot", () => {
     expect(restored.factBase.edges).toHaveLength(1);
   });
 
-  test("carries formatVersion 1 and rejects unknown versions", () => {
+  test("round-trips a dangling pg_* owner edge (PG15+ public)", () => {
+    const publicId: StableId = { kind: "schema", name: "public" };
+    const source = buildFactBase(
+      [{ id: publicId, payload: {} }],
+      [
+        {
+          from: publicId,
+          to: { kind: "role", name: "pg_database_owner" },
+          kind: "owner",
+        },
+      ],
+      "liveDb",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
+    );
+    const restored = deserializeSnapshot(
+      serializeSnapshot(source, { pgVersion: "17.6" }),
+    );
+    expect(restored.factBase.rootHash).toBe(source.rootHash);
+    expect(restored.factBase.edges).toHaveLength(1);
+  });
+
+  test("carries formatVersion 2 and rejects unknown versions", () => {
     const json = serializeSnapshot(fb, { pgVersion: "17.6" });
-    expect(JSON.parse(json).formatVersion).toBe(1);
+    expect(JSON.parse(json).formatVersion).toBe(2);
     const tampered = JSON.stringify({ ...JSON.parse(json), formatVersion: 99 });
     expect(() => deserializeSnapshot(tampered)).toThrow(/format/i);
+  });
+
+  test("refuses formatVersion 1 with a recapture hint", () => {
+    const json = serializeSnapshot(fb, { pgVersion: "17.6" });
+    const v1 = JSON.stringify({ ...JSON.parse(json), formatVersion: 1 });
+    expect(() => deserializeSnapshot(v1)).toThrow(
+      /formatVersion 1[\s\S]*Recapture/i,
+    );
   });
 
   test("records the redaction mode so drift can re-extract identically", () => {

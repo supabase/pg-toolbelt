@@ -8,8 +8,9 @@
  * (`by-object`, `ordered`) are unchanged — pinned by export.test.ts /
  * export-layout.test.ts.
  *
- * Fidelity (load(export(fb, "grouped")) ≡ fb) is still the gate: grouped files
- * may need the loader's retry rounds, but must reproduce the exact fact base.
+ * Fidelity (load(export(fb, "grouped")) ≡ fb) is still the gate:
+ * grouped files may need the loader's retry rounds, but must reproduce the
+ * extracted fact base.
  *
  * Docker required (extracts from a real database).
  */

@@ -5,8 +5,8 @@
  * ported SQL formatter (frontends/sql-format) before joining. It is OFF by
  * default (output stays exactly as the renderer emits it) and works with any
  * layout. The formatter is a heuristic token reformatter, so the load-bearing
- * safeguard is the fidelity gate: load(export(fb, { format })) ≡ fb — formatting
- * must never change a statement's meaning or drop one.
+ * safeguard is the fidelity gate: load(export(fb, { format })) ≡ fb
+ * — formatting must never change a statement's meaning or drop one.
  *
  * Docker required (extracts + reloads against a real database).
  */

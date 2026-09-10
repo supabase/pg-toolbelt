@@ -18,7 +18,12 @@
  * historical "nested". Nothing below the root differs between the styles.
  */
 import { createHash } from "node:crypto";
-import { buildFactBase, type FactBase } from "../core/fact.ts";
+import {
+  buildFactBase,
+  isPlatformDefaultPublicOwner,
+  retainOwnerRoleDangling,
+  type FactBase,
+} from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
@@ -936,6 +941,19 @@ export function exportSqlFiles(
     return fb.referenceOnly.has(key) && !members.has(key);
   });
   const baseline = buildFactBase(pristine, []);
+  // PG15+ `public` is owned by `pg_database_owner`. Extract keeps the edge;
+  // dumps omit `OWNER TO` for it (plan-time reconstruct drops the same edge
+  // on sqlFiles when defaultOwner is set).
+  const exportDesired = buildFactBase(
+    [...fb.facts()],
+    fb.edges.filter((e) => !isPlatformDefaultPublicOwner(e)),
+    fb.source,
+    fb.referenceOnly,
+    { allowDangling: retainOwnerRoleDangling },
+  );
+  // Rebuild drops diagnostics; plan() gates on desired-side extract warnings
+  // (INTENT_UNKEYED / INTENT_UNSUPPORTED).
+  exportDesired.diagnostics.push(...fb.diagnostics);
   // FKs inside a cross-table reference cycle stay as ALTERs (routed to a
   // sibling `.fk.sql`); everything else folds inline. Computed BEFORE the plan
   // so the fold pass can exclude them.
@@ -946,7 +964,7 @@ export function exportSqlFiles(
   // objects (review P1). `foldConstraints` renders validated table constraints
   // INLINE in their CREATE TABLE (export files are consumed by the retry /
   // reorder loader, where that is safe — see PlanOptions.foldConstraints).
-  const rendered = plan(baseline, fb, {
+  const rendered = plan(baseline, exportDesired, {
     foldConstraints: { exclude: cyclicFks },
     ...(options.assumedSchemas !== undefined
       ? { assumedSchemas: options.assumedSchemas }

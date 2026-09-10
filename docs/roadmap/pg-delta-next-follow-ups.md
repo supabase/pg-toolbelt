@@ -1571,6 +1571,48 @@ Codex P2s:
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
 
+## PR #471 review triage (Codex) — `pg_*` owner unlink
+
+PR #471 keeps extract-time owner edges to `pg_*` roles (PG15+ `public` →
+`pg_database_owner`) so applyBaseline can `ALTER … OWNER TO` the implicit
+applier before revoking the old owner's schema ACL.
+
+**Fixed in the PR:** unlink-only `OWNER TO` remapped across accepted
+renames (source id is in `removed`); dumps omit only `public` →
+`pg_database_owner`, not every `pg_*` owner; `defaultOwner` is added to
+the assumed-role set so the requirement guard does not demand a role fact
+that the implicit-owner path never carries as an edge; `exportSqlFiles`
+copies extract diagnostics onto the rebuilt desired fact base so
+`INTENT_UNKEYED` still refuses.
+
+**Fixed — snapshot formatVersion 2.** Extract retains `pg_*` owner edges, so
+a v1 PG15+ snapshot of an unchanged database would `cmdDrift()` as an added
+`public → pg_database_owner` link. Load refuses v1 (`Recapture with
+pgdelta snapshot`). There are no committed baseline snapshots in-repo
+(`src/policy/baselines/` is empty); tests recapture via `serializeSnapshot`.
+
+**Fixed — plan-time sqlFiles prune of `public → pg_database_owner`.** Extract
+always reports catalog truth (live, snapshot, and sqlFiles). Dumps still omit
+that `OWNER TO`. When `defaultOwner` is set, `reconstructManagedView` drops
+the platform-default edge on `sqlFiles` only, so `schema apply` treats
+"files said nothing" as implicit defaultOwner rather than desired
+`pg_database_owner`. Live/snapshot keep the edge for DB→DB reown.
+`load(export(fb)) ≡ fb` (both extracts keep the catalog edge). Explicit
+`ALTER SCHEMA public OWNER TO pg_database_owner` in a dump is the same
+lossy catalog default after load — not distinguished from "files said
+nothing" (no SQL parse).
+
+**Deferred:** `probeApplierCapability()` still drops every `pg_*` name
+from `memberOf` (`rolname NOT LIKE 'pg\_%'`). A *reverse* DB→DB plan
+(`postgres`-owned `public` → desired `pg_database_owner`) with a probed
+non-superuser capability therefore fail-fasts in `canSetOwner`, even
+though the database owner is a member of `pg_database_owner` and
+PostgreSQL would accept the `ALTER`. applyBaseline (CLI-2301 E1) is the
+forward direction and does not hit this; corpus/proof use an unrestricted
+applier. Track as: either keep `pg_database_owner` in `memberOf` when
+`pg_has_role` is true, or treat it as settable when the applier is the
+database owner.
+
 ## PR #462 review triage (Codex) — lock-table split-to-fit
 
 PR #462 adds `estimateLockTableBudget` plus optional `splitPlan({ maxLocks })`

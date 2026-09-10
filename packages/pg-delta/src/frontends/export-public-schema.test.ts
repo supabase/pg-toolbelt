@@ -7,7 +7,12 @@
  * (PR #307 review: public-schema ACL/comment preservation). Pure — no DB.
  */
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact } from "../core/fact.ts";
+import { INTENT_UNKEYED } from "../core/diagnostic.ts";
+import {
+  buildFactBase,
+  retainOwnerRoleDangling,
+  type Fact,
+} from "../core/fact.ts";
 import { exportSqlFiles } from "./export-sql-files.ts";
 
 function exportOf(facts: Fact[]): string {
@@ -47,5 +52,77 @@ describe("export preserves public-schema customizations", () => {
     ]);
     expect(sql).toContain(`SCHEMA "public"`);
     expect(sql).toContain("REVOKE ALL ON SCHEMA");
+  });
+
+  test("export does not serialize OWNER TO pg_database_owner on public", () => {
+    const publicId = { kind: "schema" as const, name: "public" };
+    const sql = exportSqlFiles(
+      buildFactBase(
+        [{ id: publicId, payload: {} }],
+        [
+          {
+            from: publicId,
+            to: { kind: "role", name: "pg_database_owner" },
+            kind: "owner",
+          },
+        ],
+        "liveDb",
+        new Set(),
+        { allowDangling: retainOwnerRoleDangling },
+      ),
+    )
+      .map((f) => f.sql)
+      .join("\n");
+    expect(sql).not.toContain("OWNER TO");
+    expect(sql).not.toContain("pg_database_owner");
+  });
+
+  test("export still serializes OWNER TO pg_database_owner on a user table", () => {
+    const publicId = { kind: "schema" as const, name: "public" };
+    const tableId = {
+      kind: "table" as const,
+      schema: "public",
+      name: "t",
+    };
+    const sql = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: publicId, payload: {} },
+          {
+            id: tableId,
+            parent: publicId,
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          {
+            from: tableId,
+            to: { kind: "role", name: "pg_database_owner" },
+            kind: "owner",
+          },
+        ],
+        "liveDb",
+        new Set(),
+        { allowDangling: retainOwnerRoleDangling },
+      ),
+    )
+      .map((f) => f.sql)
+      .join("\n");
+    expect(sql).toContain(`OWNER TO "pg_database_owner"`);
+  });
+
+  test("export refuses a desired-side unkeyed intent", () => {
+    const fb = buildFactBase(
+      [{ id: { kind: "schema", name: "public" }, payload: {} }],
+      [],
+    );
+    fb.diagnostics.push({
+      code: INTENT_UNKEYED,
+      severity: "warning",
+      message:
+        "cron job (command: delete from x) has no jobname and cannot be managed",
+      context: { ext: "pg_cron", intentKind: "job" },
+    });
+    expect(() => exportSqlFiles(fb)).toThrow(/cannot key|unnamed|no jobname/i);
   });
 });
