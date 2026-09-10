@@ -665,6 +665,22 @@ export function compactColumnFolds(
       if (!targetPosOf.has(key)) targetPosOf.set(key, pos);
     }
   });
+  // CREATE TABLE's transformIndexConstraints drops a UNIQUE whose key list
+  // equals a PRIMARY KEY — or another UNIQUE — in the same statement. ALTER
+  // TABLE ADD CONSTRAINT UNIQUE does not. Refuse those folds so one pass
+  // still converges. PK keys are precomputed (a UNIQUE may sort before the PK);
+  // duplicate UNIQUEs are tracked as they fold so the first still inlines.
+  const pkKeysByFoldInto = new Map<string, readonly string[][]>();
+  for (let pos = 0; pos < orderedActions.length; pos++) {
+    const hint = foldHints[order[pos] as number];
+    if (hint?.constraintType !== "p") continue;
+    const keys = hint.indexKeyColumns;
+    if (keys === undefined || keys.length === 0) continue;
+    const target = encodeId(hint.foldInto);
+    const list = pkKeysByFoldInto.get(target) ?? [];
+    pkKeysByFoldInto.set(target, [...list, [...keys]]);
+  }
+  const foldedUniqueKeysByFoldInto = new Map<string, readonly string[][]>();
   const foldedPos = new Set<number>();
   const effectivePosOf = new Map<number, number>(); // orig idx -> post-fold pos
   for (let pos = 0; pos < orderedActions.length; pos++) {
@@ -691,6 +707,20 @@ export function compactColumnFolds(
         if (hint.executorSafe !== true) continue;
       } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
         continue;
+      }
+      if (hint.constraintType === "u") {
+        const foldTargetKey = encodeId(hint.foldInto);
+        const occupied = [
+          ...(pkKeysByFoldInto.get(foldTargetKey) ?? []),
+          ...(foldedUniqueKeysByFoldInto.get(foldTargetKey) ?? []),
+        ];
+        if (
+          occupied.some((keys) =>
+            sameIndexKeyColumns(hint.indexKeyColumns, keys),
+          )
+        ) {
+          continue;
+        }
       }
     }
     const targetPos = targetPosOf.get(encodeId(hint.foldInto));
@@ -743,10 +773,33 @@ export function compactColumnFolds(
     target.rewriteRisk = target.rewriteRisk || action.rewriteRisk;
     foldedPos.add(pos);
     effectivePosOf.set(origIndex, targetPos);
+    if (
+      isConstraintFold &&
+      hint.constraintType === "u" &&
+      hint.indexKeyColumns !== undefined &&
+      hint.indexKeyColumns.length > 0
+    ) {
+      const foldTargetKey = encodeId(hint.foldInto);
+      const list = foldedUniqueKeysByFoldInto.get(foldTargetKey) ?? [];
+      foldedUniqueKeysByFoldInto.set(foldTargetKey, [
+        ...list,
+        [...hint.indexKeyColumns],
+      ]);
+    }
   }
   return foldedPos.size > 0
     ? orderedActions.filter((_, pos) => !foldedPos.has(pos))
     : [...orderedActions];
+}
+
+function sameIndexKeyColumns(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
+  if (a === undefined || b === undefined || a.length !== b.length) {
+    return false;
+  }
+  return a.length > 0 && a.every((name, i) => name === b[i]);
 }
 
 /**

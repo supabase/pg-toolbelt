@@ -263,7 +263,16 @@ const TABLE_CONSTRAINTS_SQL = `
            c.relkind AS table_kind,
            pg_get_constraintdef(con.oid) AS def,
            con.contype AS type, con.convalidated AS validated,
-           obj_description(con.oid, 'pg_constraint') AS comment
+           obj_description(con.oid, 'pg_constraint') AS comment,
+           CASE
+             WHEN con.contype NOT IN ('p', 'u') THEN NULL
+             WHEN con.conkey IS NULL OR 0 = ANY (con.conkey) THEN ARRAY[]::text[]
+             ELSE (
+               SELECT array_agg(a.attname::text ORDER BY k.ord)
+               FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+             )
+           END AS key_columns
     FROM pg_constraint con
     JOIN pg_class c ON c.oid = con.conrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -281,6 +290,8 @@ export const tableConstraintsFamily: CatalogFamily = {
   apply: (ctx, rowSets) => {
     const { pushWithMeta } = ctx;
     for (const row of rowSets[0]!) {
+      const type = String(row["type"]);
+      const keyColumns = row["key_columns"];
       pushWithMeta(
         {
           id: {
@@ -296,8 +307,18 @@ export const tableConstraintsFamily: CatalogFamily = {
           },
           payload: {
             def: String(row["def"]),
-            type: String(row["type"]),
+            type,
             validated: Boolean(row["validated"]),
+            // Planner-only: CREATE TABLE drops a UNIQUE whose conkey equals
+            // another index constraint in the same statement; `_` keeps this
+            // off the hash/diff surface.
+            ...(type === "p" || type === "u"
+              ? {
+                  _keyColumns: Array.isArray(keyColumns)
+                    ? keyColumns.map(String)
+                    : [],
+                }
+              : {}),
           },
         },
         row,
