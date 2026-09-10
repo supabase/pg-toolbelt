@@ -20,6 +20,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 // declared order is NOT alphabetical: wal < is_rls_enabled < subscription_ids <
 // errors (alphabetical would put errors first).
@@ -66,7 +67,7 @@ describe("table column order round-trip", () => {
       const loaded = await loadSqlFiles(files, shadow.pool);
 
       // convergence (order-blind) still holds …
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
       // … and the reloaded database preserves the declared column order.
       expect(await columnOrder(shadow.pool, "s.wal_rls")).toEqual(
         DECLARED_ORDER,

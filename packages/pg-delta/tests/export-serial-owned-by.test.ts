@@ -8,6 +8,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 describe("export: serial OWNED BY files with the table", () => {
   test("bigserial puts OWNED BY in the table file; load is file-atomic", async () => {
@@ -40,7 +41,7 @@ describe("export: serial OWNED BY files with the table", () => {
       expect(table!.sql).not.toMatch(/GRANT USAGE ON SEQUENCE/i);
 
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([source.drop(), shadow.drop()]);
     }
@@ -81,7 +82,7 @@ describe("export: serial OWNED BY files with the table", () => {
       expect(seqOwnerAt).toBeGreaterThan(tableOwnerAt);
 
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([source.drop(), shadow.drop()]);
       await cluster.adminPool.query(`DROP ROLE IF EXISTS "${role}"`);

@@ -5,8 +5,8 @@
  * ported SQL formatter (frontends/sql-format) before joining. It is OFF by
  * default (output stays exactly as the renderer emits it) and works with any
  * layout. The formatter is a heuristic token reformatter, so the load-bearing
- * safeguard is the fidelity gate: load(export(fb, { format })) ≡ fb — formatting
- * must never change a statement's meaning or drop one.
+ * safeguard is the fidelity gate: load(export(fb, { format })) ≡ dump-shaped(fb)
+ * — formatting must never change a statement's meaning or drop one.
  *
  * Docker required (extracts + reloads against a real database).
  */
@@ -19,6 +19,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA app;
@@ -101,7 +102,7 @@ describe("export: SQL formatting", () => {
       }).filter((f) => !f.name.startsWith("_cluster/roles"));
 
       const loaded = await loadSqlFiles(formatted, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }

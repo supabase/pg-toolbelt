@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildFactBase,
+  edgesForExtract,
   retainOwnerRoleDangling,
   type Fact,
 } from "../core/fact.ts";
@@ -73,6 +74,29 @@ describe("plan() — built-in owner unlink to implicit defaultOwner", () => {
     );
     expect(ownerIdx).toBeGreaterThanOrEqual(0);
     expect(revokeIdx).toBeGreaterThan(ownerIdx);
+  });
+
+  test("sqlFiles-shaped desired (catalog default stripped) unlinks to implicit postgres", () => {
+    const liveEdges = [
+      { from: publicSchema, to: pgDatabaseOwner, kind: "owner" as const },
+    ];
+    const source = buildFactBase(
+      [f(publicSchema)],
+      liveEdges,
+      "liveDb",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
+    );
+    const desired = buildFactBase(
+      [f(publicSchema)],
+      edgesForExtract(liveEdges, "sqlFiles"),
+      "sqlFiles",
+    );
+    const sqls = plan(source, desired, {
+      policy: implicitApplierPolicy,
+    }).actions.map((a) => a.sql);
+    expect(sqls).toContain(`ALTER SCHEMA "public" OWNER TO "postgres"`);
+    expect(sqls.join("\n")).not.toContain('OWNER TO "pg_database_owner"');
   });
 
   test("both sides implicitly postgres-owned emit no OWNER TO", () => {

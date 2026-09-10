@@ -1,6 +1,6 @@
 /**
  * Export round-trip gate (stage 9 deliverable 6):
- * loadSqlFiles(exportSqlFiles(fb)) ≡ fb hash-identically, and the
+ * loadSqlFiles(exportSqlFiles(fb)) ≡ dump-shaped(fb) hash-identically, and the
  * "ordered" layout loads with zero deferred rounds (single pass).
  * Cluster-scoped files (roles) are the environment's in databaseScratch
  * mode — the shadow's cluster already has them; the schema files still
@@ -11,6 +11,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA app;
@@ -53,11 +54,11 @@ describe("stage 9: declarative export", () => {
 
       // human layout: fidelity is the contract (rounds may be > 1)
       const loadedA = await loadSqlFiles(byObject, shadowA.pool);
-      expect(loadedA.factBase.rootHash).toBe(fb.rootHash);
+      expect(loadedA.factBase.rootHash).toBe(dumpShapedRootHash(fb));
 
       // ordered layout: fidelity AND single-pass convergence
       const loadedB = await loadSqlFiles(ordered, shadowB.pool);
-      expect(loadedB.factBase.rootHash).toBe(fb.rootHash);
+      expect(loadedB.factBase.rootHash).toBe(dumpShapedRootHash(fb));
       expect(loadedB.rounds).toBe(1);
     } finally {
       await Promise.all([source.drop(), shadowA.drop(), shadowB.drop()]);
@@ -113,7 +114,7 @@ describe("stage 9: declarative export", () => {
         files.filter((f) => !f.name.startsWith("_cluster/roles")),
         shadow.pool,
       );
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([source.drop(), shadow.drop()]);
     }

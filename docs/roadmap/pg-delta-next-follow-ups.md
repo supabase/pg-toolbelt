@@ -1591,6 +1591,13 @@ a v1 PG15+ snapshot of an unchanged database would `cmdDrift()` as an added
 pgdelta snapshot`). There are no committed baseline snapshots in-repo
 (`src/policy/baselines/` is empty); tests recapture via `serializeSnapshot`.
 
+**Fixed — sqlFiles extract omits `public → pg_database_owner`.** Dumps already
+strip that edge. A PG15+ shadow still has the catalog default; keeping the
+edge made `planSchemaFiles` treat "files said nothing" as desired
+`pg_database_owner` (reverse `OWNER TO`, or a Supabase capability fail).
+Live/snapshot extracts still retain the edge for DB→DB reown.
+`load(export(fb))` compares against the dump-shaped hash.
+
 **Deferred:** `probeApplierCapability()` still drops every `pg_*` name
 from `memberOf` (`rolname NOT LIKE 'pg\_%'`). A *reverse* DB→DB plan
 (`postgres`-owned `public` → desired `pg_database_owner`) with a probed

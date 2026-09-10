@@ -23,6 +23,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 // declared order is NOT alphabetical: wal < is_rls_enabled < subscription_ids <
 // errors (alphabetical would put errors first). The dependent SQL function
@@ -58,7 +59,7 @@ describe("composite attribute order round-trip", () => {
 
       const files = forLoad(exportSqlFiles(fb, { layout: "by-object" }));
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }

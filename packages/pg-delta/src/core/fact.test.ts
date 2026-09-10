@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact, type DependencyEdge } from "./fact.ts";
+import {
+  buildFactBase,
+  edgesForExtract,
+  type Fact,
+  type DependencyEdge,
+} from "./fact.ts";
 import type { StableId } from "./stable-id.ts";
 
 const schema: StableId = { kind: "schema", name: "public" };
@@ -261,5 +266,28 @@ describe("FactBase lookups do not cache caller query objects", () => {
     const onlyAlpha = buildFactBase([{ id: alpha, payload: {} }], []);
     expect(onlyAlpha.get(beta)).toBeUndefined();
     expect(onlyAlpha.get(alpha)?.id).toEqual(alpha);
+  });
+});
+
+describe("edgesForExtract", () => {
+  const publicSchema: StableId = { kind: "schema", name: "public" };
+  const users: StableId = { kind: "table", schema: "public", name: "users" };
+  const pgDatabaseOwner: StableId = { kind: "role", name: "pg_database_owner" };
+  const platformPublic: DependencyEdge = {
+    from: publicSchema,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+  const tableOwner: DependencyEdge = {
+    from: users,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+
+  test("sqlFiles drops public → pg_database_owner; liveDb and snapshot keep it", () => {
+    const edges = [platformPublic, tableOwner];
+    expect(edgesForExtract(edges, "liveDb")).toEqual(edges);
+    expect(edgesForExtract(edges, "snapshot")).toEqual(edges);
+    expect(edgesForExtract(edges, "sqlFiles")).toEqual([tableOwner]);
   });
 });

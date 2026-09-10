@@ -74,6 +74,17 @@ export const isPlatformDefaultPublicOwner = (edge: DependencyEdge): boolean =>
   "name" in edge.to &&
   edge.to.name === "pg_database_owner";
 
+/** Dumps omit {@link isPlatformDefaultPublicOwner}. SQL-file shadows inherit
+ *  that catalog default on PG15+ — drop it so "files said nothing" is not
+ *  desired `pg_database_owner`. Live/snapshot extracts keep the edge. */
+export function edgesForExtract(
+  edges: readonly DependencyEdge[],
+  source: FactSource,
+): DependencyEdge[] {
+  if (source !== "sqlFiles") return [...edges];
+  return edges.filter((e) => !isPlatformDefaultPublicOwner(e));
+}
+
 interface Entry {
   fact: Fact;
   encoded: string;

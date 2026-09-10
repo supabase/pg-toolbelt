@@ -22,6 +22,7 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
+import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 function forLoad(files: { name: string; sql: string }[]) {
   // roles are cluster-global and already present in the shared cluster; drop
@@ -52,7 +53,7 @@ describe("export: identity backing-sequence name fidelity", () => {
       const loaded = await loadSqlFiles(files, shadow.pool);
       // rootHash folds the identity payload (incl. the backing sequence
       // {schema,name}); equality here == zero residual actions on re-diff.
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
@@ -76,7 +77,7 @@ describe("export: identity backing-sequence name fidelity", () => {
       expect(all.toLowerCase()).not.toContain("sequence name");
 
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
