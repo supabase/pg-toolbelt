@@ -1591,12 +1591,16 @@ a v1 PG15+ snapshot of an unchanged database would `cmdDrift()` as an added
 pgdelta snapshot`). There are no committed baseline snapshots in-repo
 (`src/policy/baselines/` is empty); tests recapture via `serializeSnapshot`.
 
-**Fixed — sqlFiles extract omits `public → pg_database_owner`.** Dumps already
-strip that edge. A PG15+ shadow still has the catalog default; keeping the
-edge made `planSchemaFiles` treat "files said nothing" as desired
-`pg_database_owner` (reverse `OWNER TO`, or a Supabase capability fail).
-Live/snapshot extracts still retain the edge for DB→DB reown.
-`load(export(fb))` compares against the dump-shaped hash.
+**Fixed — plan-time sqlFiles prune of `public → pg_database_owner`.** Extract
+always reports catalog truth (live, snapshot, and sqlFiles). Dumps still omit
+that `OWNER TO`. When `defaultOwner` is set, `reconstructManagedView` drops
+the platform-default edge on `sqlFiles` only, so `schema apply` treats
+"files said nothing" as implicit defaultOwner rather than desired
+`pg_database_owner`. Live/snapshot keep the edge for DB→DB reown.
+`load(export(fb)) ≡ fb` (both extracts keep the catalog edge). Explicit
+`ALTER SCHEMA public OWNER TO pg_database_owner` in a dump is the same
+lossy catalog default after load — not distinguished from "files said
+nothing" (no SQL parse).
 
 **Deferred:** `probeApplierCapability()` still drops every `pg_*` name
 from `memberOf` (`rolname NOT LIKE 'pg\_%'`). A *reverse* DB→DB plan

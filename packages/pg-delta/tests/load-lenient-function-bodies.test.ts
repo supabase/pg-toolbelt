@@ -29,7 +29,6 @@ import {
   ShadowLoadError,
 } from "../src/frontends/load-sql-files.ts";
 import { createTestDb, sharedCluster } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
   return promise.then(
@@ -123,7 +122,7 @@ describe("loadSqlFiles — lenient user-routine body validation", () => {
 
       // fidelity: the loaded fact base hash-matches the source, AND the target's
       // re-extracted function definition is byte-identical.
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       const targetDef = (
         await shadow.pool.query(
           `SELECT pg_get_functiondef('public.legacy()'::regprocedure) AS def`,

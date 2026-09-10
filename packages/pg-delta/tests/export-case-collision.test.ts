@@ -9,7 +9,7 @@
  *
  * This gates, for every layout: (1) the emitted paths are case-insensitively
  * unique, so the export cannot be corrupted by a case-insensitive disk; and
- * (2) the merged files still round-trip — `load(export(fb)) ≡ dump-shaped(fb)`.
+ * (2) the merged files still round-trip — `load(export(fb)) ≡ fb`.
  *
  * Docker required.
  */
@@ -21,7 +21,6 @@ import {
 } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
   "by-object",
@@ -76,7 +75,7 @@ describe("export: FK chain through case twins stays loadable", () => {
         const fb = (await extract(src.pool)).factBase;
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -113,7 +112,7 @@ describe("export: mutual FKs between case twins stay loadable", () => {
         const fb = (await extract(src.pool)).factBase;
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -147,7 +146,7 @@ describe("export: non-FK dependency chain through case twins stays loadable", ()
         const fb = (await extract(src.pool)).factBase;
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -203,7 +202,7 @@ describe("export: a case-variant reserved-name schema escapes the reserved dir",
 
       // (4) fidelity survives the escape
       const loaded = await loadSqlFiles(forLoad(files), shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
@@ -249,7 +248,7 @@ describe("export: case-twin objects survive case-insensitive filesystems", () =>
 
         // (2) the renamed files still reload to the identical fact base
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }

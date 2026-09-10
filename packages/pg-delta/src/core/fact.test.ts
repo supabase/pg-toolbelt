@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildFactBase,
-  edgesForExtract,
+  isPlatformDefaultPublicOwner,
   type Fact,
   type DependencyEdge,
 } from "./fact.ts";
@@ -269,7 +269,7 @@ describe("FactBase lookups do not cache caller query objects", () => {
   });
 });
 
-describe("edgesForExtract", () => {
+describe("isPlatformDefaultPublicOwner", () => {
   const publicSchema: StableId = { kind: "schema", name: "public" };
   const users: StableId = { kind: "table", schema: "public", name: "users" };
   const pgDatabaseOwner: StableId = { kind: "role", name: "pg_database_owner" };
@@ -284,10 +284,8 @@ describe("edgesForExtract", () => {
     kind: "owner",
   };
 
-  test("sqlFiles drops public → pg_database_owner; liveDb and snapshot keep it", () => {
-    const edges = [platformPublic, tableOwner];
-    expect(edgesForExtract(edges, "liveDb")).toEqual(edges);
-    expect(edgesForExtract(edges, "snapshot")).toEqual(edges);
-    expect(edgesForExtract(edges, "sqlFiles")).toEqual([tableOwner]);
+  test("matches only public → pg_database_owner, not other pg_* owners", () => {
+    expect(isPlatformDefaultPublicOwner(platformPublic)).toBe(true);
+    expect(isPlatformDefaultPublicOwner(tableOwner)).toBe(false);
   });
 });

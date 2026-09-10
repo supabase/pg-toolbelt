@@ -8,9 +8,9 @@
  * (`by-object`, `ordered`) are unchanged — pinned by export.test.ts /
  * export-layout.test.ts.
  *
- * Fidelity (load(export(fb, "grouped")) ≡ dump-shaped(fb)) is still the gate:
+ * Fidelity (load(export(fb, "grouped")) ≡ fb) is still the gate:
  * grouped files may need the loader's retry rounds, but must reproduce the
- * dump-shaped fact base.
+ * extracted fact base.
  *
  * Docker required (extracts from a real database).
  */
@@ -19,7 +19,6 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 describe("export: grouped layout (v1 parity)", () => {
   test("orders files by semantic category, not dependency/plan order", async () => {
@@ -200,7 +199,7 @@ describe("export: grouped layout (v1 parity)", () => {
         (f) => !f.name.startsWith("_cluster/roles"),
       );
       const loaded = await loadSqlFiles(grouped, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }

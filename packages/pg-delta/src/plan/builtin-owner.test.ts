@@ -9,7 +9,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildFactBase,
-  edgesForExtract,
   retainOwnerRoleDangling,
   type Fact,
 } from "../core/fact.ts";
@@ -76,7 +75,7 @@ describe("plan() — built-in owner unlink to implicit defaultOwner", () => {
     expect(revokeIdx).toBeGreaterThan(ownerIdx);
   });
 
-  test("sqlFiles-shaped desired (catalog default stripped) unlinks to implicit postgres", () => {
+  test("sqlFiles desired keeps catalog public owner; plan-time defaultOwner unlinks to implicit postgres", () => {
     const liveEdges = [
       { from: publicSchema, to: pgDatabaseOwner, kind: "owner" as const },
     ];
@@ -87,16 +86,67 @@ describe("plan() — built-in owner unlink to implicit defaultOwner", () => {
       new Set(),
       { allowDangling: retainOwnerRoleDangling },
     );
+    // Extract reports catalog truth — the platform default stays on the fact
+    // base. Reconstruct drops it for the diff when defaultOwner is set.
     const desired = buildFactBase(
       [f(publicSchema)],
-      edgesForExtract(liveEdges, "sqlFiles"),
+      liveEdges,
       "sqlFiles",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
     );
+    expect(desired.edges).toEqual(liveEdges);
     const sqls = plan(source, desired, {
       policy: implicitApplierPolicy,
     }).actions.map((a) => a.sql);
     expect(sqls).toContain(`ALTER SCHEMA "public" OWNER TO "postgres"`);
     expect(sqls.join("\n")).not.toContain('OWNER TO "pg_database_owner"');
+  });
+
+  test("sqlFiles catalog-default public vs live implicit postgres does not reverse OWNER TO", () => {
+    const source = buildFactBase(
+      [f(publicSchema), f(postgres, { login: true })],
+      [{ from: publicSchema, to: postgres, kind: "owner" }],
+    );
+    const desired = buildFactBase(
+      [f(publicSchema)],
+      [{ from: publicSchema, to: pgDatabaseOwner, kind: "owner" }],
+      "sqlFiles",
+      new Set(),
+      { allowDangling: retainOwnerRoleDangling },
+    );
+    const sql = plan(source, desired, { policy: implicitApplierPolicy })
+      .actions.map((a) => a.sql)
+      .join("\n");
+    expect(sql).not.toContain('OWNER TO "pg_database_owner"');
+    expect(sql).not.toContain("OWNER TO");
+  });
+
+  test("sqlFiles and live both catalog-default public emit no OWNER TO without defaultOwner", () => {
+    const edges = [
+      { from: publicSchema, to: pgDatabaseOwner, kind: "owner" as const },
+    ];
+    const opts = {
+      allowDangling: retainOwnerRoleDangling,
+    };
+    const source = buildFactBase(
+      [f(publicSchema)],
+      edges,
+      "liveDb",
+      new Set(),
+      opts,
+    );
+    const desired = buildFactBase(
+      [f(publicSchema)],
+      edges,
+      "sqlFiles",
+      new Set(),
+      opts,
+    );
+    const sql = plan(source, desired)
+      .actions.map((a) => a.sql)
+      .join("\n");
+    expect(sql).not.toContain("OWNER TO");
   });
 
   test("both sides implicitly postgres-owned emit no OWNER TO", () => {

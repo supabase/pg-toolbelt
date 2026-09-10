@@ -17,7 +17,6 @@ import {
   supabaseCluster,
   type TestDb,
 } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const dbs: TestDb[] = [];
 afterAll(async () => {
@@ -126,6 +125,6 @@ describe.skipIf(!runSupabaseBareTests)("pgvector index fidelity", () => {
     const layout: NonNullable<ExportOptions["layout"]> = "ordered";
     const files = forLoad(exportSqlFiles(fb, { layout }));
     const loaded = await loadSqlFiles(files, shadow.pool);
-    expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+    expect(loaded.factBase.rootHash).toBe(fb.rootHash);
   }, 180_000);
 });

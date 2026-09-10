@@ -1,9 +1,9 @@
 /**
  * Declarative-export ROUND-TRIP FIDELITY across all three layouts.
  *
- * The contract `load(export(fb)) ≡ dump-shaped(fb)` must hold for `by-object`,
- * `ordered`, AND `grouped` — dumps omit PG15+ `public → pg_database_owner`,
- * so the reload hash matches that shape, not the raw live digest.
+ * The contract `load(export(fb)) ≡ fb` must hold for `by-object`,
+ * `ordered`, AND `grouped`. Extract keeps catalog `public` ownership;
+ * dumps omit the PG15+ platform-default `OWNER TO`.
  * `export-format.test.ts`
  * already gates the formatter on a simple schema; this file gates two shapes
  * surfaced while dogfooding a real DB:
@@ -37,7 +37,6 @@ import {
 } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { sharedCluster } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const LAYOUTS: NonNullable<ExportOptions["layout"]>[] = [
   "by-object",
@@ -121,7 +120,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
 
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -137,7 +136,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
 
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -153,7 +152,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
 
         const files = forLoad(exportSqlFiles(fb, { layout }));
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -175,7 +174,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
         expect(all).toMatch(/GRANT EXECUTE[\s\S]*pg_read_all_data/);
 
         const loaded = await loadSqlFiles(files, shadow.pool);
-        expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
       } finally {
         await Promise.all([src.drop(), shadow.drop()]);
       }
@@ -199,7 +198,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
         }),
       );
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
@@ -247,7 +246,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
       expect(orders).toContain("NOT VALID");
 
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
@@ -281,7 +280,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
       expect(files.some((f) => f.name.includes("functions"))).toBe(false);
       expect(files.some((f) => f.sql.includes("gen_salt"))).toBe(true);
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }
@@ -310,7 +309,7 @@ describe("export: round-trip fidelity (all layouts)", () => {
       const fb = (await extract(src.pool)).factBase;
       const files = forLoad(exportSqlFiles(fb));
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await cluster.adminPool
         .query(`DROP OWNED BY fidrole CASCADE`)

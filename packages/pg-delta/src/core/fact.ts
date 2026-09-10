@@ -63,9 +63,10 @@ export const retainBuiltinOwnerDangling = (edge: DependencyEdge): boolean =>
   "name" in edge.to &&
   edge.to.name.startsWith("pg_");
 
-/** PG15+ catalog default (`public` → `pg_database_owner`). Live extract keeps
- *  the edge so DB→DB can reown; a dump must not emit `OWNER TO` for it. Other
- *  `pg_*` owners are user-visible and still serialize. */
+/** PG15+ catalog default (`public` → `pg_database_owner`). Extract always
+ *  keeps the edge (catalog truth). Dumps omit `OWNER TO` for it; plan-time
+ *  reconstruct drops it on sqlFiles when defaultOwner is set. Other `pg_*`
+ *  owners are user-visible and still serialize. */
 export const isPlatformDefaultPublicOwner = (edge: DependencyEdge): boolean =>
   retainBuiltinOwnerDangling(edge) &&
   edge.from.kind === "schema" &&
@@ -73,17 +74,6 @@ export const isPlatformDefaultPublicOwner = (edge: DependencyEdge): boolean =>
   edge.from.name === "public" &&
   "name" in edge.to &&
   edge.to.name === "pg_database_owner";
-
-/** Dumps omit {@link isPlatformDefaultPublicOwner}. SQL-file shadows inherit
- *  that catalog default on PG15+ — drop it so "files said nothing" is not
- *  desired `pg_database_owner`. Live/snapshot extracts keep the edge. */
-export function edgesForExtract(
-  edges: readonly DependencyEdge[],
-  source: FactSource,
-): DependencyEdge[] {
-  if (source !== "sqlFiles") return [...edges];
-  return edges.filter((e) => !isPlatformDefaultPublicOwner(e));
-}
 
 interface Entry {
   fact: Fact;

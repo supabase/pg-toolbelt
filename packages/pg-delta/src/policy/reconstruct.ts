@@ -2,23 +2,32 @@
  * Single reconstruction entry point for the managed view under management scope
  * (docs/architecture/managed-view-architecture.md; agent track V1).
  *
- * Order is fixed: `resolveView` THEN `projectManagementScope`. A policy
- * owner-exclusion rule reads the `owner` edge, and database-scope role pruning
- * removes those edges with the role facts — projecting scope first would strip
- * the edge the policy needs and wrongly plan a DROP of a platform object owned
- * by a system role. Plan, prove, apply, and schema export all call this helper
- * so `plan == prove == run` cannot drift by open-coding the composition.
+ * Order is fixed: `resolveView` THEN `projectManagementScope`, then a
+ * sqlFiles-only implicit-owner prune of `public → pg_database_owner` (dumps
+ * never emit that OWNER TO; a PG15+ shadow still has the catalog default).
+ * A policy owner-exclusion rule reads the `owner` edge, and database-scope
+ * role pruning removes those edges with the role facts — projecting scope
+ * first would strip the edge the policy needs and wrongly plan a DROP of a
+ * platform object owned by a system role. Plan, prove, apply, and schema
+ * export all call this helper so `plan == prove == run` cannot drift by
+ * open-coding the composition.
  *
  * Internal only — not re-exported from the package index or the `./policy`
  * public subpath. `ResolvedProfile` remains the public safe-composition surface.
  * Bare `resolveView` (without scope) stays legitimate for diff/seed paths.
  */
 import { diff, subjectOf, type Delta } from "../core/diff.ts";
-import type { DependencyEdge, FactBase } from "../core/fact.ts";
+import {
+  buildFactBase,
+  isPlatformDefaultPublicOwner,
+  retainOwnerRoleDangling,
+  type DependencyEdge,
+  type FactBase,
+} from "../core/fact.ts";
 import type { PayloadValue } from "../core/hash.ts";
 import { encodeId, parseId, type StableId } from "../core/stable-id.ts";
 import type { ApplierCapability } from "./capability.ts";
-import { resolveView, type Policy } from "./policy.ts";
+import { flattenPolicy, resolveView, type Policy } from "./policy.ts";
 import {
   projectManagementScope,
   type ManagementScope,
@@ -46,14 +55,43 @@ interface ReconstructManagedViewOptions {
 }
 
 /**
+ * A dump omits `public → pg_database_owner`. The shadow still has that
+ * catalog default; dropping the edge here (not at extract) keeps catalog
+ * truth on the fact base and treats "files said nothing" as implicit
+ * defaultOwner for the diff. Live/snapshot keep the edge so DB→DB can reown.
+ */
+function dropSqlFilesPlatformDefaultOwner(
+  fb: FactBase,
+  implicitOwner: string | undefined,
+): FactBase {
+  if (fb.source !== "sqlFiles" || implicitOwner === undefined) return fb;
+  const edges = fb.edges.filter((e) => !isPlatformDefaultPublicOwner(e));
+  if (edges.length === fb.edges.length) return fb;
+  const next = buildFactBase(
+    [...fb.facts()],
+    edges,
+    fb.source,
+    fb.referenceOnly,
+    { allowDangling: retainOwnerRoleDangling },
+  );
+  next.diagnostics.push(...fb.diagnostics);
+  return next;
+}
+
+/**
  * Rebuild the managed-view-under-scope: policy/capability/baseline projection,
- * then management-scope role pruning.
+ * then management-scope role pruning, then the sqlFiles implicit-owner prune.
  */
 export function reconstructManagedView(
   fb: FactBase,
   opts: ReconstructManagedViewOptions = {},
 ): FactBase {
   const scope = opts.scope ?? "cluster";
+  const implicitOwner =
+    opts.defaultOwner ??
+    (opts.policy !== undefined
+      ? flattenPolicy(opts.policy).defaultOwner
+      : undefined);
   const view = resolveView(
     fb,
     opts.policy,
@@ -61,7 +99,7 @@ export function reconstructManagedView(
     opts.baseline,
     opts.collectSuppression,
   );
-  return projectManagementScope(view, scope, {
+  const projected = projectManagementScope(view, scope, {
     ...(opts.defaultOwner !== undefined
       ? { defaultOwner: opts.defaultOwner }
       : {}),
@@ -69,6 +107,7 @@ export function reconstructManagedView(
       ? { collectSuppression: opts.collectSuppression }
       : {}),
   });
+  return dropSqlFilesPlatformDefaultOwner(projected, implicitOwner);
 }
 
 export interface ProjectionAuditEntry {

@@ -20,7 +20,7 @@
 import { createHash } from "node:crypto";
 import {
   buildFactBase,
-  edgesForExtract,
+  isPlatformDefaultPublicOwner,
   retainOwnerRoleDangling,
   type FactBase,
 } from "../core/fact.ts";
@@ -941,11 +941,12 @@ export function exportSqlFiles(
     return fb.referenceOnly.has(key) && !members.has(key);
   });
   const baseline = buildFactBase(pristine, []);
-  // PG15+ `public` is owned by `pg_database_owner`. Live extract keeps the
-  // edge so DB→DB can reown; dumps and sqlFiles extract omit it.
+  // PG15+ `public` is owned by `pg_database_owner`. Extract keeps the edge;
+  // dumps omit `OWNER TO` for it (plan-time reconstruct drops the same edge
+  // on sqlFiles when defaultOwner is set).
   const exportDesired = buildFactBase(
     [...fb.facts()],
-    edgesForExtract(fb.edges, "sqlFiles"),
+    fb.edges.filter((e) => !isPlatformDefaultPublicOwner(e)),
     fb.source,
     fb.referenceOnly,
     { allowDangling: retainOwnerRoleDangling },

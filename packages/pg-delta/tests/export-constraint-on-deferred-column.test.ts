@@ -26,7 +26,6 @@ import { extract } from "../src/extract/extract.ts";
 import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
 import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
 import { createTestDb } from "./containers.ts";
-import { dumpShapedRootHash } from "./dump-shaped.ts";
 
 const SCHEMA_SQL = `
   CREATE SCHEMA s;
@@ -77,7 +76,7 @@ describe("export: key constraint on a deferred column", () => {
       `);
 
       const loaded = await loadSqlFiles(files, shadow.pool);
-      expect(loaded.factBase.rootHash).toBe(dumpShapedRootHash(fb));
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
     } finally {
       await Promise.all([src.drop(), shadow.drop()]);
     }

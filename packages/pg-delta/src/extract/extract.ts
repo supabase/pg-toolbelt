@@ -43,7 +43,6 @@ import { connectWithErrorListener } from "../pg-client.ts";
 import type { Diagnostic } from "../core/diagnostic.ts";
 import {
   buildFactBase,
-  edgesForExtract,
   retainBuiltinOwnerDangling,
   type DependencyEdge,
   type Fact,
@@ -549,15 +548,9 @@ async function extractOnClient(
   // building — a satellite with a missing target would otherwise throw
   const pruned = pruneOrphanedSatellites(ctx.facts);
   ctx.diagnostics.push(...pruned.diagnostics);
-  let factBase = buildFactBase(
-    pruned.facts,
-    edgesForExtract(ctx.edges, source),
-    source,
-    undefined,
-    {
-      allowDangling: retainBuiltinOwnerDangling,
-    },
-  );
+  let factBase = buildFactBase(pruned.facts, ctx.edges, source, undefined, {
+    allowDangling: retainBuiltinOwnerDangling,
+  });
 
   // Extension handlers run HERE — on the same snapshot-bound client, inside the
   // still-open REPEATABLE READ transaction (extract() COMMITs only after this
@@ -580,7 +573,7 @@ async function extractOnClient(
     if (extraFacts.length > 0 || extraEdges.length > 0) {
       factBase = buildFactBase(
         [...factBase.facts(), ...extraFacts],
-        edgesForExtract([...factBase.edges, ...extraEdges], source),
+        [...factBase.edges, ...extraEdges],
         source,
         undefined,
         { allowDangling: retainBuiltinOwnerDangling },
