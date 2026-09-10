@@ -1645,7 +1645,12 @@ profiles keep the previous all-reference-only behavior); `plan` keeps
 desired-side identities that the source already marked reference-only, so a
 shadow-seeded `auth.users` that re-extracts as `postgres` is not hard-pruned
 (`postgres` cannot `OWNER TO supabase_admin` at seed replay); `assumedExtensions`
-is included in the seed gate like `assumedPublications`. Parked:
+is included in the seed gate like `assumedPublications`. Round 3: reverse-depends
+cascade roots present on exactly one unaligned side (`Plan.cascadeAlignedIds`)
+so a definition change that only one side depends on an excluded object is not
+DROP/CREATE; apply/prove replay the list; `provePlan` reconstructs desired
+with the clone's reference-only set; empty `cascadeAlignedIds` is omitted from
+planId. Parked:
 
 - **Deferred — cascade diagnostics on export / `diff` (P2).**
   `excludedByCascadeDiagnostics` is attached from `plan()`. `schema
@@ -1695,3 +1700,22 @@ is included in the seed gate like `assumedPublications`. Parked:
   in the same publication) is unusual. Fixing it means re-attributing
   those edges at `publicationRel` grain, which changes the seed shell
   contract; not a special-case in `expandDependentClosure` for this PR.
+- **Deferred — assumed-extension `COMMENT` children (P2, round 3).**
+  Moving `pg_graphql` / `pg_stat_statements` / `supabase_vault` to
+  `assumedExtensions` keeps the extension root reference-only, but
+  `comment` children still participate in the differ (Rule 10 matches
+  schema, not an extension target). Image-to-image comment drift can
+  therefore emit `COMMENT ON EXTENSION`. Suppressing those satellites
+  is a policy-filter / grain change, not required for CLI-2300 / CLI-2342
+  cascade alignment.
+- **Deferred — `managedBy` / capability reverse-depends alignment (P2, round 3).**
+  `cascadeAlignedIdsFrom` keeps `policyScopeRule` + `EXCLUDED_BY_CASCADE_REASON`.
+  Pgmq/partman `managedBy` projection uses the same reverse-depends walk but
+  stage `managedBy`, so a user view over a queue table that only one side
+  still has can still plan CREATE/DROP. Expanding the stage filter is a
+  generic alignment generalization, not the pgsodium / schema_migrations
+  path this PR fixes.
+- **Deferred — `provePlan` e2e for `keepAssumedIds` (P2, round 3).**
+  The unit pin reconstructs with the same `keepAssumedIds` + `alignedIds`
+  recipe `provePlan` uses; it does not call `provePlan` (that path needs a
+  pool). A fake-`reextract` prove test would catch the wiring being deleted.

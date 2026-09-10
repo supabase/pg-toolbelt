@@ -721,19 +721,31 @@ export async function provePlan(
         `as options.baseline so the proof compares the same view the plan diffed.`,
     );
   }
+  const alignedIds =
+    thePlan.cascadeAlignedIds !== undefined &&
+    thePlan.cascadeAlignedIds.length > 0
+      ? new Set(thePlan.cascadeAlignedIds)
+      : undefined;
   const viewOpts = {
     policy,
     capability,
     baseline: options.baseline,
     scope: thePlan.scope,
     defaultOwner: thePlan.defaultOwner,
+    ...(alignedIds !== undefined ? { alignedIds } : {}),
   };
   const reextractClone = (): Promise<{ factBase: FactBase }> =>
     options.reextract
       ? options.reextract(clonePool)
       : extract(clonePool, { redactSecrets: thePlan.redactSecrets ?? true });
-  const managedView = (factBase: FactBase): FactBase =>
-    reconstructManagedView(factBase, viewOpts);
+  const managedView = (
+    factBase: FactBase,
+    keepAssumedIds?: ReadonlySet<string>,
+  ): FactBase =>
+    reconstructManagedView(factBase, {
+      ...viewOpts,
+      ...(keepAssumedIds !== undefined ? { keepAssumedIds } : {}),
+    });
 
   // Validate every immutable input before table scans, auto-seeding, or DDL.
   // A stale/wrong desired snapshot used to be discovered only after the clone
@@ -767,7 +779,20 @@ export async function provePlan(
 
   // The plan target is the managed, projected desired view. Reconstruct it
   // exactly as the final convergence comparison does, but before mutation.
-  const target = managedView(projectTarget(desired, thePlan.filteredDeltas));
+  // Clone extract first: desired may need the live side's reference-only set
+  // (shadow-seeded platform tables re-extract as the applier).
+  const cloneRaw = (await reextractClone()).factBase;
+  const sourceUnaligned = reconstructManagedView(cloneRaw, {
+    policy,
+    capability,
+    baseline: options.baseline,
+    scope: thePlan.scope,
+    defaultOwner: thePlan.defaultOwner,
+  });
+  const target = managedView(
+    projectTarget(desired, thePlan.filteredDeltas),
+    sourceUnaligned.referenceOnly,
+  );
   if (target.rootHash !== thePlan.target.fingerprint) {
     return {
       ok: false,
@@ -785,7 +810,7 @@ export async function provePlan(
     };
   }
 
-  const initialClone = managedView((await reextractClone()).factBase);
+  const initialClone = managedView(cloneRaw);
   if (initialClone.rootHash !== thePlan.source.fingerprint) {
     return {
       ok: false,

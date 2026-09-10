@@ -2,7 +2,8 @@
  * Single reconstruction entry point for the managed view under management scope
  * (docs/architecture/managed-view-architecture.md; agent track V1).
  *
- * Order is fixed: `resolveView` THEN `projectManagementScope`. A policy
+ * Order is fixed: `resolveView` THEN `projectManagementScope`, then an
+ * optional parent-chain strip of `alignedIds` (`Plan.cascadeAlignedIds`). A policy
  * owner-exclusion rule reads the `owner` edge, and database-scope role pruning
  * removes those edges with the role facts — projecting scope first would strip
  * the edge the policy needs and wrongly plan a DROP of a platform object owned
@@ -27,6 +28,7 @@ import type { ApplierCapability } from "./capability.ts";
 import { resolveView, type Policy } from "./policy.ts";
 import {
   EXCLUDED_BY_CASCADE_REASON,
+  excludeIdentitiesAndChildren,
   projectManagementScope,
   type ManagementScope,
   type ProjectionAuditClassification,
@@ -52,11 +54,15 @@ interface ReconstructManagedViewOptions {
     | undefined;
   /** Encoded ids the peer catalog kept reference-only (see `resolveView`). */
   keepAssumedIds?: ReadonlySet<string> | undefined;
+  /** Encoded ids to strip after policy/scope (parent-chain only). Replay of
+   *  `Plan.cascadeAlignedIds` so apply/prove match the plan fingerprints. */
+  alignedIds?: ReadonlySet<string> | undefined;
 }
 
 /**
  * Rebuild the managed-view-under-scope: policy/capability/baseline projection,
- * then management-scope role pruning.
+ * then management-scope role pruning, then optional `alignedIds` parent-chain
+ * strip.
  */
 export function reconstructManagedView(
   fb: FactBase,
@@ -71,7 +77,7 @@ export function reconstructManagedView(
     opts.collectSuppression,
     opts.keepAssumedIds,
   );
-  return projectManagementScope(view, scope, {
+  const scoped = projectManagementScope(view, scope, {
     ...(opts.defaultOwner !== undefined
       ? { defaultOwner: opts.defaultOwner }
       : {}),
@@ -79,6 +85,7 @@ export function reconstructManagedView(
       ? { collectSuppression: opts.collectSuppression }
       : {}),
   });
+  return excludeIdentitiesAndChildren(scoped, opts.alignedIds);
 }
 
 export interface ProjectionAuditEntry {
@@ -431,6 +438,23 @@ export function auditManagedViewProjection(
 export interface TracedSuppression {
   side: "source" | "desired";
   suppression: ProjectionSuppression;
+}
+
+/** Reverse-depends cascade victims (not parent-chain kids of a policy exclude).
+ *  The planner keeps those present on exactly one unaligned side so a
+ *  one-sided dependency skip is not a presence change, and a desired-only
+ *  skip is not stamped onto apply's source fingerprint. */
+export function cascadeAlignedIdsFrom(
+  suppressions: readonly TracedSuppression[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const { suppression } of suppressions) {
+    if (suppression.subject.kind !== "fact") continue;
+    if (suppression.stage !== "policyScopeRule") continue;
+    if (suppression.reasonCode !== EXCLUDED_BY_CASCADE_REASON) continue;
+    ids.add(encodeId(suppression.subject.id));
+  }
+  return ids;
 }
 
 const CASCADE_DIAG_SKIP = new Set(["column", "default", "constraint"]);

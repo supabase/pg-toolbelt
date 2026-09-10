@@ -257,8 +257,10 @@ function reviver(_key: string, value: unknown): unknown {
  * includes `planId` itself. `undefined` profile/scope/policy (direct
  * library / cluster-default) are omitted by canonicalize, not replaced
  * with invented strings. Absent `acceptedRenames` hashes as `[]`.
- * The preamble is hashed because apply executes it per segment — it is
- * run content, exactly like the action list, not reporting metadata.
+ * Absent or empty `cascadeAlignedIds` is omitted so same-engine artifacts
+ * without the field keep their planId. The preamble is hashed because apply
+ * executes it per segment — it is run content, exactly like the action
+ * list, not reporting metadata.
  */
 export function computePlanId(plan: Omit<Plan, "planId">): string {
   const payload: Payload = {
@@ -271,6 +273,10 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
       value: entry.value,
     })),
     acceptedRenames: plan.acceptedRenames ?? [],
+    cascadeAlignedIds:
+      plan.cascadeAlignedIds !== undefined && plan.cascadeAlignedIds.length > 0
+        ? plan.cascadeAlignedIds
+        : undefined,
     actions: plan.actions.map((action) => ({
       sql: action.sql,
       verb: action.verb,
@@ -354,6 +360,16 @@ export function parsePlan(json: string): Plan {
       exactKeys(rename, ["from", "to"], [], `acceptedRenames[${index}]`);
       assertStableId(rename["from"], `acceptedRenames[${index}].from`);
       assertStableId(rename["to"], `acceptedRenames[${index}].to`);
+    });
+  }
+  if (artifact.cascadeAlignedIds !== undefined) {
+    if (!Array.isArray(artifact.cascadeAlignedIds)) {
+      fail("cascadeAlignedIds", "an array of encoded ids");
+    }
+    artifact.cascadeAlignedIds.forEach((id, index) => {
+      if (typeof id !== "string" || id.length === 0) {
+        fail(`cascadeAlignedIds[${index}]`, "a non-empty string");
+      }
     });
   }
   if (!record(artifact.source) || !record(artifact.target)) {

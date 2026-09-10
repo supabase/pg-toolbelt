@@ -11,6 +11,7 @@ import { EXCLUDED_BY_CASCADE } from "../core/diagnostic.ts";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan } from "../plan/plan.ts";
+import { reconstructManagedView } from "./reconstruct.ts";
 import { supabasePolicy } from "./supabase.ts";
 
 const f = (
@@ -303,6 +304,9 @@ describe("CLI-2342 — dependents of an excluded platform extension", () => {
           encodeId(d.subject) === encodeId(view),
       ),
     ).toBe(true);
+    // Desired-only cascade victims are not stamped: apply would otherwise
+    // strip a later-created same-id object from the source fingerprint.
+    expect(p.cascadeAlignedIds ?? []).toEqual([]);
   });
 
   test("live catalog vs table-only files: TCE artefacts are not dropped", () => {
@@ -449,5 +453,161 @@ describe("image-provisioned excluded extensions stay reference-only", () => {
     });
     expect(mentions(sqlOf(p), /CREATE VIEW/i)).toBe(false);
     expect(mentions(sqlOf(p), /CREATE EXTENSION/i)).toBe(false);
+  });
+});
+
+describe("one-sided reverse-depends cascade aligns presence", () => {
+  const publicSchema: StableId = { kind: "schema", name: "public" };
+  const pgsodium: StableId = { kind: "extension", name: "pgsodium" };
+  const v: StableId = { kind: "view", schema: "public", name: "v" };
+  const w: StableId = { kind: "view", schema: "public", name: "w" };
+
+  const select1 = () =>
+    buildFactBase(
+      [f(publicSchema), f(v, publicSchema, { def: "SELECT 1 AS x" })],
+      [],
+    );
+  const selectPgsodium = () =>
+    buildFactBase(
+      [
+        f(publicSchema),
+        f(pgsodium, undefined, { version: "3.1.8", _relocatable: false }),
+        f(v, publicSchema, { def: "SELECT pgsodium.foo() AS x" }),
+      ],
+      [{ from: v, to: pgsodium, kind: "depends" }],
+    );
+
+  test("changing an existing view to depend on an excluded extension is not DROP VIEW", () => {
+    const p = plan(select1(), selectPgsodium(), { policy: supabasePolicy });
+    const sql = sqlOf(p);
+    expect(mentions(sql, /DROP VIEW/i)).toBe(false);
+    expect(mentions(sql, /CREATE VIEW/i)).toBe(false);
+    expect(mentions(sql, /CREATE EXTENSION/i)).toBe(false);
+    expect(
+      p.diagnostics?.some(
+        (d) =>
+          d.code === EXCLUDED_BY_CASCADE &&
+          d.subject !== undefined &&
+          encodeId(d.subject) === encodeId(v),
+      ),
+    ).toBe(true);
+    expect(p.cascadeAlignedIds).toContain(encodeId(v));
+    const unaligned = reconstructManagedView(select1(), {
+      policy: supabasePolicy,
+    });
+    expect(unaligned.rootHash).not.toBe(p.source.fingerprint);
+    const aligned = reconstructManagedView(select1(), {
+      policy: supabasePolicy,
+      alignedIds: new Set(p.cascadeAlignedIds ?? []),
+    });
+    expect(aligned.rootHash).toBe(p.source.fingerprint);
+    expect(aligned.get(v)).toBeUndefined();
+  });
+
+  test("a view that exists only on the desired side is skipped, not aligned", () => {
+    const p = plan(buildFactBase([f(publicSchema)], []), selectPgsodium(), {
+      policy: supabasePolicy,
+    });
+    expect(mentions(sqlOf(p), /CREATE VIEW/i)).toBe(false);
+    expect(p.cascadeAlignedIds ?? []).not.toContain(encodeId(v));
+  });
+
+  test("reversing that change is not CREATE VIEW of an object that still exists", () => {
+    const p = plan(selectPgsodium(), select1(), { policy: supabasePolicy });
+    const sql = sqlOf(p);
+    expect(mentions(sql, /CREATE VIEW/i)).toBe(false);
+    expect(mentions(sql, /DROP VIEW/i)).toBe(false);
+    expect(p.cascadeAlignedIds).toContain(encodeId(v));
+  });
+
+  test("aligning a cascaded view does not reverse-cascade a peer that only depends on it", () => {
+    const live = buildFactBase(
+      [
+        f(publicSchema),
+        f(v, publicSchema, { def: "SELECT 1 AS x" }),
+        f(w, publicSchema, { def: "SELECT 1 AS x" }),
+      ],
+      [{ from: w, to: v, kind: "depends" }],
+    );
+    const files = buildFactBase(
+      [
+        f(publicSchema),
+        f(pgsodium, undefined, { version: "3.1.8", _relocatable: false }),
+        f(v, publicSchema, { def: "SELECT pgsodium.foo() AS x" }),
+        f(w, publicSchema, { def: "SELECT 1 AS x" }),
+      ],
+      [{ from: v, to: pgsodium, kind: "depends" }],
+    );
+    const p = plan(live, files, { policy: supabasePolicy });
+    expect(mentions(sqlOf(p), /DROP VIEW/i)).toBe(false);
+    expect(mentions(sqlOf(p), /CREATE VIEW/i)).toBe(false);
+    const aligned = reconstructManagedView(live, {
+      policy: supabasePolicy,
+      alignedIds: new Set(p.cascadeAlignedIds ?? []),
+    });
+    expect(aligned.get(v)).toBeUndefined();
+    expect(aligned.get(w)).toBeDefined();
+  });
+
+  test("a shadow-seeded desired fingerprint needs the live peer's assumed ids", () => {
+    const admin: StableId = { kind: "role", name: "supabase_admin" };
+    const postgres: StableId = { kind: "role", name: "postgres" };
+    const authSchema: StableId = { kind: "schema", name: "auth" };
+    const users: StableId = { kind: "table", schema: "auth", name: "users" };
+    const fn: StableId = {
+      kind: "function",
+      schema: "public",
+      name: "on_mig",
+      args: [],
+    };
+    const authTrigger: StableId = {
+      kind: "trigger",
+      schema: "auth",
+      table: "users",
+      name: "on_auth_user_created",
+    };
+    const publicSchema: StableId = { kind: "schema", name: "public" };
+    const live = buildFactBase(
+      [
+        f(admin),
+        f(authSchema),
+        f(users, authSchema, { persistence: "p" }),
+        f(publicSchema),
+      ],
+      [{ from: users, to: admin, kind: "owner" }],
+    );
+    const shadow = buildFactBase(
+      [
+        f(postgres),
+        f(authSchema),
+        f(users, authSchema, { persistence: "p" }),
+        f(publicSchema),
+        f(fn, publicSchema, {
+          def: "CREATE FUNCTION public.on_mig() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
+          kind: "f",
+        }),
+        f(authTrigger, users, {
+          def: "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.on_mig()",
+          enabled: "O",
+        }),
+      ],
+      [
+        { from: users, to: postgres, kind: "owner" },
+        { from: authTrigger, to: fn, kind: "depends" },
+      ],
+    );
+    const p = plan(live, shadow, { policy: supabasePolicy });
+    expect(
+      reconstructManagedView(shadow, { policy: supabasePolicy }).rootHash,
+    ).not.toBe(p.target.fingerprint);
+    const sourceUnaligned = reconstructManagedView(live, {
+      policy: supabasePolicy,
+    });
+    const desired = reconstructManagedView(shadow, {
+      policy: supabasePolicy,
+      keepAssumedIds: sourceUnaligned.referenceOnly,
+      alignedIds: new Set(p.cascadeAlignedIds ?? []),
+    });
+    expect(desired.rootHash).toBe(p.target.fingerprint);
   });
 });

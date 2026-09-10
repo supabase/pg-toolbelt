@@ -438,3 +438,11 @@ This is the principled fix for CLI-2178 (a user view over a suppressed
 wrappers foreign table): the view's `depends` edge now pulls it out of the
 view with the same diagnostic instead of planning a CREATE that fails at
 apply.
+
+Reverse-depends is per catalog. If the same identity exists on both sides and
+only one definition depends on an excluded object, `plan()` stamps that id
+and strips it from **both** views (parent-chain only — not a second reverse-
+`depends` walk). The object is left as-is; apply/prove replay the id list from
+`Plan.cascadeAlignedIds` so fingerprints match a one-catalog reconstruct. An
+identity cascaded on only one side (new or dropped) is not stamped, so apply
+does not hide later same-id drift in the source fingerprint.

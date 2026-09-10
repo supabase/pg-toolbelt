@@ -203,6 +203,12 @@ export interface Plan {
    *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
    *  Not part of planId — reporting metadata, not approved run content. */
   diagnostics?: Diagnostic[];
+  /** Encoded identities reverse-depends cascade removed on exactly one
+   *  unaligned side. Stripped from both managed views (parent-chain only) so
+   *  a one-sided dependency skip is not a DROP/CREATE. Omitted when empty.
+   *  Hashed into planId only when non-empty; apply/prove replay this list on
+   *  one-catalog reconstructs. */
+  cascadeAlignedIds?: string[];
 }
 
 export interface PlanOptions {
@@ -405,6 +411,7 @@ export function plan(
     renameCandidates,
     acceptedRenames,
     projectionSuppressions,
+    cascadeAlignedIds,
   } = buildChangeSet(rawSource, rawDesired, options, rulesForId);
 
   // The change set already reconstructed BOTH managed views under exactly these
@@ -821,5 +828,6 @@ export function plan(
     // secret values/keys are not schema state. Omitted when empty so corpus
     // artifacts stay byte-identical. Not hashed into planId.
     ...(diagnostics.length > 0 ? { diagnostics } : {}),
+    ...(cascadeAlignedIds.length > 0 ? { cascadeAlignedIds } : {}),
   });
 }

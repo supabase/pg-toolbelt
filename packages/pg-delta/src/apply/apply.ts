@@ -301,13 +301,18 @@ export async function apply(
                 }))
           ).factBase;
     // reconstruct the SAME managed-view-under-scope the plan fingerprinted
-    // (`reconstructManagedView` seals resolveView → scope; defaults cluster).
+    // (`reconstructManagedView` seals resolveView → scope → alignedIds;
+    // defaults cluster).
     const view = reconstructManagedView(raw, {
       policy: thePlan.policy,
       capability: thePlan.capability,
       baseline: options?.baseline,
       scope: thePlan.scope,
       defaultOwner: thePlan.defaultOwner,
+      alignedIds:
+        thePlan.cascadeAlignedIds !== undefined
+          ? new Set(thePlan.cascadeAlignedIds)
+          : undefined,
     });
     // KNOWN PITFALL (acknowledged, by design): the fingerprint folds the WHOLE
     // resolved view, INCLUDING `referenceOnly` assumed-schema facts (e.g.

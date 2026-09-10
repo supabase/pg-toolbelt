@@ -298,16 +298,21 @@ export interface ComputedExclusion {
 
 /** Compute (without building) the exclusion of `rootIds` + descendants +
  *  reverse-depends closure. An empty `rootIds` keeps every fact and every
- *  edge — the identity projection. */
+ *  edge — the identity projection. `reverseDepends: false` is parent-chain
+ *  only — used to replay cross-side cascade alignment without walking
+ *  `depends` again (that walk would drop a peer that merely referenced a
+ *  cascaded identity). */
 export function computeExclusion(
   fb: FactBase,
   rootIds: ReadonlySet<string>,
+  options?: { reverseDepends?: boolean },
 ): ComputedExclusion {
   const removed = new Set<string>();
   const kept = new Set<string>();
   for (const fact of fb.facts())
     resolveRemoval(fb, rootIds, removed, kept, fact);
-  expandDependentClosure(fb, removed, kept);
+  if (options?.reverseDepends !== false)
+    expandDependentClosure(fb, removed, kept);
   const keptFacts: Fact[] = fb
     .facts()
     .filter((f) => !removed.has(encodeId(f.id)));
@@ -365,6 +370,19 @@ export function excludeFactsAndDescendants(
 ): FactBase {
   if (rootIds.size === 0) return fb;
   return buildExclusion(fb, computeExclusion(fb, rootIds));
+}
+
+/** Drop `rootIds` and their parent-chain children. Does not walk reverse
+ *  `depends` — see `computeExclusion` (`reverseDepends: false`). */
+export function excludeIdentitiesAndChildren(
+  fb: FactBase,
+  rootIds: ReadonlySet<string> | undefined,
+): FactBase {
+  if (rootIds === undefined || rootIds.size === 0) return fb;
+  return buildExclusion(
+    fb,
+    computeExclusion(fb, rootIds, { reverseDepends: false }),
+  );
 }
 
 /** Management scope of a declarative apply (target-architecture §scope). */
