@@ -70,10 +70,7 @@ describe("apply() onEvent observer", () => {
         expect(e?.kind === "actionEnd" && e.ms).toBeGreaterThanOrEqual(0);
       }
 
-      // events interleave in the order apply() executes them: every
-      // actionStart[i] is followed by its actionEnd[i] BEFORE the next
-      // actionStart[i+1] begins — a refactor that batches starts or ends
-      // would break the trace's statement-by-statement story.
+      // default apply interleaves start/end per action.
       const startPositions: number[] = [];
       const endPositions: number[] = [];
       events.forEach((e, pos) => {
@@ -131,7 +128,6 @@ describe("apply() onEvent observer", () => {
       ).toBe(true);
       expect(controlEvents.some((e) => e.sql === "COMMIT")).toBe(true);
 
-      // ordering: BEGIN -> preamble SET -> first actionStart ... last actionEnd -> COMMIT -> segmentEnd
       const beginPos = events.findIndex(
         (e) => e.kind === "control" && e.sql === "BEGIN",
       );

@@ -498,7 +498,12 @@ valid when nothing else reads the target during apply. A single action
 that still exceeds the budget stays in its own segment; Postgres may still
 fail mid-statement. Parallel DDL stays rejected — `ACCESS EXCLUSIVE` locks
 make it a deadlock machine, and the transaction is the atomicity contract.
-Per-statement error attribution replaces a joined-string megaquery.
+Transactional segments default to one query per action. Opt-in
+`batchTransactional` sends a segment as bounded simple-protocol batches;
+the failing statement is the slot that contains `error.position` when
+Postgres sends it, otherwise the first that did not emit CommandComplete.
+`COMMIT` stays its own round trip so a lost commit is still the only
+`inDoubt` case.
 
 ### 3.9 Integrations: a policy layer over deltas
 

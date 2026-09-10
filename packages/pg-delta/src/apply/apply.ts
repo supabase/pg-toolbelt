@@ -6,6 +6,9 @@
  * Segmentation changes transaction boundaries only, never order.
  * Apply honors `newSegmentBefore` already on the plan and does not
  * probe or split. Callers who want extra COMMITs run `splitPlan` first.
+ * Transactional segments default to one query per statement. Opt in with
+ * `batchTransactional` to send BEGIN + preamble + actions as bounded
+ * simple-protocol batches; COMMIT is still its own round trip.
  *
  * Mid-plan failure semantics are explicit: every action is reported
  * applied / unapplied / inDoubt, and the error identifies whether an action
@@ -23,6 +26,14 @@ import { ENGINE_VERSION, type Plan } from "../plan/plan.ts";
 import { assertDestructionMetadataIntegrity } from "../plan/safety.ts";
 import { reconstructManagedView } from "../policy/reconstruct.ts";
 import { buildApplyPreamble } from "./apply-preamble.ts";
+import {
+  assertActionSqlBatchable,
+  completedBeforeError,
+  encodeBatch,
+  failedBatchIndex,
+  partitionByBatchBounds,
+  querySimpleBatch,
+} from "./batch-query.ts";
 
 export {
   computeLockTableBudget,
@@ -55,6 +66,10 @@ export interface ApplyError {
 type ApplyStatementKind = NonNullable<ApplyError["statementKind"]>;
 type ProducedApplyError = ApplyError & { statementKind: ApplyStatementKind };
 
+type BatchStatement =
+  | { kind: "control"; sql: string }
+  | { kind: "action"; sql: string; actionIndex: number };
+
 export interface ApplyReport {
   status: "applied" | "failed";
   /** count of actions in committed segments */
@@ -70,11 +85,14 @@ export interface ApplyReport {
  *
  *  The applied statements are planner-rendered atomic DDL, not the authored
  *  declarative SQL, so `actionStart`/`actionEnd` alone are not a complete
- *  record of the wire:   `control` covers every OTHER statement apply() sends
+ *  record of the wire: `control` covers every OTHER statement apply() sends
  *  on the same connection — `BEGIN`, each preamble `SET`/`SET LOCAL`,
- *  `COMMIT`, `ROLLBACK` (including best-effort rollbacks on an error path),
- *  and `RESET ALL` — so a `--verbose` trace shows exactly what ran,
- *  transaction framing included. */
+ *  each transactional simple-protocol batch when `batchTransactional` is
+ *  on (`BEGIN` + preamble + actions, split at 500 statements / 1 MiB),
+ *  `COMMIT` (its own round trip), `ROLLBACK` (including best-effort
+ *  rollbacks on an error path), and `RESET ALL`. When batched,
+ *  `actionStart` fires before the batch Query is submitted and
+ *  `actionEnd.ms` is that batch's duration. */
 export type ApplyEvent =
   | {
       kind: "segmentStart";
@@ -126,6 +144,10 @@ export interface ApplyOptions {
    *  boundaries as apply() executes. Purely additive — see `emit` below for
    *  the isolation guarantee. */
   onEvent?: (event: ApplyEvent) => void;
+  /** Opt-in: send each transactional segment as bounded simple-protocol
+   *  batches instead of one query per action. Default off so apply can
+   *  fall back to the classic path if batching mis-attributes a failure. */
+  batchTransactional?: boolean;
 }
 
 export interface Segment {
@@ -309,6 +331,12 @@ export async function apply(
   const statuses: ActionStatus[] = thePlan.actions.map(() => "unapplied");
   let appliedActions = 0;
 
+  // Plan invariant, not a mid-apply failure: refuse empty / txn-control
+  // SQL before connecting so a later segment cannot commit earlier ones.
+  for (const action of thePlan.actions) {
+    assertActionSqlBatchable(action.sql);
+  }
+
   const client = await connectWithErrorListener(target);
   let destroyClient = false;
   try {
@@ -437,48 +465,182 @@ export async function apply(
         continue;
       }
 
-      let setupSql = "BEGIN";
-      try {
-        emit(onEvent, { kind: "control", sql: "BEGIN" });
-        await client.query("BEGIN");
-        for (const sql of buildApplyPreamble(thePlan, options, true)) {
-          setupSql = sql;
-          emit(onEvent, { kind: "control", sql });
-          await client.query(sql);
-        }
-      } catch (error) {
-        emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+      if (options?.batchTransactional !== true) {
+        let setupSql = "BEGIN";
         try {
-          await client.query("ROLLBACK");
-        } catch {
-          destroyClient = true;
-        }
-        emit(onEvent, {
-          kind: "segmentEnd",
-          segmentIndex: segIdx,
-          outcome: "failed",
-        });
-        return {
-          status: "failed",
-          appliedActions,
-          actionStatuses: statuses,
-          error: errorEntry(segment.start, "control", setupSql, error),
-        };
-      }
-      for (let i = segment.start; i < segment.end; i++) {
-        const action = thePlan.actions[i]!;
-        emit(onEvent, { kind: "actionStart", actionIndex: i, sql: action.sql });
-        const actionStartedAt = performance.now();
-        try {
-          await client.query(action.sql);
+          emit(onEvent, { kind: "control", sql: "BEGIN" });
+          await client.query("BEGIN");
+          for (const sql of buildApplyPreamble(thePlan, options, true)) {
+            setupSql = sql;
+            emit(onEvent, { kind: "control", sql });
+            await client.query(sql);
+          }
         } catch (error) {
+          emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            destroyClient = true;
+          }
+          emit(onEvent, {
+            kind: "segmentEnd",
+            segmentIndex: segIdx,
+            outcome: "failed",
+          });
+          return {
+            status: "failed",
+            appliedActions,
+            actionStatuses: statuses,
+            error: errorEntry(segment.start, "control", setupSql, error),
+          };
+        }
+        for (let i = segment.start; i < segment.end; i++) {
+          const action = thePlan.actions[i]!;
+          emit(onEvent, {
+            kind: "actionStart",
+            actionIndex: i,
+            sql: action.sql,
+          });
+          const actionStartedAt = performance.now();
+          try {
+            await client.query(action.sql);
+          } catch (error) {
+            const actionElapsedMs = performance.now() - actionStartedAt;
+            emit(onEvent, {
+              kind: "actionEnd",
+              actionIndex: i,
+              ok: false,
+              ms: actionElapsedMs,
+            });
+            emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+            let rollbackSucceeded = true;
+            try {
+              await client.query("ROLLBACK");
+            } catch {
+              rollbackSucceeded = false;
+              destroyClient = true;
+            }
+            emit(onEvent, {
+              kind: "segmentEnd",
+              segmentIndex: segIdx,
+              outcome: rollbackSucceeded ? "rolledBack" : "failed",
+            });
+            return {
+              status: "failed",
+              appliedActions,
+              actionStatuses: statuses,
+              error: errorEntry(i, "action", action.sql, error),
+            };
+          }
           const actionElapsedMs = performance.now() - actionStartedAt;
           emit(onEvent, {
             kind: "actionEnd",
             actionIndex: i,
-            ok: false,
+            ok: true,
             ms: actionElapsedMs,
           });
+        }
+        try {
+          emit(onEvent, { kind: "control", sql: "COMMIT" });
+          await client.query("COMMIT");
+        } catch (error) {
+          // the commit itself failed: the segment's fate is unknown
+          for (let i = segment.start; i < segment.end; i++)
+            statuses[i] = "inDoubt";
+          emit(onEvent, { kind: "control", sql: "ROLLBACK" });
+          try {
+            await client.query("ROLLBACK");
+          } catch {
+            destroyClient = true;
+          }
+          emit(onEvent, {
+            kind: "segmentEnd",
+            segmentIndex: segIdx,
+            outcome: "inDoubt",
+          });
+          return {
+            status: "failed",
+            appliedActions,
+            actionStatuses: statuses,
+            error: errorEntry(segment.start, "control", "COMMIT", error),
+          };
+        }
+        for (let i = segment.start; i < segment.end; i++)
+          statuses[i] = "applied";
+        appliedActions += segment.end - segment.start;
+        emit(onEvent, {
+          kind: "segmentEnd",
+          segmentIndex: segIdx,
+          outcome: "committed",
+        });
+        continue;
+      }
+
+      const preamble = buildApplyPreamble(thePlan, options, true);
+      const batchStatements: BatchStatement[] = [
+        { kind: "control", sql: "BEGIN" },
+      ];
+      for (const sql of preamble) {
+        batchStatements.push({ kind: "control", sql });
+      }
+      for (let i = segment.start; i < segment.end; i++) {
+        const action = thePlan.actions[i]!;
+        batchStatements.push({
+          kind: "action",
+          sql: action.sql,
+          actionIndex: i,
+        });
+      }
+      const batches = partitionByBatchBounds(
+        batchStatements,
+        (statement) => statement.sql,
+      );
+      for (const batch of batches) {
+        const encoded = encodeBatch(batch.map((statement) => statement.sql));
+        emit(onEvent, { kind: "control", sql: encoded.text });
+        const batchActions: Extract<BatchStatement, { kind: "action" }>[] = [];
+        for (const statement of batch) {
+          if (statement.kind === "action") {
+            batchActions.push(statement);
+            emit(onEvent, {
+              kind: "actionStart",
+              actionIndex: statement.actionIndex,
+              sql: statement.sql,
+            });
+          }
+        }
+        const batchStartedAt = performance.now();
+        try {
+          await querySimpleBatch(
+            client,
+            batch.map((statement) => statement.sql),
+          );
+        } catch (error) {
+          const batchMs = performance.now() - batchStartedAt;
+          const failAt = failedBatchIndex(batch.length, error, encoded.ranges);
+          const failed =
+            failAt < batch.length
+              ? batch[failAt]
+              : (batchActions.at(-1) ?? batch.at(-1));
+          const ranBeforeFail = completedBeforeError(error) > 0;
+          for (const statement of batchActions) {
+            const slot = batch.indexOf(statement);
+            if (failed?.kind === "action" && statement === failed) {
+              emit(onEvent, {
+                kind: "actionEnd",
+                actionIndex: statement.actionIndex,
+                ok: false,
+                ms: batchMs,
+              });
+            } else if (ranBeforeFail && slot < Math.min(failAt, batch.length)) {
+              emit(onEvent, {
+                kind: "actionEnd",
+                actionIndex: statement.actionIndex,
+                ok: true,
+                ms: batchMs,
+              });
+            }
+          }
           emit(onEvent, { kind: "control", sql: "ROLLBACK" });
           let rollbackSucceeded = true;
           try {
@@ -490,28 +652,39 @@ export async function apply(
           emit(onEvent, {
             kind: "segmentEnd",
             segmentIndex: segIdx,
-            outcome: rollbackSucceeded ? "rolledBack" : "failed",
+            outcome:
+              failed?.kind === "action"
+                ? rollbackSucceeded
+                  ? "rolledBack"
+                  : "failed"
+                : "failed",
           });
           return {
             status: "failed",
             appliedActions,
             actionStatuses: statuses,
-            error: errorEntry(i, "action", action.sql, error),
+            error: errorEntry(
+              failed?.kind === "action" ? failed.actionIndex : segment.start,
+              failed?.kind === "action" ? "action" : "control",
+              failed?.sql ?? batch[0]?.sql ?? "BEGIN",
+              error,
+            ),
           };
         }
-        const actionElapsedMs = performance.now() - actionStartedAt;
-        emit(onEvent, {
-          kind: "actionEnd",
-          actionIndex: i,
-          ok: true,
-          ms: actionElapsedMs,
-        });
+        const batchMs = performance.now() - batchStartedAt;
+        for (const statement of batchActions) {
+          emit(onEvent, {
+            kind: "actionEnd",
+            actionIndex: statement.actionIndex,
+            ok: true,
+            ms: batchMs,
+          });
+        }
       }
       try {
         emit(onEvent, { kind: "control", sql: "COMMIT" });
         await client.query("COMMIT");
       } catch (error) {
-        // the commit itself failed: the segment's fate is unknown
         for (let i = segment.start; i < segment.end; i++)
           statuses[i] = "inDoubt";
         emit(onEvent, { kind: "control", sql: "ROLLBACK" });

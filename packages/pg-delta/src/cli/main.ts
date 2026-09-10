@@ -66,7 +66,7 @@ Commands:
                  [--renames auto|prompt|off] [--no-compact] [--out <plan.json>]
                  [--accept-rename <from>=<to>] ... [--max-locks <n>]
   apply          --plan <plan.json> --target <pg-url> [--force] [--allow-data-loss]
-                 [--max-locks <n>] [--split-to-fit]
+                 [--max-locks <n>] [--split-to-fit] [--batch-transactional]
   render         --plan <plan.json> --out <base>.sql [--allow-drops]
   prove          --plan <plan.json> --clone <pg-url> --desired-snapshot <file>
                  [--strict-audit] [--audit-all]
@@ -87,7 +87,7 @@ Commands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
-                 [--max-locks <n>] [--split-to-fit]
+                 [--max-locks <n>] [--split-to-fit] [--batch-transactional]
   schema lint    --dir <dir>
 
 Notes:
@@ -193,6 +193,10 @@ Notes:
     pack with the remaining budget. Mutually exclusive with --max-locks.
     A single action that still exceeds the budget stays in its own
     segment; Postgres may still fail mid-statement.
+  --batch-transactional (apply, schema apply): opt-in. Send each
+    transactional segment as bounded simple-protocol batches instead of
+    one query per statement. COMMIT stays its own round trip. Default is
+    one query per statement.
   --unsafe-show-secrets (plan, diff, drift, snapshot, schema export, schema apply):
     emit REAL foreign-data option values and subscription conninfo instead of
     redacted placeholders. Off by default; raises a loud warning when set.
@@ -226,7 +230,7 @@ Subcommands:
                  [--allow-same-database-identity]
                  [--accept-rename <from>=<to>] ... [--no-reorder]
                  [--dry-run] [--verbose] [--out-plan <plan.json>]
-                 [--max-locks <n>] [--split-to-fit]
+                 [--max-locks <n>] [--split-to-fit] [--batch-transactional]
   schema lint    --dir <dir>
                  Statically check the SQL files (pg-topo) for shadow-load
                  cycles and other issues, without touching a database.

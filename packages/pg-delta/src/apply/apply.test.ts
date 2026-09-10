@@ -13,6 +13,7 @@ import {
   planSegments,
   segmentActions,
 } from "./apply.ts";
+import { joinStatements } from "./batch-query.ts";
 
 const txn = (newSegmentBefore = false) => ({
   transactionality: "transactional" as const,
@@ -191,15 +192,51 @@ interface ScriptedApply {
   releases: Array<Error | boolean | undefined>;
 }
 
+function queryText(sql: unknown): string {
+  if (typeof sql === "string") return sql;
+  if (
+    sql !== null &&
+    typeof sql === "object" &&
+    "text" in sql &&
+    typeof (sql as { text: unknown }).text === "string"
+  ) {
+    return (sql as { text: string }).text;
+  }
+  return String(sql);
+}
+
+function markCompleted(query: unknown, n: number): void {
+  if (query !== null && typeof query === "object" && "completed" in query) {
+    (query as { completed: number }).completed = n;
+  }
+}
+
 function scriptedApplyClient(failingSql: ReadonlySet<string>): ScriptedApply {
   const queries: string[] = [];
   const releases: Array<Error | boolean | undefined> = [];
   const client = {
-    query: (sql: string) => {
-      queries.push(sql);
-      return failingSql.has(sql)
-        ? Promise.reject(new Error(`scripted failure: ${sql}`))
-        : Promise.resolve({ rows: [] });
+    query: (sql: unknown) => {
+      const text = queryText(sql);
+      queries.push(text);
+      const parts = text.includes("\n;")
+        ? text
+            .split(/\n;\n\n/)
+            .map((part) => part.replace(/\n;$/, "").trim())
+            .filter((part) => part.length > 0)
+        : [text.trim()].filter((part) => part.length > 0);
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]!;
+        if (failingSql.has(part)) {
+          markCompleted(sql, i);
+          return Promise.reject(
+            Object.assign(new Error(`scripted failure: ${part}`), {
+              completedBeforeError: i,
+            }),
+          );
+        }
+      }
+      markCompleted(sql, parts.length);
+      return Promise.resolve({ rows: [] });
     },
     release: (error?: Error | boolean) => releases.push(error),
     on: () => {},
@@ -465,6 +502,45 @@ describe("apply control-error attribution", () => {
     expect(segmentOutcomes(events)).toEqual(["failed"]);
     expect(scripted.releases).toEqual([true]);
   });
+
+  test("rejects an action whose SQL is a transaction control statement", async () => {
+    const scripted = scriptedApplyClient(new Set());
+    const base = planWithAction("transactional");
+    const { planId: _planId, ...rest } = base;
+    const thePlan = stampPlanId({
+      ...rest,
+      actions: [{ ...rest.actions[0]!, sql: "BEGIN" }],
+    });
+    let error: unknown;
+    try {
+      await apply(thePlan, scripted.pool, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/transaction control/);
+    expect(scripted.queries).toEqual([]);
+  });
+
+  test("rejects a later-segment transaction-control action before applying earlier segments", async () => {
+    const scripted = scriptedApplyClient(new Set());
+    const base = planWithAction("transactional");
+    const { planId: _planId, ...rest } = base;
+    const good = rest.actions[0]!;
+    const thePlan = stampPlanId({
+      ...rest,
+      actions: [good, { ...good, sql: "BEGIN", newSegmentBefore: true }],
+    });
+    let error: unknown;
+    try {
+      await apply(thePlan, scripted.pool, { fingerprintGate: false });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/transaction control/);
+    expect(scripted.queries).toEqual([]);
+  });
 });
 
 describe("apply plan integrity", () => {
@@ -612,5 +688,47 @@ describe("apply plan integrity", () => {
     expect((error as Error).message).toMatch(/planId/);
     expect((error as Error).message).toMatch(/re-plan/);
     expect(connected).toBe(false);
+  });
+});
+
+describe("apply batchTransactional opt-in", () => {
+  test("is off by default: one query per statement", async () => {
+    const scripted = scriptedApplyClient(new Set());
+    await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+    });
+    expect(scripted.queries).toEqual(["BEGIN", "SELECT 42", "COMMIT"]);
+  });
+
+  test("batches BEGIN and the action into one query when opted in", async () => {
+    const scripted = scriptedApplyClient(new Set());
+    await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      batchTransactional: true,
+    });
+    expect(scripted.queries).toEqual([
+      joinStatements(["BEGIN", "SELECT 42"]),
+      "COMMIT",
+    ]);
+  });
+
+  test("a batched BEGIN failure still names the control", async () => {
+    const scripted = scriptedApplyClient(new Set(["BEGIN"]));
+    const events: ApplyEvent[] = [];
+    const report = await apply(planWithAction("transactional"), scripted.pool, {
+      fingerprintGate: false,
+      batchTransactional: true,
+      onEvent: (event) => events.push(event),
+    });
+    expect(scripted.queries).toEqual([
+      joinStatements(["BEGIN", "SELECT 42"]),
+      "ROLLBACK",
+    ]);
+    expect(report.error).toMatchObject({
+      statementKind: "control",
+      sql: "BEGIN",
+    });
+    expect(events.some((event) => event.kind === "actionStart")).toBe(true);
+    expect(events.some((event) => event.kind === "actionEnd")).toBe(false);
   });
 });

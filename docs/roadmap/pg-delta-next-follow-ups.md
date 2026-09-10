@@ -1598,6 +1598,43 @@ target). Parked:
   ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
   contract change, not a packer fix.
 
+## CLI-2296 — batched transactional apply
+
+`apply()` can send each transactional segment as one or more bounded
+simple-protocol batches (`BEGIN` + preamble + actions, 500 statements /
+1 MiB) with `COMMIT` as its own round trip so `inDoubt` stays “lost
+COMMIT only”. This is **opt-in** (`batchTransactional` /
+`--batch-transactional`); the default remains one query per action.
+Failure attribution prefers `error.position` through join offsets when
+Postgres sends it; otherwise CommandComplete count, with walk-off
+blaming the last action. No replay. Non-transactional segments are
+unchanged. Lock-table exhaustion is still #462 / `splitPlan` /
+`--split-to-fit` — batching does not widen that budget.
+
+Fixed in-PR: UTF-8 byte cap (not UTF-16 `length`); do not count
+`EmptyQueryResponse` as a slot; strip trailing `;` before join so a
+planner `CREATE …;` does not emit `;;`; put `;` on its own line so a
+trailing `--` cannot swallow the next action; map `error.position`
+through Postgres-character join offsets (not only when `completed === 0`);
+when CommandComplete walks off the end of the batch (multi-statement
+`action.sql` and no position), blame the last action instead of `BEGIN`;
+queue `actionStart` before submit and set `actionEnd.ms` to the batch
+duration; settle `CountingQuery` via `callback` so a client
+`query_timeout` cannot hang; reject empty / transaction-control action
+SQL before connecting so a later-segment invariant failure cannot
+commit earlier segments and then throw without an `ApplyReport`.
+
+Deferred:
+
+- **CommandComplete → action (not slot) when `POSITION` is absent.**
+  Without a SQL parser we cannot know how many completions one
+  `action.sql` emits. `POSITION` is the primary path; completions are
+  1:1 best-effort, and walk-off-end blames the last action instead of
+  `BEGIN`. A `;` heuristic would be another regex over SQL.
+- **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
+  trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
+  the match cannot slide over the rest of the string.
+
 ## PR #472 review triage (Codex) — exclusion cascade
 
 PR #472 walks reverse `depends` / extension membership / seclabel provider
