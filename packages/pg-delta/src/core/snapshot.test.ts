@@ -55,11 +55,19 @@ describe("snapshot", () => {
     expect(restored.factBase.edges).toHaveLength(1);
   });
 
-  test("carries formatVersion 1 and rejects unknown versions", () => {
+  test("carries formatVersion 2 and rejects unknown versions", () => {
     const json = serializeSnapshot(fb, { pgVersion: "17.6" });
-    expect(JSON.parse(json).formatVersion).toBe(1);
+    expect(JSON.parse(json).formatVersion).toBe(2);
     const tampered = JSON.stringify({ ...JSON.parse(json), formatVersion: 99 });
     expect(() => deserializeSnapshot(tampered)).toThrow(/format/i);
+  });
+
+  test("refuses formatVersion 1 with a recapture hint", () => {
+    const json = serializeSnapshot(fb, { pgVersion: "17.6" });
+    const v1 = JSON.stringify({ ...JSON.parse(json), formatVersion: 1 });
+    expect(() => deserializeSnapshot(v1)).toThrow(
+      /formatVersion 1[\s\S]*Recapture/i,
+    );
   });
 
   test("records the redaction mode so drift can re-extract identically", () => {

@@ -1585,6 +1585,12 @@ that the implicit-owner path never carries as an edge; `exportSqlFiles`
 copies extract diagnostics onto the rebuilt desired fact base so
 `INTENT_UNKEYED` still refuses.
 
+**Fixed — snapshot formatVersion 2.** Extract retains `pg_*` owner edges, so
+a v1 PG15+ snapshot of an unchanged database would `cmdDrift()` as an added
+`public → pg_database_owner` link. Load refuses v1 (`Recapture with
+pgdelta snapshot`). There are no committed baseline snapshots in-repo
+(`src/policy/baselines/` is empty); tests recapture via `serializeSnapshot`.
+
 **Deferred:** `probeApplierCapability()` still drops every `pg_*` name
 from `memberOf` (`rolname NOT LIKE 'pg\_%'`). A *reverse* DB→DB plan
 (`postgres`-owned `public` → desired `pg_database_owner`) with a probed
@@ -1595,14 +1601,6 @@ forward direction and does not hit this; corpus/proof use an unrestricted
 applier. Track as: either keep `pg_database_owner` in `memberOf` when
 `pg_has_role` is true, or treat it as settable when the applier is the
 database owner.
-
-**Deferred — snapshot format stays v1.** Extract now retains `pg_*` owner
-edges, so a pre-upgrade PG15+ snapshot of an unchanged database will
-`cmdDrift()` as an added `public → pg_database_owner` link. Bumping
-`FORMAT_VERSION` would reject *every* existing snapshot (including PG14,
-where the edge never existed). Recapture snapshots after upgrading; a
-narrower compatibility story (engine stamp, ignore that one default
-edge in drift) can land separately.
 
 ## PR #462 review triage (Codex) — lock-table split-to-fit
 
