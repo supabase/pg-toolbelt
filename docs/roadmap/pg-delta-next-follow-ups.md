@@ -1619,3 +1619,42 @@ is included in the seed gate like `assumedPublications`. Parked:
   info. Threading suppressions through every projection-only path is
   a frontend contract change, not required for the CLI-2300 / CLI-2342
   plan/apply fix.
+- **Deferred — extension-only seed emptiness guard (P2, round 2).**
+  `assumedExtensions` now opens the seed gate and emits `CREATE
+  EXTENSION`, but `seed.schemas` still comes from non-member seed facts,
+  so an extension-only custom profile returns `[]` and `schema-plan.ts`
+  omits `seededSchemas`. A real `CREATE EXTENSION` that creates
+  relations can then fail `shadow database is not empty`. The supabase
+  profile always names `assumedSchemas` (`graphql`, `extensions`,
+  `vault`, …), so those install schemas are already exempt. Completing
+  this needs install/member schema names on the seed and a plan/load
+  e2e, not the unit pin that only asserts seed SQL.
+- **Deferred — `keepAssumedIds` vs a declared baseline (P2, round 2).**
+  `keepAssumedIds` reads `physicalSource.referenceOnly` after baseline
+  subtraction. A baseline-identical `auth.users` is therefore absent
+  from that set, and a shadow-seeded applier-owned copy can still be
+  hard-pruned. The supabase policy's baseline is intentionally UNSET
+  (`supabase.ts`); Phase 2b seed derivation already documents that
+  landing a snapshot must revisit this composition. Not reachable on
+  the current supabase / CLI-2300 path.
+- **Deferred — cascade diagnostics for skipped subobjects (P2, round 2).**
+  `CASCADE_DIAG_SKIP` / `isSatelliteId` hide column, default, constraint,
+  and satellite cascade info so a hard-pruned parent does not spam one
+  diagnostic per descendant. An independently cascaded default or
+  seclabel on a *kept* table is therefore silent. CLI-2342 still emits
+  diagnostics for the view / function / trigger TCE artefacts and omits
+  the default from the plan. Tightening the filter is observability
+  polish, not a plan/apply defect.
+- **Deferred — publication reverse-depends over-cascade (P1, round 2).**
+  Extract resolves `pg_publication_rel` deps onto the parent
+  `publication` id (`dependencies.ts` `pubrel` CTE) so the publication
+  shell inherits member edges; seed treats those as shell-inherited
+  because `CREATE PUBLICATION` without `FOR TABLE` needs none of them
+  (#370). The new reverse-depends walk would `take()` that whole
+  publication — and every `publicationRel` child — if any one member
+  table is hard-pruned. The assumed `supabase_realtime` path with only
+  managed memberships is unaffected. Mixed membership (a hard-pruned
+  wrappers / pgsodium / `schema_migrations` table plus managed tables
+  in the same publication) is unusual. Fixing it means re-attributing
+  those edges at `publicationRel` grain, which changes the seed shell
+  contract; not a special-case in `expandDependentClosure` for this PR.
