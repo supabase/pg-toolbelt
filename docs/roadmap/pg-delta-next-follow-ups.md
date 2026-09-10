@@ -1658,8 +1658,9 @@ Deferred:
 
 PR #470 recreates partitions/views/publicationRel across a parent-table
 replace and emits child indexes plus `ALTER INDEX … ATTACH PARTITION`.
-Codex round 1 on `36f77e2a`. One apply bug was in-scope; the rest are
-unusual desired states or a resolver contract change.
+Codex round 1 on `36f77e2a`; round 2 plus cross-review on parent-index
+rename. Two apply bugs were in-scope; the rest are unusual desired
+states or a resolver contract change.
 
 - **Fixed — fold attached child index drops into parent-index replace
   (P1).** `dropRootRedirect` ran only over `removed`. A parent-index
@@ -1668,6 +1669,14 @@ unusual desired states or a resolver contract change.
   refuses that while the parent still requires the child. Redirect
   now covers `replaceIds` and the parent replace `destroys` those
   children. Unit test in `partition-index-attach.test.ts`.
+- **Fixed — recreate attached children when the parent index identity
+  changes (P1).** `renames` off plans a parent-index rename as
+  `DROP INDEX old` + `CREATE INDEX new`. Drop cascades attached
+  children; `attachedTo` was an in-place ATTACH against a ghost.
+  `replaceWhen` is now `from != null`, and the drop pass lists
+  replaced children in that DROP's `destroys` (direct redirect
+  only). Unit + corpus
+  `partitioned-table-operations--parent-index-rename`.
 - **Deferred — synthesize publicationRel→table via pg_depend (P1).**
   The edge is extract-time from `pg_publication_rel` (same catalog
   relationship pg_depend records). The resolver's `pubrel` CTE
@@ -1686,10 +1695,12 @@ unusual desired states or a resolver contract change.
   emits RENAME/ALTER after inherit.
 - **Deferred — attachedTo → null / re-parent ATTACH (P2).** There is
   no `ALTER INDEX … DETACH PARTITION` grammar we emit. Detach is
-  `replaceWhen`. Re-ATTACH to a different parent while still attached
-  is rejected by PostgreSQL. Both require rebuilding the old parent
-  index hierarchy. Not a schema-first dump path (you drop or replace
-  the parent index).
+  `replaceWhen`. Re-ATTACH to a different parent while the old parent
+  **survives** still has no redirect (old parent is not removed) and
+  emits `DROP INDEX child`, which PostgreSQL rejects while attached.
+  Same class as detach; not a schema-first dump path (you drop or
+  replace the parent index). The rename case (old parent gone) is
+  the P1 above.
 - **Deferred — consume parent indexes only when the new partition has
   an attached child (P1).** Unconditional consume forces `CREATE INDEX
   ON ONLY` before `PARTITION OF`, which clones children. Desired SQL

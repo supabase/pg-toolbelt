@@ -81,8 +81,9 @@ export const indexRules: Record<string, KindRules> = {
     // (failed CREATE INDEX CONCURRENTLY) differs from the desired valid one even
     // when their `def` is identical, and the only repair is drop + recreate —
     // hence "replace", same strategy as `def`. See extract/relations.ts.
-    // `attachedTo` is the pg_inherits parent index; attaching is in-place,
-    // detaching has no grammar so the fact is replaced.
+    // `attachedTo` is the pg_inherits parent index. First attach is in-place.
+    // Detach has no grammar. A parent identity change is DROP+CREATE of that
+    // parent, which cascades this child — rebuild rather than ATTACH a ghost.
     attributes: {
       def: "replace",
       valid: "replace",
@@ -97,7 +98,7 @@ export const indexRules: Record<string, KindRules> = {
             ],
           };
         },
-        replaceWhen: (_from, to) => to == null,
+        replaceWhen: (from) => from != null,
       },
     },
   },

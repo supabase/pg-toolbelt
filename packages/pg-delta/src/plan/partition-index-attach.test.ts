@@ -252,6 +252,79 @@ describe("add index on partitioned parent with existing partitions", () => {
     );
   });
 
+  test("renaming a partitioned parent index recreates attached children", () => {
+    const parentIdxOld: StableId = {
+      kind: "index",
+      schema: "s1",
+      name: "idx_old",
+    };
+    const parentIdxNew: StableId = {
+      kind: "index",
+      schema: "s1",
+      name: "idx_new",
+    };
+    const parentOld: Fact = {
+      id: parentIdxOld,
+      parent,
+      payload: {
+        def: `CREATE INDEX idx_old ON ONLY s1.parent USING btree (status)`,
+        valid: true,
+        attachedTo: null,
+      },
+    };
+    const parentNew: Fact = {
+      id: parentIdxNew,
+      parent,
+      payload: {
+        def: `CREATE INDEX idx_new ON ONLY s1.parent USING btree (status)`,
+        valid: true,
+        attachedTo: null,
+      },
+    };
+    const childOnOld: Fact = {
+      ...childIdxFact,
+      payload: {
+        ...childIdxFact.payload,
+        attachedTo: { schema: "s1", name: "idx_old" },
+      },
+    };
+    const childOnNew: Fact = {
+      ...childIdxFact,
+      payload: {
+        ...childIdxFact.payload,
+        attachedTo: { schema: "s1", name: "idx_new" },
+      },
+    };
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentOld, childOnOld],
+      [inherit],
+    );
+    const desired = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentNew, childOnNew],
+      [inherit],
+    );
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    const dropOld = sqls.findIndex(
+      (s) => s.includes(`DROP INDEX`) && s.includes(`idx_old`),
+    );
+    const createChild = sqls.findIndex((s) =>
+      s.startsWith(`CREATE INDEX p1_status_idx`),
+    );
+    expect(dropOld).toBeGreaterThanOrEqual(0);
+    expect(
+      sqls.some((s) => s.includes(`DROP INDEX`) && s.includes(`p1_status_idx`)),
+    ).toBe(false);
+    expect(createChild).toBeGreaterThan(dropOld);
+    expect(
+      sqls.some(
+        (s) =>
+          s.includes(`ATTACH PARTITION`) &&
+          s.includes(`idx_new`) &&
+          s.includes(`p1_status_idx`),
+      ),
+    ).toBe(true);
+  });
+
   test("replacing a partitioned parent while dropping partitions does not cycle", () => {
     const heapParent: Fact = {
       ...parentFact,
