@@ -214,4 +214,16 @@ describe("reconstructManagedView — sqlFiles platform default owner", () => {
     });
     expect(view.edges).toEqual([platformEdge, tableEdge]);
   });
+
+  test("still drops after baseline subtraction rewrites source to liveDb", () => {
+    const baseline = buildFactBase(
+      [{ id: { kind: "schema", name: "plat" }, payload: {} }],
+      [],
+    );
+    const view = reconstructManagedView(withPlatformEdges("sqlFiles"), {
+      defaultOwner: "postgres",
+      baseline,
+    });
+    expect(view.edges).toEqual([tableEdge]);
+  });
 });

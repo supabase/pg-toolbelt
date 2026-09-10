@@ -63,8 +63,11 @@ interface ReconstructManagedViewOptions {
 function dropSqlFilesPlatformDefaultOwner(
   fb: FactBase,
   implicitOwner: string | undefined,
+  extractSource: FactBase["source"],
 ): FactBase {
-  if (fb.source !== "sqlFiles" || implicitOwner === undefined) return fb;
+  // Key on the extract provenance, not `fb.source`: subtractBaseline rebuilds
+  // as `liveDb`, which would skip this prune on every baselined schema apply.
+  if (extractSource !== "sqlFiles" || implicitOwner === undefined) return fb;
   const edges = fb.edges.filter((e) => !isPlatformDefaultPublicOwner(e));
   if (edges.length === fb.edges.length) return fb;
   const next = buildFactBase(
@@ -107,7 +110,7 @@ export function reconstructManagedView(
       ? { collectSuppression: opts.collectSuppression }
       : {}),
   });
-  return dropSqlFilesPlatformDefaultOwner(projected, implicitOwner);
+  return dropSqlFilesPlatformDefaultOwner(projected, implicitOwner, fb.source);
 }
 
 export interface ProjectionAuditEntry {
