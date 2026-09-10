@@ -665,6 +665,20 @@ export function compactColumnFolds(
       if (!targetPosOf.has(key)) targetPosOf.set(key, pos);
     }
   });
+  // CREATE TABLE's transformIndexConstraints drops a UNIQUE whose key list
+  // equals a PRIMARY KEY — or another UNIQUE — in the same statement. ALTER
+  // TABLE ADD CONSTRAINT UNIQUE does not. Refuse those folds so one pass
+  // still converges. Occupied keys: NUL-joined attnames (C-string names) in a
+  // Set per CREATE. PKs are pre-seeded (a UNIQUE may sort before the PK);
+  // UNIQUEs are added only after they fold so the first still inlines.
+  const occupiedIndexKeysByFoldInto = new Map<string, Set<string>>();
+  for (let pos = 0; pos < orderedActions.length; pos++) {
+    const hint = foldHints[order[pos] as number];
+    if (hint?.constraintType !== "p") continue;
+    const sig = indexKeySig(hint.indexKeyColumns);
+    if (sig === undefined) continue;
+    occupyIndexKey(occupiedIndexKeysByFoldInto, encodeId(hint.foldInto), sig);
+  }
   const foldedPos = new Set<number>();
   const effectivePosOf = new Map<number, number>(); // orig idx -> post-fold pos
   for (let pos = 0; pos < orderedActions.length; pos++) {
@@ -686,11 +700,23 @@ export function compactColumnFolds(
     //    folded into a CREATE TABLE that precedes the referenced table's
     //    CREATE would fail, so FK hints stay inert here.
     const isConstraintFold = action.produces[0]?.kind === "constraint";
+    let uniqueSigToOccupy: string | undefined;
     if (isConstraintFold) {
       if (foldConstraints === undefined) {
         if (hint.executorSafe !== true) continue;
       } else if (foldConstraints.exclude?.has(encodeId(action.produces[0]!))) {
         continue;
+      }
+      if (hint.constraintType === "u") {
+        uniqueSigToOccupy = indexKeySig(hint.indexKeyColumns);
+        if (
+          uniqueSigToOccupy !== undefined &&
+          occupiedIndexKeysByFoldInto
+            .get(encodeId(hint.foldInto))
+            ?.has(uniqueSigToOccupy)
+        ) {
+          continue;
+        }
       }
     }
     const targetPos = targetPosOf.get(encodeId(hint.foldInto));
@@ -743,10 +769,32 @@ export function compactColumnFolds(
     target.rewriteRisk = target.rewriteRisk || action.rewriteRisk;
     foldedPos.add(pos);
     effectivePosOf.set(origIndex, targetPos);
+    if (uniqueSigToOccupy !== undefined) {
+      occupyIndexKey(
+        occupiedIndexKeysByFoldInto,
+        encodeId(hint.foldInto),
+        uniqueSigToOccupy,
+      );
+    }
   }
   return foldedPos.size > 0
     ? orderedActions.filter((_, pos) => !foldedPos.has(pos))
     : [...orderedActions];
+}
+
+function indexKeySig(keys: readonly string[] | undefined): string | undefined {
+  if (keys === undefined || keys.length === 0) return undefined;
+  return keys.join("\0");
+}
+
+function occupyIndexKey(
+  occupied: Map<string, Set<string>>,
+  foldInto: string,
+  sig: string,
+): void {
+  const set = occupied.get(foldInto);
+  if (set) set.add(sig);
+  else occupied.set(foldInto, new Set([sig]));
 }
 
 /**
