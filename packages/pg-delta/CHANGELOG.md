@@ -1,5 +1,50 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.50
+
+### Minor Changes
+
+- cb9a90b: feat(pg-delta): apply accepts a pre-extracted source fact base for the fingerprint gate
+
+  `apply()` re-extracted the target on every gated call so the fingerprint could
+  be compared to the plan's source. Callers that already extracted the target they
+  planned from — and still hold exclusive write access — can now pass that raw
+  `FactBase` as `sourceFactBase`. The gate reconstructs the same managed view and
+  skips the extract; a mismatched base still fails. Default behaviour (re-extract)
+  is unchanged when the option is absent. `planSchemaFiles` returns the planning
+  extract as `targetFactBase` so a library caller that still holds exclusive write
+  access can pass it; `schema apply` keeps the live re-extract because it does not
+  hold that guarantee across shadow load.
+
+  `sourceFactBase` is only valid when nothing else can write to the target between
+  plan and apply; the caller is asserting that. `fingerprintGate: false` remains
+  the escape hatch that drops the check entirely.
+
+- 5daf43f: Apply can send each transactional segment as bounded multi-statement
+  simple-protocol queries (plus a separate COMMIT). This is opt-in
+  (`batchTransactional` / `--batch-transactional`); the default remains one
+  query per action. Mid-batch failures are attributed from error.position
+  when Postgres sends it, otherwise CommandComplete count. Non-transactional
+  segments and `inDoubt` COMMIT semantics are unchanged.
+- ce61f01: Empty-target baselines can exhaust PostgreSQL's lock table in one
+  transaction. Call `estimateLockTableBudget` on the apply target, then
+  optionally `splitPlan({ maxLocks })` so each segment tries to stay under
+  that many lock slots. `apply` honors the marks and does not refuse.
+
+  CLI: `--max-locks <n>` (plan / apply / schema apply) and `--split-to-fit`
+  (apply / schema apply; probes the target). Extra COMMITs are only safe
+  when nothing else reads the target; off by default, so existing plans
+  and the corpus are unchanged.
+
+### Patch Changes
+
+- 678e4c6: Skip default-privilege rows scoped to system or per-session temp schemas (`ALTER DEFAULT PRIVILEGES … IN SCHEMA pg_temp_N`) at extract time. Such a row keyed a `defaultPrivilege` fact on a schema that exists on no target and no plan produces, so planning against a database carrying one failed in `buildActionGraph` with `missing requirement: … consumes schema:pg_temp_N`.
+- b17d6a9: A PG16+ CREATEROLE non-superuser cannot replay `GRANT <role> TO <self> WITH ADMIN OPTION` (SQLSTATE 0LP01); `CREATE ROLE` already recreates that membership. Extract stays a catalog dump. `resolveProfile` now probes applier capability by default (omitted or `true`) and projects those self-ADMIN memberships — plus existing FDW ACLs — out of the managed view for `plan`, `schema apply`, `diff`, and `schema export`. Pass `{ restrictToApplier: false }` / `--no-restrict-to-applier` (`plan` / `schema apply`) for an unrestricted view (plan-here / apply-as-more-privileged). `prove` reconstructs the plan artifact's capability and does not re-probe the clone. A superuser probe excludes nothing. Bare `plan()` stays unrestricted when capability is omitted.
+- 1c2d4cb: fix(pg-delta): the shadow loader's DML observation no longer probes tables in the active policy's assumed (platform) schemas
+- 8365dc2: fix(pg-delta): do not plan a duplicate CREATE for a platform event trigger hidden by owner on one side only (CLI-2341)
+- a982dfa: Keep checked-out PostgreSQL clients protected by an error listener until
+  release.
+
 ## 1.0.0-alpha.49
 
 ### Patch Changes
