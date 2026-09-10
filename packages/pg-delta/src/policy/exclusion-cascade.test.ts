@@ -549,6 +549,37 @@ describe("one-sided reverse-depends cascade aligns presence", () => {
     expect(aligned.get(w)).toBeDefined();
   });
 
+  test("changing a view off a managedBy table is not CREATE VIEW of an object that still exists", () => {
+    const pgmq: StableId = { kind: "extension", name: "pgmq" };
+    const pgmqSchema: StableId = { kind: "schema", name: "pgmq" };
+    const queue: StableId = {
+      kind: "table",
+      schema: "pgmq",
+      name: "q_jobs",
+    };
+    const live = buildFactBase(
+      [
+        f(publicSchema),
+        f(pgmqSchema),
+        f(pgmq, undefined, { version: "1.4.4", _relocatable: false }),
+        f(queue, pgmqSchema, { persistence: "p" }),
+        f(v, publicSchema, { def: "SELECT 1 FROM pgmq.q_jobs" }),
+      ],
+      [
+        { from: queue, to: pgmq, kind: "managedBy" },
+        { from: v, to: queue, kind: "depends" },
+      ],
+    );
+    const files = buildFactBase(
+      [f(publicSchema), f(v, publicSchema, { def: "SELECT 1 AS x" })],
+      [],
+    );
+    const p = plan(live, files);
+    expect(mentions(sqlOf(p), /CREATE VIEW/i)).toBe(false);
+    expect(mentions(sqlOf(p), /DROP VIEW/i)).toBe(false);
+    expect(p.cascadeAlignedIds).toContain(encodeId(v));
+  });
+
   test("a shadow-seeded desired fingerprint needs the live peer's assumed ids", () => {
     const admin: StableId = { kind: "role", name: "supabase_admin" };
     const postgres: StableId = { kind: "role", name: "postgres" };

@@ -440,17 +440,16 @@ export interface TracedSuppression {
   suppression: ProjectionSuppression;
 }
 
-/** Reverse-depends cascade victims (not parent-chain kids of a policy exclude).
- *  The planner keeps those present on exactly one unaligned side so a
- *  one-sided dependency skip is not a presence change, and a desired-only
- *  skip is not stamped onto apply's source fingerprint. */
+/** Reverse-depends cascade victims (not parent-chain kids of a hard exclude).
+ *  Stage-agnostic: policy, `managedBy`, and capability all use the same
+ *  reverse-`depends` walk. The planner keeps those present on exactly one
+ *  unaligned side so a one-sided skip is not a presence change. */
 export function cascadeAlignedIdsFrom(
   suppressions: readonly TracedSuppression[],
 ): Set<string> {
   const ids = new Set<string>();
   for (const { suppression } of suppressions) {
     if (suppression.subject.kind !== "fact") continue;
-    if (suppression.stage !== "policyScopeRule") continue;
     if (suppression.reasonCode !== EXCLUDED_BY_CASCADE_REASON) continue;
     ids.add(encodeId(suppression.subject.id));
   }
