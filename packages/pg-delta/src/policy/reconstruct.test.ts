@@ -1,8 +1,9 @@
 /**
  * Guard + pin (V1): the full managed-view composition
- * (`resolveView` → `projectManagementScope`) must live in exactly one module.
- * Call sites that need both steps go through `reconstructManagedView`; bare
- * `resolveView` alone remains allowed (diff / seed paths).
+ * (`resolveView` → `projectManagementScope`, then optional `alignedIds`
+ * parent-chain strip) must live in exactly one module. Call sites that need
+ * both policy steps go through `reconstructManagedView`; bare `resolveView`
+ * alone remains allowed (diff / seed paths). Omitted `alignedIds` is identity.
  *
  * Import/call-based per module — not a nested-call grep. schema-export used to
  * compose via an intermediate variable, which a

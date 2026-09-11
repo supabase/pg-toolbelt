@@ -35,8 +35,14 @@ describe("export: managed child under a reference-only assumed parent", () => {
     // The trigger's function lives in public, so the policy keeps the trigger as
     // a user-managed object on the reference-only auth.users.
     await src.pool.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'supabase_admin') THEN
+          CREATE ROLE supabase_admin;
+        END IF;
+      END $$;
       CREATE SCHEMA auth;
       CREATE TABLE auth.users (id uuid PRIMARY KEY, email text);
+      ALTER TABLE auth.users OWNER TO supabase_admin;
       CREATE FUNCTION public.handle_new_user() RETURNS trigger
         LANGUAGE plpgsql AS $$ BEGIN RETURN new; END; $$;
       CREATE TRIGGER on_auth_user_created

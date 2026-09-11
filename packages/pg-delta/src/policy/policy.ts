@@ -315,6 +315,17 @@ export interface Policy {
    */
   assumedPublications?: string[];
   /**
+   * Extension names assumed to exist at apply time but NOT managed by this
+   * policy — platform-provisioned extensions (e.g. Supabase's
+   * `supabase_vault`) whose extension OBJECT is filtered out of the managed
+   * view, yet which remain present on every target. A scope-excluded
+   * extension named here is kept REFERENCE-ONLY instead of hard-pruned, so
+   * its members stay in the view and a user object that depends on them
+   * still plans. Extensions omitted from this list (Supabase `pgsodium`,
+   * `wrappers`) stay hard-pruned and their dependents cascade out.
+   */
+  assumedExtensions?: string[];
+  /**
    * The role whose object ownership stays IMPLICIT in a database-scope export:
    * `schema export` suppresses `ALTER … OWNER TO <defaultOwner>` (that role is the
    * expected applier), while every object owned by another role serializes its
@@ -744,6 +755,7 @@ export function flattenPolicy(policy: Policy): {
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedExtensions: string[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -761,6 +773,7 @@ function flattenInner(
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedExtensions: string[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -776,11 +789,13 @@ function flattenInner(
   const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
   const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const ownAssumedPublications: string[] = policy.assumedPublications ?? [];
+  const ownAssumedExtensions: string[] = policy.assumedExtensions ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
   const parentAssumedRoles: string[] = [];
   const parentAssumedSchemas: string[] = [];
   const parentAssumedPublications: string[] = [];
+  const parentAssumedExtensions: string[] = [];
   // defaultOwner is scalar: own value wins, else the first parent that declares
   // one (own-before-extends, matching the rule-ordering convention).
   let parentDefaultOwner: string | undefined;
@@ -797,6 +812,7 @@ function flattenInner(
       parentAssumedRoles.push(...flat.assumedRoles);
       parentAssumedSchemas.push(...flat.assumedSchemas);
       parentAssumedPublications.push(...flat.assumedPublications);
+      parentAssumedExtensions.push(...flat.assumedExtensions);
       if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
         parentDefaultOwner = flat.defaultOwner;
       }
@@ -812,6 +828,7 @@ function flattenInner(
     assumedRoles: string[];
     assumedSchemas: string[];
     assumedPublications: string[];
+    assumedExtensions: string[];
     baseline?: string;
     defaultOwner?: string;
   } = {
@@ -825,6 +842,9 @@ function flattenInner(
     ],
     assumedPublications: [
       ...new Set([...ownAssumedPublications, ...parentAssumedPublications]),
+    ],
+    assumedExtensions: [
+      ...new Set([...ownAssumedExtensions, ...parentAssumedExtensions]),
     ],
   };
   if (policy.baseline !== undefined) {
@@ -1085,6 +1105,12 @@ export function resolveView(
   capability?: ApplierCapability,
   baseline?: FactBase,
   collectSuppression?: ProjectionSuppressionCollector,
+  /** Encoded ids that a peer catalog already kept reference-only. A
+   *  shadow-seeded copy of `auth.users` re-extracts as the applier
+   *  (`postgres`) and would otherwise be hard-pruned; if the live side kept
+   *  the same id, keep it reference-only here too so user triggers still
+   *  attach. */
+  keepAssumedIds?: ReadonlySet<string>,
 ): FactBase {
   // Identity fast path. With no policy, no capability and no baseline, every
   // stage below is already a no-op that hands `fb` back BY REFERENCE — but
@@ -1206,16 +1232,23 @@ export function resolveView(
   }
 
   // policy scope (non-`verb`) rules: hard-prune the facts they exclude, EXCEPT
-  // an excluded fact whose schema is an assumedSchema (e.g. Supabase's `auth`)
-  // or a publication named in assumedPublications (e.g. `supabase_realtime`),
-  // which is kept REFERENCE-ONLY so a managed dependent (a user trigger on
-  // `auth.users`, a `publicationRel` membership) resolves its parent while the
-  // assumed object itself is never diffed. `verb` rules are left to the delta
-  // filter.
+  // an excluded fact that is a platform assumed object — an assumed SCHEMA /
+  // PUBLICATION / EXTENSION, or an object in an assumed schema owned by a
+  // policy assumed role other than `defaultOwner` (e.g. Supabase `auth.users`
+  // owned by `supabase_admin`). Those stay REFERENCE-ONLY so a managed
+  // dependent (a user trigger on `auth.users`, a `publicationRel` membership,
+  // a view over `vault.decrypted_secrets`) resolves its parent. A user-owned
+  // object in an assumed schema (`postgres`-owned
+  // `supabase_migrations.schema_migrations`) is hard-pruned so its include-
+  // protected satellites cascade out instead of consuming a parent the empty
+  // target will never have. `verb` rules are left to the delta filter.
   const flat = policy ? flattenPolicy(policy) : undefined;
   const rules = flat?.filter ?? [];
   const assumed = new Set(flat?.assumedSchemas ?? []);
   const assumedPubs = new Set(flat?.assumedPublications ?? []);
+  const assumedExts = new Set(flat?.assumedExtensions ?? []);
+  const assumedRoleNames = new Set(flat?.assumedRoles ?? []);
+  const policyDefaultOwner = flat?.defaultOwner;
   const assumedSchemaOf = (id: StableId): string | undefined =>
     id.kind === "schema" ? getName(id) : getSchema(id);
   const isAssumed = (id: StableId): boolean => {
@@ -1223,8 +1256,51 @@ export function resolveView(
       const name = getName(id);
       return name !== undefined && assumedPubs.has(name);
     }
+    if (id.kind === "extension") {
+      const name = getName(id);
+      return name !== undefined && assumedExts.has(name);
+    }
     const schema = assumedSchemaOf(id);
     return schema !== undefined && assumed.has(schema);
+  };
+  const ownerName = (fact: Fact): string | undefined => {
+    const ownerEdge = base
+      .outgoingEdges(fact.id)
+      .find((e) => e.kind === "owner");
+    if (ownerEdge?.to.kind === "role") {
+      return (ownerEdge.to as { kind: "role"; name: string }).name;
+    }
+    const payload = fact.payload["owner"];
+    return typeof payload === "string" ? payload : undefined;
+  };
+  // Schema/publication/extension objects, extension members in assumed schemas
+  // (present via CREATE EXTENSION), and platform-provisioned members of
+  // assumed schemas (system-role-owned, not the policy default owner).
+  // No-owner facts stay reference-only — the same conservative default as
+  // before this discriminator existed. A policy that never names assumedRoles
+  // cannot tell platform from user-created, so every assumed member stays
+  // reference-only (custom profiles, alpine fixtures).
+  const keepAssumedReferenceOnly = (fact: Fact): boolean => {
+    if (!isAssumed(fact.id)) return false;
+    if (
+      fact.id.kind === "schema" ||
+      fact.id.kind === "publication" ||
+      fact.id.kind === "extension"
+    )
+      return true;
+    // Members of a user-managed extension installed into an assumed schema
+    // (`uuid-ossp` in `extensions`) are present via CREATE EXTENSION, not
+    // user-owned relations. Hard-pruning them cascades public defaults /
+    // views / columns off the member.
+    if (memberRefOnly.has(encodeId(fact.id))) return true;
+    if (assumedRoleNames.size === 0) return true;
+    if (keepAssumedIds?.has(encodeId(fact.id))) return true;
+    const owner = ownerName(fact);
+    if (owner === undefined) return true;
+    if (policyDefaultOwner !== undefined && owner === policyDefaultOwner) {
+      return false;
+    }
+    return assumedRoleNames.has(owner);
   };
   const hardRoots = new Set<string>();
   const policyRefOnly = new Set<string>();
@@ -1239,7 +1315,7 @@ export function resolveView(
       flat?.id ?? policy?.id ?? "unknown",
       exclusion,
     );
-    if (isAssumed(fact.id)) {
+    if (keepAssumedReferenceOnly(fact)) {
       policyRefOnly.add(encodeId(fact.id));
       policyRootAttribution.set(encodeId(fact.id), attribution);
     } else {

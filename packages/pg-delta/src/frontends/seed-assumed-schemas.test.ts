@@ -597,4 +597,38 @@ describe("deriveAssumedSchemaSeed", () => {
     expect(seed.sql).not.toMatch(/ADD TABLE|FOR TABLE/i);
     expect(seed.facts).toBe(1);
   });
+
+  test("a profile assuming ONLY extensions still seeds CREATE EXTENSION", () => {
+    const extOnlyPolicy: Policy = {
+      id: "test-ext-only",
+      filter: [
+        {
+          match: { all: [{ kind: "extension" }, { name: "platform_ext" }] },
+          action: "exclude",
+        },
+      ],
+      assumedExtensions: ["platform_ext"],
+    };
+    const platformExt: StableId = { kind: "extension", name: "platform_ext" };
+    const target = buildFactBase(
+      [
+        f(schemaPublic),
+        f(platformExt, {
+          schema: "public",
+          version: "1.0",
+          _relocatable: false,
+        }),
+      ],
+      [],
+    );
+    const seed = deriveAssumedSchemaSeed(target, {
+      policy: extOnlyPolicy,
+      assumedSchemas: [],
+      assumedRoles: [],
+      assumedExtensions: ["platform_ext"],
+    });
+    expect(seed.sql).toMatch(/CREATE EXTENSION/i);
+    expect(seed.sql).toContain("platform_ext");
+    expect(seed.facts).toBe(1);
+  });
 });

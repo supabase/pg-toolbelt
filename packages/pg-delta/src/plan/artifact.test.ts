@@ -1,6 +1,7 @@
 /** Plan artifact v1: lossless round-trip + version refusals (stage 6). */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase } from "../core/fact.ts";
+import { contentHash, type Payload } from "../core/hash.ts";
 import {
   parsePlan,
   serializePlan,
@@ -130,6 +131,63 @@ describe("plan artifact v1", () => {
     expect(
       parsePlan(serializePlan(samplePlan)).projectionAudit,
     ).toBeUndefined();
+  });
+
+  test("round-trips cascadeAlignedIds and hashes them into planId", () => {
+    const withAligned: Plan = stampPlanId({
+      ...samplePlan,
+      cascadeAlignedIds: ["view:public.v"],
+    });
+    expect(parsePlan(serializePlan(withAligned)).cascadeAlignedIds).toEqual([
+      "view:public.v",
+    ]);
+    expect(withAligned.planId).not.toBe(samplePlan.planId);
+  });
+
+  test("absent cascadeAlignedIds is omitted from planId, not hashed as []", () => {
+    const hashedAsEmpty = contentHash({
+      formatVersion: samplePlan.formatVersion,
+      engineVersion: samplePlan.engineVersion,
+      source: { fingerprint: samplePlan.source.fingerprint },
+      target: { fingerprint: samplePlan.target.fingerprint },
+      preamble: samplePlan.preamble.map((entry) => ({
+        name: entry.name,
+        value: entry.value,
+      })),
+      acceptedRenames: samplePlan.acceptedRenames ?? [],
+      cascadeAlignedIds: [],
+      actions: samplePlan.actions.map((action) => ({
+        sql: action.sql,
+        verb: action.verb,
+        produces: action.produces,
+        consumes: action.consumes,
+        destroys: action.destroys,
+        releases: action.releases,
+        transactionality: action.transactionality,
+        lockClass: action.lockClass,
+        newSegmentBefore: action.newSegmentBefore,
+        dataLoss: action.dataLoss,
+        rewriteRisk: action.rewriteRisk,
+      })),
+      profile: samplePlan.profile,
+      scope: samplePlan.scope,
+      policy: samplePlan.policy as Payload | undefined,
+    });
+    expect(computePlanId(samplePlan)).not.toBe(hashedAsEmpty);
+    expect(stampPlanId({ ...samplePlan, cascadeAlignedIds: [] }).planId).toBe(
+      computePlanId(samplePlan),
+    );
+  });
+
+  test("rejects a non-string cascadeAlignedIds list", () => {
+    const artifact = JSON.parse(serializePlan(samplePlan)) as Record<
+      string,
+      unknown
+    >;
+    artifact["cascadeAlignedIds"] = [1];
+    expect(() => parsePlan(JSON.stringify(artifact))).toThrow(
+      /cascadeAlignedIds/,
+    );
   });
 
   test("round-trips an opaque PostgreSQL source-lineage stamp", () => {

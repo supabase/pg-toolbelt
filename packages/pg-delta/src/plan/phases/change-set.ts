@@ -9,12 +9,14 @@
  */
 import { diff, type Delta } from "../../core/diff.ts";
 import type { Fact, FactBase } from "../../core/fact.ts";
-import { encodeId, type StableId } from "../../core/stable-id.ts";
+import { encodeId, parseId, type StableId } from "../../core/stable-id.ts";
 import { filterDeltas, validatePolicy } from "../../policy/policy.ts";
 import {
+  cascadeAlignedIdsFrom,
   reconstructManagedView,
   type TracedSuppression,
 } from "../../policy/reconstruct.ts";
+import { excludeIdentitiesAndChildren } from "../../policy/view.ts";
 import {
   buildRoleRenameMap,
   normalizeRoleIdentities,
@@ -64,6 +66,9 @@ export interface ChangeSet {
    * come first, matching the reconstruction order `auditManagedViewProjection`
    * uses standalone. */
   projectionSuppressions: TracedSuppression[];
+  /** Reverse-depends cascade roots present on exactly one unaligned side
+   *  (encoded). Empty when nothing was cascade-aligned. */
+  cascadeAlignedIds: string[];
 }
 
 function groupDeltas(deltas: readonly Delta[]): {
@@ -148,7 +153,7 @@ export function buildChangeSet(
   // both sides again for the projection audit): collecting is purely
   // observational — it never changes the FactBase a reconstruction returns.
   const projectionSuppressions: TracedSuppression[] = [];
-  const physicalSource = reconstructManagedView(rawSource, {
+  const physicalSourceRaw = reconstructManagedView(rawSource, {
     policy: options?.policy,
     capability: options?.capability,
     baseline: options?.baseline,
@@ -157,15 +162,31 @@ export function buildChangeSet(
     collectSuppression: (suppression) =>
       projectionSuppressions.push({ side: "source", suppression }),
   });
-  const physicalDesired = reconstructManagedView(rawDesired, {
+  const physicalDesiredRaw = reconstructManagedView(rawDesired, {
     policy: options?.policy,
     capability: options?.capability,
     baseline: options?.baseline,
     scope: options?.scope,
     defaultOwner: options?.defaultOwner,
+    keepAssumedIds: physicalSourceRaw.referenceOnly,
     collectSuppression: (suppression) =>
       projectionSuppressions.push({ side: "desired", suppression }),
   });
+  const cascadeAlignedIds = [...cascadeAlignedIdsFrom(projectionSuppressions)]
+    .filter((id) => {
+      const sid = parseId(id);
+      return physicalSourceRaw.has(sid) !== physicalDesiredRaw.has(sid);
+    })
+    .sort();
+  const alignedSet = new Set(cascadeAlignedIds);
+  const physicalSource = excludeIdentitiesAndChildren(
+    physicalSourceRaw,
+    alignedSet,
+  );
+  const physicalDesired = excludeIdentitiesAndChildren(
+    physicalDesiredRaw,
+    alignedSet,
+  );
 
   const renameMode: RenameMode = options?.renames ?? "off";
   const renameCandidates: RenameCandidate[] = [];
@@ -292,5 +313,6 @@ export function buildChangeSet(
     renameCandidates,
     acceptedRenames,
     projectionSuppressions,
+    cascadeAlignedIds,
   };
 }

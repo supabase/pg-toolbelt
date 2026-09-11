@@ -877,31 +877,12 @@ Two findings on the CLI-1470 fix. P1 was fixed in the PR; P2 is recorded here.
   "present on this target" from "assumed by name" and is the revisit path.
 
 - **Deferred (round 3, P1) — a kept user object over a suppressed wrapper
-  prerequisite plans SQL that fails at apply.** Tracked as CLI-2178 (pg-delta
-  1.0.0 stable release project). Reproduced (2026-08-11): a
-  `dsl_owner` view over a foreign table on a suppressed wrappers FDW plans
-  `CREATE VIEW public.paying_users AS SELECT … FROM stripe.customers` with no
-  prerequisite and no plan-time diagnostic — `excludeFactsAndDescendants`
-  prunes by parent descent only, and the view's `depends` edge drops with its
-  endpoint, so apply fails on any target lacking the dashboard integration.
-  Valid, but the gap is a PRE-EXISTING property of every policy suppression
-  of non-schema-keyed objects (an `supabase_admin`-owned FDW chain has the
-  identical behavior today); this PR widens its reach to the real Cloud
-  ownership rather than introducing it. The PR is still strictly net-positive:
-  before it, EVERY integration-bearing project planned unreplayable
-  `CREATE FOREIGN DATA WRAPPER` DDL; after it, only the dependent-view subset
-  still fails, and one step later. A principled fix is architecturally
-  significant and general, not wrappers-specific: either (a) reference-only
-  semantics for suppressed prerequisite chains + shadow-seed materialization
-  (the `auth.users`-trigger mechanism, but keyed on objects rather than
-  assumed schemas — needs seed-side support to materialize a foreign table
-  whose server/extension are also suppressed), or (b) a plan-time
-  "suppressed prerequisite" diagnostic: the projection-suppression collector
-  already records every suppressed fact with attribution, so `plan()` can
-  cross-check kept deltas' extraction-time edges against it and escalate
-  warning→fatal exactly when a delta touches a stranded consumer (the
-  `USER_MAPPING_UNREADABLE` precedent). Option (b) is the cheaper first step
-  and benefits every suppression rule, not just Rule 6c.
+  prerequisite plans SQL that fails at apply.** Tracked as CLI-2178. **Fixed
+  in the exclusion-cascade work (CLI-2300 / CLI-2342):** `computeExclusion`
+  now walks reverse `depends` edges, so a view over a suppressed foreign
+  table is projected out with an `excluded-by-cascade` diagnostic instead of
+  planning a CREATE that fails at apply. The wrappers-specific option (b)
+  "suppressed prerequisite" cross-check is no longer the first step.
 
 ## PR #403 review triage — the reserved `_custom/` folder
 
@@ -1613,7 +1594,7 @@ target). Parked:
   (P2).** `splitPlan` can mark ADD VALUE when the running estimate plus
   that action exceeds `maxLocks`, but `segmentActions` closes after the
   boundary and never reads the mark. ADD VALUE stays with the preceding
-  run (typically ~2 extra slots). Order and the required COMMIT after
+  run (typically ~2 extra slots). Order and   the required COMMIT after
   ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
   contract change, not a packer fix.
 
@@ -1653,3 +1634,93 @@ Deferred:
 - **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
   trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
   the match cannot slide over the rest of the string.
+
+## PR #472 review triage (Codex) — exclusion cascade
+
+PR #472 walks reverse `depends` / extension membership / seclabel provider
+so satellites of a hard-pruned object leave the managed view with an
+`excluded-by-cascade` diagnostic. In-PR: assumed-schema owner
+discriminator is skipped when the policy names no `assumedRoles` (custom
+profiles keep the previous all-reference-only behavior); `plan` keeps
+desired-side identities that the source already marked reference-only, so a
+shadow-seeded `auth.users` that re-extracts as `postgres` is not hard-pruned
+(`postgres` cannot `OWNER TO supabase_admin` at seed replay); `assumedExtensions`
+is included in the seed gate like `assumedPublications`. Round 3: reverse-depends
+cascade roots present on exactly one unaligned side (`Plan.cascadeAlignedIds`)
+so a definition change that only one side depends on an excluded object is not
+DROP/CREATE — including `managedBy` / capability reverse-depends, not only
+`policyScopeRule`; apply/prove replay the list; `provePlan` reconstructs desired
+with the clone's reference-only set; empty `cascadeAlignedIds` is omitted from
+planId. Parked:
+
+- **Deferred — cascade diagnostics on export / `diff` (P2).**
+  `excludedByCascadeDiagnostics` is attached from `plan()`. `schema
+  export` and database `diff` project through `resolveView` without
+  collecting suppressions, so a view over a hard-pruned wrappers /
+  pgsodium object is omitted with only extraction diagnostics. Pre-
+  existing: those frontends never surfaced projection-suppression
+  info. Threading suppressions through every projection-only path is
+  a frontend contract change, not required for the CLI-2300 / CLI-2342
+  plan/apply fix.
+- **Deferred — extension-only seed emptiness guard (P2, round 2).**
+  `assumedExtensions` now opens the seed gate and emits `CREATE
+  EXTENSION`, but `seed.schemas` still comes from non-member seed facts,
+  so an extension-only custom profile returns `[]` and `schema-plan.ts`
+  omits `seededSchemas`. A real `CREATE EXTENSION` that creates
+  relations can then fail `shadow database is not empty`. The supabase
+  profile always names `assumedSchemas` (`graphql`, `extensions`,
+  `vault`, …), so those install schemas are already exempt. Completing
+  this needs install/member schema names on the seed and a plan/load
+  e2e, not the unit pin that only asserts seed SQL.
+- **Deferred — `keepAssumedIds` vs a declared baseline (P2, round 2).**
+  `keepAssumedIds` reads `physicalSource.referenceOnly` after baseline
+  subtraction. A baseline-identical `auth.users` is therefore absent
+  from that set, and a shadow-seeded applier-owned copy can still be
+  hard-pruned. The supabase policy's baseline is intentionally UNSET
+  (`supabase.ts`); Phase 2b seed derivation already documents that
+  landing a snapshot must revisit this composition. Not reachable on
+  the current supabase / CLI-2300 path.
+- **Deferred — cascade diagnostics for skipped subobjects (P2, round 2).**
+  `CASCADE_DIAG_SKIP` / `isSatelliteId` hide column, default, constraint,
+  and satellite cascade info so a hard-pruned parent does not spam one
+  diagnostic per descendant. An independently cascaded default or
+  seclabel on a *kept* table is therefore silent. CLI-2342 still emits
+  diagnostics for the view / function / trigger TCE artefacts and omits
+  the default from the plan. Tightening the filter is observability
+  polish, not a plan/apply defect.
+- **Deferred — publication reverse-depends over-cascade (P1, round 2).**
+  Extract resolves `pg_publication_rel` deps onto the parent
+  `publication` id (`dependencies.ts` `pubrel` CTE) so the publication
+  shell inherits member edges; seed treats those as shell-inherited
+  because `CREATE PUBLICATION` without `FOR TABLE` needs none of them
+  (#370). The new reverse-depends walk would `take()` that whole
+  publication — and every `publicationRel` child — if any one member
+  table is hard-pruned. The assumed `supabase_realtime` path with only
+  managed memberships is unaffected. Mixed membership (a hard-pruned
+  wrappers / pgsodium / `schema_migrations` table plus managed tables
+  in the same publication) is unusual. Fixing it means re-attributing
+  those edges at `publicationRel` grain, which changes the seed shell
+  contract; not a special-case in `expandDependentClosure` for this PR.
+- **Deferred — assumed-extension `COMMENT` children (P2, round 3).**
+  Moving `pg_graphql` / `pg_stat_statements` / `supabase_vault` to
+  `assumedExtensions` keeps the extension root reference-only, but
+  `comment` children still participate in the differ (Rule 10 matches
+  schema, not an extension target). Image-to-image comment drift can
+  therefore emit `COMMENT ON EXTENSION`. Suppressing those satellites
+  is a policy-filter / grain change, not required for CLI-2300 / CLI-2342
+  cascade alignment.
+- **Deferred — `provePlan` e2e for `keepAssumedIds` (P2, round 3).**
+  The unit pin reconstructs with the same `keepAssumedIds` + `alignedIds`
+  recipe `provePlan` uses; it does not call `provePlan` (that path needs a
+  pool). A fake-`reextract` prove test would catch the wiring being deleted.
+- **Deferred — source-fingerprint witness for cascade-aligned ids (P1, round 5).**
+  Alignment strips XOR reverse-depends victims from both reconstructed
+  views before `physicalSource` is hashed, and apply/prove replay that
+  strip so a one-catalog reconstruct matches. A later DROP/ALTER of that
+  leave-as-is object therefore does not trip the source gate. Witnessing
+  those identities while still suppressing their deltas needs a split
+  fingerprint (unstripped source hash, stripped diff) and a different
+  apply/prove recipe than the one-catalog reconstruct this PR landed.
+  Same class as any fact already reverse-depends-removed from source at
+  reconstruct time. Not required for CLI-2300 / CLI-2342 (don't
+  CREATE/DROP the still-existing object).

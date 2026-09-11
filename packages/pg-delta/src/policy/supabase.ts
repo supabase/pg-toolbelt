@@ -145,7 +145,16 @@ export const SUPABASE_SYSTEM_ROLES = [
  *  (pg_net, pg_cron, pgmq, pgcrypto, uuid-ossp, …) are intentionally absent so
  *  users can still manage them. The comprehensive mechanism is the committed
  *  Supabase baseline (a v1 gate — see the `baseline` note below); this name
- *  list mirrors SUPABASE_SYSTEM_SCHEMAS/ROLES until that lands. */
+ *  list mirrors SUPABASE_SYSTEM_SCHEMAS/ROLES until that lands.
+ *
+ *  `pgsodium` stays on this list even though current images no longer
+ *  provision it and `pg_available_extensions` may still list it. Hosted
+ *  installs exist only because platform bootstrap ran as superuser (role
+ *  grants, getkey script); a user-role `CREATE EXTENSION` cannot reproduce
+ *  that, the extension is schema-bound (CLI#3358), and TCE security labels
+ *  generate triggers/views as side effects (CLI#1024). Dependents cascade
+ *  out of the managed view rather than planning CREATE EXTENSION. Do not
+ *  emit a `version` clause (ignored with a warning since 2026-08-05). */
 export const SUPABASE_SYSTEM_EXTENSIONS = [
   "pg_graphql",
   "pg_stat_statements",
@@ -274,6 +283,15 @@ export const supabasePolicy: Policy = {
   // into the diff. Mirrors the system-schema exclusion list by construction.
   assumedSchemas: [...SUPABASE_SYSTEM_SCHEMAS],
 
+  // Platform-provisioned extensions assumed to exist at apply time. The
+  // system-extension exclude rule below projects the extension OBJECT out of
+  // the managed view, but naming it here downgrades that exclusion to
+  // REFERENCE-ONLY so members stay visible and a user view over
+  // `vault.decrypted_secrets` (or `pg_stat_statements`) still plans. `pgsodium`
+  // and `wrappers` are deliberately absent: they are not present on a fresh
+  // branch / are dashboard-conditional, and their dependents cascade out.
+  assumedExtensions: ["pg_graphql", "pg_stat_statements", "supabase_vault"],
+
   // Default owner for database-scope exports: Supabase hands users the
   // `postgres` role, so an object owned by `postgres` needs no `ALTER … OWNER
   // TO` — its ownership is implicit. Objects owned by a system role are already
@@ -332,8 +350,10 @@ export const supabasePolicy: Policy = {
     // general extension include below (first-match-wins) so it wins for these
     // names; all OTHER extensions still fall through to the include and stay
     // user-declarable. No `verb` clause → also suppresses spurious version
-    // (`set`) churn on a platform extension. The robust long-term mechanism is
-    // the committed Supabase baseline (the `baseline` note below).
+    // (`set`) churn on a platform extension. Names in `assumedExtensions` are
+    // kept reference-only (members stay); `pgsodium` / `wrappers` hard-prune
+    // and cascade their dependents. The robust long-term mechanism is the
+    // committed Supabase baseline (the `baseline` note below).
     {
       match: {
         all: [{ kind: "extension" }, { name: [...SUPABASE_SYSTEM_EXTENSIONS] }],

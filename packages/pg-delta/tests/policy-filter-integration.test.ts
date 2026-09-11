@@ -232,3 +232,52 @@ describe.skipIf(skipSeclabelProof)("policy filter: security labels", () => {
     expect(sql.some((s) => /SECURITY LABEL FOR 'dummy'/.test(s))).toBe(false);
   }, 300_000);
 });
+
+describe("policy filter: exclusion cascades to dependents", () => {
+  test("a view over an excluded schema is skipped; apply does not reference it", async () => {
+    const cluster = await sharedCluster();
+    const main = await cluster.createDb("polf_cascade_main");
+    const desired = await cluster.createDb("polf_cascade_dst");
+    try {
+      await desired.pool.query(`
+        CREATE SCHEMA ops;
+        CREATE TABLE ops.events (id integer);
+        CREATE TABLE public.ok (id integer);
+        CREATE VIEW public.from_ops AS SELECT id FROM ops.events;
+      `);
+      const policy: Policy = {
+        id: "hide-ops",
+        filter: [
+          { match: { schema: ["ops"] }, action: "exclude" },
+          {
+            match: { all: [{ kind: "schema" }, { name: ["ops"] }] },
+            action: "exclude",
+          },
+        ],
+      };
+
+      const [s, d] = await Promise.all([
+        extract(main.pool),
+        extract(desired.pool),
+      ]);
+      const thePlan = plan(s.factBase, d.factBase, { policy });
+
+      expect(thePlan.actions.some((a) => /from_ops/.test(a.sql))).toBe(false);
+      expect(thePlan.actions.some((a) => /\bops\b/.test(a.sql))).toBe(false);
+      expect(
+        thePlan.actions.some(
+          (a) => /CREATE TABLE/.test(a.sql) && /ok/.test(a.sql),
+        ),
+      ).toBe(true);
+
+      const report = await apply(thePlan, main.pool, {
+        fingerprintGate: false,
+      });
+      expect(report.status).toBe("applied");
+      const after = await extract(main.pool);
+      expect(plan(after.factBase, d.factBase, { policy }).actions).toEqual([]);
+    } finally {
+      await Promise.all([main.drop(), desired.drop()]);
+    }
+  }, 60_000);
+});

@@ -145,6 +145,10 @@ export function deriveAssumedSchemaSeed(
      *  profile assuming ONLY publications would short-circuit on the empty
      *  assumedSchemas and silently derive no seed (Codex review on #373). */
     assumedPublications?: string[];
+    /** Policy assumed extensions (e.g. `supabase_vault`). Same gate as
+     *  publications: a profile that assumes only extensions still needs the
+     *  empty shadow to `CREATE EXTENSION` so user SQL can reference members. */
+    assumedExtensions?: string[];
     /** Policy assumed roles PLUS the target's own role names — same cluster, so
      *  every owner/grant role reference in the seed is present at replay. */
     assumedRoles: string[];
@@ -163,7 +167,8 @@ export function deriveAssumedSchemaSeed(
   // platform-external, no seed.
   if (
     opts.assumedSchemas.length === 0 &&
-    (opts.assumedPublications ?? []).length === 0
+    (opts.assumedPublications ?? []).length === 0 &&
+    (opts.assumedExtensions ?? []).length === 0
   ) {
     return EMPTY;
   }
