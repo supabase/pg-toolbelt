@@ -252,6 +252,36 @@ describe("add index on partitioned parent with existing partitions", () => {
     );
   });
 
+  test("replacing a parent index def recreates unchanged attached children", () => {
+    const parentIdxNext: Fact = {
+      ...parentIdxFact,
+      payload: {
+        ...parentIdxFact.payload,
+        def: `CREATE INDEX idx_parent_status ON ONLY s1.parent USING btree (status) WITH (fillfactor='70')`,
+      },
+    };
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxFact, childIdxFact],
+      [inherit],
+    );
+    const desired = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxNext, childIdxFact],
+      [inherit],
+    );
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    expect(
+      sqls.some((s) => s.includes(`DROP INDEX`) && s.includes(`p1_status_idx`)),
+    ).toBe(false);
+    expect(sqls.some((s) => s.startsWith(`CREATE INDEX p1_status_idx`))).toBe(
+      true,
+    );
+    expect(
+      sqls.some(
+        (s) => s.includes(`ATTACH PARTITION`) && s.includes(`p1_status_idx`),
+      ),
+    ).toBe(true);
+  });
+
   test("renaming a partitioned parent index recreates attached children", () => {
     const parentIdxOld: StableId = {
       kind: "index",

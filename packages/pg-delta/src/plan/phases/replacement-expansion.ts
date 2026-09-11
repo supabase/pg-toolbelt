@@ -13,6 +13,7 @@ import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { RulesForId } from "../rules.ts";
+import { p } from "../rules/helpers.ts";
 
 export interface ReplacementExpansionInput {
   /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
@@ -85,6 +86,27 @@ export function expandReplacements(
       if (rebuild === true) rebuildSeeds.set(key, null);
       else if (Array.isArray(rebuild)) rebuildSeeds.set(key, new Set(rebuild));
     }
+  }
+
+  // Attached child indexes hang off the partition table, not the parent
+  // index, and have no depends edge (DROP while attached is rejected). DROP
+  // INDEX on the parent still cascades them, so a surviving child of a
+  // replaced parent must rebuild even when its own payload is unchanged.
+  for (const fact of source.facts()) {
+    if (fact.id.kind !== "index") continue;
+    const attachedTo = p(fact, "attachedTo") as {
+      schema: string;
+      name: string;
+    } | null;
+    if (attachedTo == null) continue;
+    const parentKey = encodeId({
+      kind: "index",
+      schema: attachedTo.schema,
+      name: attachedTo.name,
+    });
+    if (!replaceIds.has(parentKey) && !removed.has(parentKey)) continue;
+    if (!desired.has(fact.id)) continue;
+    replaceIds.add(encodeId(fact.id));
   }
 
   // ── forced dependent rebuild (the clean expand-replace, §3.4) ─────────

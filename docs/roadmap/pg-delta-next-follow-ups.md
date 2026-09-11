@@ -1658,9 +1658,11 @@ Deferred:
 
 PR #470 recreates partitions/views/publicationRel across a parent-table
 replace and emits child indexes plus `ALTER INDEX … ATTACH PARTITION`.
-Codex round 1 on `36f77e2a`; round 2 plus cross-review on parent-index
-rename. Two apply bugs were in-scope; the rest are unusual desired
-states or a resolver contract change.
+Codex round 1 on `36f77e2a`; round 2 on parent-index rename; round 3
+on unchanged children of a `def` replace, child rename, and
+snapshot `attachedTo`. Apply holes in this PR's attach path were
+in-scope; unusual desired states, snapshot-format compat, and
+resolver contract stay deferred.
 
 - **Fixed — fold attached child index drops into parent-index replace
   (P1).** `dropRootRedirect` ran only over `removed`. A parent-index
@@ -1677,6 +1679,17 @@ states or a resolver contract change.
   replaced children in that DROP's `destroys` (direct redirect
   only). Unit + corpus
   `partitioned-table-operations--parent-index-rename`.
+- **Fixed — recreate unchanged children of a replaced parent index
+  (P1).** `dropRootRedirect` only walks facts already in `removed` /
+  `replaceIds`. A parent-index `def` change (`WITH (fillfactor=…)`,
+  tablespace, …) can leave the child payload identical, so the child
+  was neither removed nor replaced. `DROP INDEX parent` still
+  cascades it; the plan recreated only the parent. Expansion now
+  promotes surviving source children whose `attachedTo` is a
+  replaced/removed parent into `replaceIds` (they hang off the
+  partition table, not the parent index, so `childrenOf` cannot see
+  them). Unit test plus corpus
+  `partitioned-table-operations--parent-index-fillfactor`.
 - **Deferred — synthesize publicationRel→table via pg_depend (P1).**
   The edge is extract-time from `pg_publication_rel` (same catalog
   relationship pg_depend records). The resolver's `pubrel` CTE
@@ -1708,4 +1721,19 @@ states or a resolver contract change.
   incomplete parent) would then fail proof. This PR's corpus and
   pg_dump-style trees include the child facts; the incomplete parent
   is the state we force-valid and do not round-trip as a goal.
+- **Deferred — rename attached child while the parent index survives
+  (P1).** `renames` off plans a child rename as `DROP INDEX old_child`
+  + `CREATE INDEX new_child`. The parent is not removed, so there is
+  no redirect, and PostgreSQL rejects the child DROP while attached.
+  Same class as custom child names / `alsoProduces`: schema-first
+  dumps keep the inherited name. `ALTER INDEX RENAME` is a larger
+  project (`pg_get_indexdef` embeds the name).
+- **Deferred — legacy snapshots missing `attachedTo` (P2).** Format
+  is still v1. An old snapshot without the key vs live extract with
+  `attachedTo: null` is a set-delta (`from` absent). `replaceWhen:
+  (from) => from != null` treats `undefined` as replace, so every
+  standalone index would drop+recreate; `to === null` would also
+  throw in `attachedTo.alter` if that path ran. Upgrade by
+  re-extracting. Coercing missing `attachedTo` to `null` at snapshot
+  load is a format-compat follow-up, not this PR.
 
