@@ -99,6 +99,8 @@ describe("pg_depend resolver: edge-set oracle", () => {
     // excluded so this oracle is stable from PG14-18: object self-dependencies
     // (PG14 records view/matview _RETURN self-deps; PG15+ does not) and
     // publication column-list edges (PG15+ only — pinned separately below).
+    // `publicationRel → table` is synthesized in extract/publications — pg_depend
+    // folds pubrel onto the publication, so membership still needs this edge.
     const dependsEdges = renderEdges("depends").filter((e) => {
       const [from, to] = e.split(" -> ");
       return from !== to && !e.startsWith("publication:app_pub -> column:");
@@ -130,6 +132,7 @@ describe("pg_depend resolver: edge-set oracle", () => {
         "policy:app.users.users_pos -> function:app.user_count()",
         "policy:app.users.users_pos -> table:app.users",
         "publication:app_pub -> table:app.users",
+        "publicationRel:app_pub.app.users -> table:app.users",
         "sequence:app.id_seq -> schema:app",
         "table:app.archived_orders -> schema:app",
         "table:app.archived_orders -> table:app.orders",

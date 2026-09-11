@@ -311,16 +311,19 @@ const INDEXES_SQL = `
     SELECT n.nspname AS schema, ic.relname AS name, c.relname AS table,
            c.relkind AS table_kind,
            pg_get_indexdef(i.indexrelid) AS def,
-           -- A partitioned PARENT index (relkind 'I') is legitimately
-           -- indisvalid=false whenever a child index is unattached, and
-           -- pg_get_indexdef renders it as CREATE INDEX ... ON ONLY ..., which
-           -- itself produces an invalid parent (children attach separately). So
-           -- its indisvalid is attach-state, not repair-worthy corruption:
-           -- force it valid here so it never drives a diff (the unmodeled
-           -- attach-state stays tracked in #332). Only REGULAR indexes ('i')
-           -- carry their real indisvalid, which is what catches a failed
-           -- CREATE INDEX CONCURRENTLY.
+           -- Partitioned PARENT indexes (relkind I): indisvalid is attach-state,
+           -- not CONCURRENTLY corruption. Treating valid as replace would DROP
+           -- the parent (cascading every attached child) instead of ATTACHing the
+           -- gap. Child index facts plus attachedTo fingerprint attach-state;
+           -- force the parent valid so it never drives that replace.
            CASE WHEN ic.relkind = 'I' THEN true ELSE i.indisvalid END AS valid,
+           (SELECT json_build_object('schema', pn.nspname, 'name', pc.relname)
+            FROM pg_inherits ih
+            JOIN pg_class pc ON pc.oid = ih.inhparent
+            JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+            WHERE ih.inhrelid = i.indexrelid
+            ORDER BY ih.inhseqno
+            LIMIT 1) AS attached_to,
            obj_description(i.indexrelid, 'pg_class') AS comment
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
@@ -338,7 +341,6 @@ const INDEXES_SQL = `
         SELECT 1 FROM pg_constraint pc
         WHERE pc.conindid = i.indexrelid AND pc.contype IN ('p', 'u', 'x')
       )
-      AND NOT EXISTS (SELECT 1 FROM pg_inherits ih WHERE ih.inhrelid = i.indexrelid)
       AND ${notExtensionMember("pg_class", "c.oid")}
     ORDER BY n.nspname, ic.relname`;
 
@@ -350,36 +352,33 @@ export const indexesFamily: CatalogFamily = {
     for (const row of rowSets[0]!) {
       const tableKind =
         String(row["table_kind"]) === "m" ? "materializedView" : "table";
+      const id = {
+        kind: "index" as const,
+        schema: String(row["schema"]),
+        name: String(row["name"]),
+      };
+      const attachedTo =
+        row["attached_to"] == null
+          ? null
+          : (row["attached_to"] as { schema: string; name: string });
       pushWithMeta(
         {
-          id: {
-            kind: "index",
-            schema: String(row["schema"]),
-            name: String(row["name"]),
-          },
+          id,
           parent: {
             kind: tableKind,
             schema: String(row["schema"]),
             name: String(row["table"]),
           },
-          // `valid` (pg_index.indisvalid) is SEMANTIC state, not just metadata: a
-          // failed/cancelled CREATE INDEX CONCURRENTLY leaves indisvalid=false with
-          // a def IDENTICAL to the desired valid index, so without this field the
-          // unusable index would hash EQUAL to the valid one and retry planning /
-          // the proof would consider it converged. Including it in the payload
-          // (hashed) makes invalid ≠ valid, and the `valid: "replace"` attribute
-          // strategy repairs it via drop + recreate (the standard fix). A fresh
-          // CREATE INDEX in a SQL-loaded shadow is always valid=true, so the desired
-          // side naturally carries true and never churns a healthy index.
-          //
-          // NOTE (#332): the `valid` SELECT above deliberately forces partitioned
-          // PARENT indexes (relkind 'I') to true. Their indisvalid tracks child
-          // ATTACH-state (and pg_get_indexdef renders them `ON ONLY`, which itself
-          // produces an invalid parent), so surfacing it here would spuriously
-          // fail convergence on every partitioned-index scenario. That attach-state
-          // remains unmodeled and tracked in #332; only regular indexes drive the
-          // valid diff.
-          payload: { def: String(row["def"]), valid: Boolean(row["valid"]) },
+          // `valid` is SEMANTIC for regular indexes (failed CREATE INDEX
+          // CONCURRENTLY). Partitioned parents stay forced-valid: their
+          // indisvalid is child attach-state, modeled by child facts +
+          // `attachedTo`. Unmasking it would `valid: "replace"` the parent and
+          // CASCADE-drop attached children that this plan does not recreate.
+          payload: {
+            def: String(row["def"]),
+            valid: Boolean(row["valid"]),
+            attachedTo,
+          },
         },
         row,
       );

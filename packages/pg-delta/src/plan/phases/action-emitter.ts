@@ -148,6 +148,31 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     return merged;
   };
 
+  const isRemovedId = (id: StableId): boolean =>
+    removed.has(encodeId(id)) || replaceIds.has(encodeId(id));
+
+  // Invert dropRootRedirect once. A per-DROP scan of dropRootOf is
+  // O(roots × |facts|); a large remove would re-walk the same map on every
+  // DROP. Direct match only — walking dropRootOf would list attached child
+  // indexes on DROP TABLE when their parent index folded into the table
+  // (inherit vs child-teardown cycle).
+  const redirectedOntoByRoot = new Map<string, StableId[]>();
+  for (const foldedKey of dropRootOf.keys()) {
+    const folded = source.getByEncoded(foldedKey);
+    if (folded === undefined) continue;
+    const redirect = rulesForId(folded.id).dropRootRedirect?.(
+      folded,
+      isRemovedId,
+    );
+    if (redirect === undefined) continue;
+    const rootKey = encodeId(redirect);
+    const list = redirectedOntoByRoot.get(rootKey);
+    if (list === undefined) redirectedOntoByRoot.set(rootKey, [folded.id]);
+    else list.push(folded.id);
+  }
+  const redirectedOnto = (rootKey: string): readonly StableId[] =>
+    redirectedOntoByRoot.get(rootKey) ?? [];
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     const specs = rulesForId(fact.id).create(
       fact,
@@ -234,7 +259,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // action, which the graph's child-teardown rule orders before the parent's
     // drop. Without this the bare DROP SERVER fails on its surviving dependents.
     const emitReplaceDrop = (rootFact: Fact): void => {
-      const destroys: StableId[] = [rootFact.id];
+      const rootKey = encodeId(rootFact.id);
+      const destroys: StableId[] = [rootFact.id, ...redirectedOnto(rootKey)];
       const walk = (fact: Fact): void => {
         for (const child of source.childrenOf(fact.id)) {
           if (cascadesToChildren(fact.id.kind)) {
@@ -257,7 +283,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         destroys,
       });
     };
-    emitReplaceDrop(oldFact);
+    // Attached child indexes fold into the parent-index replace via
+    // dropRootRedirect. Skip this DROP (PG cascades it); still CREATE.
+    const foldedInto = dropRootOf.get(key);
+    if (foldedInto === undefined || foldedInto === key) {
+      emitReplaceDrop(oldFact);
+    }
     emitCreate(newFact, projectedDesired);
     // recreate surviving descendants from the PROJECTED plan target (satellites,
     // sub-facts). Descendants with their own attribute deltas are covered: the
@@ -435,11 +466,24 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // pass the resolved SOURCE view so a drop rule can read the fact's context
     // (e.g. DROP EXTENSION derives data-loss from its members' edges).
     const spec = rulesForId(fact.id).drop(fact, source);
-    const destroyList = destroysByRoot.get(key) ?? [fact.id];
+    const seen = new Set<string>([key]);
+    const destroyList: StableId[] = [fact.id];
+    // `destroysByRoot` is removed-only. A replaced attached child is not in
+    // `removed`; DROP INDEX on the old parent still cascades it, so CREATE
+    // must wait on this drop.
+    for (const id of [
+      ...(destroysByRoot.get(key) ?? []),
+      ...redirectedOnto(key),
+    ]) {
+      const idKey = encodeId(id);
+      if (seen.has(idKey)) continue;
+      seen.add(idKey);
+      destroyList.push(id);
+    }
     pushAction("drop", spec, {
       consumes: fact.parent !== undefined ? [fact.parent] : [],
       // the root fact leads: it is the action's subject (tie-break, locks)
-      destroys: [fact.id, ...destroyList.filter((id) => encodeId(id) !== key)],
+      destroys: destroyList,
     });
   }
 
