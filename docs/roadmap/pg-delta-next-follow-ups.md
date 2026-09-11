@@ -1713,3 +1713,14 @@ planId. Parked:
   The unit pin reconstructs with the same `keepAssumedIds` + `alignedIds`
   recipe `provePlan` uses; it does not call `provePlan` (that path needs a
   pool). A fake-`reextract` prove test would catch the wiring being deleted.
+- **Deferred — source-fingerprint witness for cascade-aligned ids (P1, round 5).**
+  Alignment strips XOR reverse-depends victims from both reconstructed
+  views before `physicalSource` is hashed, and apply/prove replay that
+  strip so a one-catalog reconstruct matches. A later DROP/ALTER of that
+  leave-as-is object therefore does not trip the source gate. Witnessing
+  those identities while still suppressing their deltas needs a split
+  fingerprint (unstripped source hash, stripped diff) and a different
+  apply/prove recipe than the one-catalog reconstruct this PR landed.
+  Same class as any fact already reverse-depends-removed from source at
+  reconstruct time. Not required for CLI-2300 / CLI-2342 (don't
+  CREATE/DROP the still-existing object).
