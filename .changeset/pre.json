@@ -126,6 +126,7 @@
     "order-rls-policies-after-referenced-tables",
     "parameter-acl-unmodeled-probe",
     "parse-column-acl-ids",
+    "partition-replace-index-attach",
     "pg-cron-username-elision",
     "pg-delta-clean-room-rewrite",
     "pg-delta-partition-check-constraint-inhcount",

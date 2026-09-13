@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.51
+
+### Patch Changes
+
+- 1b81cf2: Recreate partitions, views, and publication membership across a parent-table replace, and emit child indexes plus `ALTER INDEX … ATTACH PARTITION` so partitioned-index attach-state converges — including when a parent index is renamed (drop+create) and attached children must be rebuilt.
+
 ## 1.0.0-alpha.50
 
 ### Minor Changes
