@@ -1685,10 +1685,10 @@ resolver contract stay deferred.
   tablespace, …) can leave the child payload identical, so the child
   was neither removed nor replaced. `DROP INDEX parent` still
   cascades it; the plan recreated only the parent. Expansion now
-  promotes surviving source children whose `attachedTo` is a
-  replaced/removed parent into `replaceIds` (they hang off the
-  partition table, not the parent index, so `childrenOf` cannot see
-  them). Unit test plus corpus
+  promotes surviving facts whose `dropRootRedirect` ancestor is
+  destroyed (kind knowledge stays in the rule table) and walks that
+  to a fixed point so a leaf attached through a middle partitioned
+  index is included regardless of fact order. Unit tests plus corpus
   `partitioned-table-operations--parent-index-fillfactor`.
 - **Deferred — synthesize publicationRel→table via pg_depend (P1).**
   The edge is extract-time from `pg_publication_rel` (same catalog

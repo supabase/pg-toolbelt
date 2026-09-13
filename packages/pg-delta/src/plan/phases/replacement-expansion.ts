@@ -13,7 +13,6 @@ import type { Fact, FactBase } from "../../core/fact.ts";
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { cascadesToChildren, isRebuildable } from "../rule-flags.ts";
 import type { RulesForId } from "../rules.ts";
-import { p } from "../rules/helpers.ts";
 
 export interface ReplacementExpansionInput {
   /** removed facts keyed by encoded id (ordinary rename cancellation applied) */
@@ -88,25 +87,33 @@ export function expandReplacements(
     }
   }
 
-  // Attached child indexes hang off the partition table, not the parent
-  // index, and have no depends edge (DROP while attached is rejected). DROP
-  // INDEX on the parent still cascades them, so a surviving child of a
-  // replaced parent must rebuild even when its own payload is unchanged.
-  for (const fact of source.facts()) {
-    if (fact.id.kind !== "index") continue;
-    const attachedTo = p(fact, "attachedTo") as {
-      schema: string;
-      name: string;
-    } | null;
-    if (attachedTo == null) continue;
-    const parentKey = encodeId({
-      kind: "index",
-      schema: attachedTo.schema,
-      name: attachedTo.name,
-    });
-    if (!replaceIds.has(parentKey) && !removed.has(parentKey)) continue;
-    if (!desired.has(fact.id)) continue;
-    replaceIds.add(encodeId(fact.id));
+  const isRemovedId = (id: StableId): boolean => {
+    const key = encodeId(id);
+    return removed.has(key) || replaceIds.has(key);
+  };
+
+  // Surviving facts whose DROP folds into a destroyed ancestor
+  // (`dropRootRedirect`) must rebuild: that DROP still cascades them even
+  // when their payload is unchanged. Walk to a fixed point so a leaf
+  // attached through a middle parent is included regardless of fact order.
+  {
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const fact of source.facts()) {
+        if (!desired.has(fact.id)) continue;
+        const key = encodeId(fact.id);
+        if (replaceIds.has(key) || removed.has(key)) continue;
+        if (
+          rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId) ===
+          undefined
+        ) {
+          continue;
+        }
+        replaceIds.add(key);
+        grew = true;
+      }
+    }
   }
 
   // ── forced dependent rebuild (the clean expand-replace, §3.4) ─────────
@@ -204,10 +211,6 @@ export function expandReplacements(
   // constraint drops are NEVER suppressed: an explicit DROP CONSTRAINT before
   // the table drops makes mutual-FK teardown cycles unconstructible
   // (decomposition over repair, §3.5).
-  const isRemovedId = (id: StableId): boolean => {
-    const key = encodeId(id);
-    return removed.has(key) || replaceIds.has(key);
-  };
   const dropRootOf = new Map<string, string>();
   const findDropRoot = (fact: Fact): string => {
     const key = encodeId(fact.id);

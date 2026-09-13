@@ -282,6 +282,97 @@ describe("add index on partitioned parent with existing partitions", () => {
     ).toBe(true);
   });
 
+  test("replacing a parent index def recreates nested attached grandchildren", () => {
+    const mid: StableId = { kind: "table", schema: "s1", name: "mid" };
+    const leaf: StableId = { kind: "table", schema: "s1", name: "leaf" };
+    const midIdx: StableId = { kind: "index", schema: "s1", name: "z_middle" };
+    const leafIdx: StableId = { kind: "index", schema: "s1", name: "a_leaf" };
+    const midFact: Fact = {
+      id: mid,
+      parent: s1,
+      payload: tablePayload({
+        partitionBound: "FOR VALUES FROM (0) TO (100)",
+        parentTable: { schema: "s1", name: "parent" },
+        partitionKey: "RANGE (id)",
+      }),
+    };
+    const leafFact: Fact = {
+      id: leaf,
+      parent: s1,
+      payload: tablePayload({
+        partitionBound: "FOR VALUES FROM (0) TO (50)",
+        parentTable: { schema: "s1", name: "mid" },
+      }),
+    };
+    const midIdxFact: Fact = {
+      id: midIdx,
+      parent: mid,
+      payload: {
+        def: `CREATE INDEX z_middle ON ONLY s1.mid USING btree (status)`,
+        valid: true,
+        attachedTo: { schema: "s1", name: "idx_parent_status" },
+      },
+    };
+    const leafIdxFact: Fact = {
+      id: leafIdx,
+      parent: leaf,
+      payload: {
+        def: `CREATE INDEX a_leaf ON s1.leaf USING btree (status)`,
+        valid: true,
+        attachedTo: { schema: "s1", name: "z_middle" },
+      },
+    };
+    const parentIdxNext: Fact = {
+      ...parentIdxFact,
+      payload: {
+        ...parentIdxFact.payload,
+        def: `CREATE INDEX idx_parent_status ON ONLY s1.parent USING btree (status) WITH (fillfactor='70')`,
+      },
+    };
+    const inheritMid: DependencyEdge = {
+      from: mid,
+      to: parent,
+      kind: "depends",
+    };
+    const inheritLeaf: DependencyEdge = {
+      from: leaf,
+      to: mid,
+      kind: "depends",
+    };
+    const source = buildFactBase(
+      [
+        schema,
+        parentFact,
+        ...columns,
+        midFact,
+        leafFact,
+        leafIdxFact,
+        parentIdxFact,
+        midIdxFact,
+      ],
+      [inheritMid, inheritLeaf],
+    );
+    const desired = buildFactBase(
+      [
+        schema,
+        parentFact,
+        ...columns,
+        midFact,
+        leafFact,
+        leafIdxFact,
+        parentIdxNext,
+        midIdxFact,
+      ],
+      [inheritMid, inheritLeaf],
+    );
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    expect(
+      sqls.some((s) => s.includes(`DROP INDEX`) && s.includes(`a_leaf`)),
+    ).toBe(false);
+    expect(sqls.some((s) => s.startsWith(`CREATE INDEX z_middle`))).toBe(true);
+    expect(sqls.some((s) => s.startsWith(`CREATE INDEX a_leaf`))).toBe(true);
+  });
+
   test("renaming a partitioned parent index recreates attached children", () => {
     const parentIdxOld: StableId = {
       kind: "index",
