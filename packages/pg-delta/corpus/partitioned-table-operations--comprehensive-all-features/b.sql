@@ -12,6 +12,9 @@ CREATE TABLE test_schema.orders (
   updated_at timestamp DEFAULT now(),
   PRIMARY KEY (order_id, created_on)
 ) PARTITION BY RANGE (created_on);
+CREATE INDEX idx_orders_status ON test_schema.orders (status);
+CREATE INDEX idx_orders_customer ON test_schema.orders (customer_id);
+CREATE INDEX idx_orders_created_brin ON test_schema.orders USING brin (created_on);
 CREATE TABLE test_schema.orders_2024 PARTITION OF test_schema.orders
   FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
 CREATE TABLE test_schema.orders_2025 PARTITION OF test_schema.orders
@@ -38,9 +41,6 @@ ALTER TABLE test_schema.orders
   FOREIGN KEY (customer_id)
   REFERENCES test_schema.customers(customer_id)
   ON DELETE RESTRICT;
-CREATE INDEX idx_orders_status ON test_schema.orders (status);
-CREATE INDEX idx_orders_customer ON test_schema.orders (customer_id);
-CREATE INDEX idx_orders_created_brin ON test_schema.orders USING brin (created_on);
 CREATE TRIGGER trg_orders_updated_at
   BEFORE UPDATE ON test_schema.orders
   FOR EACH ROW
