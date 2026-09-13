@@ -15,11 +15,15 @@ import {
   canSetOwner,
   type ApplierCapability,
 } from "../../policy/capability.ts";
-import { factMatches, type SerializeRule } from "../../policy/policy.ts";
+import {
+  factMatches,
+  type AssumedDefaultGrant,
+  type SerializeRule,
+} from "../../policy/policy.ts";
 import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
-import { grantTarget, qid } from "../render.ts";
+import { qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import {
@@ -28,6 +32,10 @@ import {
   type PlanParams,
   type RulesForId,
 } from "../rules.ts";
+import {
+  defaultPrivilegeCreateActions,
+  renderRevokeAllSql,
+} from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
 
 export interface ActionEmitterInput {
@@ -52,6 +60,13 @@ export interface ActionEmitterInput {
   /** id-keyed rule resolver (schema kinds via the static RULES table,
    *  `extensionIntent` via the profile's intent rules) */
   rulesForId: RulesForId;
+  /** Load-environment default grants to wipe on CREATE when the desired ACL
+   *  has no matching fact. Empty → today's hygiene (projected ADP only). */
+  assumedDefaultGrants: readonly AssumedDefaultGrant[];
+  /** Overlay tuples forwarded via `plan({ assumedDefaultGrants })` (export).
+   *  Policy-only overlay still drives hygiene; it must not inject ADP wipes
+   *  into DB-to-DB plans whose source already is the live target. */
+  overlayAdpWipes: readonly AssumedDefaultGrant[];
 }
 
 export interface ActionEmitterOutput {
@@ -83,6 +98,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     serializeRules,
     capability,
     rulesForId,
+    assumedDefaultGrants,
+    overlayAdpWipes,
   } = input;
 
   const actions: Action[] = [];
@@ -149,12 +166,32 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   };
 
   const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesForId(fact.id).create(
-      fact,
-      base,
-      paramsFor(fact),
-      source,
-    );
+    let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
+    // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
+    if (
+      overlayAdpWipes.length > 0 &&
+      fact.id.kind === "defaultPrivilege" &&
+      ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0
+    ) {
+      const id = fact.id;
+      if (
+        overlayAdpWipes.some(
+          (tuple) =>
+            tuple.creatingRole === id.role &&
+            tuple.schema === id.schema &&
+            tuple.objtype === id.objtype &&
+            tuple.grantee === id.grantee,
+        )
+      ) {
+        specs = [
+          ...defaultPrivilegeCreateActions({
+            id: fact.id,
+            payload: { privileges: [], grantable: [] },
+          }),
+          ...specs,
+        ];
+      }
+    }
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -305,6 +342,32 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
   }
 
+  // Overlay ADP wipes: export-only. The load dest can inject defaults the
+  // pristine source never had; DB-to-DB source already is the live target.
+  for (const tuple of overlayAdpWipes) {
+    if (tuple.schema != null) {
+      const schemaId: StableId = { kind: "schema", name: tuple.schema };
+      if (!projectedDesired.has(schemaId) && !source.has(schemaId)) continue;
+    }
+    const id: StableId = {
+      kind: "defaultPrivilege",
+      role: tuple.creatingRole,
+      schema: tuple.schema,
+      objtype: tuple.objtype,
+      grantee: tuple.grantee,
+    };
+    if (projectedDesired.has(id) || source.has(id)) continue;
+    if (producerOf.has(encodeId(id))) continue;
+    const fact: Fact = {
+      id,
+      payload: { privileges: [], grantable: [] },
+      ...(tuple.schema != null
+        ? { parent: { kind: "schema" as const, name: tuple.schema } }
+        : {}),
+    };
+    emitCreate(fact, projectedDesired);
+  }
+
   // creates — parents first, so a parent's delta-set inlining (e.g. a
   // partitioned table's columns rendered inside its CREATE, registered via
   // alsoProduces) is visible before its children are considered
@@ -385,39 +448,50 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ownerEdge?.to.kind === "role"
         ? (ownerEdge.to as { kind: "role"; name: string }).name
         : undefined;
-    if (typeof owner !== "string") continue;
     const schema = (fact.id as { schema?: string }).schema ?? null;
-    for (const dp of projectedDesired.facts()) {
-      if (dp.id.kind !== "defaultPrivilege") continue;
-      const dpid = dp.id as {
-        role: string;
-        schema: string | null;
-        objtype: string;
-        grantee: string;
-      };
-      if (dpid.role !== owner || dpid.objtype !== objtype) continue;
-      if (dpid.schema != null && dpid.schema !== schema) continue;
-      if (dpid.grantee === owner) continue; // the owner's implicit entry IS the default
+    const revoked = new Set<string>();
+    const emitHygieneRevoke = (grantee: string): void => {
+      if (typeof owner === "string" && grantee === owner) return;
+      if (revoked.has(grantee)) return;
       const aclId: StableId = {
         kind: "acl",
         target: fact.id,
-        grantee: dpid.grantee,
+        grantee,
       };
-      // an explicit acl in the PROJECTED target recreates the grant with a
-      // REVOKE-first, so hygiene would be redundant (and a filtered acl is
-      // correctly absent here → hygiene still fires)
-      if (projectedDesired.has(aclId)) continue;
+      if (projectedDesired.has(aclId)) return;
+      revoked.add(grantee);
       pushAction(
         "alter",
         {
-          sql: `REVOKE ALL ON ${grantTarget(fact.id)} FROM ${dpid.grantee === "PUBLIC" ? "PUBLIC" : qid(dpid.grantee)}`,
+          sql: renderRevokeAllSql(fact.id, [grantee]),
           consumes:
-            dpid.grantee === "PUBLIC"
+            grantee === "PUBLIC"
               ? []
-              : [{ kind: "role", name: dpid.grantee } as StableId],
+              : [{ kind: "role", name: grantee } as StableId],
         },
         { consumes: [fact.id] },
       );
+    };
+    if (typeof owner === "string") {
+      for (const dp of projectedDesired.facts()) {
+        if (dp.id.kind !== "defaultPrivilege") continue;
+        const dpid = dp.id as {
+          role: string;
+          schema: string | null;
+          objtype: string;
+          grantee: string;
+        };
+        if (dpid.role !== owner || dpid.objtype !== objtype) continue;
+        if (dpid.schema != null && dpid.schema !== schema) continue;
+        emitHygieneRevoke(dpid.grantee);
+      }
+    }
+    // Object CREATE is applier-scoped: the tuple's creatingRole names who would
+    // inject ADP, not the object's owner. Match objtype + schema + grantee.
+    for (const tuple of assumedDefaultGrants) {
+      if (tuple.objtype !== objtype) continue;
+      if (tuple.schema != null && tuple.schema !== schema) continue;
+      emitHygieneRevoke(tuple.grantee);
     }
   }
 

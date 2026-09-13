@@ -40,13 +40,15 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 30 → 29: the ADP gate's `desired.facts()` rescan became a prebuilt objtype
   // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
   // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
-  "internal.ts": 29,
+  // 29 → 37: overlay REVOKE elision + mergeCoTargetRevokes.
+  "internal.ts": 37,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
   // never builds the member-closure index — 1 deliberate literal (the closure
   // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
-  "phases/action-emitter.ts": 11,
+  // 11 → 15: overlay ADP wipe + emitCreate wipe-then-grant.
+  "phases/action-emitter.ts": 15,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

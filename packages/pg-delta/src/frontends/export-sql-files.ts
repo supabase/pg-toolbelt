@@ -20,7 +20,7 @@
 import { createHash } from "node:crypto";
 import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { plan, type Action } from "../plan/plan.ts";
+import { plan, type Action, type AssumedDefaultGrant } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
 import { foldCaseCollidingPaths } from "./export-case-collisions.ts";
@@ -85,6 +85,10 @@ export interface ExportOptions {
    *  the `raw` profile (no policy) — an identity projection (review P1). */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
+   *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
+   *  Empty for the `raw` profile. */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
   /** Intent-rule index from the active profile's handlers (e.g. pg_cron under
    *  `--profile supabase`). Forwarded to the internal `plan()` so an
    *  `extensionIntent` fact in `fb` (a named cron job) renders its replay SQL
@@ -941,11 +945,12 @@ export function exportSqlFiles(
   // so the fold pass can exclude them.
   const cyclicFks = cyclicForeignKeys(fb);
   // `fb` is the already-resolved managed view, so we do NOT re-run policy
-  // filtering / serialize rules here; we only forward the assumed schema/role
-  // sets so the requirement guard exempts actions consuming assumed-but-filtered
-  // objects (review P1). `foldConstraints` renders validated table constraints
-  // INLINE in their CREATE TABLE (export files are consumed by the retry /
-  // reorder loader, where that is safe — see PlanOptions.foldConstraints).
+  // filtering / serialize rules here. Assumed schema/role sets exempt the
+  // requirement guard for assumed-but-filtered objects. Overlay default grants
+  // drive create-time REVOKE / ADP wipes. `foldConstraints` renders validated
+  // table constraints INLINE in their CREATE TABLE (export files are consumed
+  // by the retry / reorder loader, where that is safe — see
+  // PlanOptions.foldConstraints).
   const rendered = plan(baseline, fb, {
     foldConstraints: { exclude: cyclicFks },
     ...(options.assumedSchemas !== undefined
@@ -953,6 +958,9 @@ export function exportSqlFiles(
       : {}),
     ...(options.assumedRoles !== undefined
       ? { assumedRoles: options.assumedRoles }
+      : {}),
+    ...(options.assumedDefaultGrants !== undefined
+      ? { assumedDefaultGrants: options.assumedDefaultGrants }
       : {}),
     ...(options.intentRules !== undefined
       ? { intentRules: options.intentRules }

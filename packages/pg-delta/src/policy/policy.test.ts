@@ -12,6 +12,7 @@ import {
   filterDeltas,
   flattenPolicy,
   validatePolicy,
+  type AssumedDefaultGrant,
   type Policy,
   type Predicate,
 } from "./policy.ts";
@@ -657,6 +658,38 @@ describe("flattenPolicy — extends composition", () => {
   test("assumedSchemas defaults to empty array when unset", () => {
     const flat = flattenPolicy({ id: "no-assumed-schemas" });
     expect(flat.assumedSchemas).toEqual([]);
+  });
+
+  test("assumedDefaultGrants compose across extends and de-duplicate", () => {
+    const t = (
+      grantee: string,
+      schema: string | null = "public",
+    ): AssumedDefaultGrant => ({
+      creatingRole: "postgres",
+      schema,
+      objtype: "f",
+      grantee,
+    });
+    const parent: Policy = {
+      id: "parent-adg",
+      assumedDefaultGrants: [t("anon"), t("authenticated")],
+    };
+    const child: Policy = {
+      id: "child-adg",
+      assumedDefaultGrants: [t("anon"), t("service_role")],
+      extends: [parent],
+    };
+    const flat = flattenPolicy(child);
+    expect(flat.assumedDefaultGrants).toEqual([
+      t("anon"),
+      t("service_role"),
+      t("authenticated"),
+    ]);
+  });
+
+  test("assumedDefaultGrants defaults to empty array when unset", () => {
+    const flat = flattenPolicy({ id: "no-adg" });
+    expect(flat.assumedDefaultGrants).toEqual([]);
   });
 });
 

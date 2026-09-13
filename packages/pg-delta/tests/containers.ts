@@ -15,6 +15,8 @@
  * so rename detection stays unambiguous, and prove plans that drop/rename roles
  * against the SACRIFICIAL source database directly (never a clone — a clone
  * leaves the original source pinning the old role; see owner-edge.test.ts).
+ * Tests that must create canonical names (`postgres`, `anon`, …) use
+ * `startStockCluster()` and `stop()` it — never the pair.
  */
 import {
   GenericContainer,
@@ -295,6 +297,12 @@ let isolatedPair: Promise<[Cluster, Cluster]> | null = null;
 export async function isolatedClusterPair(): Promise<[Cluster, Cluster]> {
   isolatedPair ??= startDistinctLineagePair();
   return isolatedPair;
+}
+
+/** Fresh stock cluster. Callers that mutate canonical role names must use this
+ *  and `stop()` it — the pair singleton is shared with other files. */
+export async function startStockCluster(): Promise<Cluster> {
+  return startCluster();
 }
 
 export async function createTestDb(prefix = "t"): Promise<TestDb> {

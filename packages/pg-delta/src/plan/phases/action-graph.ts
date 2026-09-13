@@ -13,6 +13,7 @@ import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
+import type { AssumedDefaultGrant } from "../../policy/policy.ts";
 import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
@@ -25,6 +26,7 @@ import {
   elideRedundantDrops,
   foldCoCreateOwnership,
   mergeCoTargetGrants,
+  mergeCoTargetRevokes,
 } from "../internal.ts";
 
 export interface FinalizeInput {
@@ -53,6 +55,10 @@ export interface FinalizeInput {
    *  side and absent from the target. Computed by plan() from the RAW fact
    *  bases; empty under the raw/no-policy path. */
   assumedPresentIds: ReadonlySet<string>;
+  /** Overlay tuples — keep a co-create REVOKE when the holder is a strict
+   *  subset of `_ownerDefault` (dest injectee may be a superset). Empty →
+   *  today's elision. */
+  assumedDefaultGrants: readonly AssumedDefaultGrant[];
   /** applier capability (move 6) — needed by the co-create compaction passes:
    *  the owner-ALTER no-op elision and the REVOKE-before-GRANT superset guard key
    *  off `capability.role`. Undefined under the unrestricted (superuser/CI/raw)
@@ -93,6 +99,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedRoleNames,
     assumedSchemaNames,
     assumedPresentIds,
+    assumedDefaultGrants,
     capability,
     compact,
     foldConstraints,
@@ -178,37 +185,41 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // freshly-created object's built-in default ACL, trim the cosmetic leading
   // REVOKE off remaining third-party co-create grants, fold a co-created
   // object's owner ALTER into its CREATE (CREATE SCHEMA … AUTHORIZATION, or drop
-  // an applier-redundant ALTER), then merge consecutive same-privilege co-create
-  // GRANTs into one grantee-list statement (last, so it sees final adjacency).
+  // an applier-redundant ALTER), merge same-object REVOKE ALL leaders, then
+  // merge consecutive same-privilege co-create GRANTs into one grantee-list
+  // statement (last, so it sees final adjacency).
   // Purely cosmetic — the proof is unchanged.
   const finalActions = compact
     ? mergeCoTargetGrants(
-        foldCoCreateOwnership(
-          elideCoCreateRevokeBeforeGrant(
-            elideDefaultAclCreates(
-              elideCascadeSubsumedPolicyDrops(
-                elideRedundantDrops(
-                  compactColumnFolds(
-                    orderedActions,
-                    order,
-                    edges,
-                    foldHints,
-                    acceptsFolds,
-                    positionOf,
-                    foldConstraints,
+        mergeCoTargetRevokes(
+          foldCoCreateOwnership(
+            elideCoCreateRevokeBeforeGrant(
+              elideDefaultAclCreates(
+                elideCascadeSubsumedPolicyDrops(
+                  elideRedundantDrops(
+                    compactColumnFolds(
+                      orderedActions,
+                      order,
+                      edges,
+                      foldHints,
+                      acceptsFolds,
+                      positionOf,
+                      foldConstraints,
+                    ),
+                    source,
                   ),
                   source,
                 ),
-                source,
+                desired,
+                capability,
               ),
               desired,
               capability,
+              assumedDefaultGrants,
             ),
             desired,
             capability,
           ),
-          desired,
-          capability,
         ),
         desired,
       )

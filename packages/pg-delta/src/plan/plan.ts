@@ -11,7 +11,12 @@ import {
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
-import { flattenPolicy, type Policy } from "../policy/policy.ts";
+import {
+  flattenPolicy,
+  uniqueAssumedDefaultGrants,
+  type AssumedDefaultGrant,
+  type Policy,
+} from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
   projectionAuditFrom,
@@ -69,6 +74,7 @@ export type {
   ProjectionAuditStage,
   ProjectionAuditSubject,
 } from "../policy/view.ts";
+export type { AssumedDefaultGrant } from "../policy/policy.ts";
 
 export interface Action {
   sql: string;
@@ -268,6 +274,10 @@ export interface PlanOptions {
    *  over an already-resolved view. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
+   *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
+   *  Empty/absent → today's emit. */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
   /** the redaction mode used to extract the source/desired fact bases, stamped
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
    *  (see `Plan.redactSecrets`). Omit on direct library plans. */
@@ -655,6 +665,10 @@ export function plan(
   const flatPolicy = options?.policy
     ? flattenPolicy(options.policy)
     : undefined;
+  const assumedDefaultGrants = uniqueAssumedDefaultGrants([
+    ...(flatPolicy?.assumedDefaultGrants ?? []),
+    ...(options?.assumedDefaultGrants ?? []),
+  ]);
   const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
   const policyDefaultOwner = flatPolicy?.defaultOwner;
   const assumedPresentIds = new Set<string>();
@@ -728,6 +742,8 @@ export function plan(
     serializeRules,
     capability: options?.capability,
     rulesForId,
+    assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────
@@ -747,6 +763,7 @@ export function plan(
     assumedRoleNames,
     assumedSchemaNames,
     assumedPresentIds,
+    assumedDefaultGrants,
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,

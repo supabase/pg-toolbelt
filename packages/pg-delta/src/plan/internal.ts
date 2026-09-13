@@ -20,11 +20,12 @@ import {
   type StableId,
 } from "../core/stable-id.ts";
 import { type ApplierCapability, canSetOwner } from "../policy/capability.ts";
+import type { AssumedDefaultGrant } from "../policy/policy.ts";
 import { extensionMemberClosure } from "../policy/view.ts";
 import type { Action, SafetyReport } from "./plan.ts";
 import { isMetadataKind, ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
-import { renderGrantSql } from "./rules/helpers.ts";
+import { renderGrantSql, renderRevokeAllSql } from "./rules/helpers.ts";
 import { schemaCreateSql } from "./rules/schemas.ts";
 
 const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
@@ -892,26 +893,58 @@ function samePrivilegeSet(a: readonly string[], b: readonly string[]): boolean {
   return b.every((priv) => set.has(priv));
 }
 
-/**
- * Whether an `ALTER DEFAULT PRIVILEGES` customizes the create-time default ACL
- * for this objtype, so a co-created object's ACL can no longer be assumed to be
- * the plain built-in default.
- *
- * The default-ACL elision drops an object's REVOKE/GRANT group only when the
- * group is a no-op against the create-time ACL. That holds for the built-in
- * default, but NOT when an ADP is in play: an ADP can reduce the default (e.g.
- * revoke the built-in PUBLIC `EXECUTE`, or revoke `UPDATE` from the owner), and
- * — critically — a plan that creates both the ADP and the object does NOT
- * guarantee the ADP runs first, so the object may be created with the built-in
- * default while the desired ACL is the reduced one (or vice versa). In every
- * such case the explicit REVOKE/GRANT group is load-bearing, so we keep it
- * (review P2). The redundant leading REVOKE is still trimmed by
- * elideCoCreateRevokeBeforeGrant.
- *
- * ADP is keyed by the CREATING role (`defaclrole`); when `capability` is known
- * we filter to the applier's role, else (corpus/raw) consider any role's ADP
- * (conservative — at worst we keep a redundant REVOKE/GRANT).
- */
+function isStrictSubset(
+  privs: readonly string[],
+  full: readonly string[],
+): boolean {
+  const set = new Set(full);
+  if (!privs.every((p) => set.has(p))) return false;
+  return !samePrivilegeSet(privs, full);
+}
+
+function ownerDefaultPrivileges(
+  desired: FactBase,
+  target: StableId,
+): string[] | undefined {
+  const ownerEdge = desired
+    .outgoingEdges(target)
+    .find((e) => e.kind === "owner");
+  if (ownerEdge !== undefined && ownerEdge.to.kind === "role") {
+    const ownerAcl = desired.get({
+      kind: "acl",
+      target,
+      grantee: (ownerEdge.to as { kind: "role"; name: string }).name,
+    });
+    const d = ownerAcl?.payload["_ownerDefault"];
+    if (Array.isArray(d)) return d as string[];
+  }
+  for (const child of desired.childrenOf(target)) {
+    if (child.id.kind !== "acl") continue;
+    const d = child.payload["_ownerDefault"];
+    if (Array.isArray(d)) return d as string[];
+  }
+  return undefined;
+}
+
+function overlayMatches(
+  grants: readonly AssumedDefaultGrant[],
+  target: StableId,
+  grantee: string,
+): AssumedDefaultGrant[] {
+  const objtype = ruleFlag(target.kind, "defaclObjtype");
+  if (objtype === undefined) return [];
+  const targetSchema =
+    target.kind === "schema"
+      ? null
+      : ((target as { schema?: string }).schema ?? null);
+  return grants.filter(
+    (g) =>
+      g.grantee === grantee &&
+      g.objtype === objtype &&
+      (g.schema === null || g.schema === targetSchema),
+  );
+}
+
 /**
  * The `defaultPrivilege` facts of a desired state, folded by `objtype` so
  * `adpCustomizesObjtype` is an O(1) lookup instead of a full fact scan.
@@ -949,6 +982,9 @@ function buildAdpIndex(
   return index;
 }
 
+/** True when an ADP customizes this objtype. Create-time ACL is then not the
+ *  built-in default, and ADP vs object CREATE order is not guaranteed, so the
+ *  explicit REVOKE/GRANT group stays load-bearing. */
 function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
   const objtype = ruleFlag(target.kind, "defaclObjtype");
   if (objtype === undefined) return false; // kind has no default-ACL mechanism
@@ -1200,11 +1236,14 @@ export function foldCoCreateOwnership(
  *    superset guard). With known capability "potentially active" means
  *    `default.role === capability.role` (creates-as-applier); without capability,
  *    any matching default (objtype + schema scope + grantee) is treated active.
+ *  - overlay match whose privileges are a strict subset of `_ownerDefault` (or
+ *    `_ownerDefault` is missing) → untouched (dest injectee may be a superset).
  */
 export function elideCoCreateRevokeBeforeGrant(
   actions: readonly Action[],
   desired: FactBase,
   capability?: ApplierCapability,
+  assumedDefaultGrants: readonly AssumedDefaultGrant[] = [],
 ): Action[] {
   const createdObjects = new Set<string>();
   for (const action of actions) {
@@ -1291,6 +1330,15 @@ export function elideCoCreateRevokeBeforeGrant(
       return;
     if (defaultGrantsOutside(aclId.target, aclId.grantee, new Set(privileges)))
       return; // REVOKE is load-bearing
+    const matches = overlayMatches(
+      assumedDefaultGrants,
+      aclId.target,
+      aclId.grantee,
+    );
+    if (matches.length > 0) {
+      const fullSet = ownerDefaultPrivileges(desired, aclId.target);
+      if (fullSet === undefined || isStrictSubset(privileges, fullSet)) return; // dest injectee may be a superset of desired ADP / object ACL
+    }
     dropRevoke.add(index);
   });
 
@@ -1300,6 +1348,116 @@ export function elideCoCreateRevokeBeforeGrant(
   return dropRevoke.size > 0
     ? actions.filter((_, index) => !dropRevoke.has(index))
     : [...actions];
+}
+
+type AclId = Extract<StableId, { kind: "acl" }>;
+const isAclId = (id: StableId): id is AclId => id.kind === "acl";
+
+/**
+ * Compaction (§3.6), same-object REVOKE ALL merge: hygiene and REVOKE-only
+ * groups emit one statement per grantee. Combine identical `REVOKE ALL ON
+ * <target>` leaders (no paired GRANT) into one `FROM` list, grouped by
+ * segment + target (not adjacency) so a create-time PUBLIC REVOKE and a
+ * later hygiene REVOKE on the same object still merge. PUBLIC stays
+ * unquoted. Does not fold a subset-holder's REVOKE+GRANT pair.
+ */
+export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
+  const aclIdsWithGrant = new Set<string>();
+  for (const action of actions)
+    for (const id of action.consumes)
+      if (isAclId(id)) aclIdsWithGrant.add(encodeId(id));
+
+  const revokeAllOf = (
+    action: Action,
+  ): { target: StableId; grantee: string } | undefined => {
+    const aclId = action.produces.find(isAclId);
+    if (aclId !== undefined) {
+      if (aclId.column !== undefined) return undefined;
+      if (aclIdsWithGrant.has(encodeId(aclId))) return undefined;
+      if (action.sql !== renderRevokeAllSql(aclId.target, [aclId.grantee]))
+        return undefined;
+      return { target: aclId.target, grantee: aclId.grantee };
+    }
+    if (action.verb !== "alter") return undefined;
+    if (action.produces.length > 0 || action.destroys.length > 0)
+      return undefined;
+    // Hygiene REVOKEs start with REVOKE ALL; skip other ALTERs (e.g. COLUMN).
+    if (!action.sql.startsWith("REVOKE ALL")) return undefined;
+    const obj = action.consumes.find((id) => id.kind !== "role");
+    if (obj === undefined) return undefined;
+    const role = action.consumes.find((id) => id.kind === "role") as
+      | { kind: "role"; name: string }
+      | undefined;
+    const grantee = role?.name ?? "PUBLIC";
+    if (action.sql !== renderRevokeAllSql(obj, [grantee])) return undefined;
+    return { target: obj, grantee };
+  };
+
+  let segment = 0;
+  const groups = new Map<
+    string,
+    Array<{ index: number; target: StableId; grantee: string }>
+  >();
+  actions.forEach((action, index) => {
+    if (action.newSegmentBefore) segment++;
+    const parsed = revokeAllOf(action);
+    if (parsed === undefined) return;
+    const key = `${segment}\0${encodeId(parsed.target)}`;
+    const list = groups.get(key) ?? [];
+    list.push({ index, target: parsed.target, grantee: parsed.grantee });
+    groups.set(key, list);
+  });
+
+  const drop = new Set<number>();
+  const replacement = new Map<number, Action>();
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const grantees: string[] = [];
+    const seen = new Set<string>();
+    const publicFirst = members.some((m) => m.grantee === "PUBLIC");
+    if (publicFirst) {
+      grantees.push("PUBLIC");
+      seen.add("PUBLIC");
+    }
+    for (const m of members) {
+      if (seen.has(m.grantee)) continue;
+      seen.add(m.grantee);
+      grantees.push(m.grantee);
+    }
+    const first = members[0]!;
+    const consumes: StableId[] = [];
+    const produces: StableId[] = [];
+    const seenC = new Set<string>();
+    const seenP = new Set<string>();
+    for (const m of members) {
+      const action = actions[m.index] as Action;
+      for (const c of action.consumes) {
+        const k = encodeId(c);
+        if (seenC.has(k)) continue;
+        seenC.add(k);
+        consumes.push(c);
+      }
+      for (const p of action.produces) {
+        const k = encodeId(p);
+        if (seenP.has(k)) continue;
+        seenP.add(k);
+        produces.push(p);
+      }
+    }
+    replacement.set(first.index, {
+      ...(actions[first.index] as Action),
+      sql: renderRevokeAllSql(first.target, grantees),
+      consumes,
+      produces,
+    });
+    for (const m of members.slice(1)) drop.add(m.index);
+  }
+
+  if (drop.size === 0) return [...actions];
+  return actions.flatMap((action, index) => {
+    if (drop.has(index)) return [];
+    return [replacement.get(index) ?? action];
+  });
 }
 
 /**
@@ -1331,9 +1489,6 @@ export function elideCoCreateRevokeBeforeGrant(
  * stripped from consumes (the graph is not re-consulted post-compaction, but
  * keep the artifact clean).
  */
-type AclId = Extract<StableId, { kind: "acl" }>;
-const isAclId = (id: StableId): id is AclId => id.kind === "acl";
-
 export function mergeCoTargetGrants(
   actions: readonly Action[],
   desired: FactBase,

@@ -140,6 +140,7 @@ export async function buildSchemaExport(
       : [];
   const assumedSchemas = assumed?.assumedSchemas ?? [];
   const assumedRoles = [...(assumed?.assumedRoles ?? []), ...scopeAssumedRoles];
+  const assumedDefaultGrants = assumed?.assumedDefaultGrants ?? [];
 
   const files = exportSqlFiles(scopedView, {
     layout,
@@ -150,6 +151,7 @@ export async function buildSchemaExport(
     ...(options.format !== undefined ? { format: options.format } : {}),
     ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
     ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
+    ...(assumedDefaultGrants.length > 0 ? { assumedDefaultGrants } : {}),
     ...(ctx.planOptions.intentRules !== undefined
       ? { intentRules: ctx.planOptions.intentRules }
       : {}),
