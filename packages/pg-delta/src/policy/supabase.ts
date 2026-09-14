@@ -274,6 +274,18 @@ export const supabasePolicy: Policy = {
   // into the diff. Mirrors the system-schema exclusion list by construction.
   assumedSchemas: [...SUPABASE_SYSTEM_SCHEMAS],
 
+  // Create-time grants a fresh auto-expose-ON baseline injects. Export plans
+  // against these tuples so `load(export(live))` can REVOKE injectees live
+  // does not keep. Privilege lists stay out of the planner — only identity.
+  assumedDefaultGrants: (["r", "S", "f"] as const).flatMap((objtype) =>
+    (["anon", "authenticated", "service_role"] as const).map((grantee) => ({
+      creatingRole: "postgres",
+      schema: "public",
+      objtype,
+      grantee,
+    })),
+  ),
+
   // Default owner for database-scope exports: Supabase hands users the
   // `postgres` role, so an object owned by `postgres` needs no `ALTER … OWNER
   // TO` — its ownership is implicit. Objects owned by a system role are already

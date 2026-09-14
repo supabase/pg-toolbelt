@@ -622,7 +622,7 @@ re-raised in a later review, reply with a link here.
 | P1b | `SET MAXVALUE` ordered before `TYPE` widening on identity columns | reproduced, new | regression class (old engine had no identity-bounds emitter) | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
 | P2a | `relam` / `reltablespace` invisible to diff | real, tracked | shared pre-existing gap | subsumed by the Wave 3 entries above |
 | P2b | `pg_parameter_acl` (PG15+) silently dropped | real, untracked | shared pre-existing gap | probe + docs → ✅ [#380](https://github.com/supabase/pg-toolbelt/pull/380) |
-| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** |
+| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** (export hoist in #475) |
 | P3 | no outside-observer verification gate | absent | never existed in either engine | post-cutover — tracked in [backlog.md](backlog.md) § Validation |
 
 Notes:
@@ -640,8 +640,12 @@ Notes:
   `unmodeled_kind` probe list — silently invisible, violating the completeness
   module's own contract. Now a probe (with `minVersion` version gating);
   modeling the grant as a fact remains add-when-needed.
-- **P2c rationale:** grant handling on identity sequences is byte-identical to
-  the legacy engine's behavior; the review confirmed there is no defect to fix.
+- **P2c rationale:** identity sequences are still not facts, so per-object grant
+  diffs on them are out of scope (same as the legacy engine). #475 sorts overlay
+  `REVOKE ALL` with CREATE SCHEMA in the plan (and files `adp_wipes.sql` ahead
+  of objects/extensions in every layout) so a dest auto-expose baseline no
+  longer injects those grants at `CREATE TABLE` / `CREATE EXTENSION` time.
+  Positive ADP `GRANT`s stay at plan order.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
@@ -1736,4 +1740,50 @@ resolver contract stay deferred.
   throw in `attachedTo.alter` if that path ran. Upgrade by
   re-extracting. Coercing missing `attachedTo` to `null` at snapshot
   load is a format-compat follow-up, not this PR.
+
+## PR #475 review triage — overlay default grants
+
+Identity-sequence inject on live-OFF → dest-ON is **fixed** (#475): overlay
+`REVOKE ALL` wipes sort with CREATE SCHEMA in the plan (schema-stratum
+weight on wipe creates only), so `--layout ordered` follows that order,
+by-object files sort by plan `firstAt`, and grouped splits `adp_wipes.sql`
+(after `schema.sql`, before extensions) from late `default_privileges.sql`
+(after objects). Whole-file hoist of GRANT ADP was wrong: it created
+predating identity sequences under a later `GRANT USAGE`. Create-time ADP
+hygiene uses the resolved default owner when that owner edge was pruned, so
+a table that predated a schema ADP still gets `REVOKE ALL` in its own file.
+Recorded here so a later review does not re-open P2c as the same leak.
+Identity sequences stay unmodeled; per-object grant diffs on them remain
+won't-fix. A source identity sequence created *after* a positive `GRANT
+USAGE ON SEQUENCES` still will not regain that grant on load — the fact
+base has no create-order, so the GRANT file cannot be interleaved between
+two `CREATE TABLE`s. Follow-up: https://github.com/supabase/pg-toolbelt/issues/477.
+
+Deferred from the same review (not blocking):
+
+- **Explicit `plan()` overlay target.** Export vs policy-only is inferred
+  from whether `options.assumedDefaultGrants` is non-empty. A public-API
+  discriminator (`fresh-baseline` vs `live`) would make that obvious; today's
+  two callers (schema-export vs DB-to-DB policy) already pass the right
+  channel.
+- **ADP wipe merge-per-objtype.** Nine unconditional `REVOKE ALL` wipes per
+  supabase-profile export (eighteen with auto-expose ON) are correct and
+  no-op safe. `adp_wipes.sql` has a header; collapsing nine statements into
+  three (one per objtype) can wait. `mergeCoTargetRevokes` is object-ACL
+  only.
+- **Alpine fixture `GRANT ALL`.** The round-trip cell uses DML to match its
+  live SQL; full-set elision is covered in `assumed-default-grants` unit
+  tests. Catalog `aclexplode` on identity sequences is in the new alpine
+  cell, not a full-public dump on the DML fixture.
+- **Kind-literal helper / `postgres`-only overlay pin.** Cleanup; load runs
+  as `postgres`.
+- **Grouped `_cluster/adp_wipes.sql` vs `roles.sql`.** Shipped overlay tuples
+  name baseline roles (`anon`, …). A tuple whose creating role or grantee is
+  created by the export would need the wipe after `CREATE ROLE`.
+- **Overlay REVOKE elision vs dest GRANT OPTION.** When the desired privilege
+  set equals `_ownerDefault`, compaction drops the leading `REVOKE`. Overlay
+  tuples do not carry grant-option bits; a dest ADP that injected the same
+  privileges `WITH GRANT OPTION` would survive a plain `GRANT`. Not the
+  Supabase auto-expose injectee. Keep the revoke for overlay matches only if
+  we start modeling grant options on the tuples.
 

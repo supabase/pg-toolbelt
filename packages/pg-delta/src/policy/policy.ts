@@ -275,6 +275,15 @@ export interface SerializeRule {
 // Policy
 // ---------------------------------------------------------------------------
 
+/** A create-time grant the load environment may inject (no privilege list). */
+export interface AssumedDefaultGrant {
+  creatingRole: string;
+  schema: string | null;
+  /** `pg_default_acl.defaclobjtype` (`r` / `S` / `f` / …). */
+  objtype: string;
+  grantee: string;
+}
+
 export interface Policy {
   id: string;
   filter?: FilterRule[];
@@ -301,6 +310,14 @@ export interface Policy {
    * pg-delta and dbdev rely on) without re-admitting the schema into the diff.
    */
   assumedSchemas?: string[];
+  /**
+   * Default grants the load environment would inject on CREATE (creating role,
+   * schema, pg_default_acl objtype, grantee). Empty/absent: absence of a grant
+   * is not a revoke. A profile fills these so export/load can REVOKE injectees
+   * the desired ACL does not keep, without privilege lists or platform names in
+   * the planner.
+   */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
   /**
    * Publication names assumed to exist at apply time but NOT managed by this
    * policy — platform-created publications (e.g. Supabase's
@@ -737,6 +754,39 @@ export function deltaMatches(
  * Flatten a policy with cycle detection.
  * Own rules appear before parent rules (own-before-extends order).
  */
+function assumedDefaultGrantKey(g: AssumedDefaultGrant): string {
+  return `${g.creatingRole}\0${g.schema ?? ""}\0${g.objtype}\0${g.grantee}`;
+}
+
+/** True when `id` is a defaultPrivilege whose overlay tuple is in `overlay`. */
+export function isOverlayDefaultPrivilege(
+  overlay: readonly AssumedDefaultGrant[],
+  id: StableId,
+): id is Extract<StableId, { kind: "defaultPrivilege" }> {
+  if (id.kind !== "defaultPrivilege" || overlay.length === 0) return false;
+  const key = assumedDefaultGrantKey({
+    creatingRole: id.role,
+    schema: id.schema,
+    objtype: id.objtype,
+    grantee: id.grantee,
+  });
+  return overlay.some((tuple) => assumedDefaultGrantKey(tuple) === key);
+}
+
+export function uniqueAssumedDefaultGrants(
+  grants: AssumedDefaultGrant[],
+): AssumedDefaultGrant[] {
+  const seen = new Set<string>();
+  const out: AssumedDefaultGrant[] = [];
+  for (const g of grants) {
+    const key = assumedDefaultGrantKey(g);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(g);
+  }
+  return out;
+}
+
 export function flattenPolicy(policy: Policy): {
   id: string;
   filter: FilterRule[];
@@ -744,6 +794,7 @@ export function flattenPolicy(policy: Policy): {
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedDefaultGrants: AssumedDefaultGrant[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -761,6 +812,7 @@ function flattenInner(
   assumedRoles: string[];
   assumedSchemas: string[];
   assumedPublications: string[];
+  assumedDefaultGrants: AssumedDefaultGrant[];
   baseline?: string;
   defaultOwner?: string;
 } {
@@ -776,11 +828,14 @@ function flattenInner(
   const ownAssumedRoles: string[] = policy.assumedRoles ?? [];
   const ownAssumedSchemas: string[] = policy.assumedSchemas ?? [];
   const ownAssumedPublications: string[] = policy.assumedPublications ?? [];
+  const ownAssumedDefaultGrants: AssumedDefaultGrant[] =
+    policy.assumedDefaultGrants ?? [];
   const parentFilter: FilterRule[] = [];
   const parentSerialize: SerializeRule[] = [];
   const parentAssumedRoles: string[] = [];
   const parentAssumedSchemas: string[] = [];
   const parentAssumedPublications: string[] = [];
+  const parentAssumedDefaultGrants: AssumedDefaultGrant[] = [];
   // defaultOwner is scalar: own value wins, else the first parent that declares
   // one (own-before-extends, matching the rule-ordering convention).
   let parentDefaultOwner: string | undefined;
@@ -797,6 +852,7 @@ function flattenInner(
       parentAssumedRoles.push(...flat.assumedRoles);
       parentAssumedSchemas.push(...flat.assumedSchemas);
       parentAssumedPublications.push(...flat.assumedPublications);
+      parentAssumedDefaultGrants.push(...flat.assumedDefaultGrants);
       if (parentDefaultOwner === undefined && flat.defaultOwner !== undefined) {
         parentDefaultOwner = flat.defaultOwner;
       }
@@ -812,6 +868,7 @@ function flattenInner(
     assumedRoles: string[];
     assumedSchemas: string[];
     assumedPublications: string[];
+    assumedDefaultGrants: AssumedDefaultGrant[];
     baseline?: string;
     defaultOwner?: string;
   } = {
@@ -826,6 +883,10 @@ function flattenInner(
     assumedPublications: [
       ...new Set([...ownAssumedPublications, ...parentAssumedPublications]),
     ],
+    assumedDefaultGrants: uniqueAssumedDefaultGrants([
+      ...ownAssumedDefaultGrants,
+      ...parentAssumedDefaultGrants,
+    ]),
   };
   if (policy.baseline !== undefined) {
     result.baseline = policy.baseline;

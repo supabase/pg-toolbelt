@@ -20,8 +20,9 @@
 import { createHash } from "node:crypto";
 import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
-import { plan, type Action } from "../plan/plan.ts";
+import { plan, type Action, type AssumedDefaultGrant } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
+import { isOverlayDefaultPrivilege } from "../policy/policy.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
 import { foldCaseCollidingPaths } from "./export-case-collisions.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -82,9 +83,16 @@ export interface ExportOptions {
    *  time. Forwarded to the internal `plan()` so its action-graph guard does not
    *  reject a managed-view action that consumes an assumed-but-filtered object
    *  (e.g. `CREATE EXTENSION … SCHEMA extensions`, `GRANT … TO anon`). Empty for
-   *  the `raw` profile (no policy) — an identity projection (review P1). */
+   *  the `raw` profile (no policy) — an identity projection. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
+   *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
+   *  Empty for the `raw` profile. */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
+  /** Implicit owner after database-scope projection. Forwarded to `plan()` so
+   *  create-time ADP hygiene still matches when owner edges were pruned. */
+  defaultOwner?: string;
   /** Intent-rule index from the active profile's handlers (e.g. pg_cron under
    *  `--profile supabase`). Forwarded to the internal `plan()` so an
    *  `extensionIntent` fact in `fb` (a named cron job) renders its replay SQL
@@ -205,6 +213,7 @@ function groupingTarget(id: StableId): StableId {
 const CATEGORY_ORDER = [
   "cluster",
   "schema",
+  "adp_wipes",
   "extensions",
   "types",
   "domains",
@@ -221,6 +230,7 @@ const CATEGORY_ORDER = [
   "publications",
   "subscriptions",
   "event_triggers",
+  "default_privileges",
   "misc",
 ] as const;
 type Category = (typeof CATEGORY_ORDER)[number];
@@ -233,7 +243,7 @@ const CATEGORY_PRIORITY: Record<Category, number> = Object.fromEntries(
 const CATEGORY_OF_KIND: Record<string, Category> = {
   role: "cluster",
   membership: "cluster",
-  defaultPrivilege: "cluster",
+  defaultPrivilege: "default_privileges",
   fdw: "cluster",
   server: "cluster",
   userMapping: "cluster",
@@ -340,7 +350,6 @@ function scopeRank(id: StableId): number {
 const CLUSTER_FILES: Record<string, string> = {
   role: "roles.sql",
   membership: "roles.sql",
-  defaultPrivilege: "roles.sql",
   fdw: "foreign_data_wrappers.sql",
   server: "foreign_data_wrappers.sql",
   userMapping: "foreign_data_wrappers.sql",
@@ -541,6 +550,17 @@ const FK_SPLIT_HEADER =
   "-- table's file: each file loads atomically, so keeping them inline would\n" +
   "-- deadlock the loader (every file would need a table another pending file\n" +
   "-- creates). These statements apply once all referenced tables exist.\n\n";
+
+/** Overlay REVOKE ALL file: dest auto-expose is cleared before objects exist. */
+const ADP_WIPE_HEADER =
+  "-- Clears assumed destination defaults before creating objects.\n" +
+  "-- Safe to load on a project that does not have those defaults.\n\n";
+
+function sqlFilePreamble(path: string): string {
+  if (path.endsWith(".fk.sql")) return FK_SPLIT_HEADER;
+  if (path.endsWith("adp_wipes.sql")) return ADP_WIPE_HEADER;
+  return "";
+}
 
 /** Join a schema-qualified relation name into an opaque map key. NUL
  *  (backslash-u0000) cannot appear in an identifier, so keys are
@@ -815,6 +835,32 @@ function mergeDependencyCycles(
   return merges;
 }
 
+function isAdpWipeSql(sql: string): boolean {
+  return (
+    /^\s*ALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(sql) &&
+    /\bREVOKE\s+ALL\s+ON\b/i.test(sql)
+  );
+}
+
+function isOverlayAdpWipe(
+  id: Extract<StableId, { kind: "defaultPrivilege" }>,
+  sql: string,
+  overlay: readonly AssumedDefaultGrant[] | undefined,
+): boolean {
+  if (!isAdpWipeSql(sql) || overlay === undefined) {
+    return false;
+  }
+  return isOverlayDefaultPrivilege(overlay, id);
+}
+
+function adpWipePath(
+  id: Extract<StableId, { kind: "defaultPrivilege" }>,
+  ctx: PathContext,
+): string {
+  if (id.schema === null) return `${clusterRoot(ctx.pathStyle)}/adp_wipes.sql`;
+  return `${schemaRoot(ctx.pathStyle, id.schema)}/adp_wipes.sql`;
+}
+
 function pathFor(id: StableId, ctx: PathContext): string {
   const target = fileTarget(id);
   const kind = target.kind;
@@ -829,17 +875,17 @@ function pathFor(id: StableId, ctx: PathContext): string {
   if (memberExtension !== undefined) {
     return `${cluster}/extensions/${seg(memberExtension)}.sql`;
   }
-  // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
-  // NOT share the atomic cluster/roles.sql file with CREATE ROLE: with reorder
-  // disabled (any ADP present) the raw loader would roll the role back when the
-  // ADP fails on the not-yet-created schema. File it under the schema instead,
-  // where the loader's defer-and-retry converges (review P2). A global ADP
-  // (schema null) has no such dependency and stays with the roles.
+  // Schema-scoped ADP cannot share atomic roles.sql with CREATE ROLE: any ADP
+  // disables statement reorder, so a failed IN SCHEMA statement would roll the
+  // role back. Global GRANT ADP is a sibling cluster file so overlay REVOKE ALL
+  // can load after roles and before objects without reversing a GRANT still in
+  // roles.sql.
   if (kind === "defaultPrivilege") {
     const schema = (target as { schema: string | null }).schema;
     if (schema !== null) {
       return `${schemaRoot(ctx.pathStyle, schema)}/default_privileges.sql`;
     }
+    return `${cluster}/default_privileges.sql`;
   }
   const clusterFile = CLUSTER_FILES[kind];
   if (clusterFile !== undefined) return `${cluster}/${clusterFile}`;
@@ -941,11 +987,12 @@ export function exportSqlFiles(
   // so the fold pass can exclude them.
   const cyclicFks = cyclicForeignKeys(fb);
   // `fb` is the already-resolved managed view, so we do NOT re-run policy
-  // filtering / serialize rules here; we only forward the assumed schema/role
-  // sets so the requirement guard exempts actions consuming assumed-but-filtered
-  // objects (review P1). `foldConstraints` renders validated table constraints
-  // INLINE in their CREATE TABLE (export files are consumed by the retry /
-  // reorder loader, where that is safe — see PlanOptions.foldConstraints).
+  // filtering / serialize rules here. Assumed schema/role sets exempt the
+  // requirement guard for assumed-but-filtered objects. Overlay default grants
+  // drive create-time REVOKE / ADP wipes. `foldConstraints` renders validated
+  // table constraints INLINE in their CREATE TABLE (export files are consumed
+  // by the retry / reorder loader, where that is safe — see
+  // PlanOptions.foldConstraints).
   const rendered = plan(baseline, fb, {
     foldConstraints: { exclude: cyclicFks },
     ...(options.assumedSchemas !== undefined
@@ -953,6 +1000,12 @@ export function exportSqlFiles(
       : {}),
     ...(options.assumedRoles !== undefined
       ? { assumedRoles: options.assumedRoles }
+      : {}),
+    ...(options.assumedDefaultGrants !== undefined
+      ? { assumedDefaultGrants: options.assumedDefaultGrants }
+      : {}),
+    ...(options.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
       : {}),
     ...(options.intentRules !== undefined
       ? { intentRules: options.intentRules }
@@ -988,7 +1041,14 @@ export function exportSqlFiles(
   const miscPath = `${clusterRoot(pathStyle)}/misc.sql`;
   const actionPaths = rendered.actions.map((action) => {
     const subject = subjectOf(action, fb);
-    return subject === undefined ? miscPath : pathFor(subject, pathContext);
+    if (subject === undefined) return miscPath;
+    if (
+      subject.kind === "defaultPrivilege" &&
+      isOverlayAdpWipe(subject, action.sql, options.assumedDefaultGrants)
+    ) {
+      return adpWipePath(subject, pathContext);
+    }
+    return pathFor(subject, pathContext);
   });
 
   if (layout === "ordered") {
@@ -1012,10 +1072,9 @@ export function exportSqlFiles(
       name: clampFileName(
         `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
       ),
-      sql: renderFileSql(
-        placeOwnedSequenceOwner(run.statements),
-        options.format,
-      ),
+      sql:
+        sqlFilePreamble(run.path) +
+        renderFileSql(placeOwnedSequenceOwner(run.statements), options.format),
     }));
   }
 
@@ -1049,12 +1108,12 @@ export function exportSqlFiles(
   });
 
   const ordered = [...files.entries()].sort(
-    (a, b) => a[1].firstAt - b[1].firstAt,
+    (a, b) => a[1].firstAt - b[1].firstAt || a[0].localeCompare(b[0]),
   );
   return ordered.map(([path, entry]) => ({
     name: path,
     sql:
-      (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+      sqlFilePreamble(path) +
       renderFileSql(placeOwnedSequenceOwner(entry.statements), options.format),
   }));
 }
@@ -1185,11 +1244,17 @@ function exportGrouped(
   // Case-twin paths fold to one shared file, exactly like the by-object
   // layout (issue #365) — regrouping cannot re-split them because the fold is
   // computed on the final grouped paths.
+  const overlay = options.assumedDefaultGrants;
   const actionPaths = actions.map((action) => {
     const subject = subjectOf(action, fb);
-    return subject === undefined
-      ? `${clusterRoot(style)}/misc.sql`
-      : groupedPath(subject);
+    if (subject === undefined) return `${clusterRoot(style)}/misc.sql`;
+    if (
+      subject.kind === "defaultPrivilege" &&
+      isOverlayAdpWipe(subject, action.sql, overlay)
+    ) {
+      return adpWipePath(subject, pathContext);
+    }
+    return groupedPath(subject);
   });
   const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
   const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
@@ -1210,7 +1275,13 @@ function exportGrouped(
     const subject = subjectOf(action, fb);
     const folded = foldedPaths[at]!;
     const path = cycleMerges.get(folded) ?? folded;
-    const category = subject === undefined ? "misc" : categoryFor(subject);
+    const category = path.endsWith("adp_wipes.sql")
+      ? "adp_wipes"
+      : path.endsWith("default_privileges.sql")
+        ? "default_privileges"
+        : subject === undefined
+          ? "misc"
+          : categoryFor(subject);
     const entry = files.get(path) ?? { category, items: [] };
     entry.items.push({
       sql: action.sql,
@@ -1239,7 +1310,7 @@ function exportGrouped(
     return {
       name: path,
       sql:
-        (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+        sqlFilePreamble(path) +
         renderFileSql(placeOwnedSequenceOwner(statements), options.format),
     };
   });

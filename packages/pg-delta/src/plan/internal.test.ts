@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { ApplierCapability } from "../policy/capability.ts";
+import type { AssumedDefaultGrant } from "../policy/policy.ts";
 import { buildFactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
 import { type StableId } from "../core/stable-id.ts";
 import {
@@ -11,7 +12,9 @@ import {
   elideDefaultAclCreates,
   foldCoCreateOwnership,
   mergeCoTargetGrants,
+  mergeCoTargetRevokes,
 } from "./internal.ts";
+import { renderRevokeAllSql } from "./rules/helpers.ts";
 import type { Action } from "./plan.ts";
 
 function mkAction(partial: Partial<Action> & { sql: string }): Action {
@@ -728,6 +731,111 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
     const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
     expect(kept).toHaveLength(2);
   });
+
+  const overlayAnon: AssumedDefaultGrant = {
+    creatingRole: "postgres",
+    schema: "public",
+    objtype: "r",
+    grantee: "anon",
+  };
+  const publicTable: StableId = {
+    kind: "table",
+    schema: "public",
+    name: "t",
+  };
+  const tableOwnerDefault = [
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+  ];
+
+  test("overlay keeps the REVOKE when the holder is a strict subset and no desired ADP covers it", () => {
+    const desired = buildFactBase(
+      [
+        { id: publicTable, payload: {} },
+        roleFact("anon"),
+        roleFact("postgres"),
+        aclFact(publicTable, "anon", ["SELECT"]),
+        aclFact(
+          publicTable,
+          "postgres",
+          tableOwnerDefault,
+          [],
+          tableOwnerDefault,
+        ),
+      ],
+      [
+        {
+          from: publicTable,
+          to: { kind: "role", name: "postgres" },
+          kind: "owner",
+        },
+      ],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      ...aclActions(publicTable, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired, undefined, [
+      overlayAnon,
+    ]);
+    expect(kept.map((a) => a.sql)).toContain("REVOKE ALL ... FROM anon");
+  });
+
+  test("overlay still elides the REVOKE when the holder has the full owner default", () => {
+    const desired = buildFactBase(
+      [
+        { id: publicTable, payload: {} },
+        roleFact("anon"),
+        roleFact("postgres"),
+        aclFact(publicTable, "anon", tableOwnerDefault),
+        aclFact(
+          publicTable,
+          "postgres",
+          tableOwnerDefault,
+          [],
+          tableOwnerDefault,
+        ),
+      ],
+      [
+        {
+          from: publicTable,
+          to: { kind: "role", name: "postgres" },
+          kind: "owner",
+        },
+      ],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      ...aclActions(publicTable, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired, undefined, [
+      overlayAnon,
+    ]);
+    expect(kept.map((a) => a.sql)).not.toContain("REVOKE ALL ... FROM anon");
+    expect(kept.map((a) => a.sql)).toContain("GRANT ... TO anon");
+  });
+
+  test("without overlay, a third-party subset grant still elides", () => {
+    const desired = buildFactBase(
+      [
+        { id: publicTable, payload: {} },
+        roleFact("anon"),
+        aclFact(publicTable, "anon", ["SELECT"]),
+      ],
+      [],
+    );
+    const actions: Action[] = [
+      mkAction({ sql: "CREATE TABLE public.t ...", produces: [publicTable] }),
+      ...aclActions(publicTable, "anon"),
+    ];
+    const kept = elideCoCreateRevokeBeforeGrant(actions, desired);
+    expect(kept.map((a) => a.sql)).not.toContain("REVOKE ALL ... FROM anon");
+  });
 });
 
 describe("mergeCoTargetGrants", () => {
@@ -828,5 +936,73 @@ describe("mergeCoTargetGrants", () => {
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]!.newSegmentBefore).toBe(true);
+  });
+});
+
+describe("mergeCoTargetRevokes", () => {
+  const t: StableId = { kind: "table", schema: "public", name: "t" };
+  const revokeCreate = (grantee: string): Action =>
+    mkAction({
+      sql: renderRevokeAllSql(t, [grantee]),
+      produces: [aclId(t, grantee)],
+      consumes: grantee === "PUBLIC" ? [t] : [t, roleId(grantee)],
+    });
+  const revokeHygiene = (grantee: string): Action =>
+    mkAction({
+      verb: "alter",
+      sql: renderRevokeAllSql(t, [grantee]),
+      produces: [],
+      consumes: grantee === "PUBLIC" ? [t] : [t, roleId(grantee)],
+    });
+
+  test("merges PUBLIC + overlay hygiene REVOKE ALL on the same object", () => {
+    const merged = mergeCoTargetRevokes([
+      revokeCreate("PUBLIC"),
+      mkAction({
+        sql: `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+        consumes: [aclId(t, "authenticated"), t, roleId("authenticated")],
+      }),
+      revokeHygiene("anon"),
+    ]);
+    expect(merged.map((a) => a.sql)).toEqual([
+      `REVOKE ALL ON TABLE "public"."t" FROM PUBLIC, "anon"`,
+      `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+    ]);
+  });
+
+  test("ignores non-REVOKE alters that consume unsupported grant targets", () => {
+    const col: StableId = {
+      kind: "column",
+      schema: "public",
+      table: "t",
+      name: "id",
+    };
+    const alter = mkAction({
+      verb: "alter",
+      sql: `ALTER TABLE "public"."t" ALTER COLUMN "id" SET GENERATED BY DEFAULT`,
+      consumes: [col],
+    });
+    expect(mergeCoTargetRevokes([alter]).map((a) => a.sql)).toEqual([
+      alter.sql,
+    ]);
+  });
+
+  test("does not merge a REVOKE that still has a paired GRANT", () => {
+    const subsetRevoke = revokeCreate("authenticated");
+    const subsetGrant = mkAction({
+      sql: `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+      consumes: [aclId(t, "authenticated"), t, roleId("authenticated")],
+    });
+    const merged = mergeCoTargetRevokes([
+      revokeCreate("PUBLIC"),
+      subsetRevoke,
+      subsetGrant,
+      revokeHygiene("anon"),
+    ]);
+    expect(merged.map((a) => a.sql)).toEqual([
+      `REVOKE ALL ON TABLE "public"."t" FROM PUBLIC, "anon"`,
+      `REVOKE ALL ON TABLE "public"."t" FROM "authenticated"`,
+      `GRANT SELECT ON TABLE "public"."t" TO "authenticated"`,
+    ]);
   });
 });
