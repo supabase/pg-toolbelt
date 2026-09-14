@@ -1,0 +1,139 @@
+/**
+ * Privileges on the sequence behind a `GENERATED … AS IDENTITY` column are
+ * facts: extracted as `acl` satellites of the column (target = the backing
+ * sequence), planned as GRANT / REVOKE ON SEQUENCE, and exported into the
+ * owning table's file so `load(export(db))` keeps them.
+ */
+import { describe, expect, test } from "bun:test";
+import pg from "pg";
+import { extract } from "../src/extract/extract.ts";
+import { exportSqlFiles } from "../src/frontends/export-sql-files.ts";
+import { loadSqlFiles } from "../src/frontends/load-sql-files.ts";
+import { plan } from "../src/plan/plan.ts";
+import { sharedCluster } from "./containers.ts";
+
+const SEQ_ACL = `
+  SELECT COALESCE(r.rolname, 'PUBLIC') AS grantee,
+         string_agg(a.privilege_type, ',' ORDER BY a.privilege_type) AS privs
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN LATERAL aclexplode(c.relacl) a
+  LEFT JOIN pg_roles r ON r.oid = a.grantee
+  WHERE n.nspname = 'app' AND c.relname = 't_id_seq'
+  GROUP BY 1 ORDER BY 1`;
+
+async function withRole<T>(
+  admin: pg.Pool,
+  fn: (role: string) => Promise<T>,
+): Promise<T> {
+  const role = `idseq_r_${crypto.randomUUID().slice(0, 8)}`;
+  await admin.query(`CREATE ROLE "${role}" NOLOGIN`);
+  try {
+    return await fn(role);
+  } finally {
+    await admin.query(`DROP ROLE IF EXISTS "${role}"`).catch(() => {});
+  }
+}
+
+const IDENTITY_TABLE = `
+  CREATE SCHEMA app;
+  CREATE TABLE app.t (id bigint GENERATED ALWAYS AS IDENTITY, v int);
+`;
+
+describe("identity-column sequence privileges", () => {
+  test("extract models a grant on the identity sequence as an acl satellite of the column", async () => {
+    const cluster = await sharedCluster();
+    const db = await cluster.createDb("idseq_extract");
+    try {
+      await withRole(cluster.adminPool, async (role) => {
+        await db.pool.query(IDENTITY_TABLE);
+        await db.pool.query(
+          `GRANT USAGE ON SEQUENCE app.t_id_seq TO "${role}"`,
+        );
+        const fb = (await extract(db.pool)).factBase;
+        const seqAcls = fb.facts().filter((f) => {
+          if (f.id.kind !== "acl") return false;
+          const target = f.id.target;
+          return target.kind === "sequence" && target.name === "t_id_seq";
+        });
+        const granted = seqAcls.find(
+          (f) => f.id.kind === "acl" && f.id.grantee === role,
+        );
+        expect(granted).toBeDefined();
+        expect(granted!.payload["privileges"]).toEqual(["USAGE"]);
+        expect(granted!.parent).toEqual({
+          kind: "column",
+          schema: "app",
+          table: "t",
+          name: "id",
+        });
+        // the owner's untouched default on its own sequence is not a fact:
+        // it would render as a redundant REVOKE/GRANT on every identity column
+        expect(
+          seqAcls.map((f) => (f.id.kind === "acl" ? f.id.grantee : "")),
+        ).toEqual([role]);
+      });
+    } finally {
+      await db.drop();
+    }
+  }, 120_000);
+
+  test("plan grants and revokes the identity sequence privilege between databases", async () => {
+    const cluster = await sharedCluster();
+    const without = await cluster.createDb("idseq_plan_a");
+    const withGrant = await cluster.createDb("idseq_plan_b");
+    try {
+      await withRole(cluster.adminPool, async (role) => {
+        await without.pool.query(IDENTITY_TABLE);
+        await withGrant.pool.query(IDENTITY_TABLE);
+        await withGrant.pool.query(
+          `GRANT USAGE ON SEQUENCE app.t_id_seq TO "${role}"`,
+        );
+        const a = (await extract(without.pool)).factBase;
+        const b = (await extract(withGrant.pool)).factBase;
+        const forward = plan(a, b).actions.map((x) => x.sql);
+        const reverse = plan(b, a).actions.map((x) => x.sql);
+        expect(forward).toContain(
+          `GRANT USAGE ON SEQUENCE "app"."t_id_seq" TO "${role}"`,
+        );
+        expect(reverse).toContain(
+          `REVOKE ALL ON SEQUENCE "app"."t_id_seq" FROM "${role}"`,
+        );
+      });
+    } finally {
+      await Promise.all([without.drop(), withGrant.drop()]);
+    }
+  }, 120_000);
+
+  test("export files the sequence grant with its table and load reproduces it", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("idseq_src");
+    const shadow = await cluster.createDb("idseq_shadow");
+    try {
+      await withRole(cluster.adminPool, async (role) => {
+        await source.pool.query(IDENTITY_TABLE);
+        await source.pool.query(
+          `GRANT USAGE ON SEQUENCE app.t_id_seq TO "${role}"`,
+        );
+        const fb = (await extract(source.pool)).factBase;
+        // the role is cluster-global on the shared cluster: keep it out of the load
+        const files = exportSqlFiles(fb).filter(
+          (f) => !f.name.startsWith("_cluster/roles"),
+        );
+        const table = files.find((f) => f.name === "app/tables/t.sql");
+        expect(table).toBeDefined();
+        expect(table!.sql).toContain(
+          `GRANT USAGE ON SEQUENCE "app"."t_id_seq" TO "${role}"`,
+        );
+        expect(files.some((f) => f.name.includes("/sequences/"))).toBe(false);
+
+        const loaded = await loadSqlFiles(files, shadow.pool);
+        expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+        const acl = await shadow.pool.query(SEQ_ACL);
+        expect(acl.rows).toContainEqual({ grantee: role, privs: "USAGE" });
+      });
+    } finally {
+      await Promise.all([source.drop(), shadow.drop()]);
+    }
+  }, 120_000);
+});
