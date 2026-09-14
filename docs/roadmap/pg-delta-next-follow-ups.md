@@ -1595,4 +1595,15 @@ Deferred from the same review (not blocking):
   cell, not a full-public dump on the DML fixture.
 - **Kind-literal helper / `postgres`-only overlay pin.** Cleanup; load runs
   as `postgres`.
+- **`--layout ordered` still follows plan order.** Default by-object (and
+  grouped, where ADP is cluster-before-tables) hoist overlay wipes before
+  CREATE. Numbered ordered files stay after CREATE, so identity-seq inject
+  remains on `schema export --layout ordered`. Qualify or hoist ADP runs in
+  the ordered assembler if that layout is used onto an auto-expose dest.
+- **Global ADP clamp vs later `schema.sql` (Codex).** A per-schema clamp
+  would be defense in depth if emission order changes. Today schemas emit
+  shallower than relations, so `schema.sql` `firstAt` is always before
+  `objectMin`; the two-schema pin in `export-schema-adp.test.ts` locks
+  `app/schema.sql` before `app/default_privileges.sql` even when `public`
+  has earlier tables.
 

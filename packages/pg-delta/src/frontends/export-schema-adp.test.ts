@@ -122,4 +122,73 @@ describe("schema-scoped ADP export routing", () => {
     expect(adpAt).toBeLessThan(tableAt);
     if (rolesAt >= 0) expect(rolesAt).toBeLessThan(adpAt);
   });
+
+  test("by-object overlay ADP stays after its own schema.sql when another schema has earlier tables", () => {
+    const publicTable = {
+      kind: "table" as const,
+      schema: "public",
+      name: "early",
+    };
+    const appTable = {
+      kind: "table" as const,
+      schema: "app",
+      name: "t",
+    };
+    const files = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: { kind: "role", name: "postgres" }, payload: {} },
+          { id: { kind: "schema", name: "public" }, payload: {} },
+          { id: { kind: "schema", name: "app" }, payload: {} },
+          {
+            id: publicTable,
+            parent: { kind: "schema", name: "public" },
+            payload: { persistence: "p" },
+          },
+          {
+            id: appTable,
+            parent: { kind: "schema", name: "app" },
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          {
+            from: { kind: "schema", name: "app" },
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+          {
+            from: publicTable,
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+          {
+            from: appTable,
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+        ],
+      ),
+      {
+        assumedRoles: ["anon", "postgres"],
+        assumedDefaultGrants: [
+          {
+            creatingRole: "postgres",
+            schema: "app",
+            objtype: "r",
+            grantee: "anon",
+          },
+        ],
+      },
+    );
+    const names = files.map((file) => file.name);
+    const appSchemaAt = names.findIndex((n) => n === "app/schema.sql");
+    const appAdpAt = names.findIndex((n) => n === "app/default_privileges.sql");
+    const appTableAt = names.findIndex((n) => n.includes("app/tables/"));
+    expect(appSchemaAt).toBeGreaterThanOrEqual(0);
+    expect(appAdpAt).toBeGreaterThanOrEqual(0);
+    expect(appTableAt).toBeGreaterThanOrEqual(0);
+    expect(appSchemaAt).toBeLessThan(appAdpAt);
+    expect(appAdpAt).toBeLessThan(appTableAt);
+  });
 });
