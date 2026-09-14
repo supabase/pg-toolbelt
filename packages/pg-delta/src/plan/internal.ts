@@ -915,9 +915,10 @@ function isStrictSubset(
 function ownerDefaultPrivileges(
   desired: FactBase,
   target: StableId,
+  ownerOf: StableId = target,
 ): string[] | undefined {
   const ownerEdge = desired
-    .outgoingEdges(target)
+    .outgoingEdges(ownerOf)
     .find((e) => e.kind === "owner");
   if (ownerEdge !== undefined && ownerEdge.to.kind === "role") {
     const ownerAcl = desired.get({
@@ -1363,8 +1364,11 @@ export function elideCoCreateRevokeBeforeGrant(
     // and that is the ONLY owner case reaching here, because a full-default
     // owner group was already dropped wholesale by elideDefaultAclCreates.
     // Stripping it would leave PostgreSQL's full default in place (review P2).
+    // An identity sequence is owned through its table.
+    const ownerTarget =
+      identityColumn === undefined ? aclId.target : tableOf(identityColumn);
     const ownerEdge = desired
-      .outgoingEdges(aclId.target)
+      .outgoingEdges(ownerTarget)
       .find((e) => e.kind === "owner");
     if (
       ownerEdge !== undefined &&
@@ -1380,7 +1384,11 @@ export function elideCoCreateRevokeBeforeGrant(
       aclId.grantee,
     );
     if (matches.length > 0) {
-      const fullSet = ownerDefaultPrivileges(desired, aclId.target);
+      const fullSet = ownerDefaultPrivileges(
+        desired,
+        aclId.target,
+        ownerTarget,
+      );
       if (fullSet === undefined || isStrictSubset(privileges, fullSet)) return; // dest injectee may be a superset of desired ADP / object ACL
     }
     dropRevoke.add(index);
