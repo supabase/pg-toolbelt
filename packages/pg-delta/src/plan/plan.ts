@@ -761,6 +761,9 @@ export function plan(
     assumedDefaultGrants,
     overlayAdpWipes: options?.assumedDefaultGrants ?? [],
     overlayHygieneGrantees,
+    ...(options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {}),
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

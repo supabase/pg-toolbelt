@@ -1742,8 +1742,10 @@ resolver contract stay deferred.
 ## PR #475 review triage — overlay default grants
 
 Identity-sequence inject on live-OFF → dest-ON is **fixed** (#475): by-object
-export hoists `default_privileges.sql` ahead of object files. Recorded here
-so a later review does not re-open P2c as the same leak.
+export hoists `default_privileges.sql` ahead of object files. Create-time ADP
+hygiene uses the resolved default owner when that owner edge was pruned, so a
+table that predated a schema ADP still gets `REVOKE ALL` in its own file.
+Recorded here so a later review does not re-open P2c as the same leak.
 
 Deferred from the same review (not blocking):
 

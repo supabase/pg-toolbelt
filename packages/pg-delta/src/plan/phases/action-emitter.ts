@@ -71,6 +71,10 @@ export interface ActionEmitterInput {
    *  Export fills every overlay grantee; policy-only only those present as
    *  role facts on the raw source extract. */
   overlayHygieneGrantees: ReadonlySet<string>;
+  /** Implicit owner after database-scope projection prunes that edge.
+   *  Projected-ADP hygiene matches `defaultPrivilege.role` against this when
+   *  the object has no owner edge. */
+  defaultOwner?: string;
 }
 
 export interface ActionEmitterOutput {
@@ -105,6 +109,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     assumedDefaultGrants,
     overlayAdpWipes,
     overlayHygieneGrantees,
+    defaultOwner,
   } = input;
 
   const actions: Action[] = [];
@@ -476,7 +481,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // a created object whose fact is absent from the projected target (its add
     // was effectively reverted) has no hygiene to do
     if (!projectedDesired.has(fact.id)) continue;
-    // owner is now an edge, not a payload field (move 2)
+    // owner is now an edge, not a payload field (move 2). Database-scope
+    // export/apply prunes the edge to the implicit default owner; match ADP
+    // creating-role against that name so hygiene still fires.
     const ownerEdge = projectedDesired
       .outgoingEdges(fact.id)
       .find((e) => e.kind === "owner");
@@ -484,10 +491,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ownerEdge?.to.kind === "role"
         ? (ownerEdge.to as { kind: "role"; name: string }).name
         : undefined;
+    const creatingRole = owner ?? defaultOwner;
     const schema = (fact.id as { schema?: string }).schema ?? null;
     const revoked = new Set<string>();
     const emitHygieneRevoke = (grantee: string): void => {
-      if (typeof owner === "string" && grantee === owner) return;
+      if (typeof creatingRole === "string" && grantee === creatingRole) return;
       if (revoked.has(grantee)) return;
       const aclId: StableId = {
         kind: "acl",
@@ -508,7 +516,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         { consumes: [fact.id] },
       );
     };
-    if (typeof owner === "string") {
+    if (typeof creatingRole === "string") {
       for (const dp of projectedDesired.facts()) {
         if (dp.id.kind !== "defaultPrivilege") continue;
         const dpid = dp.id as {
@@ -517,7 +525,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           objtype: string;
           grantee: string;
         };
-        if (dpid.role !== owner || dpid.objtype !== objtype) continue;
+        if (dpid.role !== creatingRole || dpid.objtype !== objtype) continue;
         if (dpid.schema != null && dpid.schema !== schema) continue;
         emitHygieneRevoke(dpid.grantee);
       }

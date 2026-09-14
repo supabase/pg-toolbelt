@@ -320,3 +320,53 @@ describe("assumedDefaultGrants overlay", () => {
     expect(sql).not.toContain("ALTER DEFAULT PRIVILEGES");
   });
 });
+
+describe("projected-ADP hygiene under default-owner projection", () => {
+  const app: StableId = { kind: "schema", name: "app" };
+  const t1: StableId = { kind: "table", schema: "app", name: "t1" };
+  const t2: StableId = { kind: "table", schema: "app", name: "t2" };
+  const postgres: StableId = { kind: "role", name: "postgres" };
+  const authenticated: StableId = { kind: "role", name: "authenticated" };
+  const adp: StableId = {
+    kind: "defaultPrivilege",
+    role: "postgres",
+    schema: "app",
+    objtype: "r",
+    grantee: "authenticated",
+  };
+
+  test("predating table gets a hygiene REVOKE when owner edges were pruned", () => {
+    const desired = buildFactBase(
+      [
+        { id: postgres, payload: {} },
+        { id: authenticated, payload: {} },
+        { id: app, payload: {} },
+        { id: t1, parent: app, payload: tablePayload() },
+        { id: t2, parent: app, payload: tablePayload() },
+        {
+          id: adp,
+          parent: app,
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+        acl(t2, "authenticated", ["SELECT"]),
+      ],
+      [
+        { from: app, to: postgres, kind: "owner" },
+        { from: t1, to: postgres, kind: "owner" },
+        { from: t2, to: postgres, kind: "owner" },
+      ],
+    );
+    const p = plan(buildFactBase([], []), desired, {
+      assumedRoles: ["postgres", "authenticated"],
+      scope: "database",
+      defaultOwner: "postgres",
+    });
+    const sql = p.actions.map((a) => a.sql).join("\n");
+    expect(sql).toContain(
+      `REVOKE ALL ON TABLE "app"."t1" FROM "authenticated"`,
+    );
+    expect(sql).not.toContain(
+      `REVOKE ALL ON TABLE "app"."t2" FROM "authenticated"`,
+    );
+  });
+});

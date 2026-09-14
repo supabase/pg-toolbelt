@@ -89,6 +89,9 @@ export interface ExportOptions {
    *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
    *  Empty for the `raw` profile. */
   assumedDefaultGrants?: AssumedDefaultGrant[];
+  /** Implicit owner after database-scope projection. Forwarded to `plan()` so
+   *  create-time ADP hygiene still matches when owner edges were pruned. */
+  defaultOwner?: string;
   /** Intent-rule index from the active profile's handlers (e.g. pg_cron under
    *  `--profile supabase`). Forwarded to the internal `plan()` so an
    *  `extensionIntent` fact in `fb` (a named cron job) renders its replay SQL
@@ -961,6 +964,9 @@ export function exportSqlFiles(
       : {}),
     ...(options.assumedDefaultGrants !== undefined
       ? { assumedDefaultGrants: options.assumedDefaultGrants }
+      : {}),
+    ...(options.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
       : {}),
     ...(options.intentRules !== undefined
       ? { intentRules: options.intentRules }

@@ -152,6 +152,9 @@ export async function buildSchemaExport(
     ...(assumedSchemas.length > 0 ? { assumedSchemas } : {}),
     ...(assumedRoles.length > 0 ? { assumedRoles } : {}),
     ...(assumedDefaultGrants.length > 0 ? { assumedDefaultGrants } : {}),
+    ...(resolvedDefaultOwner !== null
+      ? { defaultOwner: resolvedDefaultOwner }
+      : {}),
     ...(ctx.planOptions.intentRules !== undefined
       ? { intentRules: ctx.planOptions.intentRules }
       : {}),

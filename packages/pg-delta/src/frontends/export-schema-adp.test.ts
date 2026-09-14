@@ -191,4 +191,58 @@ describe("schema-scoped ADP export routing", () => {
     expect(appSchemaAt).toBeLessThan(appAdpAt);
     expect(appAdpAt).toBeLessThan(appTableAt);
   });
+
+  test("by-object table file carries ADP hygiene REVOKE when defaultOwner is set and owner edges are absent", () => {
+    const t1 = { kind: "table" as const, schema: "app", name: "t1" };
+    const t2 = { kind: "table" as const, schema: "app", name: "t2" };
+    const adp = {
+      kind: "defaultPrivilege" as const,
+      role: "postgres",
+      schema: "app",
+      objtype: "r",
+      grantee: "authenticated",
+    };
+    const files = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: { kind: "schema", name: "app" }, payload: {} },
+          {
+            id: t1,
+            parent: { kind: "schema", name: "app" },
+            payload: { persistence: "p" },
+          },
+          {
+            id: t2,
+            parent: { kind: "schema", name: "app" },
+            payload: { persistence: "p" },
+          },
+          {
+            id: adp,
+            parent: { kind: "schema", name: "app" },
+            payload: { privileges: ["SELECT"], grantable: [] },
+          },
+          {
+            id: { kind: "acl", target: t2, grantee: "authenticated" },
+            parent: t2,
+            payload: { privileges: ["SELECT"], grantable: [] },
+          },
+        ],
+        [],
+      ),
+      {
+        assumedRoles: ["postgres", "authenticated"],
+        defaultOwner: "postgres",
+      },
+    );
+    const t1Sql =
+      files.find((f) => f.name.includes("app/tables/t1"))?.sql ?? "";
+    const t2Sql =
+      files.find((f) => f.name.includes("app/tables/t2"))?.sql ?? "";
+    expect(t1Sql).toMatch(
+      /REVOKE ALL ON TABLE "app"\."t1" FROM "authenticated"/,
+    );
+    expect(t2Sql).not.toMatch(
+      /REVOKE ALL ON TABLE "app"\."t2" FROM "authenticated"/,
+    );
+  });
 });
