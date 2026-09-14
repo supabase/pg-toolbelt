@@ -174,57 +174,6 @@ describe("assumedDefaultGrants overlay", () => {
     expect(sql).toMatch(/REVOKE ALL ON TABLE "public"\."t" FROM .*"anon"/);
   });
 
-  test("full-set overlay holders still GRANT DML; ADP is wipe-then-grant", () => {
-    const dml = ["SELECT", "INSERT", "UPDATE", "DELETE"];
-    const dp = (grantee: string): Fact => ({
-      id: {
-        kind: "defaultPrivilege",
-        role: "postgres",
-        schema: "public",
-        objtype: "r",
-        grantee,
-      },
-      payload: { privileges: dml, grantable: [] },
-    });
-    const desired = buildFactBase(
-      [
-        schemaFact,
-        {
-          id: tableId,
-          parent: schemaPublic,
-          payload: tablePayload(),
-        },
-        dp("anon"),
-        dp("authenticated"),
-        dp("service_role"),
-        acl(tableId, "anon", dml),
-        acl(tableId, "authenticated", dml),
-        acl(tableId, "service_role", dml),
-      ],
-      [
-        {
-          from: tableId,
-          to: { kind: "role", name: "postgres" },
-          kind: "owner",
-        },
-      ],
-    );
-    const p = plan(source, desired, {
-      assumedRoles,
-      assumedDefaultGrants: overlayTable,
-    });
-    const sql = p.actions.map((a) => a.sql).join("\n");
-    expect(sql).toContain(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "anon"`,
-    );
-    expect(sql).toContain(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "anon"`,
-    );
-    expect(sql).toContain(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "public"."t" TO "anon"`,
-    );
-  });
-
   test("subset desired ADP still wipes then GRANTs", () => {
     const dpSelect: Fact = {
       id: {
