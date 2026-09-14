@@ -1792,3 +1792,26 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## PR #478 review triage (Codex) — identity-sequence privileges
+
+PR #478 models grants on an identity column's backing sequence as `acl`
+satellites of the column (target = the sequence). Four rounds fixed real
+gaps (inlined columns of a replaced partitioned parent, the owner's default
+row, in-place `ADD IDENTITY`, owner resolution through the table in the
+REVOKE elision). Deferred from round five (not blocking):
+
+- **Creating role for foreign-owned CREATE.** Hygiene passes the desired
+  owner as the role whose default privileges fire on create; for a table
+  owned by a role other than the applier, PostgreSQL applies the applier's
+  defaults before `OWNER TO`. This is the contract every kind's hygiene uses
+  (`ownerOf(fact.id) ?? defaultOwner` in `action-emitter.ts`), not specific
+  to identity sequences, which follow their table. Fixing it means threading
+  the applier role through hygiene for all kinds in one change.
+- **Policy filtering an identity `set` delta but not the sequence acl.** An
+  operation-level policy that drops a column's plain→identity set delta while
+  admitting the sequence's `acl` adds would leave `GRANT ON SEQUENCE` for a
+  sequence the projected target never creates. Same shape as a column-level
+  grant whose column add is filtered; `projectTarget` prunes orphaned
+  subtrees, not satellites coupled to a parent's attribute value. No shipped
+  policy filters at that grain.
