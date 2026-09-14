@@ -1606,4 +1606,10 @@ Deferred from the same review (not blocking):
   `objectMin`; the two-schema pin in `export-schema-adp.test.ts` locks
   `app/schema.sql` before `app/default_privileges.sql` even when `public`
   has earlier tables.
+- **Overlay REVOKE elision vs dest GRANT OPTION.** When the desired privilege
+  set equals `_ownerDefault`, compaction drops the leading `REVOKE`. Overlay
+  tuples do not carry grant-option bits; a dest ADP that injected the same
+  privileges `WITH GRANT OPTION` would survive a plain `GRANT`. Not the
+  Supabase auto-expose injectee. Keep the revoke for overlay matches only if
+  we start modeling grant options on the tuples.
 
