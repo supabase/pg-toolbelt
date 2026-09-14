@@ -61,12 +61,16 @@ export interface ActionEmitterInput {
    *  `extensionIntent` via the profile's intent rules) */
   rulesForId: RulesForId;
   /** Load-environment default grants to wipe on CREATE when the desired ACL
-   *  has no matching fact. Empty → today's hygiene (projected ADP only). */
+   *  has no matching fact. Empty → projected-ADP hygiene only. */
   assumedDefaultGrants: readonly AssumedDefaultGrant[];
   /** Overlay tuples forwarded via `plan({ assumedDefaultGrants })` (export).
    *  Policy-only overlay still drives hygiene; it must not inject ADP wipes
    *  into DB-to-DB plans whose source already is the live target. */
   overlayAdpWipes: readonly AssumedDefaultGrant[];
+  /** Overlay grantees whose create-time REVOKE is legal on this apply target.
+   *  Export fills every overlay grantee; policy-only only those present as
+   *  role facts on the raw source extract. */
+  overlayHygieneGrantees: ReadonlySet<string>;
 }
 
 export interface ActionEmitterOutput {
@@ -100,6 +104,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     rulesForId,
     assumedDefaultGrants,
     overlayAdpWipes,
+    overlayHygieneGrantees,
   } = input;
 
   const actions: Action[] = [];
@@ -414,10 +419,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // default-privilege hygiene: objects created under active default ACLs receive
   // implicit grants; revoke them when the desired state has no corresponding acl
   // fact (pg_dump-style clean slate). EMISSION reads the PROJECTED plan target,
-  // not full `desired` (review P1 #3): a policy can filter the default-privilege
-  // add AND its grantee role, and the hygiene REVOKE must not surface a
-  // filtered-away role (which would then fail the planner's own
-  // missing-requirement check). Mirrors the create/alter seam.
+  // not full `desired`: a policy can filter the default-privilege add AND its
+  // grantee role. Overlay hygiene is separately gated (`overlayHygieneGrantees`)
+  // so assumed overlay roles skip the requirement guard without failing apply
+  // on dests that never had them. Mirrors the create/alter seam.
   //
   // Hygiene covers every fact this plan CREATES on the target: added facts AND
   // replaced facts (drop + recreate) with their replace-recreated descendants —
@@ -491,6 +496,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     for (const tuple of assumedDefaultGrants) {
       if (tuple.objtype !== objtype) continue;
       if (tuple.schema != null && tuple.schema !== schema) continue;
+      if (!overlayHygieneGrantees.has(tuple.grantee)) continue;
       emitHygieneRevoke(tuple.grantee);
     }
   }

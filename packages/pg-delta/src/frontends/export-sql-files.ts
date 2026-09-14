@@ -82,7 +82,7 @@ export interface ExportOptions {
    *  time. Forwarded to the internal `plan()` so its action-graph guard does not
    *  reject a managed-view action that consumes an assumed-but-filtered object
    *  (e.g. `CREATE EXTENSION … SCHEMA extensions`, `GRANT … TO anon`). Empty for
-   *  the `raw` profile (no policy) — an identity projection (review P1). */
+   *  the `raw` profile (no policy) — an identity projection. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
   /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
