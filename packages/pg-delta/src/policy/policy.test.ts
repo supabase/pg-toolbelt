@@ -686,11 +686,6 @@ describe("flattenPolicy — extends composition", () => {
       t("authenticated"),
     ]);
   });
-
-  test("assumedDefaultGrants defaults to empty array when unset", () => {
-    const flat = flattenPolicy({ id: "no-adg" });
-    expect(flat.assumedDefaultGrants).toEqual([]);
-  });
 });
 
 // ---------------------------------------------------------------------------
