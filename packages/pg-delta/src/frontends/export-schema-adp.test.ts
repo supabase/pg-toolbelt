@@ -413,4 +413,44 @@ describe("schema-scoped ADP export routing", () => {
     const rolesSql = rolesAt >= 0 ? files[rolesAt]!.sql : "";
     expect(rolesSql).not.toMatch(/ALTER DEFAULT PRIVILEGES/);
   });
+
+  test("by-object desired REVOKE ALL is not hoisted before CREATE EXTENSION", () => {
+    const ext = { kind: "extension" as const, name: "pg_trgm" };
+    const adp = {
+      kind: "defaultPrivilege" as const,
+      role: "postgres",
+      schema: "public",
+      objtype: "f",
+      grantee: "PUBLIC",
+    };
+    const files = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: { kind: "schema", name: "public" }, payload: {} },
+          { id: ext, payload: { schema: "public", _relocatable: true } },
+          {
+            id: adp,
+            parent: { kind: "schema", name: "public" },
+            payload: {
+              privileges: [],
+              grantable: [],
+              _revokedDefault: ["EXECUTE"],
+            },
+          },
+        ],
+        [],
+      ),
+      { assumedRoles: ["postgres"] },
+    );
+    const names = files.map((file) => file.name);
+    expect(names.findIndex((n) => n.endsWith("/adp_wipes.sql"))).toBe(-1);
+    const revokeAt = names.findIndex((n) =>
+      n.endsWith("/default_privileges.sql"),
+    );
+    const extAt = names.findIndex((n) => n.includes("/extensions/"));
+    expect(revokeAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeLessThan(revokeAt);
+    expect(files[revokeAt]!.sql).toMatch(/REVOKE ALL ON FUNCTIONS FROM PUBLIC/);
+  });
 });

@@ -828,6 +828,23 @@ function isAdpWipeSql(sql: string): boolean {
   );
 }
 
+function isOverlayAdpWipe(
+  id: Extract<StableId, { kind: "defaultPrivilege" }>,
+  sql: string,
+  overlay: readonly AssumedDefaultGrant[] | undefined,
+): boolean {
+  if (!isAdpWipeSql(sql) || overlay === undefined || overlay.length === 0) {
+    return false;
+  }
+  return overlay.some(
+    (tuple) =>
+      tuple.creatingRole === id.role &&
+      tuple.schema === id.schema &&
+      tuple.objtype === id.objtype &&
+      tuple.grantee === id.grantee,
+  );
+}
+
 function adpWipePath(
   id: Extract<StableId, { kind: "defaultPrivilege" }>,
   ctx: PathContext,
@@ -1020,7 +1037,7 @@ export function exportSqlFiles(
     if (
       layout !== "ordered" &&
       subject.kind === "defaultPrivilege" &&
-      isAdpWipeSql(action.sql)
+      isOverlayAdpWipe(subject, action.sql, options.assumedDefaultGrants)
     ) {
       return adpWipePath(subject, pathContext);
     }

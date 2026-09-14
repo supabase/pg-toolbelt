@@ -1778,10 +1778,12 @@ Deferred from the same review (not blocking):
   hoist wipe runs in the ordered assembler if that layout is used onto an
   auto-expose dest.
 - **Grouped layout still category-orders all ADP as cluster.** Cluster sorts
-  before tables and extensions, so overlay wipes are early (good) but
-  positive GRANT ADP is also early (same predating-identity leak as the
-  old by-object hoist). Split wipe vs GRANT in grouped if that layout is
-  used onto an auto-expose dest.
+  before `schema.sql`, tables, and extensions. Overlay wipes in grouped can
+  fail on the first pass (`IN SCHEMA` before `CREATE SCHEMA`); retry can let
+  tables/extensions commit first, injecting dest defaults onto unmodeled
+  members. Positive GRANT ADP is also early (predating-identity leak). Split
+  wipe vs GRANT and order wipes after schema.sql if grouped is used onto an
+  auto-expose dest. Default by-object is the schema-first path.
 - **Overlay REVOKE elision vs dest GRANT OPTION.** When the desired privilege
   set equals `_ownerDefault`, compaction drops the leading `REVOKE`. Overlay
   tuples do not carry grant-option bits; a dest ADP that injected the same
