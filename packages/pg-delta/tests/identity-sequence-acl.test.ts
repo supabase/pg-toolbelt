@@ -126,13 +126,45 @@ describe("identity-column sequence privileges", () => {
       for (const action of forward.actions) {
         await revoked.pool.query(action.sql);
       }
-      const after = await revoked.pool.query(
-        "SELECT has_sequence_privilege(current_user, 'app.t_id_seq', 'UPDATE') AS upd, has_sequence_privilege(current_user, 'app.t_id_seq', 'USAGE') AS usg",
-      );
-      expect(after.rows[0]).toEqual({ upd: true, usg: true });
+      // the test role is a superuser, so has_sequence_privilege() would be
+      // true regardless: read the ACL itself
+      const owner = (await revoked.pool.query("SELECT current_user AS r"))
+        .rows[0].r as string;
+      const acl = await revoked.pool.query(SEQ_ACL);
+      expect(acl.rows).toContainEqual({
+        grantee: owner,
+        privs: "SELECT,UPDATE,USAGE",
+      });
       expect((await extract(revoked.pool)).factBase.rootHash).toBe(b.rootHash);
     } finally {
       await Promise.all([revoked.drop(), restored.drop()]);
+    }
+  }, 120_000);
+
+  test("export/load keeps an owner's partial revoke on a co-created identity sequence", async () => {
+    const cluster = await sharedCluster();
+    const source = await cluster.createDb("idseq_owner_src");
+    const shadow = await cluster.createDb("idseq_owner_shadow");
+    try {
+      await source.pool.query(IDENTITY_TABLE);
+      await source.pool.query(
+        "REVOKE UPDATE ON SEQUENCE app.t_id_seq FROM CURRENT_USER",
+      );
+      const fb = (await extract(source.pool)).factBase;
+      const files = exportSqlFiles(fb).filter(
+        (f) => !f.name.startsWith("_cluster/roles"),
+      );
+      const loaded = await loadSqlFiles(files, shadow.pool);
+      const owner = (await shadow.pool.query("SELECT current_user AS r"))
+        .rows[0].r as string;
+      const acl = await shadow.pool.query(SEQ_ACL);
+      expect(acl.rows).toContainEqual({
+        grantee: owner,
+        privs: "SELECT,USAGE",
+      });
+      expect(loaded.factBase.rootHash).toBe(fb.rootHash);
+    } finally {
+      await Promise.all([source.drop(), shadow.drop()]);
     }
   }, 120_000);
 
