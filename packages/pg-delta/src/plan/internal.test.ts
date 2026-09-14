@@ -820,7 +820,7 @@ describe("elideCoCreateRevokeBeforeGrant", () => {
     expect(kept.map((a) => a.sql)).toContain("GRANT ... TO anon");
   });
 
-  test("without overlay, a third-party subset grant still elides (today's emit)", () => {
+  test("without overlay, a third-party subset grant still elides", () => {
     const desired = buildFactBase(
       [
         { id: publicTable, payload: {} },

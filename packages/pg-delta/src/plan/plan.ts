@@ -276,7 +276,7 @@ export interface PlanOptions {
   assumedRoles?: string[];
   /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
    *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
-   *  Empty/absent → today's emit. */
+   *  Empty/absent → no overlay (projected ADP hygiene only). */
   assumedDefaultGrants?: AssumedDefaultGrant[];
   /** the redaction mode used to extract the source/desired fact bases, stamped
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
@@ -669,6 +669,21 @@ export function plan(
     ...(flatPolicy?.assumedDefaultGrants ?? []),
     ...(options?.assumedDefaultGrants ?? []),
   ]);
+  // Export (`options.assumedDefaultGrants`) always REVOKEs overlay grantees —
+  // the load dest is an auto-expose baseline. Policy-only DB-to-DB only
+  // REVOKEs roles the apply target already has: assumedRoles skip the
+  // requirement guard, and alpine/stock Postgres has no `anon`.
+  const exportOverlay = (options?.assumedDefaultGrants ?? []).length > 0;
+  const overlayHygieneGrantees = new Set<string>();
+  for (const tuple of assumedDefaultGrants) {
+    if (
+      exportOverlay ||
+      tuple.grantee === "PUBLIC" ||
+      rawSource.has({ kind: "role", name: tuple.grantee })
+    ) {
+      overlayHygieneGrantees.add(tuple.grantee);
+    }
+  }
   const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
   const policyDefaultOwner = flatPolicy?.defaultOwner;
   const assumedPresentIds = new Set<string>();
@@ -744,6 +759,7 @@ export function plan(
     rulesForId,
     assumedDefaultGrants,
     overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+    overlayHygieneGrantees,
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

@@ -64,7 +64,10 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // object-kind KNOWLEDGE — extensionIntent has no rules here, and the error
   // rendering deliberately reads the context instead of re-narrowing the id so
   // the literal stays confined to that one constructor.
-  "plan.ts": 10,
+  // 10 → 11: overlay hygiene gates policy-only REVOKEs on
+  // `rawSource.has({ kind: "role", name })` so alpine apply does not consume
+  // assumed overlay roles the dest extract never had.
+  "plan.ts": 11,
   // preamble.ts classifies actions into "routine-family or not" for the
   // cosmetic check_function_bodies compaction; the routine kinds themselves
   // come from core ROUTINE_KINDS, leaving only the two extension literals.

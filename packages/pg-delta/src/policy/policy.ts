@@ -312,10 +312,10 @@ export interface Policy {
   assumedSchemas?: string[];
   /**
    * Default grants the load environment would inject on CREATE (creating role,
-   * schema, pg_default_acl objtype, grantee). Empty/absent is today's emit:
-   * absence of a grant is not a revoke. A profile fills these so export/load
-   * can REVOKE injectees the desired ACL does not keep, without privilege
-   * lists or platform names in the planner.
+   * schema, pg_default_acl objtype, grantee). Empty/absent: absence of a grant
+   * is not a revoke. A profile fills these so export/load can REVOKE injectees
+   * the desired ACL does not keep, without privilege lists or platform names in
+   * the planner.
    */
   assumedDefaultGrants?: AssumedDefaultGrant[];
   /**

@@ -1,6 +1,6 @@
 /**
  * Overlay assumedDefaultGrants: REVOKE injectees the desired ACL does not keep.
- * No Docker — hand-built fact bases, like filtered-child-inlining.test.ts.
+ * No Docker — hand-built fact bases.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
@@ -271,20 +271,46 @@ describe("assumedDefaultGrants overlay", () => {
     expect(sql).toContain(`GRANT SELECT ON TABLE "public"."t" TO "anon"`);
   });
 
-  test("policy overlay still revokes on CREATE; ADP wipes stay options-only", () => {
-    const desired = buildFactBase(
+  const policyOverlayDesired = buildFactBase(
+    [
+      schemaFact,
+      fnFact,
+      acl(fnId, "PUBLIC", []),
+      acl(fnId, "authenticated", ["EXECUTE"]),
+      acl(fnId, "postgres", ["EXECUTE"], ["EXECUTE"]),
+      acl(fnId, "service_role", ["EXECUTE"]),
+    ],
+    [{ from: fnId, to: { kind: "role", name: "postgres" }, kind: "owner" }],
+  );
+
+  test("policy overlay does not REVOKE overlay roles absent from the source extract", () => {
+    const p = plan(source, policyOverlayDesired, {
+      assumedRoles,
+      policy: { id: "overlay-policy", assumedDefaultGrants: overlayFn },
+    });
+    const sql = p.actions.map((a) => a.sql).join("\n");
+    expect(sql).not.toMatch(
+      /REVOKE ALL ON FUNCTION "public"\."get_account"\(\) FROM .*"anon"/,
+    );
+    expect(sql).not.toContain("ALTER DEFAULT PRIVILEGES");
+  });
+
+  test("policy overlay REVOKEs overlay roles present in the source extract; ADP wipes stay options-only", () => {
+    const dest = buildFactBase(
       [
         schemaFact,
-        fnFact,
-        acl(fnId, "PUBLIC", []),
-        acl(fnId, "authenticated", ["EXECUTE"]),
-        acl(fnId, "postgres", ["EXECUTE"], ["EXECUTE"]),
-        acl(fnId, "service_role", ["EXECUTE"]),
+        { id: { kind: "role", name: "anon" }, payload: {} },
+        { id: { kind: "role", name: "authenticated" }, payload: {} },
+        { id: { kind: "role", name: "service_role" }, payload: {} },
+        { id: { kind: "role", name: "postgres" }, payload: {} },
       ],
-      [{ from: fnId, to: { kind: "role", name: "postgres" }, kind: "owner" }],
+      [],
     );
-    const p = plan(source, desired, {
+    // Database scope drops role facts from the resolved view; overlay
+    // hygiene must still see them on the raw extract.
+    const p = plan(dest, policyOverlayDesired, {
       assumedRoles,
+      scope: "database",
       policy: { id: "overlay-policy", assumedDefaultGrants: overlayFn },
     });
     const sql = p.actions.map((a) => a.sql).join("\n");

@@ -134,94 +134,88 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
     const src = await cluster.createDb("priv_rt_src");
     const dest = await cluster.createDb("priv_rt_dest");
     dbs.push(src, dest);
-    try {
-      await ensureApiRoles(src.pool);
-      await ensureApiRoles(dest.pool);
-      const srcPg = await openPostgresPool(src.uri);
-      const destPg = await openPostgresPool(dest.uri);
-      await srcPg.query(AUTO_EXPOSE_ADP);
-      await srcPg.query(LIVE_SQL);
-      await destPg.query(AUTO_EXPOSE_ADP);
+    await ensureApiRoles(src.pool);
+    await ensureApiRoles(dest.pool);
+    const srcPg = await openPostgresPool(src.uri);
+    const destPg = await openPostgresPool(dest.uri);
+    await srcPg.query(AUTO_EXPOSE_ADP);
+    await srcPg.query(LIVE_SQL);
+    await destPg.query(AUTO_EXPOSE_ADP);
 
-      const exported = await buildSchemaExport(src.pool, {
-        profile: supabaseProfile,
-      });
-      const fnSql = fileSql(exported.files, /get_account/);
-      expect(fnSql).toMatch(
-        /REVOKE ALL ON FUNCTION "public"\."get_account"\(\) FROM PUBLIC, "anon"/,
-      );
-      expect(fnSql).not.toMatch(/GRANT EXECUTE.*TO "anon"/);
+    const exported = await buildSchemaExport(src.pool, {
+      profile: supabaseProfile,
+    });
+    const fnSql = fileSql(exported.files, /get_account/);
+    expect(fnSql).toMatch(
+      /REVOKE ALL ON FUNCTION "public"\."get_account"\(\) FROM PUBLIC, "anon"/,
+    );
+    expect(fnSql).not.toMatch(/GRANT EXECUTE.*TO "anon"/);
 
-      const tableSql = fileSql(exported.files, /select_only/);
-      expect(tableSql).toMatch(/REVOKE ALL ON TABLE "public"\."select_only"/);
-      expect(tableSql).toContain(
-        `GRANT SELECT ON TABLE "public"."select_only" TO "authenticated"`,
-      );
+    const tableSql = fileSql(exported.files, /select_only/);
+    expect(tableSql).toMatch(/REVOKE ALL ON TABLE "public"\."select_only"/);
+    expect(tableSql).toContain(
+      `GRANT SELECT ON TABLE "public"."select_only" TO "authenticated"`,
+    );
 
-      const fullSql = fileSql(exported.files, /full_grant/);
-      expect(fullSql).toContain(
-        `GRANT DELETE, INSERT, SELECT, UPDATE ON TABLE "public"."full_grant" TO "anon"`,
-      );
+    const fullSql = fileSql(exported.files, /full_grant/);
+    expect(fullSql).toContain(
+      `GRANT DELETE, INSERT, SELECT, UPDATE ON TABLE "public"."full_grant" TO "anon"`,
+    );
 
-      const adpSql = fileSql(exported.files, /default_privileges/);
-      expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "anon"/);
-      expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "authenticated"/);
-      expect(adpSql).toMatch(/REVOKE ALL ON TABLES FROM "anon"/);
-      expect(adpSql).toContain(`GRANT SELECT ON TABLES TO "anon"`);
+    const adpSql = fileSql(exported.files, /default_privileges/);
+    expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "anon"/);
+    expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "authenticated"/);
+    expect(adpSql).toMatch(/REVOKE ALL ON TABLES FROM "anon"/);
+    expect(adpSql).toContain(`GRANT SELECT ON TABLES TO "anon"`);
 
-      await loadExport(exported.files, destPg);
+    await loadExport(exported.files, destPg);
 
-      const viewOpts = {
-        policy: supabasePolicy,
-        scope: "database" as const,
-        defaultOwner: "postgres",
-      };
-      const srcView = reconstructManagedView(
-        (await extract(src.pool)).factBase,
-        viewOpts,
-      );
-      const destView = reconstructManagedView(
-        (await extract(dest.pool)).factBase,
-        viewOpts,
-      );
-      const privilegeSnap = (
-        view: ReturnType<typeof reconstructManagedView>,
-        kind: "acl" | "defaultPrivilege",
-      ) =>
-        view
-          .facts()
-          .filter((f) => f.id.kind === kind)
-          .map((f) =>
-            JSON.stringify({
-              id: f.id,
-              privileges: f.payload["privileges"],
-              grantable: f.payload["grantable"],
-            }),
-          )
-          .sort();
-      expect(privilegeSnap(srcView, "acl")).toEqual(
-        privilegeSnap(destView, "acl"),
-      );
-      expect(privilegeSnap(srcView, "defaultPrivilege")).toEqual(
-        privilegeSnap(destView, "defaultPrivilege"),
-      );
-
-      const fnAcl = destView
+    const viewOpts = {
+      policy: supabasePolicy,
+      scope: "database" as const,
+      defaultOwner: "postgres",
+    };
+    const srcView = reconstructManagedView(
+      (await extract(src.pool)).factBase,
+      viewOpts,
+    );
+    const destView = reconstructManagedView(
+      (await extract(dest.pool)).factBase,
+      viewOpts,
+    );
+    const privilegeSnap = (
+      view: ReturnType<typeof reconstructManagedView>,
+      kind: "acl" | "defaultPrivilege",
+    ) =>
+      view
         .facts()
-        .filter((f) => {
-          if (f.id.kind !== "acl") return false;
-          const target = f.id.target;
-          return target.kind === "function" && target.name === "get_account";
-        })
-        .map((f) => (f.id.kind === "acl" ? f.id.grantee : ""))
+        .filter((f) => f.id.kind === kind)
+        .map((f) =>
+          JSON.stringify({
+            id: f.id,
+            privileges: f.payload["privileges"],
+            grantable: f.payload["grantable"],
+          }),
+        )
         .sort();
-      expect(fnAcl).toContain("authenticated");
-      expect(fnAcl).not.toContain("anon");
-    } finally {
-      await src.drop().catch(() => {});
-      await dest.drop().catch(() => {});
-      await cluster.stop().catch(() => {});
-    }
+    expect(privilegeSnap(srcView, "acl")).toEqual(
+      privilegeSnap(destView, "acl"),
+    );
+    expect(privilegeSnap(srcView, "defaultPrivilege")).toEqual(
+      privilegeSnap(destView, "defaultPrivilege"),
+    );
+
+    const fnAcl = destView
+      .facts()
+      .filter((f) => {
+        if (f.id.kind !== "acl") return false;
+        const target = f.id.target;
+        return target.kind === "function" && target.name === "get_account";
+      })
+      .map((f) => (f.id.kind === "acl" ? f.id.grantee : ""))
+      .sort();
+    expect(fnAcl).toContain("authenticated");
+    expect(fnAcl).not.toContain("anon");
   }, 180_000);
 });
 
