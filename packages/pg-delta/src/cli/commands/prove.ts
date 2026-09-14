@@ -12,6 +12,7 @@ import {
   provePlan,
   type ProofCoverage,
   type ProofVerdict,
+  type ProveOptions,
   type TableRef,
 } from "../../proof/prove.ts";
 import type {
@@ -40,6 +41,16 @@ import {
   reconcileBaselineDigest,
   resolveCliProfile,
 } from "../profile.ts";
+
+/** Drop a live-probed capability so `provePlan` falls through to
+ *  `thePlan.capability`. The clone role can differ from the planner
+ *  (superuser local clone of a CREATEROLE plan, or the reverse). */
+export function proveOptionsFromProfile(
+  profileProve: ProveOptions,
+): Omit<ProveOptions, "capability"> {
+  const { capability: _ignored, ...rest } = profileProve;
+  return rest;
+}
 
 /**
  * Render a failing `ProofVerdict` as an indented, human-readable report (the
@@ -595,6 +606,7 @@ export async function cmdProve(args: string[]): Promise<void> {
     );
     const ctx = await resolveCliProfile(clone.pool, profileId, {
       redactSecrets: planRedactSecrets,
+      restrictToApplier: false,
     });
     // The baseline the profile resolves MUST match the plan's, or the proof
     // reconstructs a different managed view than the plan diffed. Fail loud with
@@ -610,7 +622,7 @@ export async function cmdProve(args: string[]): Promise<void> {
     // desired snapshot — an unredacted (`--unsafe-show-secrets`) plan must not be
     // proven against a default-redacted re-extract. Absent → the extract default.
     const verdict = await provePlan(thePlan, clone.pool, desiredFb, {
-      ...ctx.proveOptions,
+      ...proveOptionsFromProfile(ctx.proveOptions),
       reextract: (p) => ctx.extract(p, { redactSecrets: planRedactSecrets }),
       strictAudit: flags["strict-audit"],
     });

@@ -1573,6 +1573,172 @@ Codex P2s:
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
 
+## PR #462 review triage (Codex) — lock-table split-to-fit
+
+PR #462 adds `estimateLockTableBudget` plus optional `splitPlan({ maxLocks })`
+so a large empty-target baseline can commit in chunks. Apply does not
+refuse; a single action that still exceeds the budget stays in its own
+segment (Postgres may still fail mid-statement). The estimator is
+deliberately conservative and only looks at action `produces` /
+`destroys` / `consumes` plus a busy-backend reserve — not `pg_locks`
+occupancy, toast existence, or fact-base closures. Codex asked to close
+those gaps in-PR; they are real estimator limits, not defects in the
+CLI-2304 path (thousands of CREATE TABLE/INDEX/SEQUENCE on an empty
+target). Parked:
+
+- **Deferred — view/matview dependency locks (P1).** `CREATE VIEW` does
+  not put `pg_depend` edges on `consumes`. On an empty-target baseline
+  the referenced tables are usually produced in the same segment (and
+  PostgreSQL reuses that lock entry). The miss is incremental: many
+  views over *already-existing* relations. Carrying extract-time
+  depends into the estimate is a planner contract change. Split cannot
+  help a single action that under-counts those deps.
+- **Deferred — extension member closure (P1).** `CREATE EXTENSION`
+  produces only the `extension` fact; members are created in the same
+  statement and cannot be split. Stamp a member-lock estimate at plan
+  time if a later caller wants a better pack, but one action still
+  applies as one statement.
+- **Deferred — deduct `pg_locks` occupancy (P1).**
+  `max_locks_per_transaction × busy backends` is the documented
+  capacity formula, not a live occupancy. Querying `pg_locks` is
+  racy, can be large, and needs extra privilege. The approved design
+  keeps the GUC × backend reserve.
+- **Deferred — dedupe lock identities in a segment (P2).** Summing
+  per-action overcounts ALTERs of the same relation (PostgreSQL
+  reuses the lock entry). Over-estimate can split more than needed.
+  Union-by-identity needs stable lock keys on every action.
+- **Deferred — charge TOAST only when it exists (P2).** Fixed-width
+  and partitioned parents have no toast pair. Overcount can force
+  chunking on a fit-able plan. Needs a catalog toast/persistence
+  bit at extract time.
+- **Deferred — honor `newSegmentBefore` on `commitBoundaryAfter`
+  (P2).** `splitPlan` can mark ADD VALUE when the running estimate plus
+  that action exceeds `maxLocks`, but `segmentActions` closes after the
+  boundary and never reads the mark. ADD VALUE stays with the preceding
+  run (typically ~2 extra slots). Order and the required COMMIT after
+  ADD VALUE are unchanged. Honoring the mark is a `segmentActions`
+  contract change, not a packer fix.
+
+## CLI-2296 — batched transactional apply
+
+`apply()` can send each transactional segment as one or more bounded
+simple-protocol batches (`BEGIN` + preamble + actions, 500 statements /
+1 MiB) with `COMMIT` as its own round trip so `inDoubt` stays “lost
+COMMIT only”. This is **opt-in** (`batchTransactional` /
+`--batch-transactional`); the default remains one query per action.
+Failure attribution prefers `error.position` through join offsets when
+Postgres sends it; otherwise CommandComplete count, with walk-off
+blaming the last action. No replay. Non-transactional segments are
+unchanged. Lock-table exhaustion is still #462 / `splitPlan` /
+`--split-to-fit` — batching does not widen that budget.
+
+Fixed in-PR: UTF-8 byte cap (not UTF-16 `length`); do not count
+`EmptyQueryResponse` as a slot; strip trailing `;` before join so a
+planner `CREATE …;` does not emit `;;`; put `;` on its own line so a
+trailing `--` cannot swallow the next action; map `error.position`
+through Postgres-character join offsets (not only when `completed === 0`);
+when CommandComplete walks off the end of the batch (multi-statement
+`action.sql` and no position), blame the last action instead of `BEGIN`;
+queue `actionStart` before submit and set `actionEnd.ms` to the batch
+duration; settle `CountingQuery` via `callback` so a client
+`query_timeout` cannot hang; reject empty / transaction-control action
+SQL before connecting so a later-segment invariant failure cannot
+commit earlier segments and then throw without an `ApplyReport`.
+
+Deferred:
+
+- **CommandComplete → action (not slot) when `POSITION` is absent.**
+  Without a SQL parser we cannot know how many completions one
+  `action.sql` emits. `POSITION` is the primary path; completions are
+  1:1 best-effort, and walk-off-end blames the last action instead of
+  `BEGIN`. A `;` heuristic would be another regex over SQL.
+- **CodeQL `js/polynomial-redos` on `/;+\s*$/`.** End-anchored strip of
+  trailing semicolons. Dismissed: planner SQL is not a `;` bomb, and
+  the match cannot slide over the rest of the string.
+
+## PR #470 review triage (Codex) — partition replace + index attach
+
+PR #470 recreates partitions/views/publicationRel across a parent-table
+replace and emits child indexes plus `ALTER INDEX … ATTACH PARTITION`.
+Codex round 1 on `36f77e2a`; round 2 on parent-index rename; round 3
+on unchanged children of a `def` replace, child rename, and
+snapshot `attachedTo`. Apply holes in this PR's attach path were
+in-scope; unusual desired states, snapshot-format compat, and
+resolver contract stay deferred.
+
+- **Fixed — fold attached child index drops into parent-index replace
+  (P1).** `dropRootRedirect` ran only over `removed`. A parent-index
+  `def` replace also replaces attached children; both entered
+  `replaceIds` and the plan emitted `DROP INDEX child`. PostgreSQL
+  refuses that while the parent still requires the child. Redirect
+  now covers `replaceIds` and the parent replace `destroys` those
+  children. Unit test in `partition-index-attach.test.ts`.
+- **Fixed — recreate attached children when the parent index identity
+  changes (P1).** `renames` off plans a parent-index rename as
+  `DROP INDEX old` + `CREATE INDEX new`. Drop cascades attached
+  children; `attachedTo` was an in-place ATTACH against a ghost.
+  `replaceWhen` is now `from != null`, and the drop pass lists
+  replaced children in that DROP's `destroys` (direct redirect
+  only). Unit + corpus
+  `partitioned-table-operations--parent-index-rename`.
+- **Fixed — recreate unchanged children of a replaced parent index
+  (P1).** `dropRootRedirect` only walks facts already in `removed` /
+  `replaceIds`. A parent-index `def` change (`WITH (fillfactor=…)`,
+  tablespace, …) can leave the child payload identical, so the child
+  was neither removed nor replaced. `DROP INDEX parent` still
+  cascades it; the plan recreated only the parent. Expansion now
+  promotes surviving facts whose `dropRootRedirect` ancestor is
+  destroyed (kind knowledge stays in the rule table) and walks that
+  to a fixed point so a leaf attached through a middle partitioned
+  index is included regardless of fact order. Unit tests plus corpus
+  `partitioned-table-operations--parent-index-fillfactor`.
+- **Deferred — synthesize publicationRel→table via pg_depend (P1).**
+  The edge is extract-time from `pg_publication_rel` (same catalog
+  relationship pg_depend records). The resolver's `pubrel` CTE
+  currently *folds* those rows onto the publication id on purpose
+  (`seed-assumed-schemas`: a shell publication must not inherit member
+  replay requirements). Un-folding `pg_publication_rel` onto
+  `publicationRel` is a resolver + seed contract change, not a bug in
+  the membership rebuild this PR landed.
+- **Deferred — alsoProduces vs renamed/custom child indexes (P1).**
+  `PARTITION OF` after a parent index clones a default-named child.
+  `alsoProduces` suppresses the desired child CREATE when
+  `attachedTo` is set. A desired child with a different name or
+  reloptions than that clone would drift. Corpus and pg_dump-healthy
+  trees use the inherited name. Custom names need a follow-up that
+  only alsoProduces when identity/payload match the clone, or that
+  emits RENAME/ALTER after inherit.
+- **Deferred — attachedTo → null / re-parent ATTACH (P2).** There is
+  no `ALTER INDEX … DETACH PARTITION` grammar we emit. Detach is
+  `replaceWhen`. Re-ATTACH to a different parent while the old parent
+  **survives** still has no redirect (old parent is not removed) and
+  emits `DROP INDEX child`, which PostgreSQL rejects while attached.
+  Same class as detach; not a schema-first dump path (you drop or
+  replace the parent index). The rename case (old parent gone) is
+  the P1 above.
+- **Deferred — consume parent indexes only when the new partition has
+  an attached child (P1).** Unconditional consume forces `CREATE INDEX
+  ON ONLY` before `PARTITION OF`, which clones children. Desired SQL
+  that is `PARTITION OF` then `ON ONLY` with *no* child facts (an
+  incomplete parent) would then fail proof. This PR's corpus and
+  pg_dump-style trees include the child facts; the incomplete parent
+  is the state we force-valid and do not round-trip as a goal.
+- **Deferred — rename attached child while the parent index survives
+  (P1).** `renames` off plans a child rename as `DROP INDEX old_child`
+  + `CREATE INDEX new_child`. The parent is not removed, so there is
+  no redirect, and PostgreSQL rejects the child DROP while attached.
+  Same class as custom child names / `alsoProduces`: schema-first
+  dumps keep the inherited name. `ALTER INDEX RENAME` is a larger
+  project (`pg_get_indexdef` embeds the name).
+- **Deferred — legacy snapshots missing `attachedTo` (P2).** Format
+  is still v1. An old snapshot without the key vs live extract with
+  `attachedTo: null` is a set-delta (`from` absent). `replaceWhen:
+  (from) => from != null` treats `undefined` as replace, so every
+  standalone index would drop+recreate; `to === null` would also
+  throw in `attachedTo.alter` if that path ran. Upgrade by
+  re-extracting. Coercing missing `attachedTo` to `null` at snapshot
+  load is a format-compat follow-up, not this PR.
+
 ## PR #475 review triage — overlay default grants
 
 Identity-sequence inject on live-OFF → dest-ON is **fixed** (#475): by-object

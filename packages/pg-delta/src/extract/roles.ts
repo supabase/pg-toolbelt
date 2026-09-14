@@ -1,5 +1,5 @@
 /** Cluster-level role state: roles, role memberships, and default privileges. */
-import type { CatalogFamily } from "./scope.ts";
+import { type CatalogFamily, USER_SCHEMA_FILTER } from "./scope.ts";
 
 // ── roles (cluster-level) ────────────────────────────────────────────
 const ROLES_SQL = `
@@ -133,6 +133,11 @@ const DEFAULT_PRIVILEGES_SQL = `
           OR (d.defaclnamespace = 0 AND EXISTS (SELECT 1 FROM stored s2))
         )
     ) acl
+    -- A per-schema row is a satellite of its schema: keep only the GLOBAL rows
+    -- and those on schemas the schema family extracts. A row on a system or
+    -- per-backend temp schema (IN SCHEMA pg_temp_N, owned by a live session)
+    -- would key a fact on a schema no target has and no plan produces.
+    WHERE d.defaclnamespace = 0 OR (${USER_SCHEMA_FILTER})
     ORDER BY 1, 2, 3, 4`;
 
 export const rolesAndGrantsFamily: CatalogFamily = {

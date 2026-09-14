@@ -235,14 +235,14 @@ has drifted (and prints the deltas) — handy in CI.
 | Command | What it does | Key flags |
 |---|---|---|
 | `diff` | Print the deltas between two live DBs | `--source` `--desired` `[--strict-coverage]` |
-| `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--strict-coverage]` |
+| `plan` | Produce a plan artifact (JSON) | `--source` `--desired` `[--out]` `[--profile]` `[--renames]` `[--no-compact]` `[--accept-rename]` `[--restrict-to-applier]` `[--no-restrict-to-applier]` `[--strict-coverage]` |
 | `render` | Write a plan out as reviewable `.sql` | `--plan` `--out` `[--allow-drops]` |
 | `apply` | Apply a plan to a target | `--plan` `--target` `[--profile]` `[--force]` `[--allow-data-loss]` |
 | `prove` | Apply a plan to a clone and verify convergence + data preservation | `--plan` `--clone` `--desired-snapshot` `[--profile]` `[--strict-audit]` `[--audit-all]` `[--trusted-local-host]` `[--allow-remote-clone]` `[--allow-unverified-source-identity]` |
 | `snapshot` | Save a database's fact base to a file | `--source` `--out` `[--strict-coverage]` |
 | `drift` | Compare a live DB against a saved snapshot | `--env` `--snapshot` `[--strict-coverage]` |
 | `schema export` | Export a live DB to `.sql` files | `--source` `--out-dir` `[--scope]` `[--layout]` `[--path-style]` `[--format-options]` `[--no-format]` `[--profile]` `[--strict-coverage]` |
-| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--no-reorder]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
+| `schema apply` | Load `.sql` files via a shadow DB and migrate a target | `--dir` `[--shadow]` `--target` `[--scope]` `[--isolated-shadow]` `[--renames]` `[--accept-rename]` `[--force]` `[--allow-data-loss]` `[--no-reorder]` `[--trusted-local-host]` `[--allow-remote-shadow]` `[--profile]` `[--restrict-to-applier]` `[--no-restrict-to-applier]` `[--strict-coverage]` `[--dry-run]` `[--verbose]` `[--out-plan]` |
 | `schema lint` | Statically check `.sql` files for load-order problems (no database) | `--dir` `[--custom-migration-refs warn\|off]` |
 
 Common flags, explained:
@@ -263,6 +263,12 @@ Common flags, explained:
   remain bounded; the plan artifact retains the complete raw audit.
 - **`--renames auto\|prompt\|off`** — `plan`/`schema apply` default to `prompt`,
   which lists rename candidates you confirm with `--accept-rename <from>=<to>`.
+- **`--restrict-to-applier` / `--no-restrict-to-applier`** — managed-view
+  commands probe the connection role and drop operations that role cannot
+  replay (FDW ACLs, PG16+ CREATEROLE self-ADMIN memberships). That probe is
+  the default. `--restrict-to-applier` is an explicit yes; `--no-restrict-to-applier`
+  (`plan` / `schema apply`) keeps the unrestricted view for plan-here /
+  apply-as-more-privileged. A superuser probe excludes nothing.
 - **`--force`** — disables the fingerprint gate on `apply` (see
   [Safety](#safety-features)). Use sparingly.
 
