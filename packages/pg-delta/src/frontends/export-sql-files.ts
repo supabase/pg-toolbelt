@@ -347,7 +347,6 @@ function scopeRank(id: StableId): number {
 const CLUSTER_FILES: Record<string, string> = {
   role: "roles.sql",
   membership: "roles.sql",
-  defaultPrivilege: "roles.sql",
   fdw: "foreign_data_wrappers.sql",
   server: "foreign_data_wrappers.sql",
   userMapping: "foreign_data_wrappers.sql",
@@ -822,6 +821,21 @@ function mergeDependencyCycles(
   return merges;
 }
 
+function isAdpWipeSql(sql: string): boolean {
+  return (
+    /^\s*ALTER\s+DEFAULT\s+PRIVILEGES\b/i.test(sql) &&
+    /\bREVOKE\s+ALL\s+ON\b/i.test(sql)
+  );
+}
+
+function adpWipePath(
+  id: Extract<StableId, { kind: "defaultPrivilege" }>,
+  ctx: PathContext,
+): string {
+  if (id.schema === null) return `${clusterRoot(ctx.pathStyle)}/adp_wipes.sql`;
+  return `${schemaRoot(ctx.pathStyle, id.schema)}/adp_wipes.sql`;
+}
+
 function pathFor(id: StableId, ctx: PathContext): string {
   const target = fileTarget(id);
   const kind = target.kind;
@@ -836,17 +850,17 @@ function pathFor(id: StableId, ctx: PathContext): string {
   if (memberExtension !== undefined) {
     return `${cluster}/extensions/${seg(memberExtension)}.sql`;
   }
-  // A schema-scoped ALTER DEFAULT PRIVILEGES depends on its schema, so it must
-  // NOT share the atomic cluster/roles.sql file with CREATE ROLE: with reorder
-  // disabled (any ADP present) the raw loader would roll the role back when the
-  // ADP fails on the not-yet-created schema. File it under the schema instead,
-  // where the loader's defer-and-retry converges (review P2). A global ADP
-  // (schema null) has no such dependency and stays with the roles.
+  // Schema-scoped ADP cannot share atomic roles.sql with CREATE ROLE: any ADP
+  // disables statement reorder, so a failed IN SCHEMA statement would roll the
+  // role back. Global GRANT ADP is a sibling cluster file so overlay REVOKE ALL
+  // can load after roles and before objects without reversing a GRANT still in
+  // roles.sql.
   if (kind === "defaultPrivilege") {
     const schema = (target as { schema: string | null }).schema;
     if (schema !== null) {
       return `${schemaRoot(ctx.pathStyle, schema)}/default_privileges.sql`;
     }
+    return `${cluster}/default_privileges.sql`;
   }
   const clusterFile = CLUSTER_FILES[kind];
   if (clusterFile !== undefined) return `${cluster}/${clusterFile}`;
@@ -1002,7 +1016,15 @@ export function exportSqlFiles(
   const miscPath = `${clusterRoot(pathStyle)}/misc.sql`;
   const actionPaths = rendered.actions.map((action) => {
     const subject = subjectOf(action, fb);
-    return subject === undefined ? miscPath : pathFor(subject, pathContext);
+    if (subject === undefined) return miscPath;
+    if (
+      layout !== "ordered" &&
+      subject.kind === "defaultPrivilege" &&
+      isAdpWipeSql(action.sql)
+    ) {
+      return adpWipePath(subject, pathContext);
+    }
+    return pathFor(subject, pathContext);
   });
 
   if (layout === "ordered") {
@@ -1062,30 +1084,39 @@ export function exportSqlFiles(
     files.set(path, entry);
   });
 
-  // Overlay ADP wipes must land before CREATE: dest auto-expose injects
-  // grants onto unmodeled identity sequences, and ALTER DEFAULT PRIVILEGES
-  // does not revoke existing object ACLs. Numeric keys (not ADP-vs-object
-  // pairwise swaps): a swap comparator is not transitive with firstAt.
+  // Overlay REVOKE ALL must land before CREATE TABLE / CREATE EXTENSION: dest
+  // auto-expose injects onto unmodeled identity sequences and extension
+  // members, and ALTER DEFAULT PRIVILEGES does not revoke existing ACLs.
+  // Positive GRANT ADP stays at plan firstAt. Numeric keys (not pairwise
+  // swaps): a swap comparator is not transitive with firstAt.
   const objectDirs = new Set([...Object.values(SCHEMA_DIRS), "indexes"]);
+  const extPrefix = `${clusterRoot(pathContext.pathStyle)}/extensions/`;
   const isObjectFile = (path: string): boolean => {
     if (path.endsWith(".fk.sql")) return true;
     const parts = path.split("/");
     const file = parts[parts.length - 1];
-    if (file === "schema.sql" || file === "default_privileges.sql")
+    if (
+      file === "schema.sql" ||
+      file === "default_privileges.sql" ||
+      file === "adp_wipes.sql"
+    )
       return false;
     return parts.length >= 2 && objectDirs.has(parts[parts.length - 2]!);
   };
-  const objectMinFirstAt = Math.min(
+  const createMinFirstAt = Math.min(
     ...[...files.entries()]
-      .filter(([path]) => isObjectFile(path))
+      .filter(([path]) => isObjectFile(path) || path.startsWith(extPrefix))
       .map(([, entry]) => entry.firstAt),
     Number.POSITIVE_INFINITY,
   );
   const ordered = [...files.entries()].sort((a, b) => {
-    const key = (path: string, firstAt: number): number =>
-      path.endsWith("/default_privileges.sql")
-        ? Math.min(firstAt, objectMinFirstAt) * 2 - 1
-        : firstAt * 2;
+    const key = (path: string, firstAt: number): number => {
+      if (createMinFirstAt === Number.POSITIVE_INFINITY) return firstAt * 4;
+      if (path.endsWith("/adp_wipes.sql")) return createMinFirstAt * 4 - 1;
+      if (path.endsWith("/schema.sql"))
+        return Math.min(firstAt, createMinFirstAt) * 4 - 2;
+      return firstAt * 4;
+    };
     return key(a[0], a[1].firstAt) - key(b[0], b[1].firstAt);
   });
   return ordered.map(([path, entry]) => ({

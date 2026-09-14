@@ -641,9 +641,10 @@ Notes:
   module's own contract. Now a probe (with `minVersion` version gating);
   modeling the grant as a fact remains add-when-needed.
 - **P2c rationale:** identity sequences are still not facts, so per-object grant
-  diffs on them are out of scope (same as the legacy engine). #475 hoists
-  overlay `default_privileges.sql` ahead of object files so a dest auto-expose
-  baseline no longer injects those grants at `CREATE TABLE` time.
+  diffs on them are out of scope (same as the legacy engine). #475 emits overlay
+  `REVOKE ALL` in `adp_wipes.sql` ahead of object files and extensions so a dest
+  auto-expose baseline no longer injects those grants at `CREATE TABLE` /
+  `CREATE EXTENSION` time. Positive ADP `GRANT`s stay at plan order.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
@@ -1742,10 +1743,18 @@ resolver contract stay deferred.
 ## PR #475 review triage — overlay default grants
 
 Identity-sequence inject on live-OFF → dest-ON is **fixed** (#475): by-object
-export hoists `default_privileges.sql` ahead of object files. Create-time ADP
-hygiene uses the resolved default owner when that owner edge was pruned, so a
-table that predated a schema ADP still gets `REVOKE ALL` in its own file.
-Recorded here so a later review does not re-open P2c as the same leak.
+export splits overlay `REVOKE ALL` into `adp_wipes.sql` (after `schema.sql` /
+roles, before object files and `_cluster/extensions/*`) and leaves positive
+ADP `GRANT`s at plan `firstAt`. Whole-file hoist of `default_privileges.sql`
+was wrong: it created predating identity sequences under a later `GRANT
+USAGE`. Create-time ADP hygiene uses the resolved default owner when that
+owner edge was pruned, so a table that predated a schema ADP still gets
+`REVOKE ALL` in its own file. Recorded here so a later review does not
+re-open P2c as the same leak. Identity sequences stay unmodeled; per-object
+grant diffs on them remain won't-fix. A source identity sequence created
+*after* a positive `GRANT USAGE ON SEQUENCES` still will not regain that
+grant on load — the fact base has no create-order, so the GRANT file cannot
+be interleaved between two `CREATE TABLE`s.
 
 Deferred from the same review (not blocking):
 
@@ -1763,17 +1772,16 @@ Deferred from the same review (not blocking):
   cell, not a full-public dump on the DML fixture.
 - **Kind-literal helper / `postgres`-only overlay pin.** Cleanup; load runs
   as `postgres`.
-- **`--layout ordered` still follows plan order.** Default by-object (and
-  grouped, where ADP is cluster-before-tables) hoist overlay wipes before
-  CREATE. Numbered ordered files stay after CREATE, so identity-seq inject
-  remains on `schema export --layout ordered`. Qualify or hoist ADP runs in
-  the ordered assembler if that layout is used onto an auto-expose dest.
-- **Global ADP clamp vs later `schema.sql` (Codex).** A per-schema clamp
-  would be defense in depth if emission order changes. Today schemas emit
-  shallower than relations, so `schema.sql` `firstAt` is always before
-  `objectMin`; the two-schema pin in `export-schema-adp.test.ts` locks
-  `app/schema.sql` before `app/default_privileges.sql` even when `public`
-  has earlier tables.
+- **`--layout ordered` still follows plan order.** Default by-object splits
+  overlay wipes before CREATE. Numbered ordered files stay at plan order, so
+  identity-seq inject remains on `schema export --layout ordered`. Qualify or
+  hoist wipe runs in the ordered assembler if that layout is used onto an
+  auto-expose dest.
+- **Grouped layout still category-orders all ADP as cluster.** Cluster sorts
+  before tables and extensions, so overlay wipes are early (good) but
+  positive GRANT ADP is also early (same predating-identity leak as the
+  old by-object hoist). Split wipe vs GRANT in grouped if that layout is
+  used onto an auto-expose dest.
 - **Overlay REVOKE elision vs dest GRANT OPTION.** When the desired privilege
   set equals `_ownerDefault`, compaction drops the leading `REVOKE`. Overlay
   tuples do not carry grant-option bits; a dest ADP that injected the same

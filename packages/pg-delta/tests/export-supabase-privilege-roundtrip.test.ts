@@ -15,6 +15,7 @@ import {
   ShadowLoadError,
 } from "../src/frontends/load-sql-files.ts";
 import { supabaseProfile } from "../src/integrations/supabase.ts";
+import { rawProfile } from "../src/integrations/profile.ts";
 import { flattenPolicy } from "../src/policy/policy.ts";
 import { reconstructManagedView } from "../src/policy/reconstruct.ts";
 import { supabasePolicy } from "../src/policy/supabase.ts";
@@ -162,7 +163,7 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
       `GRANT DELETE, INSERT, SELECT, UPDATE ON TABLE "public"."full_grant" TO "anon"`,
     );
 
-    const adpSql = fileSql(exported.files, /default_privileges/);
+    const adpSql = fileSql(exported.files, /default_privileges|adp_wipes/);
     expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "anon"/);
     expect(adpSql).toMatch(/REVOKE ALL ON FUNCTIONS FROM "authenticated"/);
     expect(adpSql).toMatch(/REVOKE ALL ON TABLES FROM "anon"/);
@@ -239,11 +240,11 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
       profile: supabaseProfile,
     });
     const names = exported.files.map((f) => f.name.replaceAll("\\", "/"));
-    const adpAt = names.findIndex((n) => n.endsWith("default_privileges.sql"));
+    const wipeAt = names.findIndex((n) => n.endsWith("adp_wipes.sql"));
     const tableAt = names.findIndex((n) => /\/tables\//.test(n));
-    expect(adpAt).toBeGreaterThanOrEqual(0);
+    expect(wipeAt).toBeGreaterThanOrEqual(0);
     expect(tableAt).toBeGreaterThanOrEqual(0);
-    expect(adpAt).toBeLessThan(tableAt);
+    expect(wipeAt).toBeLessThan(tableAt);
 
     await loadExport(exported.files, destPg);
 
@@ -265,6 +266,97 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
           IN ('anon', 'authenticated', 'service_role')
     `);
     expect(overlayOnSeq.rows).toEqual([]);
+  }, 180_000);
+
+  test("alpine: predating identity seq does not inherit a later GRANT USAGE ADP", async () => {
+    const cluster = await startStockCluster();
+    extraClusters.push(cluster);
+    const src = await cluster.createDb("priv_rt_ident_src");
+    const dest = await cluster.createDb("priv_rt_ident_dest");
+    dbs.push(src, dest);
+    await ensureApiRoles(src.pool);
+    await ensureApiRoles(dest.pool);
+    const srcPg = await openPostgresPool(src.uri);
+    const destPg = await openPostgresPool(dest.uri);
+    await srcPg.query(`CREATE ROLE rvc_reader NOLOGIN`);
+    await srcPg.query(`
+      CREATE SCHEMA app;
+      CREATE TABLE app.t1 (id integer);
+      CREATE TABLE app.ident (id bigint GENERATED ALWAYS AS IDENTITY);
+      ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO rvc_reader;
+      ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT USAGE ON SEQUENCES TO rvc_reader;
+      CREATE TABLE app.t2 (id integer);
+      CREATE TABLE app.ident2 (id bigint GENERATED ALWAYS AS IDENTITY);
+    `);
+
+    const exported = await buildSchemaExport(src.pool, { profile: rawProfile });
+    await loadExport(exported.files, destPg);
+
+    const relGrantees = async (schema: string, rel: string, role: string) => {
+      const r = await destPg.query<{ grantee: string; priv: string }>(
+        `SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee, a.privilege_type AS priv
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         LEFT JOIN LATERAL aclexplode(c.relacl) a ON c.relacl IS NOT NULL
+         LEFT JOIN pg_roles g ON g.oid = a.grantee
+         WHERE n.nspname = $1 AND c.relname = $2
+           AND COALESCE(g.rolname, 'PUBLIC') = $3`,
+        [schema, rel, role],
+      );
+      return r.rows.map((row) => row.priv).sort();
+    };
+    // Identity-seq ACLs are unmodeled; CREATE order vs ADP is not in the fact
+    // base. Hoist must not inject USAGE onto ident_id_seq. ident2_id_seq USAGE
+    // on the source is also not restored (same P2c gap as main).
+    expect(await relGrantees("app", "ident_id_seq", "rvc_reader")).toEqual([]);
+    expect(await relGrantees("app", "ident2_id_seq", "rvc_reader")).toEqual([]);
+    expect(await relGrantees("app", "t1", "rvc_reader")).toEqual([]);
+    expect(await relGrantees("app", "t2", "rvc_reader")).toEqual(["SELECT"]);
+  }, 180_000);
+
+  test("alpine: overlay wipes run before CREATE EXTENSION so trgm members stay clean", async () => {
+    const cluster = await startStockCluster();
+    extraClusters.push(cluster);
+    const src = await cluster.createDb("priv_rt_trgm_src");
+    const dest = await cluster.createDb("priv_rt_trgm_dest");
+    dbs.push(src, dest);
+    await ensureApiRoles(src.pool);
+    await ensureApiRoles(dest.pool);
+    const srcPg = await openPostgresPool(src.uri);
+    const destPg = await openPostgresPool(dest.uri);
+    await srcPg.query(`
+      CREATE EXTENSION pg_trgm SCHEMA public;
+      CREATE TABLE public.t (id integer);
+    `);
+    await destPg.query(AUTO_EXPOSE_ADP);
+
+    const exported = await buildSchemaExport(src.pool, {
+      profile: supabaseProfile,
+    });
+    const names = exported.files.map((f) => f.name.replaceAll("\\", "/"));
+    const wipeAt = names.findIndex((n) => n.endsWith("adp_wipes.sql"));
+    const extAt = names.findIndex((n) => n.includes("/extensions/"));
+    expect(wipeAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    expect(wipeAt).toBeLessThan(extAt);
+
+    await loadExport(exported.files, destPg);
+
+    const overlayOnTrgm = async (pool: pg.Pool) => {
+      const r = await pool.query<{ n: string }>(`
+        SELECT count(*)::text AS n
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        JOIN LATERAL aclexplode(p.proacl) a ON p.proacl IS NOT NULL
+        JOIN pg_roles g ON g.oid = a.grantee
+        WHERE n.nspname = 'public'
+          AND p.proname LIKE '%trgm%'
+          AND g.rolname = 'anon'
+      `);
+      return Number(r.rows[0]?.n ?? 0);
+    };
+    expect(await overlayOnTrgm(srcPg)).toBe(0);
+    expect(await overlayOnTrgm(destPg)).toBe(0);
   }, 180_000);
 });
 
