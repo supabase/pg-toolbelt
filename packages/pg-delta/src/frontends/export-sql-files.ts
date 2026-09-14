@@ -212,6 +212,7 @@ function groupingTarget(id: StableId): StableId {
 const CATEGORY_ORDER = [
   "cluster",
   "schema",
+  "adp_wipes",
   "extensions",
   "types",
   "domains",
@@ -228,6 +229,7 @@ const CATEGORY_ORDER = [
   "publications",
   "subscriptions",
   "event_triggers",
+  "default_privileges",
   "misc",
 ] as const;
 type Category = (typeof CATEGORY_ORDER)[number];
@@ -240,7 +242,7 @@ const CATEGORY_PRIORITY: Record<Category, number> = Object.fromEntries(
 const CATEGORY_OF_KIND: Record<string, Category> = {
   role: "cluster",
   membership: "cluster",
-  defaultPrivilege: "cluster",
+  defaultPrivilege: "default_privileges",
   fdw: "cluster",
   server: "cluster",
   userMapping: "cluster",
@@ -547,6 +549,17 @@ const FK_SPLIT_HEADER =
   "-- table's file: each file loads atomically, so keeping them inline would\n" +
   "-- deadlock the loader (every file would need a table another pending file\n" +
   "-- creates). These statements apply once all referenced tables exist.\n\n";
+
+/** Overlay REVOKE ALL file: dest auto-expose is cleared before objects exist. */
+const ADP_WIPE_HEADER =
+  "-- Clears assumed destination defaults before creating objects.\n" +
+  "-- Safe to load on a project that does not have those defaults.\n\n";
+
+function sqlFilePreamble(path: string): string {
+  if (path.endsWith(".fk.sql")) return FK_SPLIT_HEADER;
+  if (path.endsWith("adp_wipes.sql")) return ADP_WIPE_HEADER;
+  return "";
+}
 
 /** Join a schema-qualified relation name into an opaque map key. NUL
  *  (backslash-u0000) cannot appear in an identifier, so keys are
@@ -1101,45 +1114,13 @@ export function exportSqlFiles(
     files.set(path, entry);
   });
 
-  // Overlay REVOKE ALL must land before CREATE TABLE / CREATE EXTENSION: dest
-  // auto-expose injects onto unmodeled identity sequences and extension
-  // members, and ALTER DEFAULT PRIVILEGES does not revoke existing ACLs.
-  // Positive GRANT ADP stays at plan firstAt. Numeric keys (not pairwise
-  // swaps): a swap comparator is not transitive with firstAt.
-  const objectDirs = new Set([...Object.values(SCHEMA_DIRS), "indexes"]);
-  const extPrefix = `${clusterRoot(pathContext.pathStyle)}/extensions/`;
-  const isObjectFile = (path: string): boolean => {
-    if (path.endsWith(".fk.sql")) return true;
-    const parts = path.split("/");
-    const file = parts[parts.length - 1];
-    if (
-      file === "schema.sql" ||
-      file === "default_privileges.sql" ||
-      file === "adp_wipes.sql"
-    )
-      return false;
-    return parts.length >= 2 && objectDirs.has(parts[parts.length - 2]!);
-  };
-  const createMinFirstAt = Math.min(
-    ...[...files.entries()]
-      .filter(([path]) => isObjectFile(path) || path.startsWith(extPrefix))
-      .map(([, entry]) => entry.firstAt),
-    Number.POSITIVE_INFINITY,
+  const ordered = [...files.entries()].sort(
+    (a, b) => a[1].firstAt - b[1].firstAt || a[0].localeCompare(b[0]),
   );
-  const ordered = [...files.entries()].sort((a, b) => {
-    const key = (path: string, firstAt: number): number => {
-      if (createMinFirstAt === Number.POSITIVE_INFINITY) return firstAt * 4;
-      if (path.endsWith("/adp_wipes.sql")) return createMinFirstAt * 4 - 1;
-      if (path.endsWith("/schema.sql"))
-        return Math.min(firstAt, createMinFirstAt) * 4 - 2;
-      return firstAt * 4;
-    };
-    return key(a[0], a[1].firstAt) - key(b[0], b[1].firstAt);
-  });
   return ordered.map(([path, entry]) => ({
     name: path,
     sql:
-      (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+      sqlFilePreamble(path) +
       renderFileSql(placeOwnedSequenceOwner(entry.statements), options.format),
   }));
 }
@@ -1270,11 +1251,17 @@ function exportGrouped(
   // Case-twin paths fold to one shared file, exactly like the by-object
   // layout (issue #365) — regrouping cannot re-split them because the fold is
   // computed on the final grouped paths.
+  const overlay = options.assumedDefaultGrants;
   const actionPaths = actions.map((action) => {
     const subject = subjectOf(action, fb);
-    return subject === undefined
-      ? `${clusterRoot(style)}/misc.sql`
-      : groupedPath(subject);
+    if (subject === undefined) return `${clusterRoot(style)}/misc.sql`;
+    if (
+      subject.kind === "defaultPrivilege" &&
+      isOverlayAdpWipe(subject, action.sql, overlay)
+    ) {
+      return adpWipePath(subject, pathContext);
+    }
+    return groupedPath(subject);
   });
   const folds = foldCaseCollidingPaths(actionPaths, options.onWarning);
   const foldedPaths = actionPaths.map((p) => folds.get(p) ?? p);
@@ -1295,7 +1282,13 @@ function exportGrouped(
     const subject = subjectOf(action, fb);
     const folded = foldedPaths[at]!;
     const path = cycleMerges.get(folded) ?? folded;
-    const category = subject === undefined ? "misc" : categoryFor(subject);
+    const category = path.endsWith("adp_wipes.sql")
+      ? "adp_wipes"
+      : path.endsWith("default_privileges.sql")
+        ? "default_privileges"
+        : subject === undefined
+          ? "misc"
+          : categoryFor(subject);
     const entry = files.get(path) ?? { category, items: [] };
     entry.items.push({
       sql: action.sql,
@@ -1324,7 +1317,7 @@ function exportGrouped(
     return {
       name: path,
       sql:
-        (path.endsWith(".fk.sql") ? FK_SPLIT_HEADER : "") +
+        sqlFilePreamble(path) +
         renderFileSql(placeOwnedSequenceOwner(statements), options.format),
     };
   });

@@ -784,6 +784,7 @@ export function plan(
     assumedSchemaNames,
     assumedPresentIds,
     assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,

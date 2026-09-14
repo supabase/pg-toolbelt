@@ -307,6 +307,7 @@ describe("schema-scoped ADP export routing", () => {
     expect(wipeSql).not.toMatch(/\bGRANT SELECT\b/);
     expect(grantSql).toMatch(/GRANT SELECT/);
     expect(grantSql).not.toMatch(/REVOKE ALL/);
+    expect(wipeSql).toMatch(/^-- Clears assumed destination defaults/);
   });
 
   test("by-object positive GRANT ADP is not hoisted before a predating table", () => {
@@ -453,4 +454,99 @@ describe("schema-scoped ADP export routing", () => {
     expect(extAt).toBeLessThan(revokeAt);
     expect(files[revokeAt]!.sql).toMatch(/REVOKE ALL ON FUNCTIONS FROM PUBLIC/);
   });
+
+  test("ordered overlay wipes precede CREATE EXTENSION and tables", () => {
+    const files = overlayWipeGrantFiles("ordered");
+    const wipeAt = files.findIndex((f) =>
+      /REVOKE ALL ON TABLES FROM "anon"/.test(f.sql),
+    );
+    const grantAt = files.findIndex((f) => /\bGRANT SELECT\b/.test(f.sql));
+    const extAt = files.findIndex((f) => /CREATE EXTENSION/.test(f.sql));
+    const tableAt = files.findIndex((f) => /CREATE TABLE/.test(f.sql));
+    expect(wipeAt).toBeGreaterThanOrEqual(0);
+    expect(grantAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    expect(tableAt).toBeGreaterThanOrEqual(0);
+    expect(wipeAt).toBeLessThan(extAt);
+    expect(wipeAt).toBeLessThan(tableAt);
+    expect(grantAt).toBeGreaterThan(tableAt);
+  });
+
+  test("grouped overlay wipes after schema.sql, before extensions/tables; GRANT ADP after tables", () => {
+    const files = overlayWipeGrantFiles("grouped");
+    const names = files.map((f) => f.name);
+    const schemaAt = names.findIndex((n) => n.endsWith("/schema.sql"));
+    const wipeAt = names.findIndex((n) => n.endsWith("/adp_wipes.sql"));
+    const grantAt = names.findIndex((n) =>
+      n.endsWith("/default_privileges.sql"),
+    );
+    const tableAt = names.findIndex((n) => n.includes("/tables/"));
+    const extAt = names.findIndex((n) => n.includes("/extensions/"));
+    expect(wipeAt).toBeGreaterThanOrEqual(0);
+    expect(grantAt).toBeGreaterThanOrEqual(0);
+    expect(tableAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    if (schemaAt >= 0) expect(schemaAt).toBeLessThan(wipeAt);
+    expect(wipeAt).toBeLessThan(extAt);
+    expect(wipeAt).toBeLessThan(tableAt);
+    expect(grantAt).toBeGreaterThan(tableAt);
+    expect(files[wipeAt]!.sql).toMatch(/REVOKE ALL/);
+    expect(files[wipeAt]!.sql).toMatch(
+      /^-- Clears assumed destination defaults/,
+    );
+    expect(files[wipeAt]!.sql).not.toMatch(/\bGRANT SELECT\b/);
+    expect(files[grantAt]!.sql).toMatch(/GRANT SELECT/);
+    expect(files[grantAt]!.sql).not.toMatch(/REVOKE ALL/);
+  });
 });
+
+function overlayWipeGrantFiles(
+  layout: "ordered" | "grouped",
+): ReturnType<typeof exportSqlFiles> {
+  const table = { kind: "table" as const, schema: "public", name: "t" };
+  const ext = { kind: "extension" as const, name: "pg_trgm" };
+  const adp = {
+    kind: "defaultPrivilege" as const,
+    role: "postgres",
+    schema: "public",
+    objtype: "r",
+    grantee: "authenticated",
+  };
+  return exportSqlFiles(
+    buildFactBase(
+      [
+        { id: { kind: "schema", name: "public" }, payload: {} },
+        { id: ext, payload: { schema: "public", _relocatable: true } },
+        {
+          id: table,
+          parent: { kind: "schema", name: "public" },
+          payload: { persistence: "p" },
+        },
+        {
+          id: adp,
+          parent: { kind: "schema", name: "public" },
+          payload: { privileges: ["SELECT"], grantable: [] },
+        },
+      ],
+      [],
+    ),
+    {
+      layout,
+      assumedRoles: ["anon", "postgres", "authenticated"],
+      assumedDefaultGrants: [
+        {
+          creatingRole: "postgres",
+          schema: "public",
+          objtype: "r",
+          grantee: "anon",
+        },
+        {
+          creatingRole: "postgres",
+          schema: "public",
+          objtype: "r",
+          grantee: "authenticated",
+        },
+      ],
+    },
+  );
+}

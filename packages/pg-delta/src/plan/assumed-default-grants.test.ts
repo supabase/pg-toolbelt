@@ -295,6 +295,58 @@ describe("assumedDefaultGrants overlay", () => {
     expect(sql).not.toContain("ALTER DEFAULT PRIVILEGES");
   });
 
+  test("overlay ADP wipe creates sort before extensions and tables; GRANT ADP stays after", () => {
+    const ext: StableId = { kind: "extension", name: "pg_trgm" };
+    const dpSelect: Fact = {
+      id: {
+        kind: "defaultPrivilege",
+        role: "postgres",
+        schema: "public",
+        objtype: "r",
+        grantee: "anon",
+      },
+      payload: { privileges: ["SELECT"], grantable: [] },
+    };
+    const desired = buildFactBase(
+      [
+        schemaFact,
+        { id: ext, payload: { schema: "public", _relocatable: true } },
+        { id: tableId, parent: schemaPublic, payload: tablePayload() },
+        dpSelect,
+        acl(tableId, "anon", ["SELECT"]),
+        acl(tableId, "postgres", tableOwnerDefault, tableOwnerDefault),
+      ],
+      [
+        {
+          from: tableId,
+          to: { kind: "role", name: "postgres" },
+          kind: "owner",
+        },
+      ],
+    );
+    const p = plan(source, desired, {
+      assumedRoles,
+      assumedDefaultGrants: overlayTable,
+    });
+    const idx = (re: RegExp): number =>
+      p.actions.findIndex((a) => re.test(a.sql));
+    const wipeAt = idx(
+      /ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" REVOKE ALL ON TABLES FROM "anon"/,
+    );
+    const grantAt = idx(
+      /ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT SELECT ON TABLES TO "anon"/,
+    );
+    const extAt = idx(/CREATE EXTENSION/);
+    const tableAt = idx(/CREATE TABLE/);
+    expect(wipeAt).toBeGreaterThanOrEqual(0);
+    expect(grantAt).toBeGreaterThanOrEqual(0);
+    expect(extAt).toBeGreaterThanOrEqual(0);
+    expect(tableAt).toBeGreaterThanOrEqual(0);
+    expect(wipeAt).toBeLessThan(extAt);
+    expect(wipeAt).toBeLessThan(tableAt);
+    expect(grantAt).toBeGreaterThan(tableAt);
+  });
+
   test("policy overlay REVOKEs overlay roles present in the source extract; ADP wipes stay options-only", () => {
     const dest = buildFactBase(
       [

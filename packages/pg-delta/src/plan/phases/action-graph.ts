@@ -59,6 +59,10 @@ export interface FinalizeInput {
    *  subset of `_ownerDefault` (dest injectee may be a superset). Empty →
    *  today's elision. */
   assumedDefaultGrants: readonly AssumedDefaultGrant[];
+  /** Export-only overlay wipe tuples (`options.assumedDefaultGrants`). Distinct
+   *  from `assumedDefaultGrants` (policy ∪ options): schema-stratum weight
+   *  applies only to wipe creates the emitter actually prepended. */
+  overlayAdpWipes: readonly AssumedDefaultGrant[];
   /** applier capability (move 6) — needed by the co-create compaction passes:
    *  the owner-ALTER no-op elision and the REVOKE-before-GRANT superset guard key
    *  off `capability.role`. Undefined under the unrestricted (superuser/CI/raw)
@@ -100,6 +104,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     assumedSchemaNames,
     assumedPresentIds,
     assumedDefaultGrants,
+    overlayAdpWipes,
     capability,
     compact,
     foldConstraints,
@@ -113,6 +118,25 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
   // edge — so they sink below every simultaneously ready DEFINITION action
   // without making legitimate routine<->relation cycles unplannable.
   const evaluatorActions = new Set<number>();
+  const overlayWipeActions = new Set<number>();
+  if (overlayAdpWipes.length > 0) {
+    actions.forEach((action, i) => {
+      if (action.verb !== "create") return;
+      const id = action.produces[0];
+      if (id === undefined || id.kind !== "defaultPrivilege") return;
+      if (
+        overlayAdpWipes.some(
+          (tuple) =>
+            tuple.creatingRole === id.role &&
+            tuple.schema === id.schema &&
+            tuple.objtype === id.objtype &&
+            tuple.grantee === id.grantee,
+        )
+      ) {
+        overlayWipeActions.add(i);
+      }
+    });
+  }
   const edges = buildActionGraph(
     actions,
     producerOf,
@@ -149,7 +173,14 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     actions.length,
     edges,
     (i) =>
-      actionTieKey(actions, i, rulesForId, columnSubjectKey, evaluatorActions),
+      actionTieKey(
+        actions,
+        i,
+        rulesForId,
+        columnSubjectKey,
+        evaluatorActions,
+        overlayWipeActions,
+      ),
     (i) => (actions[i] as Action).sql,
   );
 

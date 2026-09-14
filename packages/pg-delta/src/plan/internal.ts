@@ -26,7 +26,12 @@ import type { Action, SafetyReport } from "./plan.ts";
 import { isMetadataKind, ruleFlag } from "./rule-flags.ts";
 import { defaultRulesForId, type FoldHint, type RulesForId } from "./rules.ts";
 import { renderGrantSql, renderRevokeAllSql } from "./rules/helpers.ts";
-import { schemaCreateSql } from "./rules/schemas.ts";
+import { SCHEMA_WEIGHT, schemaCreateSql } from "./rules/schemas.ts";
+
+/** Overlay ADP wipes sort with CREATE SCHEMA so dest auto-expose is cleared
+ *  before CREATE EXTENSION and relation creates. GRANT ADP keeps the
+ *  defaultPrivilege weight. */
+const OVERLAY_WIPE_WEIGHT = SCHEMA_WEIGHT;
 
 const ROUTINE_KIND_SET = new Set<string>(ROUTINE_KINDS);
 const EVALUATED_KIND_SET = new Set<string>(EVALUATED_EXPRESSION_KINDS);
@@ -613,11 +618,16 @@ export function actionTieKey(
   // input: no graph edge is added, so genuine function<->table cycles stay
   // plannable via the existing default-split machinery.
   evaluatorActions?: ReadonlySet<number>,
+  // Overlay wipe CREATEs (export-only). Indexed on the pre-topo action list,
+  // same shape as evaluatorActions. Key off produces[0], never consumes[0]:
+  // wipe-then-grant's GRANT shares the ADP id via consumes and must stay late.
+  overlayWipeActions?: ReadonlySet<number>,
 ): string {
   const action = actions[i] as Action;
   const subject =
     action.produces[0] ?? action.destroys[0] ?? action.consumes[0];
   const weight = (() => {
+    if (overlayWipeActions?.has(i) === true) return OVERLAY_WIPE_WEIGHT;
     if (subject === undefined) return 99;
     try {
       return rulesForId(subject).weight;

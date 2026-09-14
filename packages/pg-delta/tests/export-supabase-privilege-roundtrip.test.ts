@@ -358,6 +358,78 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
     expect(await overlayOnTrgm(srcPg)).toBe(0);
     expect(await overlayOnTrgm(destPg)).toBe(0);
   }, 180_000);
+
+  test("alpine: ordered and grouped layouts wipe before identity seqs and trgm members", async () => {
+    const cluster = await startStockCluster();
+    extraClusters.push(cluster);
+    const src = await cluster.createDb("priv_rt_layout_src");
+    dbs.push(src);
+    await ensureApiRoles(src.pool);
+    const srcPg = await openPostgresPool(src.uri);
+    await srcPg.query(`
+      CREATE EXTENSION pg_trgm SCHEMA public;
+      CREATE TABLE public.people (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        email text
+      );
+    `);
+
+    const overlayCount = async (pool: pg.Pool) => {
+      const r = await pool.query<{ seq_leak: number; fn_leak: number }>(`
+        SELECT
+          (SELECT count(*) FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           CROSS JOIN LATERAL aclexplode(c.relacl) a
+           JOIN pg_roles g ON g.oid = a.grantee
+           WHERE n.nspname = 'public' AND c.relname = 'people_id_seq'
+             AND g.rolname IN ('anon', 'authenticated', 'service_role'))::int
+            AS seq_leak,
+          (SELECT count(*) FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+           CROSS JOIN LATERAL aclexplode(p.proacl) a
+           JOIN pg_roles g ON g.oid = a.grantee
+           WHERE n.nspname = 'public' AND p.proname LIKE '%trgm%'
+             AND g.rolname IN ('anon', 'authenticated', 'service_role'))::int
+            AS fn_leak
+      `);
+      return r.rows[0]!;
+    };
+
+    for (const layout of ["ordered", "grouped"] as const) {
+      const dest = await cluster.createDb(`priv_rt_layout_${layout}`);
+      dbs.push(dest);
+      await ensureApiRoles(dest.pool);
+      const destPg = await openPostgresPool(dest.uri);
+      await destPg.query(AUTO_EXPOSE_ADP);
+      const exported = await buildSchemaExport(src.pool, {
+        profile: supabaseProfile,
+        layout,
+      });
+      if (layout === "ordered") {
+        const wipeAt = exported.files.findIndex((f) =>
+          /ALTER DEFAULT PRIVILEGES[\s\S]*REVOKE ALL/.test(f.sql),
+        );
+        const extAt = exported.files.findIndex((f) =>
+          /CREATE EXTENSION/.test(f.sql),
+        );
+        expect(wipeAt).toBeGreaterThanOrEqual(0);
+        expect(extAt).toBeGreaterThanOrEqual(0);
+        expect(wipeAt).toBeLessThan(extAt);
+      } else {
+        const names = exported.files.map((f) => f.name.replaceAll("\\", "/"));
+        const wipeAt = names.findIndex((n) => n.endsWith("adp_wipes.sql"));
+        const extAt = names.findIndex((n) => n.includes("/extensions/"));
+        const tableAt = names.findIndex((n) => /\/tables\//.test(n));
+        expect(wipeAt).toBeGreaterThanOrEqual(0);
+        expect(extAt).toBeGreaterThanOrEqual(0);
+        expect(tableAt).toBeGreaterThanOrEqual(0);
+        expect(wipeAt).toBeLessThan(extAt);
+        expect(wipeAt).toBeLessThan(tableAt);
+      }
+      await loadExport(exported.files, destPg);
+      expect(await overlayCount(destPg)).toEqual({ seq_leak: 0, fn_leak: 0 });
+    }
+  }, 180_000);
 });
 
 describe.skipIf(!runSupabaseBareTests)(
