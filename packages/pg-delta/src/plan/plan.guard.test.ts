@@ -45,14 +45,18 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // index (buildAdpIndex), dropping the redundant `Extract<StableId, { kind:
   // "defaultPrivilege" }>` cast — narrowing on the `!==` check suffices.
   // 29 → 37: overlay REVOKE elision + mergeCoTargetRevokes.
-  "internal.ts": 37,
+  // 37 → 38: the REVOKE-merge leader skips a column consume (identity-sequence
+  // hygiene consumes the column, which is not a grant target).
+  "internal.ts": 38,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
   // never builds the member-closure index — 1 deliberate literal (the closure
   // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
   // 11 → 15: overlay ADP wipe + emitCreate wipe-then-grant.
-  "phases/action-emitter.ts": 15,
+  // 15 → 17: default-privilege hygiene for an identity column's backing
+  // sequence keys off the column fact and narrows the sequence id.
+  "phases/action-emitter.ts": 17,
   // 1 → 2: overlay wipe tie-break keys off produces[0] defaultPrivilege.
   "phases/action-graph.ts": 2,
   "phases/change-set.ts": 4,

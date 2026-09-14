@@ -34,6 +34,7 @@ import {
 } from "../rules.ts";
 import {
   defaultPrivilegeCreateActions,
+  identitySequenceId,
   renderRevokeAllSql,
 } from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
@@ -473,47 +474,44 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     const fact = projectedDesired.getByEncoded(key);
     if (fact) hygieneTargets.push(fact);
   }
-  for (const fact of hygieneTargets) {
-    // which pg_default_acl objtype this kind maps to is declared per-kind in the
-    // rule table (`defaclObjtype`); absent → no default ACLs
-    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
-    if (objtype === undefined) continue;
-    // a created object whose fact is absent from the projected target (its add
-    // was effectively reverted) has no hygiene to do
-    if (!projectedDesired.has(fact.id)) continue;
-    // owner is now an edge, not a payload field (move 2). Database-scope
-    // export/apply prunes the edge to the implicit default owner; match ADP
-    // creating-role against that name so hygiene still fires.
+  // owner is now an edge, not a payload field (move 2). Database-scope
+  // export/apply prunes the edge to the implicit default owner; hygiene falls
+  // back to that name so it still fires.
+  const ownerOf = (id: StableId): string | undefined => {
     const ownerEdge = projectedDesired
-      .outgoingEdges(fact.id)
+      .outgoingEdges(id)
       .find((e) => e.kind === "owner");
-    const owner =
-      ownerEdge?.to.kind === "role"
-        ? (ownerEdge.to as { kind: "role"; name: string }).name
-        : undefined;
-    const creatingRole = owner ?? defaultOwner;
-    const schema = (fact.id as { schema?: string }).schema ?? null;
+    return ownerEdge?.to.kind === "role"
+      ? (ownerEdge.to as { kind: "role"; name: string }).name
+      : undefined;
+  };
+  // `target` receives the default grants; `after` is the created fact whose
+  // CREATE materializes it (the object itself, or the column for the backing
+  // sequence of an identity column).
+  const hygieneFor = (
+    target: StableId,
+    objtype: string,
+    schema: string | null,
+    creatingRole: string | undefined,
+    after: StableId,
+  ): void => {
     const revoked = new Set<string>();
     const emitHygieneRevoke = (grantee: string): void => {
       if (typeof creatingRole === "string" && grantee === creatingRole) return;
       if (revoked.has(grantee)) return;
-      const aclId: StableId = {
-        kind: "acl",
-        target: fact.id,
-        grantee,
-      };
+      const aclId: StableId = { kind: "acl", target, grantee };
       if (projectedDesired.has(aclId)) return;
       revoked.add(grantee);
       pushAction(
         "alter",
         {
-          sql: renderRevokeAllSql(fact.id, [grantee]),
+          sql: renderRevokeAllSql(target, [grantee]),
           consumes:
             grantee === "PUBLIC"
               ? []
               : [{ kind: "role", name: grantee } as StableId],
         },
-        { consumes: [fact.id] },
+        { consumes: [after] },
       );
     };
     if (typeof creatingRole === "string") {
@@ -537,6 +535,38 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       if (tuple.schema != null && tuple.schema !== schema) continue;
       if (!overlayHygieneGrantees.has(tuple.grantee)) continue;
       emitHygieneRevoke(tuple.grantee);
+    }
+  };
+  for (const fact of hygieneTargets) {
+    // a created object whose fact is absent from the projected target (its add
+    // was effectively reverted) has no hygiene to do
+    if (!projectedDesired.has(fact.id)) continue;
+    // which pg_default_acl objtype this kind maps to is declared per-kind in the
+    // rule table (`defaclObjtype`); absent → no default ACLs of its own
+    const objtype = ruleFlag(fact.id.kind, "defaclObjtype");
+    if (objtype !== undefined) {
+      hygieneFor(
+        fact.id,
+        objtype,
+        (fact.id as { schema?: string }).schema ?? null,
+        ownerOf(fact.id) ?? defaultOwner,
+        fact.id,
+      );
+    }
+    // An identity column materializes its backing sequence, which receives
+    // SEQUENCES default grants the same way; the sequence is not a fact, so its
+    // hygiene hangs off the column and its owner is the table's.
+    if (fact.id.kind === "column" && fact.parent !== undefined) {
+      const sequence = identitySequenceId(fact.payload["identity"]);
+      if (sequence !== null && sequence.kind === "sequence") {
+        hygieneFor(
+          sequence,
+          "S",
+          sequence.schema,
+          ownerOf(fact.parent) ?? defaultOwner,
+          fact.id,
+        );
+      }
     }
   }
 

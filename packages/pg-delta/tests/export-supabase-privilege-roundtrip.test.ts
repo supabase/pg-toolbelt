@@ -305,11 +305,13 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
       );
       return r.rows.map((row) => row.priv).sort();
     };
-    // Identity-seq ACLs are unmodeled; CREATE order vs ADP is not in the fact
-    // base. Hoist must not inject USAGE onto ident_id_seq. ident2_id_seq USAGE
-    // on the source is also not restored.
+    // The positive GRANT ADP loads after the tables, so ident_id_seq (created
+    // before the ADP on the source) is not injected into; ident2_id_seq keeps
+    // its USAGE through the identity-sequence acl fact carried by its column.
     expect(await relGrantees("app", "ident_id_seq", "rvc_reader")).toEqual([]);
-    expect(await relGrantees("app", "ident2_id_seq", "rvc_reader")).toEqual([]);
+    expect(await relGrantees("app", "ident2_id_seq", "rvc_reader")).toEqual([
+      "USAGE",
+    ]);
     expect(await relGrantees("app", "t1", "rvc_reader")).toEqual([]);
     expect(await relGrantees("app", "t2", "rvc_reader")).toEqual(["SELECT"]);
   }, 180_000);

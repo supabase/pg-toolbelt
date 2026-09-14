@@ -108,6 +108,12 @@ export const tablesFamily: CatalogFamily = {
 };
 
 // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
+function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((x) => set.has(x));
+}
+
 const COLUMNS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
            a.attnum AS position,
@@ -135,6 +141,17 @@ const COLUMNS_SQL = `
               AND d.refobjid = c.oid AND d.refobjsubid = a.attnum
               AND d.deptype = 'i'
             LIMIT 1) AS identity_options,
+           -- ACL of the identity column's backing sequence. The sequence is not a
+           -- fact of its own (it lives and dies with the column), so its grants
+           -- ride on the column as acl satellites targeting the sequence.
+           (SELECT ${aclJson("sc.relacl", "s", "sc.relowner")}
+            FROM pg_depend d
+            JOIN pg_class sc ON sc.oid = d.objid
+            WHERE d.classid = 'pg_class'::regclass
+              AND d.refclassid = 'pg_class'::regclass
+              AND d.refobjid = c.oid AND d.refobjsubid = a.attnum
+              AND d.deptype = 'i' AND sc.relkind = 'S'
+            LIMIT 1) AS identity_sequence_acl,
            NULLIF(a.attgenerated, '') AS generated,
            CASE WHEN a.attcollation <> t.typcollation THEN (
              SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
@@ -238,6 +255,46 @@ export const columnsFamily: CatalogFamily = {
           parent: columnId,
           payload: { expr: row["default_expr"] as string },
         });
+      }
+      // Identity-sequence grants: acl satellites of the column whose target is
+      // the backing sequence, so they are created after the column and fold into
+      // its drop (DROP IDENTITY destroys the sequence). The owner's untouched
+      // default is skipped: the sequence is never a co-created object for the
+      // default-ACL elision, so keeping it would render a redundant
+      // REVOKE/GRANT on every identity column.
+      const identitySequence = row["identity_sequence"] as {
+        schema: string;
+        name: string;
+      } | null;
+      if (row["identity"] != null && identitySequence != null) {
+        for (const acl of parseAcl(row["identity_sequence_acl"])) {
+          if (
+            acl.ownerDefault !== undefined &&
+            acl.grantable.length === 0 &&
+            sameStringSet(acl.privileges, acl.ownerDefault)
+          ) {
+            continue;
+          }
+          facts.push({
+            id: {
+              kind: "acl",
+              target: {
+                kind: "sequence",
+                schema: identitySequence.schema,
+                name: identitySequence.name,
+              },
+              grantee: acl.grantee,
+            },
+            parent: columnId,
+            payload: {
+              privileges: acl.privileges,
+              grantable: acl.grantable,
+              ...(acl.ownerDefault !== undefined
+                ? { _ownerDefault: acl.ownerDefault }
+                : {}),
+            },
+          });
+        }
       }
       // Column-level grants (attacl): one acl satellite per grantee, targeting the
       // owning relation but qualified by this column. Parent is the column so the

@@ -1393,7 +1393,13 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
       return undefined;
     // Hygiene REVOKEs start with REVOKE ALL; skip other ALTERs (e.g. COLUMN).
     if (!action.sql.startsWith("REVOKE ALL")) return undefined;
-    const obj = action.consumes.find((id) => id.kind !== "role");
+    // A hygiene REVOKE consumes the fact whose CREATE materialized the revoked
+    // object. That is the object itself, except for an identity column's
+    // backing sequence, whose hygiene consumes the column: a column is not a
+    // grant target, so it cannot be the leader and the action stays as is.
+    const obj = action.consumes.find(
+      (id) => id.kind !== "role" && id.kind !== "column",
+    );
     if (obj === undefined) return undefined;
     const role = action.consumes.find((id) => id.kind === "role") as
       | { kind: "role"; name: string }
