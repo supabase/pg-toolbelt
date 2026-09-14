@@ -52,9 +52,9 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // never builds the member-closure index — 1 deliberate literal (the closure
   // maps members to owning EXTENSIONS only, so the guard is behavior-neutral).
   // 11 → 15: overlay ADP wipe + emitCreate wipe-then-grant.
-  "phases/action-emitter.ts": 15,
-  // 1 → 2: overlay wipe tie-break keys off produces[0] defaultPrivilege.
-  "phases/action-graph.ts": 2,
+  // 15 → 14: overlay tuple match lives in policy.isOverlayDefaultPrivilege.
+  "phases/action-emitter.ts": 14,
+  "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,
   // 7 → 8: the platform-provisioned assumed-schema-member scan discriminates

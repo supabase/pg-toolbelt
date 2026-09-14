@@ -470,6 +470,11 @@ describe("schema-scoped ADP export routing", () => {
     expect(wipeAt).toBeLessThan(extAt);
     expect(wipeAt).toBeLessThan(tableAt);
     expect(grantAt).toBeGreaterThan(tableAt);
+    expect(files[wipeAt]!.name).toMatch(/adp_wipes\.sql$/);
+    expect(files[wipeAt]!.sql).toMatch(
+      /^-- Clears assumed destination defaults/,
+    );
+    expect(files[grantAt]!.name).toMatch(/default_privileges\.sql$/);
   });
 
   test("grouped overlay wipes after schema.sql, before extensions/tables; GRANT ADP after tables", () => {
