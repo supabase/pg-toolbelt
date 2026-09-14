@@ -284,6 +284,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
   // Emission order does not affect apply order (the action graph re-sorts).
   const recreatedByReplace = new Set<string>();
+  // descendants a replaced ancestor's CREATE materialized via `alsoProduces`
+  // (a partitioned parent's columns): no action of their own, but they are
+  // still created on the target and take default-privilege hygiene
+  const inlinedByReplace = new Set<string>();
   for (const key of replaceIds) {
     const oldFact = source.getByEncoded(key) as Fact;
     // the replacement is rendered from the PROJECTED plan target, so a filtered
@@ -341,6 +345,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         // standalone action (which would duplicate it and fail apply), but still
         // descend for any non-inlined descendants. Mirrors the added-create loop.
         if (producerOf.has(childKey)) {
+          inlinedByReplace.add(childKey);
           recreate(child.id);
           continue;
         }
@@ -459,7 +464,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // extensions.grant_pg_net_access() acquired a stale `postgres` grant from the
   // image's pre-existing default privileges).
   const hygieneTargets: Fact[] = [...added.values()];
-  for (const key of [...replaceIds, ...recreatedByReplace]) {
+  for (const key of [
+    ...replaceIds,
+    ...recreatedByReplace,
+    ...inlinedByReplace,
+  ]) {
     const fact = projectedDesired.getByEncoded(key);
     if (fact) hygieneTargets.push(fact);
   }
