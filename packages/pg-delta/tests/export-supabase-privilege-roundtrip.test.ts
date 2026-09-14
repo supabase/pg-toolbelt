@@ -307,7 +307,7 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
     };
     // Identity-seq ACLs are unmodeled; CREATE order vs ADP is not in the fact
     // base. Hoist must not inject USAGE onto ident_id_seq. ident2_id_seq USAGE
-    // on the source is also not restored (same P2c gap as main).
+    // on the source is also not restored.
     expect(await relGrantees("app", "ident_id_seq", "rvc_reader")).toEqual([]);
     expect(await relGrantees("app", "ident2_id_seq", "rvc_reader")).toEqual([]);
     expect(await relGrantees("app", "t1", "rvc_reader")).toEqual([]);

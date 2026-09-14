@@ -1,12 +1,8 @@
 /**
- * A schema-scoped ALTER DEFAULT PRIVILEGES must NOT be exported into the atomic
- * cluster/roles.sql file (PR #307 review #3500714148). It depends on the schema
- * (created in schemas/<schema>/schema.sql), but `schema apply` disables
- * statement reordering whenever an ADP is present, so the raw file-granular
- * loader runs roles.sql as one transaction — the ADP fails on the not-yet-
- * created schema and rolls back CREATE ROLE with it, deadlocking the reload.
- * Routing the schema-scoped ADP into its schema's directory lets the loader's
- * defer-and-retry converge. Pure — no DB.
+ * A schema-scoped ALTER DEFAULT PRIVILEGES must not share atomic roles.sql with
+ * CREATE ROLE: any ADP disables statement reorder, so a failed IN SCHEMA
+ * statement would roll the role back. File it under the schema instead.
+ * Global GRANT ADP is a sibling cluster file. Pure — no DB.
  */
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type DependencyEdge, type Fact } from "../core/fact.ts";
@@ -25,7 +21,7 @@ const facts: Fact[] = [
     },
     payload: { privileges: ["SELECT"], grantable: [] },
   },
-  // a global (schema-null) ADP stays in the role file (no cross-file dep)
+  // global GRANT ADP is a sibling cluster file, not mixed into roles.sql
   {
     id: {
       kind: "defaultPrivilege",
@@ -366,7 +362,7 @@ describe("schema-scoped ADP export routing", () => {
     expect(files[grantAt]!.sql).not.toMatch(/REVOKE ALL/);
   });
 
-  test("by-object global overlay wipe is not after the matching GRANT in roles.sql", () => {
+  test("by-object global overlay wipe loads before the matching GRANT ADP", () => {
     const adp = {
       kind: "defaultPrivilege" as const,
       role: "postgres",
