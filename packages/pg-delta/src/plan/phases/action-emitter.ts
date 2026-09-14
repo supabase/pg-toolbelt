@@ -17,6 +17,7 @@ import {
 } from "../../policy/capability.ts";
 import {
   factMatches,
+  isOverlayDefaultPrivilege,
   type AssumedDefaultGrant,
   type SerializeRule,
 } from "../../policy/policy.ts";
@@ -205,28 +206,16 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
     if (
-      overlayAdpWipes.length > 0 &&
-      fact.id.kind === "defaultPrivilege" &&
-      ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0
+      ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0 &&
+      isOverlayDefaultPrivilege(overlayAdpWipes, fact.id)
     ) {
-      const id = fact.id;
-      if (
-        overlayAdpWipes.some(
-          (tuple) =>
-            tuple.creatingRole === id.role &&
-            tuple.schema === id.schema &&
-            tuple.objtype === id.objtype &&
-            tuple.grantee === id.grantee,
-        )
-      ) {
-        specs = [
-          ...defaultPrivilegeCreateActions({
-            id: fact.id,
-            payload: { privileges: [], grantable: [] },
-          }),
-          ...specs,
-        ];
-      }
+      specs = [
+        ...defaultPrivilegeCreateActions({
+          id: fact.id,
+          payload: { privileges: [], grantable: [] },
+        }),
+        ...specs,
+      ];
     }
     specs.forEach((spec, i) => {
       pushAction("create", spec, {

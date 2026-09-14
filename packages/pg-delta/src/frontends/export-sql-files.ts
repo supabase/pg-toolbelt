@@ -22,6 +22,7 @@ import { buildFactBase, type FactBase } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
 import { plan, type Action, type AssumedDefaultGrant } from "../plan/plan.ts";
 import type { IntentRuleIndex } from "../plan/rules.ts";
+import { isOverlayDefaultPrivilege } from "../policy/policy.ts";
 import { extensionMemberReferenceOnly } from "../policy/view.ts";
 import { foldCaseCollidingPaths } from "./export-case-collisions.ts";
 import type { SqlFile } from "./load-sql-files.ts";
@@ -860,16 +861,10 @@ function isOverlayAdpWipe(
   sql: string,
   overlay: readonly AssumedDefaultGrant[] | undefined,
 ): boolean {
-  if (!isAdpWipeSql(sql) || overlay === undefined || overlay.length === 0) {
+  if (!isAdpWipeSql(sql) || overlay === undefined) {
     return false;
   }
-  return overlay.some(
-    (tuple) =>
-      tuple.creatingRole === id.role &&
-      tuple.schema === id.schema &&
-      tuple.objtype === id.objtype &&
-      tuple.grantee === id.grantee,
-  );
+  return isOverlayDefaultPrivilege(overlay, id);
 }
 
 function adpWipePath(
@@ -1062,7 +1057,6 @@ export function exportSqlFiles(
     const subject = subjectOf(action, fb);
     if (subject === undefined) return miscPath;
     if (
-      layout !== "ordered" &&
       subject.kind === "defaultPrivilege" &&
       isOverlayAdpWipe(subject, action.sql, options.assumedDefaultGrants)
     ) {
@@ -1092,10 +1086,9 @@ export function exportSqlFiles(
       name: clampFileName(
         `${String(index).padStart(4, "0")}_${run.path.replaceAll("/", "_")}`,
       ),
-      sql: renderFileSql(
-        placeOwnedSequenceOwner(run.statements),
-        options.format,
-      ),
+      sql:
+        sqlFilePreamble(run.path) +
+        renderFileSql(placeOwnedSequenceOwner(run.statements), options.format),
     }));
   }
 

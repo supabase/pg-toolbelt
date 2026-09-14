@@ -13,7 +13,10 @@ import type { Action, SafetyReport } from "../plan.ts";
 import { topoSort } from "../graph.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import type { ApplierCapability } from "../../policy/capability.ts";
-import type { AssumedDefaultGrant } from "../../policy/policy.ts";
+import {
+  isOverlayDefaultPrivilege,
+  type AssumedDefaultGrant,
+} from "../../policy/policy.ts";
 import type { FoldHint, RulesForId } from "../rules.ts";
 import {
   actionTieKey,
@@ -123,16 +126,7 @@ export function finalizeActions(input: FinalizeInput): FinalizeOutput {
     actions.forEach((action, i) => {
       if (action.verb !== "create") return;
       const id = action.produces[0];
-      if (id === undefined || id.kind !== "defaultPrivilege") return;
-      if (
-        overlayAdpWipes.some(
-          (tuple) =>
-            tuple.creatingRole === id.role &&
-            tuple.schema === id.schema &&
-            tuple.objtype === id.objtype &&
-            tuple.grantee === id.grantee,
-        )
-      ) {
+      if (id !== undefined && isOverlayDefaultPrivilege(overlayAdpWipes, id)) {
         overlayWipeActions.add(i);
       }
     });

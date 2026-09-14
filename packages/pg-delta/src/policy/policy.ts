@@ -758,6 +758,21 @@ function assumedDefaultGrantKey(g: AssumedDefaultGrant): string {
   return `${g.creatingRole}\0${g.schema ?? ""}\0${g.objtype}\0${g.grantee}`;
 }
 
+/** True when `id` is a defaultPrivilege whose overlay tuple is in `overlay`. */
+export function isOverlayDefaultPrivilege(
+  overlay: readonly AssumedDefaultGrant[],
+  id: StableId,
+): id is Extract<StableId, { kind: "defaultPrivilege" }> {
+  if (id.kind !== "defaultPrivilege" || overlay.length === 0) return false;
+  const key = assumedDefaultGrantKey({
+    creatingRole: id.role,
+    schema: id.schema,
+    objtype: id.objtype,
+    grantee: id.grantee,
+  });
+  return overlay.some((tuple) => assumedDefaultGrantKey(tuple) === key);
+}
+
 export function uniqueAssumedDefaultGrants(
   grants: AssumedDefaultGrant[],
 ): AssumedDefaultGrant[] {
