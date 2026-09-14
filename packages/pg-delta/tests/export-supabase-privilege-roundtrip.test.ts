@@ -217,6 +217,55 @@ describe("export/load privilege round-trip (auto-expose overlay)", () => {
     expect(fnAcl).toContain("authenticated");
     expect(fnAcl).not.toContain("anon");
   }, 180_000);
+
+  test("alpine: identity sequence does not inherit dest overlay when live ADP is off", async () => {
+    const cluster = await startStockCluster();
+    extraClusters.push(cluster);
+    const src = await cluster.createDb("priv_rt_id_src");
+    const dest = await cluster.createDb("priv_rt_id_dest");
+    dbs.push(src, dest);
+    await ensureApiRoles(src.pool);
+    await ensureApiRoles(dest.pool);
+    const srcPg = await openPostgresPool(src.uri);
+    const destPg = await openPostgresPool(dest.uri);
+    await srcPg.query(`
+      CREATE TABLE public.people (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY
+      );
+    `);
+    await destPg.query(AUTO_EXPOSE_ADP);
+
+    const exported = await buildSchemaExport(src.pool, {
+      profile: supabaseProfile,
+    });
+    const names = exported.files.map((f) => f.name.replaceAll("\\", "/"));
+    const adpAt = names.findIndex((n) => n.endsWith("default_privileges.sql"));
+    const tableAt = names.findIndex((n) => /\/tables\//.test(n));
+    expect(adpAt).toBeGreaterThanOrEqual(0);
+    expect(tableAt).toBeGreaterThanOrEqual(0);
+    expect(adpAt).toBeLessThan(tableAt);
+
+    await loadExport(exported.files, destPg);
+
+    const seqExists = await destPg.query(
+      `SELECT 1 FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relname = 'people_id_seq'`,
+    );
+    expect(seqExists.rowCount).toBe(1);
+
+    const overlayOnSeq = await destPg.query<{ grantee: string }>(`
+      SELECT COALESCE(g.rolname, 'PUBLIC') AS grantee
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      LEFT JOIN LATERAL aclexplode(c.relacl) a ON c.relacl IS NOT NULL
+      LEFT JOIN pg_roles g ON g.oid = a.grantee
+      WHERE n.nspname = 'public' AND c.relname = 'people_id_seq'
+        AND COALESCE(g.rolname, 'PUBLIC')
+          IN ('anon', 'authenticated', 'service_role')
+    `);
+    expect(overlayOnSeq.rows).toEqual([]);
+  }, 180_000);
 });
 
 describe.skipIf(!runSupabaseBareTests)(

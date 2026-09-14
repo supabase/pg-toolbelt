@@ -67,4 +67,59 @@ describe("schema-scoped ADP export routing", () => {
       expect(name).toBe("_cluster/roles.sql");
     });
   }
+
+  test("by-object overlay ADP file loads after schema.sql and before tables", () => {
+    const tableId = {
+      kind: "table" as const,
+      schema: "app",
+      name: "t",
+    };
+    const files = exportSqlFiles(
+      buildFactBase(
+        [
+          { id: { kind: "role", name: "postgres" }, payload: {} },
+          { id: { kind: "schema", name: "app" }, payload: {} },
+          {
+            id: tableId,
+            parent: { kind: "schema", name: "app" },
+            payload: { persistence: "p" },
+          },
+        ],
+        [
+          {
+            from: { kind: "schema", name: "app" },
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+          {
+            from: tableId,
+            to: { kind: "role", name: "postgres" },
+            kind: "owner",
+          },
+        ],
+      ),
+      {
+        assumedRoles: ["anon", "postgres"],
+        assumedDefaultGrants: [
+          {
+            creatingRole: "postgres",
+            schema: "app",
+            objtype: "r",
+            grantee: "anon",
+          },
+        ],
+      },
+    );
+    const names = files.map((file) => file.name);
+    const schemaAt = names.findIndex((n) => n.endsWith("/schema.sql"));
+    const adpAt = names.findIndex((n) => n.endsWith("/default_privileges.sql"));
+    const tableAt = names.findIndex((n) => n.includes("/tables/"));
+    const rolesAt = names.findIndex((n) => n.endsWith("/roles.sql"));
+    expect(schemaAt).toBeGreaterThanOrEqual(0);
+    expect(adpAt).toBeGreaterThanOrEqual(0);
+    expect(tableAt).toBeGreaterThanOrEqual(0);
+    expect(schemaAt).toBeLessThan(adpAt);
+    expect(adpAt).toBeLessThan(tableAt);
+    if (rolesAt >= 0) expect(rolesAt).toBeLessThan(adpAt);
+  });
 });

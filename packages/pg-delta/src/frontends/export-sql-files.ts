@@ -1056,9 +1056,32 @@ export function exportSqlFiles(
     files.set(path, entry);
   });
 
-  const ordered = [...files.entries()].sort(
-    (a, b) => a[1].firstAt - b[1].firstAt,
+  // Overlay ADP wipes must land before CREATE: dest auto-expose injects
+  // grants onto unmodeled identity sequences, and ALTER DEFAULT PRIVILEGES
+  // does not revoke existing object ACLs. Numeric keys (not ADP-vs-object
+  // pairwise swaps): a swap comparator is not transitive with firstAt.
+  const objectDirs = new Set([...Object.values(SCHEMA_DIRS), "indexes"]);
+  const isObjectFile = (path: string): boolean => {
+    if (path.endsWith(".fk.sql")) return true;
+    const parts = path.split("/");
+    const file = parts[parts.length - 1];
+    if (file === "schema.sql" || file === "default_privileges.sql")
+      return false;
+    return parts.length >= 2 && objectDirs.has(parts[parts.length - 2]!);
+  };
+  const objectMinFirstAt = Math.min(
+    ...[...files.entries()]
+      .filter(([path]) => isObjectFile(path))
+      .map(([, entry]) => entry.firstAt),
+    Number.POSITIVE_INFINITY,
   );
+  const ordered = [...files.entries()].sort((a, b) => {
+    const key = (path: string, firstAt: number): number =>
+      path.endsWith("/default_privileges.sql")
+        ? Math.min(firstAt, objectMinFirstAt) * 2 - 1
+        : firstAt * 2;
+    return key(a[0], a[1].firstAt) - key(b[0], b[1].firstAt);
+  });
   return ordered.map(([path, entry]) => ({
     name: path,
     sql:

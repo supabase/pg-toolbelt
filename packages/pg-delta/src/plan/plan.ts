@@ -276,7 +276,9 @@ export interface PlanOptions {
   assumedRoles?: string[];
   /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
    *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
-   *  Empty/absent → no overlay (projected ADP hygiene only). */
+   *  Empty/absent option still applies policy tuples (hygiene REVOKEs on
+   *  creates). ADP wipes and "REVOKE roles the source lacks" fire only when
+   *  this option is non-empty (export / fresh-baseline). */
   assumedDefaultGrants?: AssumedDefaultGrant[];
   /** the redaction mode used to extract the source/desired fact bases, stamped
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
