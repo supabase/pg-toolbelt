@@ -277,6 +277,36 @@ export function buildActionGraph(
         edges.push([index, destroyer]);
       }
     }
+    // ALTER … OWNER TO must precede REVOKE of the old owner's grantable ACL
+    // on the same object. PostgreSQL's aclnewowner() remaps the old owner's
+    // ACL entries onto the new owner: a prior REVOKE ALL FROM <old> leaves
+    // the new owner without CREATE/USAGE, and CREATE in that schema fails
+    // even though the ALTER itself succeeded (owner-inherent, not grantable).
+    if (action.verb === "alter") {
+      const obj = action.consumes[0];
+      if (obj !== undefined && obj.kind !== "role") {
+        const objKey = encodeId(obj);
+        for (const released of action.releases) {
+          if (released.kind !== "role") continue;
+          const dropIdx = destroyerOf.get(
+            encodeId({
+              kind: "acl",
+              target: obj,
+              grantee: released.name,
+            }),
+          );
+          if (dropIdx === undefined || dropIdx === index) continue;
+          // Cascading DROP of the object also destroys child ACLs. Ordering
+          // OWNER TO before that DROP cycles with the object's re-CREATE
+          // (ALTER consumes the new incarnation). Only a dedicated ACL drop
+          // on a kept object needs OWNER TO first (aclnewowner).
+          if (actions[dropIdx]!.destroys.some((d) => encodeId(d) === objKey)) {
+            continue;
+          }
+          edges.push([index, dropIdx]);
+        }
+      }
+    }
     // When a member's extension is REPLACED (both produced and destroyed in
     // this plan, DROP ordered before CREATE), a member-consuming action can
     // order against only ONE side — demanding both is unsatisfiable (the

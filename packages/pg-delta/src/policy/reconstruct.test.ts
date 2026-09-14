@@ -1,8 +1,9 @@
 /**
  * Guard + pin (V1): the full managed-view composition
- * (`resolveView` → `projectManagementScope`) must live in exactly one module.
- * Call sites that need both steps go through `reconstructManagedView`; bare
- * `resolveView` alone remains allowed (diff / seed paths).
+ * (`resolveView` → `projectManagementScope`, plus the sqlFiles implicit-owner
+ * prune) must live in exactly one module. Call sites that need both projection
+ * steps go through `reconstructManagedView`; bare `resolveView` alone remains
+ * allowed (diff / seed paths).
  *
  * Import/call-based per module — not a nested-call grep. schema-export used to
  * compose via an intermediate variable, which a
@@ -14,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import {
   buildFactBase,
+  retainOwnerRoleDangling,
   type DependencyEdge,
   type Fact,
   type FactBase,
@@ -116,6 +118,8 @@ describe("reconstructManagedView — composition pin", () => {
     defaultOwner: "supabase_admin",
   };
 
+  // liveDb fixture: the sqlFiles implicit-owner prune is a no-op, so the
+  // helper still equals resolveView → projectManagementScope.
   test("matches resolveView then projectManagementScope (full FactBase shape)", () => {
     const fb = buildFactBase(facts, edges);
     const viaHelper = reconstructManagedView(fb, databaseOpts);
@@ -149,5 +153,77 @@ describe("reconstructManagedView — composition pin", () => {
     const viaResolve = resolveView(fb, policy);
     expectSameFactBase(viaHelper, viaResolve);
     expect(viaHelper.get({ kind: "role", name: "app_owner" })).toBeDefined();
+  });
+});
+
+describe("reconstructManagedView — sqlFiles platform default owner", () => {
+  const publicSchema = { kind: "schema" as const, name: "public" };
+  const pgDatabaseOwner = { kind: "role" as const, name: "pg_database_owner" };
+  const users = { kind: "table" as const, schema: "public", name: "users" };
+  const platformEdge: DependencyEdge = {
+    from: publicSchema,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+  const tableEdge: DependencyEdge = {
+    from: users,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+  const facts: Fact[] = [
+    { id: publicSchema, payload: {} },
+    { id: users, parent: publicSchema, payload: {} },
+  ];
+
+  function withPlatformEdges(source: FactBase["source"]): FactBase {
+    return buildFactBase(facts, [platformEdge, tableEdge], source, new Set(), {
+      allowDangling: retainOwnerRoleDangling,
+    });
+  }
+
+  test("drops public → pg_database_owner when defaultOwner is set", () => {
+    const view = reconstructManagedView(withPlatformEdges("sqlFiles"), {
+      defaultOwner: "postgres",
+    });
+    expect(view.source).toBe("sqlFiles");
+    expect(view.edges).toEqual([tableEdge]);
+  });
+
+  test("drops when only policy.defaultOwner is set", () => {
+    const view = reconstructManagedView(withPlatformEdges("sqlFiles"), {
+      policy: { id: "implicit", defaultOwner: "postgres" },
+    });
+    expect(view.edges).toEqual([tableEdge]);
+  });
+
+  test("keeps the edge without defaultOwner", () => {
+    const view = reconstructManagedView(withPlatformEdges("sqlFiles"));
+    expect(view.edges).toEqual([platformEdge, tableEdge]);
+  });
+
+  test("liveDb keeps the edge even with defaultOwner", () => {
+    const view = reconstructManagedView(withPlatformEdges("liveDb"), {
+      defaultOwner: "postgres",
+    });
+    expect(view.edges).toEqual([platformEdge, tableEdge]);
+  });
+
+  test("snapshot keeps the edge even with defaultOwner", () => {
+    const view = reconstructManagedView(withPlatformEdges("snapshot"), {
+      defaultOwner: "postgres",
+    });
+    expect(view.edges).toEqual([platformEdge, tableEdge]);
+  });
+
+  test("still drops after baseline subtraction rewrites source to liveDb", () => {
+    const baseline = buildFactBase(
+      [{ id: { kind: "schema", name: "plat" }, payload: {} }],
+      [],
+    );
+    const view = reconstructManagedView(withPlatformEdges("sqlFiles"), {
+      defaultOwner: "postgres",
+      baseline,
+    });
+    expect(view.edges).toEqual([tableEdge]);
   });
 });

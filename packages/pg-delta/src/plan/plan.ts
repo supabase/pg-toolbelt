@@ -705,6 +705,11 @@ export function plan(
   // replaces, in-place alters, and owner-edge ALTERs — with the emitter's own
   // producer/destroyer/fold
   // bookkeeping. Enforces the create-produces-its-fact invariant.
+  const implicitOwner = options?.defaultOwner ?? policyDefaultOwner;
+  // Unlink-only OWNER TO consumes this role with no owner edge on desired
+  // (the edge was pruned as implicit). Treat it like other assumed apply-time
+  // roles so the requirement guard does not demand a role fact.
+  if (implicitOwner !== undefined) assumedRoleNames.add(implicitOwner);
   const {
     actions,
     producerOf,
@@ -727,6 +732,7 @@ export function plan(
     serializeRules,
     capability: options?.capability,
     rulesForId,
+    implicitOwner,
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────

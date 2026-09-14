@@ -53,6 +53,28 @@ export interface DependencyEdge {
 export const retainOwnerRoleDangling = (edge: DependencyEdge): boolean =>
   edge.kind === "owner" && edge.to.kind === "role";
 
+/** Extract-time carve-out: `pg_*` roles are never catalog facts, but an owner
+ *  edge to one (`pg_database_owner` on PG15+ `public`) is real ownership. Kept
+ *  without a `dangling_edge` warning so unlink-to-implicit-applier can plan
+ *  `ALTER … OWNER TO`. Tighter than {@link retainOwnerRoleDangling} — a missing
+ *  user role still warns. */
+export const retainBuiltinOwnerDangling = (edge: DependencyEdge): boolean =>
+  retainOwnerRoleDangling(edge) &&
+  "name" in edge.to &&
+  edge.to.name.startsWith("pg_");
+
+/** PG15+ catalog default (`public` → `pg_database_owner`). Extract always
+ *  keeps the edge (catalog truth). Dumps omit `OWNER TO` for it; plan-time
+ *  reconstruct drops it on sqlFiles when defaultOwner is set. Other `pg_*`
+ *  owners are user-visible and still serialize. */
+export const isPlatformDefaultPublicOwner = (edge: DependencyEdge): boolean =>
+  retainBuiltinOwnerDangling(edge) &&
+  edge.from.kind === "schema" &&
+  "name" in edge.from &&
+  edge.from.name === "public" &&
+  "name" in edge.to &&
+  edge.to.name === "pg_database_owner";
+
 interface Entry {
   fact: Fact;
   encoded: string;
@@ -96,9 +118,9 @@ export class FactBase {
      *  an `owner` edge to a scope-projected role as an ASSUMED reference so
      *  ownership still serializes as `ALTER … OWNER TO`. When `allowDangling(edge)`
      *  is true the edge is retained WITHOUT a `dangling_edge` diagnostic and
-     *  indexed only on whichever endpoint is present. Default: every dangling edge
-     *  is silently pruned (extraction relies on this for non-extracted system
-     *  owners), so this narrowly-scoped hook is the single exception. */
+     *  indexed only on whichever endpoint is present. Default: dangling edges are
+     *  pruned (with a warning). Extract retains `pg_*` owners via
+     *  {@link retainBuiltinOwnerDangling}. */
     opts: { allowDangling?: (edge: DependencyEdge) => boolean } = {},
   ) {
     this.source = source;

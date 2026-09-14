@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildFactBase, type Fact, type DependencyEdge } from "./fact.ts";
+import {
+  buildFactBase,
+  isPlatformDefaultPublicOwner,
+  type Fact,
+  type DependencyEdge,
+} from "./fact.ts";
 import type { StableId } from "./stable-id.ts";
 
 const schema: StableId = { kind: "schema", name: "public" };
@@ -261,5 +266,26 @@ describe("FactBase lookups do not cache caller query objects", () => {
     const onlyAlpha = buildFactBase([{ id: alpha, payload: {} }], []);
     expect(onlyAlpha.get(beta)).toBeUndefined();
     expect(onlyAlpha.get(alpha)?.id).toEqual(alpha);
+  });
+});
+
+describe("isPlatformDefaultPublicOwner", () => {
+  const publicSchema: StableId = { kind: "schema", name: "public" };
+  const users: StableId = { kind: "table", schema: "public", name: "users" };
+  const pgDatabaseOwner: StableId = { kind: "role", name: "pg_database_owner" };
+  const platformPublic: DependencyEdge = {
+    from: publicSchema,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+  const tableOwner: DependencyEdge = {
+    from: users,
+    to: pgDatabaseOwner,
+    kind: "owner",
+  };
+
+  test("matches only public → pg_database_owner, not other pg_* owners", () => {
+    expect(isPlatformDefaultPublicOwner(platformPublic)).toBe(true);
+    expect(isPlatformDefaultPublicOwner(tableOwner)).toBe(false);
   });
 });

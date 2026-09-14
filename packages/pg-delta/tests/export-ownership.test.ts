@@ -51,6 +51,19 @@ const readTable = (dir: string, table: string): string =>
 const readTableIn = (dir: string, schema: string, table: string): string =>
   readFileSync(join(dir, `${schema}/tables/${table}.sql`), "utf8");
 
+/** PG15+ `schema apply` with a stamped defaultOwner treats a dump's silent
+ *  `public` owner as implicit — the catalog default is reowned (`aclnewowner`
+ *  may also remap schema ACL). Table owners are the round-trip assertion. */
+function withoutPublicSchemaOwnerFill<T extends { sql: string }>(
+  actions: readonly T[],
+): T[] {
+  return actions.filter(
+    (a) =>
+      !/ALTER SCHEMA "public" OWNER TO/.test(a.sql) &&
+      !/(?:REVOKE|GRANT)\b.+\bON SCHEMA "public"/.test(a.sql),
+  );
+}
+
 const dbs: TestDb[] = [];
 afterAll(async () => {
   await Promise.all(dbs.map((d) => d.drop().catch(() => {})));
@@ -243,10 +256,10 @@ describe("schema export/apply: two-role ownership round-trip", () => {
       code: 0,
     });
 
-    // ownership round-tripped: full-scope (cluster) re-plan is a no-op.
+    // table ownership round-tripped. PG15+ may reown catalog-default `public`.
     const [s, d] = await Promise.all([extract(src.pool), extract(dst.pool)]);
     const rePlan = plan(s.factBase, d.factBase);
-    expect(rePlan.actions).toEqual([]);
+    expect(withoutPublicSchemaOwnerFill(rePlan.actions)).toEqual([]);
     // direct catalog check for good measure
     const owners = async (db: TestDb) =>
       (
@@ -471,7 +484,9 @@ describe("schema export: ownership survives the seeding/member path", () => {
     });
 
     const [s, d] = await Promise.all([extract(src.pool), extract(dst.pool)]);
-    expect(plan(s.factBase, d.factBase).actions).toEqual([]);
+    expect(
+      withoutPublicSchemaOwnerFill(plan(s.factBase, d.factBase).actions),
+    ).toEqual([]);
     const owners = async (db: TestDb) =>
       (
         await db.pool.query<{ rel: string; owner: string }>(

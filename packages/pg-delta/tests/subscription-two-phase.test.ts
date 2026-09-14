@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { apply } from "../src/apply/apply.ts";
 import { diff } from "../src/core/diff.ts";
-import { buildFactBase } from "../src/core/fact.ts";
+import { buildFactBase, retainBuiltinOwnerDangling } from "../src/core/fact.ts";
 import { extract } from "../src/extract/extract.ts";
 import { plan } from "../src/plan/plan.ts";
 import { sharedCluster } from "./containers.ts";
@@ -55,6 +55,8 @@ describe("subscription two_phase change", () => {
         desiredFacts,
         [...current.factBase.edges],
         current.factBase.source,
+        current.factBase.referenceOnly,
+        { allowDangling: retainBuiltinOwnerDangling },
       );
 
       const thePlan = plan(current.factBase, desired);
@@ -65,6 +67,8 @@ describe("subscription two_phase change", () => {
       expect(sql.some((s) => s.startsWith("CREATE SUBSCRIPTION"))).toBe(false);
       // …and must use the in-place SET (two_phase) form on PG18+.
       expect(sql.some((s) => s.includes(`SET (two_phase = true)`))).toBe(true);
+      // a dropped pg_* owner edge would also plan ALTER SCHEMA OWNER TO
+      expect(sql.some((s) => s.includes("OWNER TO"))).toBe(false);
 
       const report = await apply(thePlan, src.pool, {
         fingerprintGate: false,

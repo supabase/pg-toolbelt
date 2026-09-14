@@ -1,11 +1,15 @@
 /**
- * Snapshot format v1 (target-architecture §3.1/§3.2): the serialized fact
- * base. Version-tagged; digest re-verified on load (a corrupted snapshot
- * must never silently plan).
+ * Snapshot format v2: the serialized fact base. Version-tagged; digest
+ * re-verified on load (a corrupted snapshot must never silently plan).
+ *
+ * v2 retains extract-time owner edges to `pg_*` roles (PG15+ `public` →
+ * `pg_database_owner`). v1 files must be recaptured — loading them would
+ * look like ownership drift against a live PG15+ extract.
  */
 import type { Diagnostic } from "./diagnostic.ts";
 import {
   buildFactBase,
+  retainOwnerRoleDangling,
   type DependencyEdge,
   type EdgeKind,
   FactBase,
@@ -13,7 +17,7 @@ import {
 import type { Payload, PayloadValue } from "./hash.ts";
 import { encodeId, parseId } from "./stable-id.ts";
 
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 
 interface SnapshotDiagnostic {
   code: string;
@@ -155,7 +159,9 @@ export function deserializeSnapshot(json: string): {
   const doc = JSON.parse(json) as SnapshotDoc;
   if (doc.formatVersion !== FORMAT_VERSION) {
     throw new Error(
-      `snapshot formatVersion ${doc.formatVersion} is not supported (expected ${FORMAT_VERSION})`,
+      doc.formatVersion < FORMAT_VERSION
+        ? `snapshot formatVersion ${doc.formatVersion} is not supported (expected ${FORMAT_VERSION}). Recapture with \`pgdelta snapshot\`.`
+        : `snapshot formatVersion ${doc.formatVersion} is not supported (expected ${FORMAT_VERSION})`,
     );
   }
   const facts = doc.facts.map((f) => ({
@@ -168,7 +174,12 @@ export function deserializeSnapshot(json: string): {
     to: parseId(e.to),
     kind: e.kind,
   }));
-  const factBase = buildFactBase(facts, edges, "snapshot");
+  // Extract retains dangling `pg_*` owner edges (`pg_database_owner` on
+  // PG15+ `public`); a database-scope view retains owner→role edges too.
+  // Dropping them here changes rootHash and fails the digest check.
+  const factBase = buildFactBase(facts, edges, "snapshot", undefined, {
+    allowDangling: retainOwnerRoleDangling,
+  });
   if (factBase.rootHash !== doc.digest) {
     throw new Error(
       `snapshot digest mismatch — content is corrupt or was edited (expected ${doc.digest}, computed ${factBase.rootHash})`,

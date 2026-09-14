@@ -1,9 +1,10 @@
 /**
  * Declarative-export ROUND-TRIP FIDELITY across all three layouts.
  *
- * The contract `load(export(fb)) ≡ fb` must hold for `by-object`, `ordered`,
- * AND `grouped` — export is only trustworthy as a source of truth if every
- * advertised layout reloads to the identical fact base. `export-format.test.ts`
+ * The contract `load(export(fb)) ≡ fb` must hold for `by-object`,
+ * `ordered`, AND `grouped`. Extract keeps catalog `public` ownership;
+ * dumps omit the PG15+ platform-default `OWNER TO`.
+ * `export-format.test.ts`
  * already gates the formatter on a simple schema; this file gates two shapes
  * surfaced while dogfooding a real DB:
  *

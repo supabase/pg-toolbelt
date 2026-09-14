@@ -101,7 +101,13 @@ Provenance is first-class: `{ ownedByExtension: "postgres_fdw" }` and
 Old `catalog-export` JSON is not readable. Regenerate:
 `pgdelta snapshot --source <url> --out baseline.json`. Snapshots
 embed a format version and digest; corrupted or foreign-version files
-refuse to load. The Supabase platform baselines are regenerated with
+refuse to load. `formatVersion` 2 retains owner edges to `pg_*` roles
+(PG15+ `public` → `pg_database_owner`); recapture v1 files with
+`pgdelta snapshot` rather than comparing them as ownership drift.
+SQL-file extracts keep that catalog edge. When `defaultOwner` is set,
+plan-time reconstruct drops it on `sqlFiles` only — dumps never emit
+the `OWNER TO`, so a shadow's catalog default is not desired ownership.
+The Supabase platform baselines are regenerated with
 `scripts/generate-supabase-baseline.ts` against the pinned image tag.
 
 ## SSL / `sslmode` semantics
