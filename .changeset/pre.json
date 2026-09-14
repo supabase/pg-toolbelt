@@ -16,6 +16,7 @@
     "alter-after-dep-cycles-and-transitive",
     "apply-owner-shadow-guard-and-absent-verbose",
     "apply-source-fact-base",
+    "assumed-default-grants-roundtrip",
     "assumed-seed-managed-dependency",
     "attributed-projection-audit",
     "auth-trigger-user-defined-passthrough",
