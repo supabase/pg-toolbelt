@@ -67,11 +67,16 @@ describe("identity-column sequence privileges", () => {
           table: "t",
           name: "id",
         });
-        // the owner's untouched default on its own sequence is not a fact:
-        // it would render as a redundant REVOKE/GRANT on every identity column
-        expect(
-          seqAcls.map((f) => (f.id.kind === "acl" ? f.id.grantee : "")),
-        ).toEqual([role]);
+        // the owner's default on its own sequence is a fact too, marked with
+        // its create-time default set so the planner can elide it on create and
+        // restore it when the source owner had revoked part of it
+        const owner = seqAcls.find(
+          (f) => f.id.kind === "acl" && f.id.grantee !== role,
+        );
+        expect(owner).toBeDefined();
+        expect(owner!.payload["_ownerDefault"]).toEqual(
+          owner!.payload["privileges"],
+        );
       });
     } finally {
       await db.drop();
@@ -102,6 +107,32 @@ describe("identity-column sequence privileges", () => {
       });
     } finally {
       await Promise.all([without.drop(), withGrant.drop()]);
+    }
+  }, 120_000);
+
+  test("restoring the owner's default on the identity sequence grants it back", async () => {
+    const cluster = await sharedCluster();
+    const revoked = await cluster.createDb("idseq_owner_a");
+    const restored = await cluster.createDb("idseq_owner_b");
+    try {
+      await revoked.pool.query(IDENTITY_TABLE);
+      await revoked.pool.query(
+        "REVOKE UPDATE ON SEQUENCE app.t_id_seq FROM CURRENT_USER",
+      );
+      await restored.pool.query(IDENTITY_TABLE);
+      const a = (await extract(revoked.pool)).factBase;
+      const b = (await extract(restored.pool)).factBase;
+      const forward = plan(a, b);
+      for (const action of forward.actions) {
+        await revoked.pool.query(action.sql);
+      }
+      const after = await revoked.pool.query(
+        "SELECT has_sequence_privilege(current_user, 'app.t_id_seq', 'UPDATE') AS upd, has_sequence_privilege(current_user, 'app.t_id_seq', 'USAGE') AS usg",
+      );
+      expect(after.rows[0]).toEqual({ upd: true, usg: true });
+      expect((await extract(revoked.pool)).factBase.rootHash).toBe(b.rootHash);
+    } finally {
+      await Promise.all([revoked.drop(), restored.drop()]);
     }
   }, 120_000);
 
