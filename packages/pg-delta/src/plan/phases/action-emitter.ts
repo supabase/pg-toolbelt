@@ -568,6 +568,27 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     }
   }
 
+  // ADD IDENTITY on an existing column materializes a backing sequence in
+  // place: it takes SEQUENCES default grants like a fresh create, but the column
+  // is neither added nor replaced, so the loop above never sees it. The REVOKE
+  // consumes the sequence the ADD IDENTITY alter produces.
+  for (const [key, sets] of setsByFact) {
+    if (!sets.some((s) => s.attr === "identity")) continue;
+    if (source.getByEncoded(key)?.payload["identity"] != null) continue;
+    const fact = projectedDesired.getByEncoded(key);
+    if (fact === undefined || fact.id.kind !== "column") continue;
+    if (fact.parent === undefined) continue;
+    const sequence = identitySequenceId(fact.payload["identity"]);
+    if (sequence === null || sequence.kind !== "sequence") continue;
+    hygieneFor(
+      sequence,
+      "S",
+      sequence.schema,
+      ownerOf(fact.parent) ?? defaultOwner,
+      sequence,
+    );
+  }
+
   // drops (suppressed children fold into their root's destroys)
   const destroysByRoot = new Map<string, StableId[]>();
   for (const [key, fact] of removed) {

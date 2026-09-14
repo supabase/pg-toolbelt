@@ -47,7 +47,9 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 29 → 37: overlay REVOKE elision + mergeCoTargetRevokes.
   // 37 → 38: the REVOKE-merge leader skips a column consume (identity-sequence
   // hygiene consumes the column, which is not a grant target).
-  "internal.ts": 38,
+  // 38 → 42: the co-create elisions count an identity sequence's acl as
+  // co-created with its column (sequence target, column parent, table owner).
+  "internal.ts": 42,
   "locks.ts": 18,
   // 10 → 11: the extension-replace satellite replay guards on
   // `oldFact.id.kind === "extension"` so a plan with no extension replace
@@ -57,7 +59,8 @@ const KIND_LITERAL_BASELINE: Readonly<Record<string, number>> = {
   // 15 → 14: overlay tuple match lives in policy.isOverlayDefaultPrivilege.
   // 14 → 16: default-privilege hygiene for an identity column's backing
   // sequence keys off the column fact and narrows the sequence id.
-  "phases/action-emitter.ts": 16,
+  // 16 → 18: the same hygiene for an in-place ADD IDENTITY.
+  "phases/action-emitter.ts": 18,
   "phases/action-graph.ts": 1,
   "phases/change-set.ts": 4,
   "phases/replacement-expansion.ts": 0,

@@ -108,11 +108,6 @@ export const tablesFamily: CatalogFamily = {
 };
 
 // ── columns + defaults (defaults are their own facts, like pg_attrdef) ─
-function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((x) => set.has(x));
-}
 
 const COLUMNS_SQL = `
     SELECT n.nspname AS schema, c.relname AS table, a.attname AS name,
@@ -258,23 +253,15 @@ export const columnsFamily: CatalogFamily = {
       }
       // Identity-sequence grants: acl satellites of the column whose target is
       // the backing sequence, so they are created after the column and fold into
-      // its drop (DROP IDENTITY destroys the sequence). The owner's untouched
-      // default is skipped: the sequence is never a co-created object for the
-      // default-ACL elision, so keeping it would render a redundant
-      // REVOKE/GRANT on every identity column.
+      // its drop (DROP IDENTITY destroys the sequence). The owner's row carries
+      // `_ownerDefault` like any relation so the planner can elide it on create
+      // and tell a restored default apart from a revoked one.
       const identitySequence = row["identity_sequence"] as {
         schema: string;
         name: string;
       } | null;
       if (row["identity"] != null && identitySequence != null) {
         for (const acl of parseAcl(row["identity_sequence_acl"])) {
-          if (
-            acl.ownerDefault !== undefined &&
-            acl.grantable.length === 0 &&
-            sameStringSet(acl.privileges, acl.ownerDefault)
-          ) {
-            continue;
-          }
           facts.push({
             id: {
               kind: "acl",
