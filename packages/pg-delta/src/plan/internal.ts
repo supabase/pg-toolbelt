@@ -11,7 +11,7 @@
  * bookkeeping, kept local to the ActionEmitter phase) each live behind a phase
  * boundary, so their invariants are testable in isolation.
  */
-import type { FactBase } from "../core/fact.ts";
+import type { Fact, FactBase } from "../core/fact.ts";
 import {
   encodeId,
   EVALUATED_CHILD_DESCENT,
@@ -915,9 +915,10 @@ function isStrictSubset(
 function ownerDefaultPrivileges(
   desired: FactBase,
   target: StableId,
+  ownerOf: StableId = target,
 ): string[] | undefined {
   const ownerEdge = desired
-    .outgoingEdges(target)
+    .outgoingEdges(ownerOf)
     .find((e) => e.kind === "owner");
   if (ownerEdge !== undefined && ownerEdge.to.kind === "role") {
     const ownerAcl = desired.get({
@@ -1011,6 +1012,26 @@ function adpCustomizesObjtype(adp: AdpIndex, target: StableId): boolean {
 }
 
 /**
+ * An identity column's backing sequence is not a fact: its acl satellites hang
+ * off the column and target the sequence. The column's CREATE materializes the
+ * sequence, so such an acl counts as co-created when the column is.
+ */
+function identitySequenceColumn(
+  aclId: Extract<StableId, { kind: "acl" }>,
+  fact: Fact,
+): StableId | undefined {
+  if (aclId.target.kind !== "sequence") return undefined;
+  if (fact.parent === undefined || fact.parent.kind !== "column")
+    return undefined;
+  return fact.parent;
+}
+
+function tableOf(column: StableId): StableId {
+  const { schema, table } = column as { schema: string; table: string };
+  return { kind: "table", schema, name: table };
+}
+
+/**
  * Compaction (§3.6), default-ACL elision: a freshly `CREATE`d object already
  * carries PostgreSQL's built-in default privileges, so the `acl` rule's
  * REVOKE-ALL+GRANT pair that merely re-materializes those defaults is a no-op on
@@ -1063,9 +1084,15 @@ export function elideDefaultAclCreates(
     if (action.verb !== "create") continue;
     const aclId = action.produces.find((id) => id.kind === "acl");
     if (aclId === undefined || aclId.kind !== "acl") continue;
-    if (!createdObjects.has(encodeId(aclId.target))) continue;
     const fact = desired.get(aclId);
     if (fact === undefined) continue;
+    const identityColumn = identitySequenceColumn(aclId, fact);
+    if (
+      !createdObjects.has(encodeId(aclId.target)) &&
+      (identityColumn === undefined ||
+        !createdObjects.has(encodeId(identityColumn)))
+    )
+      continue;
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
@@ -1098,7 +1125,9 @@ export function elideDefaultAclCreates(
     // acldefault() at extract (non-semantic `_` metadata). A strict subset means
     // the owner revoked a default; eliding would leave the full default in place.
     const ownerEdge = desired
-      .outgoingEdges(aclId.target)
+      .outgoingEdges(
+        identityColumn === undefined ? aclId.target : tableOf(identityColumn),
+      )
       .find((e) => e.kind === "owner");
     if (
       ownerEdge !== undefined &&
@@ -1312,9 +1341,15 @@ export function elideCoCreateRevokeBeforeGrant(
     if (action.verb !== "create") return;
     const aclId = action.produces.find((id) => id.kind === "acl");
     if (aclId === undefined || aclId.kind !== "acl") return; // not a REVOKE leader
-    if (!createdObjects.has(encodeId(aclId.target))) return; // not co-created
     const fact = desired.get(aclId);
     if (fact === undefined) return;
+    const identityColumn = identitySequenceColumn(aclId, fact);
+    if (
+      !createdObjects.has(encodeId(aclId.target)) &&
+      (identityColumn === undefined ||
+        !createdObjects.has(encodeId(identityColumn)))
+    )
+      return; // not co-created
     const payload = fact.payload as {
       privileges?: string[];
       grantable?: string[];
@@ -1329,8 +1364,11 @@ export function elideCoCreateRevokeBeforeGrant(
     // and that is the ONLY owner case reaching here, because a full-default
     // owner group was already dropped wholesale by elideDefaultAclCreates.
     // Stripping it would leave PostgreSQL's full default in place (review P2).
+    // An identity sequence is owned through its table.
+    const ownerTarget =
+      identityColumn === undefined ? aclId.target : tableOf(identityColumn);
     const ownerEdge = desired
-      .outgoingEdges(aclId.target)
+      .outgoingEdges(ownerTarget)
       .find((e) => e.kind === "owner");
     if (
       ownerEdge !== undefined &&
@@ -1346,7 +1384,11 @@ export function elideCoCreateRevokeBeforeGrant(
       aclId.grantee,
     );
     if (matches.length > 0) {
-      const fullSet = ownerDefaultPrivileges(desired, aclId.target);
+      const fullSet = ownerDefaultPrivileges(
+        desired,
+        aclId.target,
+        ownerTarget,
+      );
       if (fullSet === undefined || isStrictSubset(privileges, fullSet)) return; // dest injectee may be a superset of desired ADP / object ACL
     }
     dropRevoke.add(index);
@@ -1393,7 +1435,13 @@ export function mergeCoTargetRevokes(actions: readonly Action[]): Action[] {
       return undefined;
     // Hygiene REVOKEs start with REVOKE ALL; skip other ALTERs (e.g. COLUMN).
     if (!action.sql.startsWith("REVOKE ALL")) return undefined;
-    const obj = action.consumes.find((id) => id.kind !== "role");
+    // A hygiene REVOKE consumes the fact whose CREATE materialized the revoked
+    // object. That is the object itself, except for an identity column's
+    // backing sequence, whose hygiene consumes the column: a column is not a
+    // grant target, so it cannot be the leader and the action stays as is.
+    const obj = action.consumes.find(
+      (id) => id.kind !== "role" && id.kind !== "column",
+    );
     if (obj === undefined) return undefined;
     const role = action.consumes.find((id) => id.kind === "role") as
       | { kind: "role"; name: string }

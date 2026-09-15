@@ -622,7 +622,7 @@ re-raised in a later review, reply with a link here.
 | P1b | `SET MAXVALUE` ordered before `TYPE` widening on identity columns | reproduced, new | regression class (old engine had no identity-bounds emitter) | **blocker** → ✅ [#379](https://github.com/supabase/pg-toolbelt/pull/379) |
 | P2a | `relam` / `reltablespace` invisible to diff | real, tracked | shared pre-existing gap | subsumed by the Wave 3 entries above |
 | P2b | `pg_parameter_acl` (PG15+) silently dropped | real, untracked | shared pre-existing gap | probe + docs → ✅ [#380](https://github.com/supabase/pg-toolbelt/pull/380) |
-| P2c | identity sequence grants | not a bug | identical behavior in old engine | **closed won't-fix** (export hoist in #475) |
+| P2c | identity sequence grants | real, fixed | identical behavior in old engine | ✅ modeled as `acl` satellites of the identity column (#477) |
 | P3 | no outside-observer verification gate | absent | never existed in either engine | post-cutover — tracked in [backlog.md](backlog.md) § Validation |
 
 Notes:
@@ -640,12 +640,16 @@ Notes:
   `unmodeled_kind` probe list — silently invisible, violating the completeness
   module's own contract. Now a probe (with `minVersion` version gating);
   modeling the grant as a fact remains add-when-needed.
-- **P2c rationale:** identity sequences are still not facts, so per-object grant
-  diffs on them are out of scope (same as the legacy engine). #475 sorts overlay
-  `REVOKE ALL` with CREATE SCHEMA in the plan (and files `adp_wipes.sql` ahead
-  of objects/extensions in every layout) so a dest auto-expose baseline no
-  longer injects those grants at `CREATE TABLE` / `CREATE EXTENSION` time.
-  Positive ADP `GRANT`s stay at plan order.
+- **P2c:** identity sequences are still not facts of their own, but their grants
+  are: the columns extractor reads the backing sequence's `relacl` and emits
+  `acl` satellites whose parent is the column and whose target is the sequence
+  (#477). They plan as `GRANT` / `REVOKE ON SEQUENCE`, export into the owning
+  table's file, and get default-privilege hygiene on `CREATE TABLE`. The owner's
+  untouched default is skipped at extract (the sequence is never a co-created
+  object for the default-ACL elision). #475 separately sorts overlay `REVOKE ALL`
+  with CREATE SCHEMA so a dest auto-expose baseline does not inject at
+  `CREATE TABLE` / `CREATE EXTENSION` time; positive ADP `GRANT`s stay at plan
+  order.
 - **Still open (discovered during #379):** a desired identity bound pinned
   exactly at the source type's max (e.g. `bigint … (MAXVALUE 2147483647)` from
   an `integer` identity) produces **no** `identity` delta, yet PostgreSQL
@@ -1753,11 +1757,12 @@ predating identity sequences under a later `GRANT USAGE`. Create-time ADP
 hygiene uses the resolved default owner when that owner edge was pruned, so
 a table that predated a schema ADP still gets `REVOKE ALL` in its own file.
 Recorded here so a later review does not re-open P2c as the same leak.
-Identity sequences stay unmodeled; per-object grant diffs on them remain
-won't-fix. A source identity sequence created *after* a positive `GRANT
-USAGE ON SEQUENCES` still will not regain that grant on load — the fact
-base has no create-order, so the GRANT file cannot be interleaved between
-two `CREATE TABLE`s. Follow-up: https://github.com/supabase/pg-toolbelt/issues/477.
+The remaining gap — a source identity sequence granted `USAGE` only through
+a positive `GRANT USAGE ON SEQUENCES` default lost it on load, because the
+fact base had no create-order to interleave the GRANT between two `CREATE
+TABLE`s — is closed by modeling the sequence's grants as `acl` satellites of
+the identity column (https://github.com/supabase/pg-toolbelt/issues/477): the
+explicit `GRANT ON SEQUENCE` now rides in the table's file.
 
 Deferred from the same review (not blocking):
 
@@ -1787,3 +1792,26 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## PR #478 review triage (Codex) — identity-sequence privileges
+
+PR #478 models grants on an identity column's backing sequence as `acl`
+satellites of the column (target = the sequence). Four rounds fixed real
+gaps (inlined columns of a replaced partitioned parent, the owner's default
+row, in-place `ADD IDENTITY`, owner resolution through the table in the
+REVOKE elision). Deferred from round five (not blocking):
+
+- **Creating role for foreign-owned CREATE.** Hygiene passes the desired
+  owner as the role whose default privileges fire on create; for a table
+  owned by a role other than the applier, PostgreSQL applies the applier's
+  defaults before `OWNER TO`. This is the contract every kind's hygiene uses
+  (`ownerOf(fact.id) ?? defaultOwner` in `action-emitter.ts`), not specific
+  to identity sequences, which follow their table. Fixing it means threading
+  the applier role through hygiene for all kinds in one change.
+- **Policy filtering an identity `set` delta but not the sequence acl.** An
+  operation-level policy that drops a column's plain→identity set delta while
+  admitting the sequence's `acl` adds would leave `GRANT ON SEQUENCE` for a
+  sequence the projected target never creates. Same shape as a column-level
+  grant whose column add is filtered; `projectTarget` prunes orphaned
+  subtrees, not satellites coupled to a parent's attribute value. No shipped
+  policy filters at that grain.
