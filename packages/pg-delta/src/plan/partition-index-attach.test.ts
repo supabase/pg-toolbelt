@@ -468,4 +468,29 @@ describe("add index on partitioned parent with existing partitions", () => {
     const sqls = plan(source, desired).actions.map((a) => a.sql);
     expect(sqls).toEqual([`DROP TABLE "s1"."p1"`, `DROP TABLE "s1"."parent"`]);
   });
+
+  test("replacing a partition's bound while removing the parent index never drops the attached child", () => {
+    const reboundPart: Fact = {
+      ...partFact,
+      payload: tablePayload({
+        partitionBound: "FOR VALUES FROM (0) TO (200)",
+        parentTable: { schema: "s1", name: "parent" },
+      }),
+    };
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxFact, childIdxFact],
+      [inherit],
+    );
+    const desired = buildFactBase(
+      [schema, parentFact, ...columns, reboundPart],
+      [inherit],
+    );
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    expect(sqls).toContain(`DROP INDEX "s1"."idx_parent_status"`);
+    expect(sqls).toContain(`DROP TABLE "s1"."p1"`);
+    expect(sqls.some((s) => s.includes(`p1_status_idx`))).toBe(false);
+    expect(
+      sqls.some((s) => s.startsWith(`CREATE TABLE "s1"."p1" PARTITION OF`)),
+    ).toBe(true);
+  });
 });
