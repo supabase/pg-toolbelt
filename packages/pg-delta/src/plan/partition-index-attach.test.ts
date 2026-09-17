@@ -458,4 +458,14 @@ describe("add index on partitioned parent with existing partitions", () => {
     const desired = buildFactBase([schema, heapParent, ...columns], []);
     expect(() => plan(source, desired)).not.toThrow();
   });
+
+  test("dropping a partitioned parent together with its indexed partitions does not cycle", () => {
+    const source = buildFactBase(
+      [schema, parentFact, ...columns, partFact, parentIdxFact, childIdxFact],
+      [inherit],
+    );
+    const desired = buildFactBase([schema], []);
+    const sqls = plan(source, desired).actions.map((a) => a.sql);
+    expect(sqls).toEqual([`DROP TABLE "s1"."p1"`, `DROP TABLE "s1"."parent"`]);
+  });
 });
