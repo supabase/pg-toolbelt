@@ -1,5 +1,11 @@
 # @supabase/pg-delta
 
+## 1.0.0-alpha.53
+
+### Patch Changes
+
+- 0882fc4: Fix a `topoSort` dependency cycle when dropping a partitioned table together with its partitions while the parent carries an index: attached child indexes now fold into their own partition's `DROP TABLE` instead of the parent index's drop root.
+
 ## 1.0.0-alpha.52
 
 ### Patch Changes
