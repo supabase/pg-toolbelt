@@ -77,6 +77,10 @@ export class ExtractionTimeoutError extends Error {
  * satellite would make `buildFactBase` throw on a missing parent, or — if it
  * survived — yield an orphan GRANT/COMMENT at plan time (CLI-1471). Drop them
  * here with an `info` diagnostic so the exclusion is visible, never silent.
+ *
+ * A satellite whose lifecycle is owned by a different, present parent is kept
+ * even when its target is not a fact: a grant on an identity column's backing
+ * sequence targets the sequence but lives and dies with the column.
  */
 export function pruneOrphanedSatellites(facts: Fact[]): {
   facts: Fact[];
@@ -88,7 +92,13 @@ export function pruneOrphanedSatellites(facts: Fact[]): {
   for (const fact of facts) {
     if ("target" in fact.id) {
       const targetKey = encodeId(fact.id.target);
-      if (!present.has(targetKey)) {
+      const parentKey =
+        fact.parent === undefined ? undefined : encodeId(fact.parent);
+      const anchoredByParent =
+        parentKey !== undefined &&
+        parentKey !== targetKey &&
+        present.has(parentKey);
+      if (!present.has(targetKey) && !anchoredByParent) {
         diagnostics.push({
           code: "orphaned_satellite",
           severity: "info",

@@ -157,6 +157,20 @@ function subjectOf(action: Action, fb: FactBase): StableId | undefined {
     action.produces.find((id) => id.kind === "sequence") ??
     action.consumes.find((id) => id.kind === "sequence");
   if (column !== undefined && sequence !== undefined) return column;
+  // a grant on an identity column's backing sequence is a satellite of the
+  // column: the sequence has no file of its own, so the REVOKE (produces the
+  // acl) and the GRANT (consumes it) both sit with the table
+  const acl =
+    action.produces.find((id) => id.kind === "acl") ??
+    action.consumes.find((id) => id.kind === "acl");
+  if (
+    column !== undefined &&
+    acl !== undefined &&
+    acl.kind === "acl" &&
+    acl.target.kind === "sequence"
+  ) {
+    return column;
+  }
   if (
     sequence !== undefined &&
     /^\s*ALTER\s+SEQUENCE\b/i.test(action.sql) &&
