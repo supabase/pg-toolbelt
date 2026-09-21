@@ -43,6 +43,10 @@ export const constraintRules: Record<string, KindRules> = {
       // verbatim def. Full rationale + the guarded design if ever revisited:
       // docs/roadmap/backlog.md § "Column-inline PRIMARY KEY compaction".
       const type = str(p(fact, "type"));
+      const rawKeyColumns = p(fact, "_keyColumns");
+      const indexKeyColumns = Array.isArray(rawKeyColumns)
+        ? rawKeyColumns.map(String)
+        : undefined;
       const foldHint =
         p(fact, "validated") === true && fact.parent?.kind === "table"
           ? {
@@ -51,6 +55,9 @@ export const constraintRules: Record<string, KindRules> = {
                 clause: `CONSTRAINT ${qid(id.name)} ${str(p(fact, "def"))}`,
                 ...(type === "p" || type === "u" || type === "c"
                   ? { executorSafe: true }
+                  : {}),
+                ...((type === "p" || type === "u") && indexKeyColumns
+                  ? { constraintType: type, indexKeyColumns }
                   : {}),
               },
             }

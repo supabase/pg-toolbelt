@@ -34,6 +34,12 @@ export interface FoldHint {
   foldInto: StableId;
   clause: string;
   executorSafe?: boolean;
+  /** `p` / `u` — used with `indexKeyColumns` to refuse a CREATE TABLE fold
+   *  Postgres would drop as redundant with a co-created PRIMARY KEY or
+   *  another UNIQUE on the same key list. */
+  constraintType?: string;
+  /** `pg_constraint.conkey` attnames, in key order. */
+  indexKeyColumns?: readonly string[];
 }
 
 export interface ActionSpec {

@@ -61,7 +61,18 @@ const constraintFact = (
   def: string,
   type: string,
   validated = true,
-): Fact => f(constraint(tbl, name), { def, type, validated }, table(tbl));
+  keyColumns?: string[],
+): Fact =>
+  f(
+    constraint(tbl, name),
+    {
+      def,
+      type,
+      validated,
+      ...(keyColumns ? { _keyColumns: keyColumns } : {}),
+    },
+    table(tbl),
+  );
 
 /** table t with one integer column and one constraint. */
 const tableFacts = (tbl: string, ...constraints: Fact[]): Fact[] => [
@@ -185,5 +196,148 @@ describe("compaction folds self-contained constraints into CREATE TABLE", () => 
     expect(sqls(compacted)).toEqual([
       `ALTER TABLE "app"."t" ADD CONSTRAINT "t_pkey" PRIMARY KEY (id)`,
     ]);
+  });
+
+  test("PK + same-key UNIQUE still folds when _keyColumns is absent", () => {
+    const desired = buildFactBase(
+      [
+        f(schemaApp),
+        f(table("t"), tablePayload(), schemaApp),
+        f(column("t", "id"), columnPayload(1), table("t")),
+        f(column("t", "company_id"), columnPayload(2), table("t")),
+        constraintFact("t", "t_pkey", "PRIMARY KEY (id, company_id)", "p"),
+        constraintFact("t", "t_ab_unique", "UNIQUE (id, company_id)", "u"),
+      ],
+      [],
+    );
+    const compacted = plan(empty, desired);
+    const createTable = sqls(compacted).find((s) =>
+      s.startsWith(`CREATE TABLE "app"."t"`),
+    );
+    expect(createTable).toContain(
+      `CONSTRAINT "t_pkey" PRIMARY KEY (id, company_id)`,
+    );
+    expect(createTable).toContain(
+      `CONSTRAINT "t_ab_unique" UNIQUE (id, company_id)`,
+    );
+    expect(sqls(compacted).some((s) => s.includes("ADD CONSTRAINT"))).toBe(
+      false,
+    );
+  });
+
+  test("UNIQUE on the same columns as a co-created PRIMARY KEY stays an ALTER", () => {
+    const desired = buildFactBase(
+      [
+        f(schemaApp),
+        f(table("t"), tablePayload(), schemaApp),
+        f(column("t", "id"), columnPayload(1), table("t")),
+        f(column("t", "company_id"), columnPayload(2), table("t")),
+        constraintFact(
+          "t",
+          "t_pkey",
+          "PRIMARY KEY (id, company_id)",
+          "p",
+          true,
+          ["id", "company_id"],
+        ),
+        constraintFact(
+          "t",
+          "t_ab_unique",
+          "UNIQUE (id, company_id)",
+          "u",
+          true,
+          ["id", "company_id"],
+        ),
+      ],
+      [],
+    );
+    const compacted = plan(empty, desired);
+    const createTable = sqls(compacted).find((s) =>
+      s.startsWith(`CREATE TABLE "app"."t"`),
+    );
+    expect(createTable).toContain(
+      `CONSTRAINT "t_pkey" PRIMARY KEY (id, company_id)`,
+    );
+    expect(createTable).not.toContain("UNIQUE");
+    expect(sqls(compacted)).toContain(
+      `ALTER TABLE "app"."t" ADD CONSTRAINT "t_ab_unique" UNIQUE (id, company_id)`,
+    );
+  });
+
+  test("UNIQUE on different columns than the PRIMARY KEY still folds", () => {
+    const desired = buildFactBase(
+      [
+        f(schemaApp),
+        f(table("t"), tablePayload(), schemaApp),
+        f(column("t", "id"), columnPayload(1), table("t")),
+        f(column("t", "email"), columnPayload(2), table("t")),
+        constraintFact("t", "t_pkey", "PRIMARY KEY (id)", "p", true, ["id"]),
+        constraintFact("t", "t_email_key", "UNIQUE (email)", "u", true, [
+          "email",
+        ]),
+      ],
+      [],
+    );
+    const compacted = plan(empty, desired);
+    const createTable = sqls(compacted).find((s) =>
+      s.startsWith(`CREATE TABLE "app"."t"`),
+    );
+    expect(createTable).toContain(`CONSTRAINT "t_pkey" PRIMARY KEY (id)`);
+    expect(createTable).toContain(`CONSTRAINT "t_email_key" UNIQUE (email)`);
+    expect(sqls(compacted).some((s) => s.includes("ADD CONSTRAINT"))).toBe(
+      false,
+    );
+  });
+
+  test("a second UNIQUE on the same columns as a folded UNIQUE stays an ALTER", () => {
+    const desired = buildFactBase(
+      [
+        f(schemaApp),
+        f(table("t"), tablePayload(), schemaApp),
+        f(column("t", "id"), columnPayload(1), table("t")),
+        constraintFact("t", "t_u1", "UNIQUE (id)", "u", true, ["id"]),
+        constraintFact("t", "t_u2", "UNIQUE (id)", "u", true, ["id"]),
+      ],
+      [],
+    );
+    const compacted = plan(empty, desired);
+    const createTable = sqls(compacted).find((s) =>
+      s.startsWith(`CREATE TABLE "app"."t"`),
+    );
+    expect((createTable?.match(/UNIQUE/g) ?? []).length).toBe(1);
+    const alters = sqls(compacted).filter((s) => s.includes("ADD CONSTRAINT"));
+    expect(alters).toHaveLength(1);
+    expect(alters[0]).toMatch(/UNIQUE \(id\)/);
+    expect(sqls(compacted).some((s) => s.includes(`"t_u1"`))).toBe(true);
+    expect(sqls(compacted).some((s) => s.includes(`"t_u2"`))).toBe(true);
+  });
+
+  test("UNIQUE with the PK columns in a different order still folds", () => {
+    const desired = buildFactBase(
+      [
+        f(schemaApp),
+        f(table("t"), tablePayload(), schemaApp),
+        f(column("t", "a"), columnPayload(1), table("t")),
+        f(column("t", "b"), columnPayload(2), table("t")),
+        constraintFact("t", "t_pkey", "PRIMARY KEY (a, b)", "p", true, [
+          "a",
+          "b",
+        ]),
+        constraintFact("t", "t_ba_unique", "UNIQUE (b, a)", "u", true, [
+          "b",
+          "a",
+        ]),
+      ],
+      [],
+    );
+    const compacted = plan(empty, desired);
+    const createTable = sqls(compacted).find((s) =>
+      s.startsWith(`CREATE TABLE "app"."t"`),
+    );
+    expect(createTable).toContain(`CONSTRAINT "t_pkey" PRIMARY KEY (a, b)`);
+    expect(createTable).toContain(`CONSTRAINT "t_ba_unique" UNIQUE (b, a)`);
+    expect(sqls(compacted).some((s) => s.includes("ADD CONSTRAINT"))).toBe(
+      false,
+    );
   });
 });
