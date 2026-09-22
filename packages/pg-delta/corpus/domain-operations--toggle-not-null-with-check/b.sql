@@ -1,8 +1,8 @@
 -- same domain, now NOT NULL. PostgreSQL 17+ catalogs the domain NOT NULL as a
 -- pg_constraint row (contype 'n'); it must stay modeled as the domain's
--- `notNull` attribute, not as a second constraint fact, or the plan renders
--- NOT NULL twice on CREATE and pairs SET/DROP NOT NULL with a redundant
--- ADD/DROP CONSTRAINT that fails on the reverse direction.
+-- `notNull` attribute, not as a second constraint fact, or the toggle renders a
+-- redundant ADD/DROP CONSTRAINT next to SET/DROP NOT NULL and the fact hashes
+-- differ across PG versions.
 CREATE SCHEMA core;
 
 CREATE DOMAIN core.percentage AS numeric(7, 6) DEFAULT 0

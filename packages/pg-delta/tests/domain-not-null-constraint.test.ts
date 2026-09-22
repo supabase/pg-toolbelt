@@ -5,7 +5,8 @@
  * second `constraint` fact — otherwise CREATE DOMAIN renders `NOT NULL` twice
  * (once from the attribute, once inlined as `CONSTRAINT … NOT NULL`) and a
  * NOT NULL toggle on an existing domain emits a redundant ADD/DROP CONSTRAINT
- * next to `ALTER DOMAIN … SET/DROP NOT NULL`. Issue #482.
+ * next to `ALTER DOMAIN … SET/DROP NOT NULL`. The dependency extractor must
+ * skip the row too, or its pg_depend edge to the domain dangles. Issue #482.
  *
  * Stock alpine image; Docker required. The duplicate only appears on PG 17+,
  * so on older images the assertions pass before and after the fix.
@@ -53,6 +54,11 @@ describe("domain NOT NULL is not a constraint fact", () => {
         "CREATE DOMAIN "core"."percentage" AS numeric(7,6) DEFAULT 0 NOT NULL CONSTRAINT "percentage_between_0_and_1" CHECK (((VALUE >= (0)::numeric) AND (VALUE <= (1)::numeric)))",
       ]
     `);
+  });
+
+  test("the catalogued NOT NULL row is not a dangling dependency edge", async () => {
+    const { diagnostics } = await extract(notNull.pool);
+    expect(diagnostics).toEqual([]);
   });
 
   test("toggling NOT NULL emits only ALTER DOMAIN SET/DROP NOT NULL", async () => {
