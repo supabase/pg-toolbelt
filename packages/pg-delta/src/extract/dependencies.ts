@@ -9,6 +9,25 @@ import {
   SYSTEM_SCHEMAS,
 } from "./scope.ts";
 
+/**
+ * pg_constraint rows the engine models as an ATTRIBUTE rather than as a
+ * constraint fact, and therefore must never resolve to a dependency endpoint.
+ *
+ * PostgreSQL catalogs NOT NULL as a `pg_constraint` row (`contype = 'n'`):
+ * for domains since PG17, for table columns since PG18. pg-delta keeps NOT
+ * NULL on the payload instead — `pg_type.typnotnull` on the domain fact
+ * (`src/extract/types.ts`) and `pg_attribute.attnotnull` on the column fact
+ * (`src/extract/relations.ts`, whose constraint query takes only
+ * `contype IN ('p','u','f','c','x')`). Resolving such a row here would build
+ * an edge to a fact that does not exist: the FactBase drops it and warns
+ * `dangling_edge`, once per NOT NULL column on PG18 (issues #482, #483).
+ *
+ * The exclusion belongs on BOTH constraint branches (`tcon`, `dcon`) and is
+ * shared so they cannot drift — the two catalogs gained the row in different
+ * releases, but the modeling reason is identical.
+ */
+const NOT_NULL_IS_NOT_A_FACT = `con.contype <> 'n'`;
+
 // ── inheritance / partition edges (child depends on parent) ──────────
 const INHERITANCE_SQL = `
     SELECT cn.nspname AS child_schema, cc.relname AS child_name,
@@ -139,7 +158,7 @@ export async function fetchDependencyRows(
       FROM pg_constraint con
       JOIN pg_class cc ON cc.oid = con.conrelid
       JOIN pg_namespace cn ON cn.oid = cc.relnamespace
-      WHERE con.conrelid <> 0
+      WHERE con.conrelid <> 0 AND ${NOT_NULL_IS_NOT_A_FACT}
     ),
     dcon AS (
       SELECT con.oid, json_build_object('kind','constraint','schema',dn.nspname,
@@ -147,8 +166,7 @@ export async function fetchDependencyRows(
       FROM pg_constraint con
       JOIN pg_type dt ON dt.oid = con.contypid
       JOIN pg_namespace dn ON dn.oid = dt.typnamespace
-      -- PG 17+ NOT NULL rows (contype 'n') are not constraint facts (types.ts)
-      WHERE con.contypid <> 0 AND con.contype <> 'n'
+      WHERE con.contypid <> 0 AND ${NOT_NULL_IS_NOT_A_FACT}
     ),
     typ AS (
       -- Resolve array types (typcategory 'A') to their ELEMENT type: a column or

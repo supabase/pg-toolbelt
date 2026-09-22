@@ -1824,3 +1824,34 @@ Deferred from the review (not blocking):
   tolerated rather than rejected (`cli/profile.ts`). The durable fix is
   general: an extractor-version stamp on snapshots that `drift`/`plan` check
   and refuse with recapture guidance, not a per-kind normalizer for this row.
+
+## Issue #483 review triage — table NOT NULL dangling edges on PG 18
+
+PG 18 catalogs a table column's NOT NULL as a `pg_constraint` row
+(`contype = 'n'`), the same change PG 17 made for domains (#482). The fix
+excludes those rows from the `tcon` branch of the dependency resolver and
+shares one predicate with the domain-side `dcon` exclusion, so the two cannot
+drift. Diagnostics only — the edge was already dropped before reaching the fact
+base, and the `depend-edges-oracle` snapshot is unchanged across PG 14–18.
+
+Deferred from the review (not blocking, pre-existing):
+
+- **`conislocal = false` constraints dangle the same way, on every version.**
+  `relations.ts` extracts only `contype IN ('p','u','f','c','x') AND
+  conislocal`, but the resolver's `tcon` branch resolves non-local rows too, so
+  an inherited or partition-child constraint produces the identical
+  `constraint:… -[depends]-> column:…` dangling edge and warning. Confirmed on
+  postgres:17-alpine with an `INHERITS` child:
+
+  ```
+  dangling_edge: edge constraint:app.c.p_id_check -[depends]-> column:app.c.id references a fact not in the base
+  ```
+
+  The review's probe saw the same for partition-child PK/CHECK rows on PG 18.
+  Not introduced or worsened by this change, but a user with inheritance or
+  partitions still sees warning noise after it. The mechanical fix is the same
+  shape (`AND con.conislocal` in `tcon`), but whether a non-local constraint
+  should instead resolve to its PARENT constraint is a modeling decision — an
+  inherited constraint is a real dependency of the child's column, just not one
+  the engine keys separately today. Needs a deliberate call, not a one-line
+  filter. Pick up if a user reports it, or alongside any other inheritance work.
