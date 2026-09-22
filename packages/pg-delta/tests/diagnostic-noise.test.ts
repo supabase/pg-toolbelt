@@ -79,12 +79,16 @@ describe("extraction diagnostic noise (P1)", () => {
   });
 
   test("no dangling_edge diagnostics for catalog NOT NULL rows (issue #483)", () => {
-    // A constraint the engine DOES model (PK / UNIQUE / FK / CHECK) is always a
-    // fact, so a dangling constraint -> column edge can only come from a row the
-    // engine models as an attribute instead — today exactly the contype 'n'
-    // NOT NULL rows PG18 introduced for table columns. Matching the edge SHAPE
-    // rather than the `_not_null` naming convention keeps this honest if
-    // PostgreSQL ever catalogs another attribute the same way.
+    // A dangling constraint -> column edge can only come from a pg_constraint
+    // row the extractor does not turn into a fact. There are two such classes:
+    // NOT NULL rows (`contype 'n'`, this test's subject) and inherited /
+    // partition-child constraints (`conislocal = false`, which relations.ts
+    // also skips and which still warn on every version — a separate,
+    // pre-existing gap). This fixture deliberately contains NEITHER
+    // inheritance nor partitions, so any hit here is a NOT NULL regression.
+    // Matching the edge SHAPE rather than the `_not_null` naming convention
+    // keeps the lock honest if PostgreSQL ever catalogs another attribute the
+    // same way.
     const attributeDangling = result.diagnostics.filter(
       (d) =>
         d.code === "dangling_edge" &&
