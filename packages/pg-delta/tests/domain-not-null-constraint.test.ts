@@ -1,15 +1,8 @@
 /**
- * PostgreSQL 17+ catalogs a domain's NOT NULL as a `pg_constraint` row
- * (`contype = 'n'`) alongside its CHECK constraints. The domain fact already
- * carries NOT NULL as the `notNull` attribute, so that row must not become a
- * second `constraint` fact — otherwise CREATE DOMAIN renders `NOT NULL` twice
- * (once from the attribute, once inlined as `CONSTRAINT … NOT NULL`) and a
- * NOT NULL toggle on an existing domain emits a redundant ADD/DROP CONSTRAINT
- * next to `ALTER DOMAIN … SET/DROP NOT NULL`. The dependency extractor must
- * skip the row too, or its pg_depend edge to the domain dangles. Issue #482.
- *
- * Stock alpine image; Docker required. The duplicate only appears on PG 17+,
- * so on older images the assertions pass before and after the fix.
+ * PG 17+ catalogs a domain NOT NULL as a pg_constraint row (contype 'n'). It
+ * must stay the domain's `notNull` attribute, not a second constraint fact or
+ * a dependency edge, or CREATE DOMAIN renders NOT NULL twice (issue #482).
+ * Docker required; the duplicate row only exists on PG 17+.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { extract } from "../src/extract/extract.ts";
