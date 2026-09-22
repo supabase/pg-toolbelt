@@ -4,6 +4,14 @@
  * (review P1). A schema whose views/functions reference built-ins (count(),
  * upper(), pg_catalog types) should produce ZERO system dangling_edge
  * diagnostics, while still emitting the real user→user dependency edges.
+ *
+ * The same rule covers catalog rows the engine models as an ATTRIBUTE rather
+ * than a fact: PostgreSQL catalogs NOT NULL as a `pg_constraint` row
+ * (`contype = 'n'`) — for domains since PG17, for table columns since PG18 —
+ * while pg-delta keeps NOT NULL on the domain/column payload. Resolving such a
+ * row as a dependency endpoint yields an edge to a fact that does not exist,
+ * so extraction warns once per NOT NULL column (issue #483). The fixture below
+ * is deliberately NOT NULL-heavy so that regression cannot come back.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { extract, type ExtractResult } from "../src/extract/extract.ts";
@@ -17,6 +25,15 @@ beforeAll(async () => {
   await db.pool.query(`
     CREATE SCHEMA app;
     CREATE TABLE app.t (id integer PRIMARY KEY, name text);
+    -- NOT NULL in every shape PostgreSQL catalogs it: implied by a PRIMARY KEY,
+    -- declared inline, and added after the fact. On PG18 each one is a
+    -- pg_constraint row (contype 'n') carrying a pg_depend edge to its column.
+    CREATE TABLE app.nn (
+      id integer PRIMARY KEY,
+      label text NOT NULL,
+      note text
+    );
+    ALTER TABLE app.nn ALTER COLUMN note SET NOT NULL;
     -- view + function leaning on built-in functions/types (pg_catalog)
     CREATE VIEW app.summary AS
       SELECT count(*) AS n, max(upper(name)) AS hi FROM app.t;
@@ -59,5 +76,27 @@ describe("extraction diagnostic noise (P1)", () => {
           /-\[owner\]-> role:pg_/.test(d.message)),
     );
     expect(builtinRoleDangling).toHaveLength(0);
+  });
+
+  test("no dangling_edge diagnostics for catalog NOT NULL rows (issue #483)", () => {
+    // A constraint the engine DOES model (PK / UNIQUE / FK / CHECK) is always a
+    // fact, so a dangling constraint -> column edge can only come from a row the
+    // engine models as an attribute instead — today exactly the contype 'n'
+    // NOT NULL rows PG18 introduced for table columns. Matching the edge SHAPE
+    // rather than the `_not_null` naming convention keeps this honest if
+    // PostgreSQL ever catalogs another attribute the same way.
+    const attributeDangling = result.diagnostics.filter(
+      (d) =>
+        d.code === "dangling_edge" &&
+        /constraint:\S+ -\[depends\]-> column:/.test(d.message),
+    );
+    expect(attributeDangling).toEqual([]);
+  });
+
+  test("extraction of an ordinary user schema emits no diagnostics at all", () => {
+    // The strongest form of the same rule: this fixture is entirely made of
+    // objects the engine models, so a clean extract must be silent. Any new
+    // diagnostic here is noise until proven otherwise.
+    expect(result.diagnostics).toEqual([]);
   });
 });
