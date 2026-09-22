@@ -147,7 +147,8 @@ export async function fetchDependencyRows(
       FROM pg_constraint con
       JOIN pg_type dt ON dt.oid = con.contypid
       JOIN pg_namespace dn ON dn.oid = dt.typnamespace
-      WHERE con.contypid <> 0
+      -- PG 17+ NOT NULL rows (contype 'n') are not constraint facts (types.ts)
+      WHERE con.contypid <> 0 AND con.contype <> 'n'
     ),
     typ AS (
       -- Resolve array types (typcategory 'A') to their ELEMENT type: a column or

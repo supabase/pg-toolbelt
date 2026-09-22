@@ -41,7 +41,10 @@ const DOMAIN_CONSTRAINTS_SQL = `
     JOIN pg_namespace n ON n.oid = t.typnamespace
     -- PG 17+ also catalogs the domain's NOT NULL as a contype 'n' row; that
     -- is already the domain's notNull attribute, so it must not become a
-    -- second constraint fact (CREATE DOMAIN would render NOT NULL twice).
+    -- second constraint fact (CREATE DOMAIN would render NOT NULL twice and
+    -- PG 14-16 have no such row, so hashes would differ per version). A
+    -- user-chosen name for it (CONSTRAINT foo NOT NULL) is deliberately not
+    -- preserved; dependencies.ts skips the same rows.
     WHERE con.contypid <> 0 AND con.contype <> 'n' AND ${USER_SCHEMA_FILTER}
       AND ${notExtensionMember("pg_type", "t.oid")}
     ORDER BY n.nspname, t.typname, con.conname`;
