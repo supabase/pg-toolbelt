@@ -1570,3 +1570,15 @@ Codex P2s:
 - **Fixed — OWNED BY sandwich cycle.** `q ALTER → d ALTER` is skipped
   because `d ALTER → ADD c → q ALTER` already exists; apply order stays
   ALTER DOMAIN, ADD COLUMN, ALTER SEQUENCE.
+
+## Issue #487 follow-up — enum retype through an indirect enum source
+
+Retyping a column away from an enum now casts through `text` / `text[]`,
+keyed on the column's released edge landing on an enum `type` fact.
+Deferred:
+
+- **Domain over an enum, or an extension-member enum, as the source type.**
+  The released edge resolves to the `domain` / `extension` fact (no
+  `variant`), so a retype to another enum still emits the direct cast and
+  fails with 42846. Resolving it needs the domain's base type or the
+  member's variant at plan time.

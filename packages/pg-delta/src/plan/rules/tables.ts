@@ -271,6 +271,18 @@ export const tableRules: Record<string, KindRules> = {
           // dropped in extract), so a plain widening leaves both sets empty.
           const consumes = dependencyConsumes(view, fact.id);
           const releases = dependencyConsumes(sourceView, fact.id);
+          // PostgreSQL has no enum-to-enum cast (42846), so a column leaving an
+          // enum hops through text — element-wise `text[]` for an array column
+          // (format_type renders arrays with a trailing `[]`). The released
+          // edge resolves an array column to its element enum.
+          const fromEnum = releases.some(
+            (id) => sourceView.get(id)?.payload["variant"] === "enum",
+          );
+          const hop = fromEnum
+            ? str(from).endsWith("[]")
+              ? "::text[]"
+              : "::text"
+            : "";
           // A generated column also rejects the USING clause ("cannot specify
           // USING when altering type of generated column") — PostgreSQL
           // recomputes the value from the generation expression. That still
@@ -278,7 +290,7 @@ export const tableRules: Record<string, KindRules> = {
           const usingCast =
             isForeign || sourceGenerated
               ? ""
-              : ` USING ${qid(column)}::${str(to)}`;
+              : ` USING ${qid(column)}${hop}::${str(to)}`;
           const typeSpec: ActionSpec = {
             sql: `${target} TYPE ${str(to)}${usingCast}`,
             ...(isForeign ? {} : { rewriteRisk: true }),
