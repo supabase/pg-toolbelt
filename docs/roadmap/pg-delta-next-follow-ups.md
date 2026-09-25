@@ -1804,3 +1804,11 @@ remain:
   (`must be able to SET ROLE`). A CREATEROLE creator's implicit ADMIN-only grant
   counts as MEMBER, so the check passes and the ALTER fails at apply
   (reproduced on `postgres:17-alpine`).
+- **`renderApplyScript()` does not verify `planId`.** It refuses a plan carrying
+  a `capability.owner` diagnostic, but a library caller that strips the
+  diagnostic from a stamped plan and then renders gets the owner ALTERs
+  (`apply()` and `parsePlan()` catch that via `assertPlanId`). The only
+  in-repo caller (`schema apply --dry-run`) renders a freshly stamped plan.
+  Adding `assertPlanId` would make the public renderer reject hand-built or
+  mutated plans, which is an API contract change for its own PR (PR #493
+  review triage).
