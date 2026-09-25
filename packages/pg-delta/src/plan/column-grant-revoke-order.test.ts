@@ -64,6 +64,24 @@ const grant = (
 ): Fact =>
   f(acl(target, grantee, column), { privileges, grantable: [] }, parent);
 
+/** `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT ALL ON
+ *  TABLES TO <grantee>` — makes every relation create / recreate fire the
+ *  create-time REVOKE (explicit leader or hygiene). */
+const adp = (grantee: string): Fact =>
+  f(
+    {
+      kind: "defaultPrivilege",
+      role: "postgres",
+      schema: "app",
+      objtype: "r",
+      grantee,
+    },
+    {
+      privileges: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+      grantable: [],
+    },
+  );
+
 const base: Fact[] = [
   f(schemaApp),
   f(role("r")),
@@ -158,7 +176,7 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
     expect(list.filter((s) => s === COL_GRANT_V)).toHaveLength(1);
   });
 
-  test("object-level grant swapped for a column grant: the REVOKE destroys the column acl (ordering by edge, not tie-break)", () => {
+  test("object-level grant swapped for a column grant: the column GRANT follows the REVOKE, which declares the column acl destroyed", () => {
     const source = buildFactBase(
       [...base, grant(tableT, "r", ["SELECT"], tableT)],
       [],
@@ -177,20 +195,6 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
   });
 
   test("new relation under default privileges: every column GRANT runs after that role's create-time REVOKE", () => {
-    const adp = (grantee: string): Fact =>
-      f(
-        {
-          kind: "defaultPrivilege",
-          role: "postgres",
-          schema: "app",
-          objtype: "r",
-          grantee,
-        },
-        {
-          privileges: ["DELETE", "INSERT", "SELECT", "UPDATE"],
-          grantable: [],
-        },
-      );
     const common: Fact[] = [
       f(schemaApp),
       f(role("postgres")),
@@ -221,6 +225,96 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
       `REVOKE ALL ON TABLE "app"."t" FROM "colonly"`,
       `GRANT SELECT ("name") ON TABLE "app"."t" TO "colonly"`,
     );
+  });
+
+  // A relation REBUILD (drop + recreate) recreates the object-level acl AND the
+  // column acl from the desired subtree. The recreated REVOKE leader wipes the
+  // recreated column grant too, so the same ordering must hold — and the wipe
+  // must not order the leader before the relation's DROP (that would close a
+  // DROP -> CREATE -> leader -> DROP cycle).
+  test("view rebuild: both grants are re-granted, the column GRANT after the REVOKE", () => {
+    const grants = [
+      grant(viewV, "r", ["SELECT"], viewV),
+      grant(viewV, "r", ["UPDATE"], viewV, "b"),
+    ];
+    const source = buildFactBase([...base, ...grants], []);
+    const desired = buildFactBase(
+      [
+        ...base.filter((x) => x.id !== viewV),
+        f(
+          viewV,
+          { def: " SELECT 10 AS a, 20 AS b;", reloptions: null },
+          schemaApp,
+        ),
+        ...grants,
+      ],
+      [],
+    );
+    const list = sqls(plan(source, desired));
+    expectAfter(
+      list,
+      `CREATE VIEW "app"."v" AS SELECT 10 AS a, 20 AS b;`,
+      OBJ_REVOKE_V,
+    );
+    expectAfter(list, OBJ_REVOKE_V, COL_GRANT_V);
+  });
+
+  test("table rebuild (partition key change): both grants are re-granted, the column GRANT after the REVOKE", () => {
+    const grants = [
+      grant(tableT, "r", ["SELECT"], tableT),
+      grant(tableT, "r", ["UPDATE"], colName, "name"),
+    ];
+    const source = buildFactBase([...base, ...grants], []);
+    const desired = buildFactBase(
+      [
+        ...base.filter((x) => x.id !== tableT),
+        f(
+          tableT,
+          { ...tablePayload(), partitionKey: "LIST (name)" },
+          schemaApp,
+        ),
+        ...grants,
+      ],
+      [],
+    );
+    const list = sqls(plan(source, desired));
+    expectAfter(list, `DROP TABLE "app"."t"`, OBJ_REVOKE_T);
+    expectAfter(list, OBJ_REVOKE_T, COL_GRANT_T);
+  });
+
+  test("view rebuild under default privileges with a column-only grant: the hygiene REVOKE precedes the re-granted column GRANT", () => {
+    const common: Fact[] = [
+      f(schemaApp),
+      f(role("postgres")),
+      f(role("r")),
+      adp("r"),
+      grant(viewV, "r", ["UPDATE"], viewV, "b"),
+    ];
+    const owner = [
+      { from: viewV, to: role("postgres"), kind: "owner" as const },
+    ];
+    const source = buildFactBase(
+      [...common, f(viewV, viewPayload(), schemaApp)],
+      owner,
+    );
+    const desired = buildFactBase(
+      [
+        ...common,
+        f(
+          viewV,
+          { def: " SELECT 10 AS a, 20 AS b;", reloptions: null },
+          schemaApp,
+        ),
+      ],
+      owner,
+    );
+    const list = sqls(plan(source, desired));
+    expectAfter(
+      list,
+      `CREATE VIEW "app"."v" AS SELECT 10 AS a, 20 AS b;`,
+      OBJ_REVOKE_V,
+    );
+    expectAfter(list, OBJ_REVOKE_V, COL_GRANT_V);
   });
 
   test("no column grants: an object-level privilege change stays a bare REVOKE + GRANT", () => {
