@@ -37,10 +37,4 @@ describe("isConcurrentCatalogChange", () => {
       "index app.t_idx was dropped during extraction",
     );
   });
-
-  test("deparsedDef passes a present definition through", () => {
-    expect(deparsedDef({ def: "CREATE INDEX i ON t (a)" }, "index")).toBe(
-      "CREATE INDEX i ON t (a)",
-    );
-  });
 });

@@ -28,7 +28,6 @@ const OPENING_BATCH = (sql: string): boolean =>
 
 type Hook = (sql: string) => Promise<void>;
 
-/** Run `hook` before every catalog query any pooled client sends. */
 function interceptQueries(pool: pg.Pool, hook: Hook): () => void {
   const patched = new Map<pg.PoolClient, unknown>();
   const onAcquire = (client: pg.PoolClient): void => {
@@ -91,8 +90,16 @@ for (const concurrency of [1, 4]) {
         }
       });
       try {
-        const { factBase } = await extract(db.pool, { concurrency });
+        const { factBase, diagnostics } = await extract(db.pool, {
+          concurrency,
+        });
         expect(drops).toBe(1);
+        expect(diagnostics).toContainEqual(
+          expect.objectContaining({
+            code: "extraction-retried",
+            context: { attempts: 2 },
+          }),
+        );
         const names = tableNames(factBase.facts());
         expect(names).toContain("keeper");
         expect(names).not.toContain(table);
@@ -114,8 +121,16 @@ for (const concurrency of [1, 4]) {
         }
       });
       try {
-        const { factBase } = await extract(db.pool, { concurrency });
+        const { factBase, diagnostics } = await extract(db.pool, {
+          concurrency,
+        });
         expect(drops).toBe(1);
+        expect(diagnostics).toContainEqual(
+          expect.objectContaining({
+            code: "extraction-retried",
+            context: { attempts: 2 },
+          }),
+        );
         const facts = factBase.facts();
         expect(tableNames(facts)).not.toContain(table);
         const nullDefs = facts.filter(

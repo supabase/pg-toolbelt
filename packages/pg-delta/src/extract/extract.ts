@@ -362,7 +362,16 @@ export async function extract(
   const streams = resolveStreamCount(options.concurrency, pool.options?.max);
   for (let attempt = 1; ; attempt++) {
     try {
-      return await extractAttempt(pool, options, streams);
+      const result = await extractAttempt(pool, options, streams);
+      if (attempt > 1) {
+        result.diagnostics.push({
+          code: "extraction-retried",
+          severity: "info",
+          message: `the catalog changed during extraction; succeeded on attempt ${attempt}`,
+          context: { attempts: attempt },
+        });
+      }
+      return result;
     } catch (error) {
       if (!isConcurrentCatalogChange(error)) throw error;
       if (attempt === MAX_EXTRACT_ATTEMPTS) {
