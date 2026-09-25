@@ -34,6 +34,7 @@ import {
   type RulesForId,
 } from "../rules.ts";
 import {
+  columnAclIdsFor,
   defaultPrivilegeCreateActions,
   renderRevokeAllSql,
 } from "../rules/helpers.ts";
@@ -85,6 +86,10 @@ export interface ActionEmitterOutput {
   foldHints: Array<FoldHint | undefined>;
   acceptsFolds: boolean[];
   renameActionIndices: Set<number>;
+  /** action index → encoded ids in its `destroys` that are side-effect wipes
+   *  (rule-declared `implicitlyDestroys`), for the graph: reproduce edge only,
+   *  no teardown edges. Transient, never persisted. */
+  implicitDestroys: Map<number, Set<string>>;
 }
 
 /**
@@ -120,6 +125,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const foldHints: Array<FoldHint | undefined> = [];
   const acceptsFolds: boolean[] = [];
 
+  // side-effect wipes per action (see ActionEmitterOutput.implicitDestroys)
+  const implicitDestroys = new Map<number, Set<string>>();
+
   const pushAction = (
     verb: Action["verb"],
     spec: ActionSpec,
@@ -127,12 +135,20 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       produces?: StableId[];
       consumes?: StableId[];
       destroys?: StableId[];
+      wipes?: StableId[];
     },
   ): number => {
     const index = actions.length;
     const produces = [...(opts.produces ?? []), ...(spec.alsoProduces ?? [])];
     const destroys = [...(opts.destroys ?? []), ...(spec.alsoDestroys ?? [])];
     const consumes = [...(opts.consumes ?? []), ...(spec.consumes ?? [])];
+    const wipes = (opts.wipes ?? []).filter(
+      (id) => !destroys.some((d) => encodeId(d) === encodeId(id)),
+    );
+    if (wipes.length > 0) {
+      implicitDestroys.set(index, new Set(wipes.map(encodeId)));
+      destroys.push(...wipes);
+    }
     const subjectKind = (produces[0] ?? destroys[0] ?? consumes[0])?.kind;
     actions.push({
       sql: spec.sql,
@@ -155,7 +171,14 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       const key = encodeId(id);
       if (!producerOf.has(key)) producerOf.set(key, index);
     }
-    for (const id of destroys) destroyerOf.set(encodeId(id), index);
+    // a wipe is not the id's destroyer: its own drop (if any) stays the one
+    // consumers / releasers / child teardown order against
+    const wipeKeys = implicitDestroys.get(index);
+    for (const id of destroys) {
+      const key = encodeId(id);
+      if (wipeKeys?.has(key) === true) continue;
+      destroyerOf.set(key, index);
+    }
     return index;
   };
 
@@ -201,6 +224,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   const redirectedOnto = (rootKey: string): readonly StableId[] =>
     redirectedOntoByRoot.get(rootKey) ?? [];
 
+  // facts a statement of this fact's kind wipes as a side effect (rule-declared
+  // `implicitlyDestroys`); attached to the producing create and to the drop as
+  // `wipes`, so their re-creation is ordered after the wipe.
+  const implicitlyDestroyed = (fact: Fact): StableId[] =>
+    rulesForId(fact.id).implicitlyDestroys?.(fact, projectedDesired, source) ??
+    [];
+
   const emitCreate = (fact: Fact, base: FactBase): void => {
     let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
     // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
@@ -216,6 +246,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         ...specs,
       ];
     }
+    const wiped = implicitlyDestroyed(fact);
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -223,6 +254,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
           ...(i === 0 ? [] : [fact.id]),
           ...(fact.parent !== undefined ? [fact.parent] : []),
         ],
+        wipes: i === 0 ? wiped : [],
       });
     });
   };
@@ -317,6 +349,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         consumes:
           isRoot && rootFact.parent !== undefined ? [rootFact.parent] : [],
         destroys,
+        wipes: implicitlyDestroyed(rootFact),
       });
     };
     // Attached child indexes fold into the parent-index replace via
@@ -502,7 +535,11 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
               ? []
               : [{ kind: "role", name: grantee } as StableId],
         },
-        { consumes: [fact.id] },
+        {
+          consumes: [fact.id],
+          // the wipe also revokes this grantee's desired column grants
+          wipes: columnAclIdsFor(aclId, projectedDesired),
+        },
       );
     };
     if (typeof creatingRole === "string") {
@@ -561,6 +598,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       consumes: fact.parent !== undefined ? [fact.parent] : [],
       // the root fact leads: it is the action's subject (tie-break, locks)
       destroys: destroyList,
+      wipes: implicitlyDestroyed(fact),
     });
   }
 
@@ -725,5 +763,6 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     foldHints,
     acceptsFolds,
     renameActionIndices,
+    implicitDestroys,
   };
 }

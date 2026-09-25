@@ -151,6 +151,18 @@ export interface KindRules {
    *  its reference-only members' `memberOfExtension` edges to flag data-loss.
    *  Optional so existing single-arg drop rules stay type-compatible. */
   drop(fact: Fact, view?: FactView): ActionSpec;
+  /** Facts this kind's create AND drop statements wipe as a side effect
+   *  although they are not its descendants — an object-level acl's `REVOKE
+   *  ALL ON <rel> FROM <role>` also revokes that role's column acls on the
+   *  relation (https://www.postgresql.org/docs/current/sql-revoke.html).
+   *  Collected across the desired view (what must be re-granted after the
+   *  wipe) and the source view (what the statement removes); the planner
+   *  orders and recreates them. */
+  implicitlyDestroys?: (
+    fact: Fact,
+    view: FactView,
+    sourceView: FactView,
+  ) => StableId[];
   /** rename support (stage 9): render the in-place rename from the old
    *  fact to the new id. Kinds without this member never become rename
    *  candidates (their changes stay drop+create). */

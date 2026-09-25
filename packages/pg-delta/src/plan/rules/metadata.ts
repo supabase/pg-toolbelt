@@ -4,7 +4,14 @@ import type { Fact } from "../../core/fact.ts";
 import type { StableId } from "../../core/stable-id.ts";
 import { commentTarget, lit } from "../render.ts";
 import type { FactView, KindRules } from "../rules.ts";
-import { aggSig, grantActions, p, renderRevokeAllSql, str } from "./helpers.ts";
+import {
+  aggSig,
+  columnAclIdsFor,
+  grantActions,
+  p,
+  renderRevokeAllSql,
+  str,
+} from "./helpers.ts";
 
 /** The COMMENT / SECURITY LABEL signature for an aggregate `target` — the
  *  `direct ORDER BY ordered` form for an ordered-set / hypothetical-set
@@ -123,6 +130,18 @@ export const metadataRules: Record<string, KindRules> = {
     weight: 21,
     metadata: true,
     create: (fact) => grantActions(fact, "grant"),
+    // every object-level acl statement leads with `REVOKE ALL ON <rel> FROM
+    // <role>`, which also revokes that role's column privileges on the relation
+    implicitlyDestroys: (fact, view, sourceView) => {
+      const id = fact.id as {
+        target: StableId;
+        grantee: string;
+        column?: string;
+      };
+      return id.column === undefined
+        ? columnAclIdsFor(id, view, sourceView)
+        : [];
+    },
     drop: (fact) => {
       const id = fact.id as {
         kind: "acl";

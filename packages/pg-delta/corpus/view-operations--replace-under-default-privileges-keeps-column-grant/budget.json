@@ -1,0 +1,4 @@
+{
+  "a-to-b": { "require": ["replacement:view"] },
+  "b-to-a": { "require": ["replacement:view"] }
+}

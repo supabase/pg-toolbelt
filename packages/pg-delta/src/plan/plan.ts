@@ -725,9 +725,11 @@ export function plan(
   // replacement-expansion.ts). Produces the replaceIds set + dropRootOf map.
   const { replaceIds, dropRootOf } = expandReplacements({
     removed,
+    added,
     setsByFact,
     source,
     desired,
+    projectedDesired,
     rulesForId,
   });
 
@@ -743,6 +745,7 @@ export function plan(
     foldHints,
     acceptsFolds,
     renameActionIndices,
+    implicitDestroys,
   } = emitActions({
     source,
     desired,
@@ -778,6 +781,7 @@ export function plan(
     source,
     desired,
     renameActionIndices,
+    implicitDestroys,
     foldHints,
     acceptsFolds,
     assumedRoleNames,
