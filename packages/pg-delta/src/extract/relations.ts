@@ -474,17 +474,33 @@ const VIEWS_SQL = `
     WHERE c.relkind IN ('v', 'm') AND ${USER_SCHEMA_FILTER}
     ORDER BY n.nspname, c.relname`;
 
+// View/matview column-level ACLs. View columns are not facts (they come from
+// the view definition), so these grants hang off the view itself.
+const VIEW_COLUMN_ACLS_SQL = `
+    SELECT n.nspname AS schema, c.relname AS name, c.relkind AS kind,
+           a.attname AS column,
+           ${aclJson("a.attacl", "c", "c.relowner")} AS acl
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind IN ('v', 'm') AND a.attnum > 0 AND NOT a.attisdropped
+      AND a.attacl IS NOT NULL
+      AND ${USER_SCHEMA_FILTER}
+      AND ${notExtensionMember("pg_class", "c.oid")}
+    ORDER BY n.nspname, c.relname, a.attname`;
+
 export const viewsFamily: CatalogFamily = {
   name: "views",
-  statements: () => [VIEWS_SQL],
+  statements: () => [VIEWS_SQL, VIEW_COLUMN_ACLS_SQL],
   apply: (ctx, rowSets) => {
-    const { pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    const { facts, pushWithMeta, pushMemberEdge, pushOwnerEdge } = ctx;
+    const viewId = (row: Record<string, unknown>): StableId => ({
+      kind: String(row["kind"]) === "m" ? "materializedView" : "view",
+      schema: String(row["schema"]),
+      name: String(row["name"]),
+    });
     for (const row of rowSets[0]!) {
-      const id: StableId = {
-        kind: String(row["kind"]) === "m" ? "materializedView" : "view",
-        schema: String(row["schema"]),
-        name: String(row["name"]),
-      };
+      const id = viewId(row);
       pushWithMeta(
         {
           id,
@@ -496,6 +512,21 @@ export const viewsFamily: CatalogFamily = {
       );
       pushMemberEdge(id, row);
       pushOwnerEdge(id, row["owner"]);
+    }
+    for (const row of rowSets[1]!) {
+      const target = viewId(row);
+      for (const acl of parseAcl(row["acl"])) {
+        facts.push({
+          id: {
+            kind: "acl",
+            target,
+            grantee: acl.grantee,
+            column: String(row["column"]),
+          },
+          parent: target,
+          payload: { privileges: acl.privileges, grantable: acl.grantable },
+        });
+      }
     }
   },
 };

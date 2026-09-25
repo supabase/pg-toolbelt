@@ -55,7 +55,6 @@ const columnAcls = async (db: TestDb, rel: string): Promise<string[]> => {
 
 afterAll(async () => {
   for (const db of dbs) await db.drop();
-  await dbs[0]?.pool.query(`DROP ROLE IF EXISTS ${ROLE}`).catch(() => {});
 });
 
 describe("view column grants: from-empty export", () => {
