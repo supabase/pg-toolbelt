@@ -3,6 +3,7 @@ import type { StableId } from "../core/stable-id.ts";
 import {
   aclJsonMemberAware,
   type CatalogFamily,
+  deparsedDef,
   memberExtensionExpr,
   parseAcl,
   schemaId,
@@ -73,7 +74,7 @@ export const routinesFamily: CatalogFamily = {
           id,
           parent: schemaId(row["schema"]),
           payload: {
-            def: String(row["def"]),
+            def: deparsedDef(row, "routine"),
             // Classification fields for the change path: `def` (pg_get_functiondef)
             // is itself a CREATE OR REPLACE, so a body/volatility/… change alters
             // in place — but return type, language, and window-kind are things

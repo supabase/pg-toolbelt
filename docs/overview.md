@@ -75,7 +75,7 @@ PostgreSQL semantics**. The old engine did it three times.
 | Symptom | Structural cause | Status in new engine |
 |---|---|---|
 | **Data loss**: a schema sync could `DROP` pg_partman partition children and pgmq queue tables | The engine had no notion of "this object is managed by an extension" — it saw rows the desired state lacked and dropped them | **Cannot happen** — `managedBy` provenance edges filter extension-managed objects out of the diff (extension-intent Phase A, shipped) |
-| **Inconsistent reads**: `cache lookup failed` aborts mid-run | ~28 extractors ran on a connection pool with *no shared snapshot*, so the catalog and `pg_depend` could disagree under concurrent DDL | **Cannot happen** — extraction is one `REPEATABLE READ` snapshot, consistent by construction |
+| **Inconsistent reads**: `cache lookup failed` aborts mid-run | ~28 extractors ran on a connection pool with *no shared snapshot*, so the catalog and `pg_depend` could disagree under concurrent DDL | **Retried** — extraction is one `REPEATABLE READ` snapshot, but the `pg_get_*def` deparsers read the latest catalog, so an object dropped mid-extraction fails the attempt; it is retried on a fresh snapshot, and persistent churn raises `ConcurrentCatalogChangeError` |
 | **Wrong function signatures** | libpg-query inferred types from SQL text (temp-schema artifacts, normalization gaps) | **Cannot happen** — PostgreSQL reports the canonical signature |
 | **Ordering bugs that fought their own fix** | A cycle-breaker registry that grew one entry per field-discovered cycle; post-diff normalization re-injected drops the breaker had removed | **Cannot happen** — at fact grain there are no cycles to break |
 

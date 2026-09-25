@@ -33,6 +33,7 @@ export { diff, type Delta } from "./core/diff.ts";
 
 // ── extract ──────────────────────────────────────────────────────────────────
 export {
+  ConcurrentCatalogChangeError,
   extract,
   ExtractionTimeoutError,
   type ExtractResult,

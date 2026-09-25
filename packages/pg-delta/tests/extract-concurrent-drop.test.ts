@@ -131,7 +131,9 @@ for (const concurrency of [1, 4]) {
       const table = `victim_churn_${concurrency}`;
       const restore = interceptQueries(db.pool, async (sql) => {
         if (OPENING_BATCH(sql)) {
-          await side.query(`CREATE TABLE app.${table} (id integer PRIMARY KEY)`);
+          await side.query(
+            `CREATE TABLE app.${table} (id integer PRIMARY KEY)`,
+          );
         } else if (CONSTRAINTS_QUERY(sql)) {
           await side.query(`DROP TABLE app.${table}`);
         }

@@ -84,9 +84,11 @@ import {
 import {
   type BatchRunner,
   type CatalogFamily,
+  ConcurrentCatalogChangeError,
   createCollectorContext,
   type ExtractContext,
   ExtractionTimeoutError,
+  isConcurrentCatalogChange,
   jitOffSql,
   makeBatchRunner,
   makeQueryRunner,
@@ -108,7 +110,11 @@ import { collationsFamily, domainsFamily, typesFamily } from "./types.ts";
 import { detectUnmodeledKinds } from "./unmodeled.ts";
 
 // re-exported for the public API surface (src/index.ts and the test suite)
-export { ExtractionTimeoutError, pruneOrphanedSatellites };
+export {
+  ConcurrentCatalogChangeError,
+  ExtractionTimeoutError,
+  pruneOrphanedSatellites,
+};
 
 export interface ExtractResult {
   factBase: FactBase;
@@ -339,6 +345,14 @@ function appendAll<T>(target: T[], source: readonly T[]): void {
   for (const item of source) target.push(item);
 }
 
+/**
+ * The snapshot keeps extraction consistent, but the `pg_get_*def` deparsers read
+ * the latest catalog: DDL that drops an object mid-extraction fails the attempt
+ * (see isConcurrentCatalogChange). Extraction is read-only, so a fresh snapshot
+ * is a safe retry.
+ */
+const MAX_EXTRACT_ATTEMPTS = 3;
+
 export async function extract(
   pool: Pool,
   options: ExtractOptions = {},
@@ -346,6 +360,28 @@ export async function extract(
   // Validated BEFORE a client is checked out, so a bad option can never leak a
   // connection or an open transaction.
   const streams = resolveStreamCount(options.concurrency, pool.options?.max);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await extractAttempt(pool, options, streams);
+    } catch (error) {
+      if (!isConcurrentCatalogChange(error)) throw error;
+      if (attempt === MAX_EXTRACT_ATTEMPTS) {
+        throw new ConcurrentCatalogChangeError(attempt, error);
+      }
+      log(
+        "catalog changed during extraction attempt %d (%s); retrying",
+        attempt,
+        errorText(error),
+      );
+    }
+  }
+}
+
+async function extractAttempt(
+  pool: Pool,
+  options: ExtractOptions,
+  streams: number,
+): Promise<ExtractResult> {
   const client = await connectWithErrorListener(pool);
   try {
     const result = await extractOnClient(

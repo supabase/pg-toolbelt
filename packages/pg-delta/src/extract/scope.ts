@@ -69,6 +69,61 @@ export class ExtractionTimeoutError extends Error {
 }
 
 /**
+ * Thrown when every extraction attempt raced concurrent DDL: an object the
+ * snapshot still lists was dropped before its definition could be deparsed.
+ * The database is fine; retrying once the DDL settles succeeds. `cause` is the
+ * last attempt's failure.
+ */
+export class ConcurrentCatalogChangeError extends Error {
+  readonly code = "concurrent_catalog_change";
+  readonly attempts: number;
+  constructor(attempts: number, cause: unknown) {
+    super(
+      `the catalog changed during extraction on ${attempts} consecutive attempts (${cause instanceof Error ? cause.message : String(cause)}); retry once concurrent DDL has settled`,
+      { cause },
+    );
+    this.name = "ConcurrentCatalogChangeError";
+    this.attempts = attempts;
+  }
+}
+
+class DroppedDuringExtractionError extends Error {}
+
+// Raised by the `pg_get_*def` deparsers (and relation opens), which read the
+// latest catalog rather than the transaction snapshot, when the object is gone.
+const CONCURRENT_DROP_MESSAGE =
+  /^(cache lookup failed for |could not open relation with OID )/;
+
+/** Whether `error` means the catalog changed under the extraction snapshot. */
+export function isConcurrentCatalogChange(error: unknown): boolean {
+  if (error instanceof DroppedDuringExtractionError) return true;
+  const { code, message } = (error ?? {}) as {
+    code?: unknown;
+    message?: unknown;
+  };
+  return (
+    code === "XX000" &&
+    typeof message === "string" &&
+    CONCURRENT_DROP_MESSAGE.test(message)
+  );
+}
+
+/**
+ * The `def` column of a row whose object the snapshot lists. The deparsers return
+ * NULL, instead of failing, for some objects dropped after the snapshot was
+ * taken; that must trigger a retry, never become a `"null"` definition.
+ */
+export function deparsedDef(row: Row, kind: string): string {
+  const def = row["def"];
+  if (typeof def !== "string") {
+    throw new DroppedDuringExtractionError(
+      `${kind} ${String(row["schema"])}.${String(row["name"])} was dropped during extraction`,
+    );
+  }
+  return def;
+}
+
+/**
  * Consistency invariant (hardening Item 4a; review #1): a metadata satellite
  * (comment / acl / securityLabel) must never outlive its target. Most are
  * pushed via `pushWithMeta` alongside their object, so a filtered object never
