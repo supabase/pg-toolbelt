@@ -20,7 +20,7 @@ const SCHEMA_SQL = `
   CREATE TABLE private.items (
     id integer PRIMARY KEY, name text NOT NULL, is_active boolean NOT NULL DEFAULT true
   );
-  CREATE VIEW api.items WITH (security_invoker = true) AS
+  CREATE VIEW api.items AS
     SELECT id, name, is_active FROM private.items;
   CREATE MATERIALIZED VIEW api.item_names AS SELECT id, name FROM private.items;`;
 
