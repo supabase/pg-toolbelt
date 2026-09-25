@@ -3,7 +3,7 @@ import {
   buildApplyPreamble,
   type ApplyTimeoutOptions,
 } from "../apply/apply-preamble.ts";
-import { segmentActions } from "../apply/apply.ts";
+import { assertNoUnsettableOwners, segmentActions } from "../apply/apply.ts";
 
 function terminate(sql: string): string {
   const trimmed = sql.trimEnd();
@@ -20,6 +20,7 @@ export function renderApplyScript(
   plan: Plan,
   timeoutOptions?: ApplyTimeoutOptions,
 ): string {
+  assertNoUnsettableOwners(plan, "dry-run script");
   if (plan.actions.length === 0) return "";
 
   const segments = segmentActions(plan.actions);

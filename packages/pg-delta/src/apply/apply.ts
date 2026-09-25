@@ -244,6 +244,21 @@ function emit(
   }
 }
 
+/** Refuse a plan flagged with `capability.owner`: its owner ALTERs cannot run
+ *  as the applier the plan was made for, and a failure mid-plan could leave
+ *  earlier segments committed. */
+export function assertNoUnsettableOwners(thePlan: Plan, context: string): void {
+  const blocked = (thePlan.diagnostics ?? []).filter(
+    (d) => d.code === CAPABILITY_OWNER,
+  );
+  const [first] = blocked;
+  if (first === undefined) return;
+  const more = blocked.length > 1 ? ` (+${blocked.length - 1} more)` : "";
+  throw new Error(
+    `${context}: ${first.message}${more}. To apply as a more privileged role, re-plan without the applier restriction (restrictToApplier: false / --no-restrict-to-applier)`,
+  );
+}
+
 export async function apply(
   thePlan: Plan,
   target: Pool,
@@ -265,17 +280,7 @@ export async function apply(
     thePlan.acceptedRenames,
     "apply",
   );
-  const ownerBlocked = (thePlan.diagnostics ?? []).filter(
-    (d) => d.code === CAPABILITY_OWNER,
-  );
-  const [firstOwnerBlocked] = ownerBlocked;
-  if (firstOwnerBlocked !== undefined) {
-    const more =
-      ownerBlocked.length > 1 ? ` (+${ownerBlocked.length - 1} more)` : "";
-    throw new Error(
-      `apply: ${firstOwnerBlocked.message}${more}. To apply as a more privileged role, re-plan without the applier restriction (restrictToApplier: false / --no-restrict-to-applier)`,
-    );
-  }
+  assertNoUnsettableOwners(thePlan, "apply");
   if (options?.fingerprintGate !== false) {
     // Gate against the SAME managed view the plan was produced from (P0-2).
     // plan() fingerprints the resolveView'd source (extension-member + policy +
