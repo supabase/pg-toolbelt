@@ -185,6 +185,11 @@ export interface KindRules {
     fact: Fact,
     isRemoved: (id: StableId) => boolean,
   ) => StableId | undefined;
+  /** the ancestor to replace when this fact must be replaced but has no drop
+   *  and recreate of its own. A partition key column can't be retyped or
+   *  dropped, so the plan replaces its partitioned table. The ancestor's
+   *  subtree then recreates the fact. */
+  replaceRoot?: (fact: Fact) => StableId | undefined;
   /** pg_default_acl objtype char for the default-privilege hygiene pass
    *  (table/view/matview/foreignTable → 'r', sequence → 'S',
    *  procedure/aggregate → 'f'); absent for kinds with no default ACLs */

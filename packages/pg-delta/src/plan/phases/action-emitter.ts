@@ -283,6 +283,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // ADDed by CREATE … FOR TABLE must not also emit ALTER PUBLICATION ADD TABLE).
   // Emission order does not affect apply order (the action graph re-sorts).
   const recreatedByReplace = new Set<string>();
+  // children a replace's CREATE writes inline (`alsoProduces`). The CREATE
+  // already renders their projected payload, so skip their attribute alters.
+  const inlinedByReplace = new Set<string>();
   for (const key of replaceIds) {
     const oldFact = source.getByEncoded(key) as Fact;
     // the replacement is rendered from the PROJECTED plan target, so a filtered
@@ -340,6 +343,7 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         // standalone action (which would duplicate it and fail apply), but still
         // descend for any non-inlined descendants. Mirrors the added-create loop.
         if (producerOf.has(childKey)) {
+          inlinedByReplace.add(childKey);
           recreate(child.id);
           continue;
         }
@@ -566,7 +570,13 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
 
   // in-place alters (skipped for facts a replace already recreated)
   for (const [key, sets] of setsByFact) {
-    if (replaceIds.has(key) || recreatedByReplace.has(key)) continue;
+    if (
+      replaceIds.has(key) ||
+      recreatedByReplace.has(key) ||
+      inlinedByReplace.has(key)
+    ) {
+      continue;
+    }
     // alters also render against the PROJECTED plan target: an alter that inlines
     // a child reference (ALTER COLUMN … TYPE … re-applying the desired DEFAULT,
     // REPLICA IDENTITY USING a desired index) must not surface a filtered-out

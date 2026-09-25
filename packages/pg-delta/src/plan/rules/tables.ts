@@ -208,6 +208,11 @@ export const tableRules: Record<string, KindRules> = {
   column: {
     weight: 5,
     cascadesToChildren: true,
+    // Postgres rejects ALTER COLUMN ... TYPE and DROP COLUMN on a partition
+    // key column ("... is part of the partition key of relation ..."). Any
+    // replace of one (type, collation) replaces the partitioned table instead.
+    replaceRoot: (fact) =>
+      p(fact, "_partitionKey") === true ? fact.parent : undefined,
     rename: (fact, to) => {
       const { schema, table, column } = columnRef(fact);
       return {
@@ -358,6 +363,9 @@ export const tableRules: Record<string, KindRules> = {
           }
           return specs;
         },
+        // a partition key column can't be retyped in place. `replaceRoot`
+        // moves the replace up to its partitioned table.
+        replaceWhen: (_from, _to, fact) => p(fact, "_partitionKey") === true,
         // PostgreSQL rejects ALTER COLUMN … TYPE while a view, rule, or
         // policy references the column (0A000). Those dependents must be
         // dropped before the alter and recreated after; indexes and

@@ -87,6 +87,32 @@ export function expandReplacements(
     }
   }
 
+  // Some facts can't be replaced on their own. Their rule names an ancestor
+  // to replace instead (`replaceRoot`). The ancestor trim below then removes
+  // the fact, and the ancestor's subtree recreates it. Check both sides, as
+  // `replaceWhen` does: the drop runs on the source, and the create renders
+  // the desired state.
+  {
+    const lift = [...replaceIds];
+    while (lift.length > 0) {
+      const key = lift.pop() as string;
+      const sourceFact = source.getByEncoded(key);
+      const desiredFact = desired.getByEncoded(key);
+      const fact = sourceFact ?? desiredFact;
+      if (fact === undefined) continue;
+      const replaceRoot = rulesForId(fact.id).replaceRoot;
+      if (replaceRoot === undefined) continue;
+      const root =
+        (sourceFact && replaceRoot(sourceFact)) ??
+        (desiredFact && replaceRoot(desiredFact));
+      if (root === undefined) continue;
+      const rootKey = encodeId(root);
+      if (replaceIds.has(rootKey)) continue;
+      replaceIds.add(rootKey);
+      lift.push(rootKey);
+    }
+  }
+
   const isRemovedId = (id: StableId): boolean => {
     const key = encodeId(id);
     return removed.has(key) || replaceIds.has(key);

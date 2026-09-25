@@ -136,6 +136,22 @@ const COLUMNS_SQL = `
               AND d.deptype = 'i'
             LIMIT 1) AS identity_options,
            NULLIF(a.attgenerated, '') AS generated,
+           -- Postgres records each partition key column as an internal
+           -- dependency of its own table. This covers plain key columns and
+           -- columns used in a key expression. The check walks the whole
+           -- partition tree, because ALTER COLUMN ... TYPE on the root
+           -- recurses into sub-partitions and fails on their keys too.
+           -- Partitions match columns by name, since attnum can differ.
+           CASE WHEN c.relkind = 'p' THEN EXISTS (
+             SELECT 1
+             FROM pg_partition_tree(c.oid) pt
+             JOIN pg_attribute pa ON pa.attrelid = pt.relid AND pa.attname = a.attname
+             JOIN pg_depend d ON d.classid = 'pg_class'::regclass
+               AND d.objid = pt.relid AND d.objsubid = pa.attnum
+               AND d.refclassid = 'pg_class'::regclass
+               AND d.refobjid = pt.relid AND d.refobjsubid = 0
+               AND d.deptype = 'i')
+           ELSE false END AS partition_key,
            CASE WHEN a.attcollation <> t.typcollation THEN (
              SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
              FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
@@ -194,6 +210,13 @@ export const columnsFamily: CatalogFamily = {
             // ordering phase (plan/phases/action-graph.ts) and the partitioned
             // inline-column path (plan/rules/tables.ts) render in this order.
             _position: Number(row["position"]),
+            // `_partitionKey` marks a column in the partition key of its table
+            // or of a sub-partition. Postgres rejects ALTER COLUMN ... TYPE
+            // and DROP COLUMN on it, so the column rule replaces the
+            // partitioned table instead (plan/rules/tables.ts). The table fact
+            // already hashes the partition key. The `_` prefix keeps this copy
+            // out of the hash and diff.
+            _partitionKey: Boolean(row["partition_key"]),
             type: String(row["type"]),
             notNull: Boolean(row["not_null"]),
             identity:
