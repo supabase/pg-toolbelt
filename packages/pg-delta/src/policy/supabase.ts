@@ -69,10 +69,10 @@
  *         AUTHORIZATION clause
  *
  * Old-14: serialize skipSchema for extensions installing their own schema
- *         → REMOVED. The SCHEMA clause is now derived from the extension's
- *         `relocatable` fact (pg_extension.extrelocatable): a non-relocatable
- *         extension emits a bare CREATE EXTENSION. No name list, not
- *         Supabase-specific. See docs/architecture/managed-view-architecture.md (move 2).
+ *         → REMOVED. The extension create rule derives the SCHEMA clause from
+ *         the schema's presence and the control-file-pinned schema
+ *         (`_controlSchema`). No name list, not Supabase-specific. See
+ *         docs/architecture/managed-view-architecture.md (move 2).
  *
  * BASELINE
  * The baseline field names the snapshot that represents "empty" on a Supabase
@@ -324,10 +324,9 @@ export const supabasePolicy: Policy = {
     // → CREATE SCHEMA renders without AUTHORIZATION by construction, not via param.
     // See docs/architecture/managed-view-architecture.md (move 2).
     //
-    // Old-14 (REMOVED): the SCHEMA clause is now derived from the extension's
-    // `relocatable` fact (pg_extension.extrelocatable) in the extension rule —
-    // a non-relocatable extension (pgmq / pgsodium / pgtle) emits a bare
-    // CREATE EXTENSION with no name list and nothing Supabase-specific.
+    // Old-14 (REMOVED): the extension create rule derives the SCHEMA clause
+    // from the schema's presence and the control-file-pinned schema, with
+    // nothing Supabase-specific.
     // See docs/architecture/managed-view-architecture.md (move 2).
   ],
 
