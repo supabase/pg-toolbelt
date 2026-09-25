@@ -10,11 +10,14 @@
 import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import type { Pool } from "pg";
+import { apply } from "../apply/apply.ts";
 import { resolveView } from "./policy.ts";
 import { plan } from "../plan/plan.ts";
 import {
   CAPABILITY_CREATEROLE_SELF_ADMIN,
   CAPABILITY_FDW_ACL,
+  CAPABILITY_OWNER,
   capabilityExcludedRoots,
   type ApplierCapability,
 } from "./capability.ts";
@@ -150,9 +153,10 @@ describe("ApplierCapability — PG16+ CREATEROLE self-ADMIN membership", () => {
   });
 });
 
-describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
+describe("ApplierCapability — owner residue (follow-up 1)", () => {
   // owner can't be silently skipped (acldefault is owner-relative → no
-  // convergence), so an owner action the applier can't run is a plan-time error.
+  // convergence). plan() still emits the owner ALTER and flags it; apply()
+  // refuses the flagged plan before any statement runs.
   const schemaApp: StableId = { kind: "schema", name: "app" };
   const r1: StableId = { kind: "role", name: "r1" };
   const r2: StableId = { kind: "role", name: "r2" };
@@ -166,26 +170,70 @@ describe("ApplierCapability — owner residue fail-fast (follow-up 1)", () => {
   const desiredOwnedBy = (role: StableId) =>
     buildFactBase([f(schemaApp), f(role)], [ownerEdge(role)]);
   const source = (role: StableId) => buildFactBase([f(role)], []);
+  const untouchablePool = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("apply touched the target pool");
+      },
+    },
+  ) as unknown as Pool;
 
-  test("plan throws when a non-superuser must set an owner it is not a member of", () => {
-    expect(() =>
-      plan(source(r2), desiredOwnedBy(r2), { capability: memberOfR1 }),
-    ).toThrow(/cannot set owner/);
+  test("plan emits the owner ALTER with a warning when the applier cannot set the owner", () => {
+    const thePlan = plan(source(r2), desiredOwnedBy(r2), {
+      capability: memberOfR1,
+    });
+    expect(thePlan.actions.some((a) => a.sql.includes('OWNER TO "r2"'))).toBe(
+      true,
+    );
+    expect(thePlan.diagnostics).toEqual([
+      {
+        code: CAPABILITY_OWNER,
+        severity: "warning",
+        subject: schemaApp,
+        message: expect.stringMatching(
+          /cannot set owner of schema:app to role "r2" — applier "app"/,
+        ),
+        context: { role: "r2", applier: "app" },
+      },
+    ]);
   });
 
-  test("plan succeeds when the owner is a role the applier is a member of", () => {
-    expect(() =>
-      plan(source(r1), desiredOwnedBy(r1), { capability: memberOfR1 }),
-    ).not.toThrow();
+  test("apply refuses a flagged plan before touching the target", async () => {
+    const thePlan = plan(source(r2), desiredOwnedBy(r2), {
+      capability: memberOfR1,
+    });
+    const err = await apply(thePlan, untouchablePool).catch((e: unknown) => e);
+    expect(String(err)).toMatch(
+      /apply: cannot set owner of schema:app to role "r2"/,
+    );
   });
 
-  test("superuser can set any owner (no throw)", () => {
-    expect(() =>
-      plan(source(r2), desiredOwnedBy(r2), { capability: superuser }),
-    ).not.toThrow();
+  test("stripping the owner warning invalidates the planId", async () => {
+    const { diagnostics: _dropped, ...stripped } = plan(
+      source(r2),
+      desiredOwnedBy(r2),
+      { capability: memberOfR1 },
+    );
+    const err = await apply(stripped, untouchablePool).catch((e: unknown) => e);
+    expect(String(err)).toMatch(/apply: planId does not match contents/);
+  });
+
+  test("no warning when the owner is a role the applier is a member of", () => {
+    const thePlan = plan(source(r1), desiredOwnedBy(r1), {
+      capability: memberOfR1,
+    });
+    expect(thePlan.diagnostics).toBeUndefined();
+  });
+
+  test("superuser can set any owner (no warning)", () => {
+    const thePlan = plan(source(r2), desiredOwnedBy(r2), {
+      capability: superuser,
+    });
+    expect(thePlan.diagnostics).toBeUndefined();
   });
 
   test("no capability → no owner restriction (corpus path)", () => {
-    expect(() => plan(source(r2), desiredOwnedBy(r2))).not.toThrow();
+    expect(plan(source(r2), desiredOwnedBy(r2)).diagnostics).toBeUndefined();
   });
 });

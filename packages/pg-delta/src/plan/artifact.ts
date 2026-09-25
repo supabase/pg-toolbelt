@@ -10,6 +10,7 @@
  */
 import { contentHash, type Payload } from "../core/hash.ts";
 import { ALL_FACT_KINDS, type StableId } from "../core/stable-id.ts";
+import { CAPABILITY_OWNER } from "../policy/capability.ts";
 import { normalizeProjectionAudit } from "../policy/reconstruct.ts";
 import { ENGINE_VERSION, type Action, type Plan } from "./plan.ts";
 
@@ -288,6 +289,12 @@ export function computePlanId(plan: Omit<Plan, "planId">): string {
     scope: plan.scope,
     policy: plan.policy as Payload | undefined,
   };
+  // apply() refuses on these, so stripping them must break the planId. Keyed
+  // only when present: unflagged plans keep their planId.
+  const unsettableOwners = (plan.diagnostics ?? [])
+    .filter((d) => d.code === CAPABILITY_OWNER)
+    .map((d) => d.subject ?? null);
+  if (unsettableOwners.length > 0) payload.unsettableOwners = unsettableOwners;
   return contentHash(payload);
 }
 

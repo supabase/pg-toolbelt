@@ -206,7 +206,8 @@ export interface Plan {
   safetyReport: SafetyReport;
   /** Plan-time diagnostics that are not extraction-time (e.g. `vault_presence`).
    *  Omitted when empty so corpus / direct-library artifacts stay byte-identical.
-   *  Not part of planId — reporting metadata, not approved run content. */
+   *  Not part of planId (reporting metadata), except `capability.owner`
+   *  subjects: apply() refuses on those, so they are hashed. */
   diagnostics?: Diagnostic[];
 }
 
@@ -743,6 +744,7 @@ export function plan(
     foldHints,
     acceptsFolds,
     renameActionIndices,
+    diagnostics: emitDiags,
   } = emitActions({
     source,
     desired,
@@ -792,7 +794,10 @@ export function plan(
   });
   const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
+  const planDiags = [
+    ...emitDiags,
+    ...vaultPresenceDiagnostics(desired, finalized.actions),
+  ];
 
   return stampPlanId({
     formatVersion: 1,
@@ -853,9 +858,10 @@ export function plan(
       : {}),
     actions: finalized.actions,
     safetyReport,
-    // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
-    // secret values/keys are not schema state. Omitted when empty so corpus
-    // artifacts stay byte-identical. Not hashed into planId.
-    ...(vaultDiags.length > 0 ? { diagnostics: vaultDiags } : {}),
+    // Owner ALTERs the applier cannot run (apply refuses them) and vault
+    // presence (secret values/keys are not schema state). Omitted when empty so
+    // corpus artifacts stay byte-identical. Only `capability.owner` subjects
+    // are hashed into planId.
+    ...(planDiags.length > 0 ? { diagnostics: planDiags } : {}),
   });
 }

@@ -1239,7 +1239,7 @@ export function resolveView(
   // GRANTs and a leaf fact, so they project out cleanly. PG16+ CREATEROLE
   // self-ADMIN memberships are the same class (GRANT … TO <self> WITH ADMIN
   // OPTION is 0LP01). (The owner residue is NOT projected — it can't be skipped
-  // without an ACL ripple — it fail-fasts in plan() instead; see
+  // without an ACL ripple — plan() flags it and apply() refuses; see
   // capability.canSetOwner.)
   if (capability !== undefined) {
     const capRoots = capabilityExcludedRoots(base, capability);

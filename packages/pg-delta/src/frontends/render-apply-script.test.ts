@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { stampPlanId, type Action, type Plan } from "../plan/plan.ts";
+import { CAPABILITY_OWNER } from "../policy/capability.ts";
 import { renderApplyScript } from "./render-apply-script.ts";
 
 function action(
@@ -52,6 +53,22 @@ function planWithMixedSegments(): Plan {
 }
 
 describe("renderApplyScript", () => {
+  test("refuses a plan flagged with an owner the applier cannot set", () => {
+    const flagged: Plan = {
+      ...planWithMixedSegments(),
+      diagnostics: [
+        {
+          code: CAPABILITY_OWNER,
+          severity: "warning",
+          message: 'cannot set owner of schema:app to role "r2"',
+        },
+      ],
+    };
+    expect(() => renderApplyScript(flagged)).toThrow(
+      /dry-run script: cannot set owner of schema:app to role "r2"/,
+    );
+  });
+
   test("renders the exact apply transaction framing and full preamble", () => {
     expect(
       renderApplyScript(planWithMixedSegments(), {

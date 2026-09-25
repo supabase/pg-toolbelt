@@ -1787,3 +1787,28 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## `capability.owner` — owner check precision (SUPABASE-API-8RT)
+
+The owner check moved from a `plan()` throw to a `capability.owner` warning that
+`apply()` refuses. `canSetOwner` itself was left as is; two known imprecisions
+remain:
+
+- **Plan-created memberships are ignored.** The check reads the applier's
+  memberships probed on the SOURCE. When the desired state creates the owner
+  role and grants it to the applier (`GRANT r TO postgres`), the planned grant
+  would make the `ALTER … OWNER TO r` runnable, but the check still flags it.
+  Fixing it also needs the owner ALTER ordered after that membership action.
+- **PG16+ needs SET, not just MEMBER.** `probeApplierCapability` lists roles via
+  `pg_has_role(…, 'MEMBER')`, but PG16+ `ALTER … OWNER` requires the SET option
+  (`must be able to SET ROLE`). A CREATEROLE creator's implicit ADMIN-only grant
+  counts as MEMBER, so the check passes and the ALTER fails at apply
+  (reproduced on `postgres:17-alpine`).
+- **`renderApplyScript()` does not verify `planId`.** It refuses a plan carrying
+  a `capability.owner` diagnostic, but a library caller that strips the
+  diagnostic from a stamped plan and then renders gets the owner ALTERs
+  (`apply()` and `parsePlan()` catch that via `assertPlanId`). The only
+  in-repo caller (`schema apply --dry-run`) renders a freshly stamped plan.
+  Adding `assertPlanId` would make the public renderer reject hand-built or
+  mutated plans, which is an API contract change for its own PR (PR #493
+  review triage).
