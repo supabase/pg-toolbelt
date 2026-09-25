@@ -92,9 +92,9 @@ export const schemasAndExtensionsFamily: CatalogFamily = {
           payload: extensionPayload(
             String(row["schema"]),
             Boolean(row["relocatable"]),
-            row["control_schema"] == null
-              ? undefined
-              : String(row["control_schema"]),
+            typeof row["control_schema"] === "string"
+              ? row["control_schema"]
+              : undefined,
           ),
         },
         row,
