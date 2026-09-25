@@ -99,6 +99,15 @@ describe("column type change from an enum", () => {
     `);
   });
 
+  test("enum → non-enum keeps the direct cast (honours a user-defined cast)", () => {
+    expect(retype(state("app.status", "status"), state("integer", null)))
+      .toMatchInlineSnapshot(`
+      [
+        "ALTER TABLE "app"."t" ALTER COLUMN "c" TYPE integer USING "c"::integer",
+      ]
+    `);
+  });
+
   test("text → enum keeps the direct cast", () => {
     expect(
       retype(state("text", null), state("app.widget_status", "widget_status")),
