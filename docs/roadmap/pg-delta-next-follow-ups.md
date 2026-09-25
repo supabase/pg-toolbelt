@@ -1787,3 +1787,26 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## supabase/cli#6761 — view / matview column-level grants
+
+Column grants on views and materialized views (`pg_attribute.attacl`, relkind
+`v`/`m`) are now extracted as `acl` facts with a `column` qualifier, parented
+on the view (view columns are not facts). Previously tracked as
+supabase/pg-toolbelt#359, which was closed as a duplicate of #332 item 4
+(view column **comments**) and so left the grant half untracked.
+
+Deferred:
+
+- **Object-level `REVOKE ALL` wipes same-role column grants.** Pre-existing
+  for tables, and now reachable for views: PostgreSQL revokes matching column
+  privileges with any table-level revoke, and the planner neither orders the
+  column GRANT after it nor re-emits it on replace.
+  https://github.com/supabase/pg-toolbelt/issues/491 (next PR).
+- **Extension-member relations.** Column grants on extension-owned views stay
+  invisible, like extension-owned table columns today (`columnsFamily` also
+  filters `notExtensionMember`). A correct fix needs a column-aware
+  initial-privileges delta: `memberAclDeltaJson` hardcodes
+  `pg_init_privs.objsubid = 0`. Tables and views should be fixed together.
+- **View / matview column comments** (#332 item 4) need their own
+  representation; out of scope here.

@@ -1,0 +1,4 @@
+{
+  "a-to-b": { "require": ["create:acl"], "forbid": ["replacement:view"] },
+  "b-to-a": { "require": ["drop:acl"], "forbid": ["replacement:view"] }
+}
