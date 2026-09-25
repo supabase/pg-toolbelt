@@ -50,19 +50,17 @@ export const schemaRules: Record<string, KindRules> = {
 
   extension: {
     weight: 2,
-    // Whether to emit `SCHEMA <s>` is a PLAN-TIME property, not an extract-time
-    // one: the clause is valid iff schema `s` EXISTS when CREATE EXTENSION runs.
-    // Emit it when `s` is present on the target (source view — including the
-    // reference-only platform schemas the policy keeps, e.g. Supabase's
-    // "extensions"), OR when `s` is created by this plan (a managed, non-
-    // reference-only desired schema; the `consumes` edge orders CREATE SCHEMA
-    // first). Otherwise the extension creates its OWN schema from its control
-    // file (pgmq), so the clause would fail against a not-yet-existing schema —
-    // emit the bare form; built-in schemas (pg_cron's pg_catalog) are never
-    // extracted and fall here too. `relocatable` / `_schemaIsMember` cannot
-    // express this — the `deptype='e'` schema→extension edge never exists, so
-    // `_schemaIsMember` was always false and the rule always emitted the clause
-    // (da8ce04 regression). See docs/architecture/managed-view-architecture.md.
+    // Whether to emit `SCHEMA <s>` is a PLAN-TIME property: the clause is valid
+    // iff schema `s` EXISTS when CREATE EXTENSION runs — present on the target
+    // (source view, incl. reference-only platform schemas such as Supabase's
+    // `extensions`) or created by this plan (managed desired schema; `consumes`
+    // orders CREATE SCHEMA first). Otherwise emit the bare form; built-in
+    // schemas (pg_cron's pg_catalog) are never extracted and fall here too.
+    // When the control file pins `s`, drop the clause but keep the ordering:
+    // Postgres finds or creates the pinned schema itself, while the clause only
+    // adds a must-exist check that fails where `s` is merely assumed (the
+    // export's pristine source seeds platform schemas such as `pgmq` that a
+    // fresh database lacks). See docs/architecture/managed-view-architecture.md.
     create: (fact, view, _params, sourceView) => {
       const schemaName = str(p(fact, "schema"));
       const schemaId: StableId = { kind: "schema", name: schemaName };
@@ -70,13 +68,15 @@ export const schemaRules: Record<string, KindRules> = {
         sourceView?.get(schemaId) !== undefined ||
         (view.get(schemaId) !== undefined && !view.isReferenceOnly(schemaId));
       const name = qid((fact.id as { name: string }).name);
+      if (!schemaPresent) return [{ sql: `CREATE EXTENSION ${name}` }];
       return [
-        schemaPresent
-          ? {
-              sql: `CREATE EXTENSION ${name} SCHEMA ${qid(schemaName)}`,
-              consumes: [schemaId],
-            }
-          : { sql: `CREATE EXTENSION ${name}` },
+        {
+          sql:
+            p(fact, "_controlSchema") === schemaName
+              ? `CREATE EXTENSION ${name}`
+              : `CREATE EXTENSION ${name} SCHEMA ${qid(schemaName)}`,
+          consumes: [schemaId],
+        },
       ];
     },
     // DROP EXTENSION cascades to its member objects (pg_depend deptype 'e'), but
