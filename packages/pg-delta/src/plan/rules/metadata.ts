@@ -2,9 +2,9 @@
  *  ACL grants. */
 import type { Fact } from "../../core/fact.ts";
 import type { StableId } from "../../core/stable-id.ts";
-import { commentTarget, grantTarget, lit, qid } from "../render.ts";
+import { commentTarget, lit } from "../render.ts";
 import type { FactView, KindRules } from "../rules.ts";
-import { aggSig, grantActions, p, str } from "./helpers.ts";
+import { aggSig, grantActions, p, renderRevokeAllSql, str } from "./helpers.ts";
 
 /** The COMMENT / SECURITY LABEL signature for an aggregate `target` — the
  *  `direct ORDER BY ordered` form for an ordered-set / hypothetical-set
@@ -130,14 +130,8 @@ export const metadataRules: Record<string, KindRules> = {
         grantee: string;
         column?: string;
       };
-      const grantee = id.grantee === "PUBLIC" ? "PUBLIC" : qid(id.grantee);
       const consumes: StableId[] =
         id.grantee === "PUBLIC" ? [] : [{ kind: "role", name: id.grantee }];
-      // Column-level grants revoke with the column list; object-level ones don't.
-      const revokeAll =
-        id.column === undefined
-          ? "REVOKE ALL"
-          : `REVOKE ALL (${qid(id.column)})`;
       const init = p(fact, "_initPrivs") as
         | { privileges: string[]; grantable: string[] }
         | undefined;
@@ -146,7 +140,11 @@ export const metadataRules: Record<string, KindRules> = {
       // REVOKE so the replace-path drop elision still fires.
       if (init === undefined) {
         return {
-          sql: `${revokeAll} ON ${grantTarget(id.target)} FROM ${grantee}`,
+          sql: renderRevokeAllSql(
+            id.target,
+            [id.grantee],
+            id.column !== undefined ? { column: id.column } : {},
+          ),
           consumes,
         };
       }

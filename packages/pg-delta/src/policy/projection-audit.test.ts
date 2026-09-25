@@ -539,6 +539,41 @@ describe("attributed projection audit", () => {
     });
   });
 
+  test("capability restriction attributes a CREATEROLE self-ADMIN membership", () => {
+    const created: StableId = { kind: "role", name: "created" };
+    const membership: StableId = {
+      kind: "membership",
+      role: "created",
+      member: "app",
+    };
+    const source = buildFactBase([fact(created)], []);
+    const desired = buildFactBase(
+      [fact(created), fact(membership, { admin: true })],
+      [],
+    );
+    const capability: ApplierCapability = {
+      role: "app",
+      isSuperuser: false,
+      memberOf: [],
+      createRole: true,
+      pgMajor: 16,
+    };
+
+    expect(
+      auditManagedViewProjection(source, desired, { capability }).entries[0],
+    ).toMatchObject({
+      subject: { kind: "fact", id: membership },
+      classification: "acknowledged",
+      suppressions: [
+        {
+          side: "desired",
+          stage: "capability",
+          reasonCode: "capability.createrole-self-admin",
+        },
+      ],
+    });
+  });
+
   test("Supabase's intentional FDW ACL exclusion is acknowledged", () => {
     const wrapper: StableId = { kind: "fdw", name: "remote" };
     const acl: StableId = { kind: "acl", target: wrapper, grantee: "reader" };

@@ -19,6 +19,7 @@ import {
   formatProofFailure,
   formatProofPassCaveat,
   formatProofPassCoverage,
+  proveOptionsFromProfile,
 } from "./prove.ts";
 import { connectionEndpointHash } from "../connection-safety.ts";
 import type { ProofCoverage } from "../../proof/prove.ts";
@@ -45,6 +46,23 @@ const baseVerdict = (): ProofVerdict => ({
   dataViolations: [],
   rewriteViolations: [],
   coverage: { tablesChecked: 0, tablesSkipped: [], perTable: [] },
+});
+
+describe("proveOptionsFromProfile", () => {
+  test("drops a live-probed capability so provePlan uses the plan artifact", () => {
+    const fromClone = proveOptionsFromProfile({
+      capability: {
+        role: "clone_role",
+        isSuperuser: false,
+        memberOf: [],
+        createRole: true,
+        pgMajor: 17,
+      },
+      reextract: async () => ({ factBase: buildFactBase([], []) }),
+    });
+    expect("capability" in fromClone).toBe(false);
+    expect(fromClone.reextract).toBeDefined();
+  });
 });
 
 describe("assertProofCloneEndpoint", () => {

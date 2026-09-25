@@ -28,9 +28,11 @@ export function schemaCreateSql(
  *  a "converging" drop+create nukes spatial data and still looks successful. */
 const NEVER_REPLACE_FOR_RELOCATION = new Set(["postgis"]);
 
+export const SCHEMA_WEIGHT = 1;
+
 export const schemaRules: Record<string, KindRules> = {
   schema: {
-    weight: 1,
+    weight: SCHEMA_WEIGHT,
     defaclObjtype: "n", // ALTER DEFAULT PRIVILEGES … ON SCHEMAS
     rename: renameRule(
       (fact) => `ALTER SCHEMA ${qid((fact.id as { name: string }).name)}`,

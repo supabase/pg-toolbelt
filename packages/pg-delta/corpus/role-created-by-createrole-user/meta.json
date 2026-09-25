@@ -1,0 +1,5 @@
+{
+  "isolatedCluster": true,
+  "minVersion": 16,
+  "createroleApplier": true
+}

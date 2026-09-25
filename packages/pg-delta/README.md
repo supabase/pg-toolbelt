@@ -44,7 +44,11 @@ pgdelta schema apply  --dir ./schema --shadow postgres://…/scratch --target po
 ```ts
 import { extract } from "@supabase/pg-delta/extract";
 import { plan } from "@supabase/pg-delta/plan";
-import { apply } from "@supabase/pg-delta/apply";
+import {
+  apply,
+  estimateLockTableBudget,
+  splitPlan,
+} from "@supabase/pg-delta/apply";
 import { provePlan } from "@supabase/pg-delta/proof";
 
 const source = await extract(sourcePool);
@@ -53,6 +57,9 @@ const desired = await extract(desiredPool);
 const migration = plan(source.factBase, desired.factBase);
 await provePlan(migration, clonePool, desired.factBase); // optional but recommended
 await apply(migration, sourcePool);
+// Empty-target baseline that will not fit in one lock table:
+// const budget = await estimateLockTableBudget(sourcePool);
+// await apply(splitPlan(migration, { maxLocks: budget.available }), sourcePool);
 ```
 
 ## Commands
@@ -123,8 +130,12 @@ schema/
     roles.sql                 ← cluster-global roles/memberships appear under
     publications.sql             --scope cluster (the default --scope database
     extensions/pgcrypto.sql      omits them)
+    default_privileges.sql    ← GRANT default privileges with no schema
+    adp_wipes.sql             ← overlay REVOKE ALL when schema is omitted
   app/
     schema.sql
+    adp_wipes.sql             ← overlay REVOKE ALL before objects in this schema
+    default_privileges.sql    ← GRANT default privileges after objects
     tables/users.sql          ← columns, defaults, constraints, indexes,
     views/user_notes.sql         triggers and policies live with their relation
     functions/add.sql

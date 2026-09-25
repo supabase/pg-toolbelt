@@ -15,6 +15,8 @@
  * so rename detection stays unambiguous, and prove plans that drop/rename roles
  * against the SACRIFICIAL source database directly (never a clone — a clone
  * leaves the original source pinning the old role; see owner-edge.test.ts).
+ * Tests that must create canonical names (`postgres`, `anon`, …) use
+ * `startStockCluster()` and `stop()` it — never the pair.
  */
 import {
   GenericContainer,
@@ -246,6 +248,50 @@ async function startCluster(
   return new Cluster(container, adminPool, uriFor);
 }
 
+/** Standalone cluster with a tight lock table — not the shared singleton.
+ *  Default `64 × 20` ≈ 1.3k slots, matching a small compute. */
+export async function startLockBudgetCluster(
+  options: {
+    maxLocksPerTransaction?: number;
+    maxConnections?: number;
+  } = {},
+): Promise<Cluster> {
+  const maxLocks = options.maxLocksPerTransaction ?? 64;
+  const maxConnections = options.maxConnections ?? 20;
+  const container = await new GenericContainer(PG_IMAGE)
+    .withEnvironment({
+      POSTGRES_USER: "test",
+      POSTGRES_PASSWORD: "test",
+      POSTGRES_DB: "postgres",
+    })
+    .withCommand([
+      "postgres",
+      "-c",
+      "fsync=off",
+      "-c",
+      "full_page_writes=off",
+      "-c",
+      `max_locks_per_transaction=${String(maxLocks)}`,
+      "-c",
+      `max_connections=${String(maxConnections)}`,
+      "-c",
+      "wal_level=logical",
+    ])
+    .withExposedPorts(5432)
+    .withWaitStrategy(
+      Wait.forLogMessage(/database system is ready to accept connections/, 2),
+    )
+    .start();
+  const uriFor = (db: string) =>
+    `postgres://test:test@${container.getHost()}:${container.getMappedPort(5432)}/${db}`;
+  const adminPool = new pg.Pool({
+    connectionString: uriFor("postgres"),
+    max: 3,
+  });
+  adminPool.on("error", () => {});
+  return new Cluster(container, adminPool, uriFor);
+}
+
 let shared: Promise<Cluster> | null = null;
 export async function sharedCluster(): Promise<Cluster> {
   shared ??= startCluster();
@@ -295,6 +341,12 @@ let isolatedPair: Promise<[Cluster, Cluster]> | null = null;
 export async function isolatedClusterPair(): Promise<[Cluster, Cluster]> {
   isolatedPair ??= startDistinctLineagePair();
   return isolatedPair;
+}
+
+/** Fresh stock cluster. Callers that mutate canonical role names must use this
+ *  and `stop()` it — the pair singleton is shared with other files. */
+export async function startStockCluster(): Promise<Cluster> {
+  return startCluster();
 }
 
 export async function createTestDb(prefix = "t"): Promise<TestDb> {

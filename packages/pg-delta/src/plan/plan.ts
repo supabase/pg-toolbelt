@@ -11,7 +11,12 @@ import {
 import { subjectOf, type Delta } from "../core/diff.ts";
 import type { FactBase } from "../core/fact.ts";
 import { encodeId, isSatelliteId, type StableId } from "../core/stable-id.ts";
-import { flattenPolicy, type Policy } from "../policy/policy.ts";
+import {
+  flattenPolicy,
+  uniqueAssumedDefaultGrants,
+  type AssumedDefaultGrant,
+  type Policy,
+} from "../policy/policy.ts";
 import type { ApplierCapability } from "../policy/capability.ts";
 import {
   projectionAuditFrom,
@@ -69,6 +74,7 @@ export type {
   ProjectionAuditStage,
   ProjectionAuditSubject,
 } from "../policy/view.ts";
+export type { AssumedDefaultGrant } from "../policy/policy.ts";
 
 export interface Action {
   sql: string;
@@ -243,11 +249,10 @@ export interface PlanOptions {
    *  stay as ALTERs (cycle-participating FKs, which the export routes to
    *  `.fk.sql`). */
   foldConstraints?: { exclude?: ReadonlySet<string> };
-  /** applier capability (move 6): operations the applier cannot execute (e.g.
-   *  FDW ACLs for a non-superuser) are projected out of the view. Supplied by
-   *  the resolved profile (`resolveProfile(pool, profile, { restrictToApplier:
-   *  true })`), or probe directly with `probeApplierCapability` from
-   *  `@supabase/pg-delta/integrations`. Default unrestricted. */
+  /** applier capability (move 6): operations the applier cannot execute (FDW
+   *  ACLs, PG16+ CREATEROLE self-ADMIN memberships) are projected out of the
+   *  view. Omit for an unrestricted view (bare `plan()`). Probe with
+   *  `probeApplierCapability`, or take it from `resolveProfile`. */
   capability?: ApplierCapability;
   /** the integration profile id to stamp on the plan artifact (set by the
    *  resolved profile's `planOptions`), so `apply`/`prove` can reconstruct the
@@ -268,6 +273,12 @@ export interface PlanOptions {
    *  over an already-resolved view. */
   assumedSchemas?: string[];
   assumedRoles?: string[];
+  /** Overlay tuples for create-time REVOKE / ADP wipes. Distinct from
+   *  `assumedRoles` / `assumedSchemas` (those exempt the requirement guard).
+   *  Empty/absent option still applies policy tuples (hygiene REVOKEs on
+   *  creates). ADP wipes and "REVOKE roles the source lacks" fire only when
+   *  this option is non-empty (export / fresh-baseline). */
+  assumedDefaultGrants?: AssumedDefaultGrant[];
   /** the redaction mode used to extract the source/desired fact bases, stamped
    *  onto the artifact so `apply`/`prove` reconstruct the fingerprint identically
    *  (see `Plan.redactSecrets`). Omit on direct library plans. */
@@ -655,6 +666,25 @@ export function plan(
   const flatPolicy = options?.policy
     ? flattenPolicy(options.policy)
     : undefined;
+  const assumedDefaultGrants = uniqueAssumedDefaultGrants([
+    ...(flatPolicy?.assumedDefaultGrants ?? []),
+    ...(options?.assumedDefaultGrants ?? []),
+  ]);
+  // Export (`options.assumedDefaultGrants`) always REVOKEs overlay grantees —
+  // the load dest is an auto-expose baseline. Policy-only DB-to-DB only
+  // REVOKEs roles the apply target already has: assumedRoles skip the
+  // requirement guard, and alpine/stock Postgres has no `anon`.
+  const exportOverlay = (options?.assumedDefaultGrants ?? []).length > 0;
+  const overlayHygieneGrantees = new Set<string>();
+  for (const tuple of assumedDefaultGrants) {
+    if (
+      exportOverlay ||
+      tuple.grantee === "PUBLIC" ||
+      rawSource.has({ kind: "role", name: tuple.grantee })
+    ) {
+      overlayHygieneGrantees.add(tuple.grantee);
+    }
+  }
   const policyAssumedRoleNames = new Set(flatPolicy?.assumedRoles ?? []);
   const policyDefaultOwner = flatPolicy?.defaultOwner;
   const assumedPresentIds = new Set<string>();
@@ -728,6 +758,12 @@ export function plan(
     serializeRules,
     capability: options?.capability,
     rulesForId,
+    assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
+    overlayHygieneGrantees,
+    ...(options?.defaultOwner !== undefined
+      ? { defaultOwner: options.defaultOwner }
+      : {}),
   });
 
   // ── phase 4: order, segment-mark, compact, and report ─────────────────
@@ -735,7 +771,7 @@ export function plan(
   // the two cosmetic compaction passes are the ActionGraph phase
   // (./phases/action-graph.ts → ./internal.ts building blocks). Reads only the
   // emitted actions + producer/destroyer indexes + the two RESOLVED fact bases.
-  const { actions: finalActions, safetyReport } = finalizeActions({
+  const finalized = finalizeActions({
     actions,
     producerOf,
     destroyerOf,
@@ -747,13 +783,16 @@ export function plan(
     assumedRoleNames,
     assumedSchemaNames,
     assumedPresentIds,
+    assumedDefaultGrants,
+    overlayAdpWipes: options?.assumedDefaultGrants ?? [],
     capability: options?.capability,
     compact: options?.compact !== false,
     foldConstraints: options?.foldConstraints,
     rulesForId,
   });
+  const { safetyReport } = finalized;
 
-  const vaultDiags = vaultPresenceDiagnostics(desired, finalActions);
+  const vaultDiags = vaultPresenceDiagnostics(desired, finalized.actions);
 
   return stampPlanId({
     formatVersion: 1,
@@ -775,7 +814,7 @@ export function plan(
       // cosmetic compaction pass (./preamble.ts); compact:false restores the
       // unconditional preamble as the conservative opt-out.
       ...(options?.compact === false ||
-      needsCheckFunctionBodiesOff(finalActions)
+      needsCheckFunctionBodiesOff(finalized.actions)
         ? [{ name: "check_function_bodies", value: "off" }]
         : []),
     ],
@@ -812,7 +851,7 @@ export function plan(
           })),
         }
       : {}),
-    actions: finalActions,
+    actions: finalized.actions,
     safetyReport,
     // CREATE/DROP EXTENSION supabase_vault is generic; the warning is that
     // secret values/keys are not schema state. Omitted when empty so corpus

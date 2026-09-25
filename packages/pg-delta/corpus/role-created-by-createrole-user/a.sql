@@ -1,0 +1,3 @@
+-- state A: no user roles. On PG16+ this scenario applies as a CREATEROLE
+-- non-superuser; CREATE ROLE on B records an implicit bootstrap ADMIN grant
+-- that must not be planned back onto A.

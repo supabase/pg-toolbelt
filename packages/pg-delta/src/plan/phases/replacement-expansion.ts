@@ -87,6 +87,35 @@ export function expandReplacements(
     }
   }
 
+  const isRemovedId = (id: StableId): boolean => {
+    const key = encodeId(id);
+    return removed.has(key) || replaceIds.has(key);
+  };
+
+  // Surviving facts whose DROP folds into a destroyed ancestor
+  // (`dropRootRedirect`) must rebuild: that DROP still cascades them even
+  // when their payload is unchanged. Walk to a fixed point so a leaf
+  // attached through a middle parent is included regardless of fact order.
+  {
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const fact of source.facts()) {
+        if (!desired.has(fact.id)) continue;
+        const key = encodeId(fact.id);
+        if (replaceIds.has(key) || removed.has(key)) continue;
+        if (
+          rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId) ===
+          undefined
+        ) {
+          continue;
+        }
+        replaceIds.add(key);
+        grew = true;
+      }
+    }
+  }
+
   // ── forced dependent rebuild (the clean expand-replace, §3.4) ─────────
   // A surviving dependent of something this plan destroys must be dropped and
   // recreated from the desired state — recursively. Which kinds are rebuildable
@@ -107,6 +136,19 @@ export function expandReplacements(
     const worklist = [...targets];
     while (worklist.length > 0) {
       const toKey = worklist.pop() as string;
+      // Scan childrenOf as well as incoming `depends`. Views/policies often
+      // depend on columns, not the table; partitions hang off the schema and
+      // are found via inherit `depends` on the parent table itself. Children
+      // stay scan-only here — ancestor trim + subtree recreate own them.
+      const toFact = source.getByEncoded(toKey);
+      if (toFact !== undefined && fullDestroy.has(toKey)) {
+        for (const child of source.childrenOf(toFact.id)) {
+          const childKey = encodeId(child.id);
+          if (targets.has(childKey)) continue;
+          targets.add(childKey);
+          worklist.push(childKey);
+        }
+      }
       for (const edge of source.incomingEdgesByEncoded(toKey)) {
         const fromKey = encodeId(edge.from);
         if (targets.has(fromKey)) continue;
@@ -169,10 +211,6 @@ export function expandReplacements(
   // constraint drops are NEVER suppressed: an explicit DROP CONSTRAINT before
   // the table drops makes mutual-FK teardown cycles unconstructible
   // (decomposition over repair, §3.5).
-  const isRemovedId = (id: StableId): boolean => {
-    const key = encodeId(id);
-    return removed.has(key) || replaceIds.has(key);
-  };
   const dropRootOf = new Map<string, string>();
   const findDropRoot = (fact: Fact): string => {
     const key = encodeId(fact.id);
@@ -200,8 +238,16 @@ export function expandReplacements(
   for (const fact of removed.values()) findDropRoot(fact);
 
   // a fact whose drop folds into a NON-parent ancestor (an OWNED BY sequence
-  // into its owning column/table) — declared per-kind via dropRootRedirect.
-  for (const fact of removed.values()) {
+  // into its owning column/table, an attached child index into its parent
+  // index) — declared per-kind via dropRootRedirect. Replaced facts are not
+  // in `removed`; without this pass their DROP is emitted next to the parent
+  // replace and PostgreSQL rejects `DROP INDEX` on an attached child.
+  const redirectFacts: Fact[] = [...removed.values()];
+  for (const key of replaceIds) {
+    const fact = source.getByEncoded(key);
+    if (fact !== undefined) redirectFacts.push(fact);
+  }
+  for (const fact of redirectFacts) {
     const redirect = rulesForId(fact.id).dropRootRedirect?.(fact, isRemovedId);
     if (redirect === undefined) continue;
     const redirectKey = encodeId(redirect);

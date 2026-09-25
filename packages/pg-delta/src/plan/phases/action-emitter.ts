@@ -15,11 +15,16 @@ import {
   canSetOwner,
   type ApplierCapability,
 } from "../../policy/capability.ts";
-import { factMatches, type SerializeRule } from "../../policy/policy.ts";
+import {
+  factMatches,
+  isOverlayDefaultPrivilege,
+  type AssumedDefaultGrant,
+  type SerializeRule,
+} from "../../policy/policy.ts";
 import { extensionMemberClosure } from "../../policy/view.ts";
 import { lockClassFor } from "../locks.ts";
 import type { Action } from "../plan.ts";
-import { grantTarget, qid } from "../render.ts";
+import { qid } from "../render.ts";
 import { subtreeIds } from "../renames.ts";
 import { cascadesToChildren, ruleFlag } from "../rule-flags.ts";
 import {
@@ -28,6 +33,10 @@ import {
   type PlanParams,
   type RulesForId,
 } from "../rules.ts";
+import {
+  defaultPrivilegeCreateActions,
+  renderRevokeAllSql,
+} from "../rules/helpers.ts";
 import type { AcceptedRename } from "./change-set.ts";
 
 export interface ActionEmitterInput {
@@ -52,6 +61,21 @@ export interface ActionEmitterInput {
   /** id-keyed rule resolver (schema kinds via the static RULES table,
    *  `extensionIntent` via the profile's intent rules) */
   rulesForId: RulesForId;
+  /** Load-environment default grants to wipe on CREATE when the desired ACL
+   *  has no matching fact. Empty → projected-ADP hygiene only. */
+  assumedDefaultGrants: readonly AssumedDefaultGrant[];
+  /** Overlay tuples forwarded via `plan({ assumedDefaultGrants })` (export).
+   *  Policy-only overlay still drives hygiene; it must not inject ADP wipes
+   *  into DB-to-DB plans whose source already is the live target. */
+  overlayAdpWipes: readonly AssumedDefaultGrant[];
+  /** Overlay grantees whose create-time REVOKE is legal on this apply target.
+   *  Export fills every overlay grantee; policy-only only those present as
+   *  role facts on the raw source extract. */
+  overlayHygieneGrantees: ReadonlySet<string>;
+  /** Implicit owner after database-scope projection prunes that edge.
+   *  Projected-ADP hygiene matches `defaultPrivilege.role` against this when
+   *  the object has no owner edge. */
+  defaultOwner?: string;
 }
 
 export interface ActionEmitterOutput {
@@ -83,6 +107,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     serializeRules,
     capability,
     rulesForId,
+    assumedDefaultGrants,
+    overlayAdpWipes,
+    overlayHygieneGrantees,
+    defaultOwner,
   } = input;
 
   const actions: Action[] = [];
@@ -148,13 +176,46 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     return merged;
   };
 
-  const emitCreate = (fact: Fact, base: FactBase): void => {
-    const specs = rulesForId(fact.id).create(
-      fact,
-      base,
-      paramsFor(fact),
-      source,
+  const isRemovedId = (id: StableId): boolean =>
+    removed.has(encodeId(id)) || replaceIds.has(encodeId(id));
+
+  // Invert dropRootRedirect once. A per-DROP scan of dropRootOf is
+  // O(roots × |facts|); a large remove would re-walk the same map on every
+  // DROP. Direct match only — walking dropRootOf would list attached child
+  // indexes on DROP TABLE when their parent index folded into the table
+  // (inherit vs child-teardown cycle).
+  const redirectedOntoByRoot = new Map<string, StableId[]>();
+  for (const foldedKey of dropRootOf.keys()) {
+    const folded = source.getByEncoded(foldedKey);
+    if (folded === undefined) continue;
+    const redirect = rulesForId(folded.id).dropRootRedirect?.(
+      folded,
+      isRemovedId,
     );
+    if (redirect === undefined) continue;
+    const rootKey = encodeId(redirect);
+    const list = redirectedOntoByRoot.get(rootKey);
+    if (list === undefined) redirectedOntoByRoot.set(rootKey, [folded.id]);
+    else list.push(folded.id);
+  }
+  const redirectedOnto = (rootKey: string): readonly StableId[] =>
+    redirectedOntoByRoot.get(rootKey) ?? [];
+
+  const emitCreate = (fact: Fact, base: FactBase): void => {
+    let specs = rulesForId(fact.id).create(fact, base, paramsFor(fact), source);
+    // Overlay dest may hold a SUPERSET of this ADP. GRANT is additive — wipe first.
+    if (
+      ((fact.payload["privileges"] as string[] | undefined) ?? []).length > 0 &&
+      isOverlayDefaultPrivilege(overlayAdpWipes, fact.id)
+    ) {
+      specs = [
+        ...defaultPrivilegeCreateActions({
+          id: fact.id,
+          payload: { privileges: [], grantable: [] },
+        }),
+        ...specs,
+      ];
+    }
     specs.forEach((spec, i) => {
       pushAction("create", spec, {
         produces: i === 0 ? [fact.id] : [],
@@ -234,7 +295,8 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // action, which the graph's child-teardown rule orders before the parent's
     // drop. Without this the bare DROP SERVER fails on its surviving dependents.
     const emitReplaceDrop = (rootFact: Fact): void => {
-      const destroys: StableId[] = [rootFact.id];
+      const rootKey = encodeId(rootFact.id);
+      const destroys: StableId[] = [rootFact.id, ...redirectedOnto(rootKey)];
       const walk = (fact: Fact): void => {
         for (const child of source.childrenOf(fact.id)) {
           if (cascadesToChildren(fact.id.kind)) {
@@ -257,7 +319,12 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         destroys,
       });
     };
-    emitReplaceDrop(oldFact);
+    // Attached child indexes fold into the parent-index replace via
+    // dropRootRedirect. Skip this DROP (PG cascades it); still CREATE.
+    const foldedInto = dropRootOf.get(key);
+    if (foldedInto === undefined || foldedInto === key) {
+      emitReplaceDrop(oldFact);
+    }
     emitCreate(newFact, projectedDesired);
     // recreate surviving descendants from the PROJECTED plan target (satellites,
     // sub-facts). Descendants with their own attribute deltas are covered: the
@@ -303,6 +370,32 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
         }
       }
     }
+  }
+
+  // Overlay ADP wipes: export-only. The load dest can inject defaults the
+  // pristine source never had; DB-to-DB source already is the live target.
+  for (const tuple of overlayAdpWipes) {
+    if (tuple.schema != null) {
+      const schemaId: StableId = { kind: "schema", name: tuple.schema };
+      if (!projectedDesired.has(schemaId) && !source.has(schemaId)) continue;
+    }
+    const id: StableId = {
+      kind: "defaultPrivilege",
+      role: tuple.creatingRole,
+      schema: tuple.schema,
+      objtype: tuple.objtype,
+      grantee: tuple.grantee,
+    };
+    if (projectedDesired.has(id) || source.has(id)) continue;
+    if (producerOf.has(encodeId(id))) continue;
+    const fact: Fact = {
+      id,
+      payload: { privileges: [], grantable: [] },
+      ...(tuple.schema != null
+        ? { parent: { kind: "schema" as const, name: tuple.schema } }
+        : {}),
+    };
+    emitCreate(fact, projectedDesired);
   }
 
   // creates — parents first, so a parent's delta-set inlining (e.g. a
@@ -351,10 +444,10 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
   // default-privilege hygiene: objects created under active default ACLs receive
   // implicit grants; revoke them when the desired state has no corresponding acl
   // fact (pg_dump-style clean slate). EMISSION reads the PROJECTED plan target,
-  // not full `desired` (review P1 #3): a policy can filter the default-privilege
-  // add AND its grantee role, and the hygiene REVOKE must not surface a
-  // filtered-away role (which would then fail the planner's own
-  // missing-requirement check). Mirrors the create/alter seam.
+  // not full `desired`: a policy can filter the default-privilege add AND its
+  // grantee role. Overlay hygiene is separately gated (`overlayHygieneGrantees`)
+  // so assumed overlay roles skip the requirement guard without failing apply
+  // on dests that never had them. Mirrors the create/alter seam.
   //
   // Hygiene covers every fact this plan CREATES on the target: added facts AND
   // replaced facts (drop + recreate) with their replace-recreated descendants —
@@ -377,7 +470,9 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // a created object whose fact is absent from the projected target (its add
     // was effectively reverted) has no hygiene to do
     if (!projectedDesired.has(fact.id)) continue;
-    // owner is now an edge, not a payload field (move 2)
+    // owner is now an edge, not a payload field (move 2). Database-scope
+    // export/apply prunes the edge to the implicit default owner; match ADP
+    // creating-role against that name so hygiene still fires.
     const ownerEdge = projectedDesired
       .outgoingEdges(fact.id)
       .find((e) => e.kind === "owner");
@@ -385,39 +480,52 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
       ownerEdge?.to.kind === "role"
         ? (ownerEdge.to as { kind: "role"; name: string }).name
         : undefined;
-    if (typeof owner !== "string") continue;
+    const creatingRole = owner ?? defaultOwner;
     const schema = (fact.id as { schema?: string }).schema ?? null;
-    for (const dp of projectedDesired.facts()) {
-      if (dp.id.kind !== "defaultPrivilege") continue;
-      const dpid = dp.id as {
-        role: string;
-        schema: string | null;
-        objtype: string;
-        grantee: string;
-      };
-      if (dpid.role !== owner || dpid.objtype !== objtype) continue;
-      if (dpid.schema != null && dpid.schema !== schema) continue;
-      if (dpid.grantee === owner) continue; // the owner's implicit entry IS the default
+    const revoked = new Set<string>();
+    const emitHygieneRevoke = (grantee: string): void => {
+      if (typeof creatingRole === "string" && grantee === creatingRole) return;
+      if (revoked.has(grantee)) return;
       const aclId: StableId = {
         kind: "acl",
         target: fact.id,
-        grantee: dpid.grantee,
+        grantee,
       };
-      // an explicit acl in the PROJECTED target recreates the grant with a
-      // REVOKE-first, so hygiene would be redundant (and a filtered acl is
-      // correctly absent here → hygiene still fires)
-      if (projectedDesired.has(aclId)) continue;
+      if (projectedDesired.has(aclId)) return;
+      revoked.add(grantee);
       pushAction(
         "alter",
         {
-          sql: `REVOKE ALL ON ${grantTarget(fact.id)} FROM ${dpid.grantee === "PUBLIC" ? "PUBLIC" : qid(dpid.grantee)}`,
+          sql: renderRevokeAllSql(fact.id, [grantee]),
           consumes:
-            dpid.grantee === "PUBLIC"
+            grantee === "PUBLIC"
               ? []
-              : [{ kind: "role", name: dpid.grantee } as StableId],
+              : [{ kind: "role", name: grantee } as StableId],
         },
         { consumes: [fact.id] },
       );
+    };
+    if (typeof creatingRole === "string") {
+      for (const dp of projectedDesired.facts()) {
+        if (dp.id.kind !== "defaultPrivilege") continue;
+        const dpid = dp.id as {
+          role: string;
+          schema: string | null;
+          objtype: string;
+          grantee: string;
+        };
+        if (dpid.role !== creatingRole || dpid.objtype !== objtype) continue;
+        if (dpid.schema != null && dpid.schema !== schema) continue;
+        emitHygieneRevoke(dpid.grantee);
+      }
+    }
+    // Object CREATE is applier-scoped: the tuple's creatingRole names who would
+    // inject ADP, not the object's owner. Match objtype + schema + grantee.
+    for (const tuple of assumedDefaultGrants) {
+      if (tuple.objtype !== objtype) continue;
+      if (tuple.schema != null && tuple.schema !== schema) continue;
+      if (!overlayHygieneGrantees.has(tuple.grantee)) continue;
+      emitHygieneRevoke(tuple.grantee);
     }
   }
 
@@ -435,11 +543,24 @@ export function emitActions(input: ActionEmitterInput): ActionEmitterOutput {
     // pass the resolved SOURCE view so a drop rule can read the fact's context
     // (e.g. DROP EXTENSION derives data-loss from its members' edges).
     const spec = rulesForId(fact.id).drop(fact, source);
-    const destroyList = destroysByRoot.get(key) ?? [fact.id];
+    const seen = new Set<string>([key]);
+    const destroyList: StableId[] = [fact.id];
+    // `destroysByRoot` is removed-only. A replaced attached child is not in
+    // `removed`; DROP INDEX on the old parent still cascades it, so CREATE
+    // must wait on this drop.
+    for (const id of [
+      ...(destroysByRoot.get(key) ?? []),
+      ...redirectedOnto(key),
+    ]) {
+      const idKey = encodeId(id);
+      if (seen.has(idKey)) continue;
+      seen.add(idKey);
+      destroyList.push(id);
+    }
     pushAction("drop", spec, {
       consumes: fact.parent !== undefined ? [fact.parent] : [],
       // the root fact leads: it is the action's subject (tie-break, locks)
-      destroys: [fact.id, ...destroyList.filter((id) => encodeId(id) !== key)],
+      destroys: destroyList,
     });
   }
 

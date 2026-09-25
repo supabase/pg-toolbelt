@@ -59,7 +59,13 @@ you WILL see against old-engine output:
 4. `ALTER TYPE … ADD VALUE` plans may apply across MORE THAN ONE
    transaction (a commit boundary is placed before the first consumer
    of the new value). Mid-plan failure reporting tells you exactly
-   which actions are applied/unapplied/in doubt.
+   which actions are applied/unapplied/in doubt. A large **baseline**
+   (empty target, thousands of creates) can also opt into extra commit
+   boundaries via `splitPlan({ maxLocks })` / `--max-locks` /
+   `--split-to-fit` so each segment tries to stay inside the target's
+   lock-table budget. Off by default: concurrent readers would see
+   mid-plan state. Without a split, Postgres may still die mid-DDL
+   with `out of shared memory`.
 5. Plans never contain `SET check_function_bodies` statements — session
    settings ride in `plan.preamble`. The `check_function_bodies = off`
    entry appears there only when the plan touches a routine-family

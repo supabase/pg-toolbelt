@@ -62,6 +62,9 @@ export const publicationRules: Record<string, KindRules> = {
   // publication the member is inlined into CREATE PUBLICATION (see above).
   publicationRel: {
     weight: 18,
+    // DROP TABLE silently removes pg_publication_rel. A surviving publication
+    // must re-ADD membership after a table replace.
+    rebuildable: true,
     create: (fact) => {
       const id = fact.id as {
         publication: string;

@@ -24,6 +24,19 @@ function mockPool(opts: {
   return {
     // biome-ignore lint: minimal pg.Pool stand-in for unit tests
     query: async (sql: string) => {
+      if (sql.includes("current_user")) {
+        return {
+          rows: [
+            {
+              role: "applier",
+              is_superuser: opts.superuser ?? false,
+              create_role: false,
+              pg_major: Math.floor((opts.versionNum ?? 170004) / 10000),
+              member_of: opts.memberOf ?? [],
+            },
+          ],
+        };
+      }
       if (sql.includes("server_version_num")) {
         return { rows: [{ v: opts.versionNum ?? 170004 }] };
       }
@@ -41,11 +54,12 @@ function mockPool(opts: {
 }
 
 describe("resolveProfile", () => {
-  test("rawProfile composes an unrestricted, policy-free view", async () => {
+  test("rawProfile composes a policy-free view; capability is probed by default", async () => {
     const ctx = await resolveProfile(mockPool({}), rawProfile);
     expect(ctx.id).toBe("raw");
     expect(ctx.planOptions.policy).toBeUndefined();
-    expect(ctx.planOptions.capability).toBeUndefined();
+    expect(ctx.planOptions.capability).toBeDefined();
+    expect(ctx.planOptions.capability?.isSuperuser).toBe(false);
     expect(ctx.planOptions.baseline).toBeUndefined();
     expect(ctx.handlers.map((h) => h.extension)).toEqual(["supabase_vault"]);
     expect(typeof ctx.proveOptions.reextract).toBe("function");
@@ -72,22 +86,30 @@ describe("resolveProfile", () => {
     expect(raw.planOptions.profile).toEqual({ id: "raw" });
   });
 
-  test("restrictToApplier probes capability and threads it consistently", async () => {
+  test("omitted restrictToApplier probes capability and threads it consistently", async () => {
     const ctx = await resolveProfile(
       mockPool({ superuser: false }),
       supabaseProfile,
-      {
-        restrictToApplier: true,
-      },
     );
     expect(ctx.planOptions.capability).toBeDefined();
     expect(ctx.planOptions.capability?.isSuperuser).toBe(false);
-    // the SAME capability object is shared with the proof bundle (plan == prove)
     expect(ctx.proveOptions.capability).toBe(ctx.planOptions.capability);
   });
 
-  test("without restrictToApplier, capability stays unrestricted (no probe)", async () => {
-    const ctx = await resolveProfile(mockPool({}), supabaseProfile);
+  test("restrictToApplier: true is the same explicit probe", async () => {
+    const ctx = await resolveProfile(
+      mockPool({ superuser: false }),
+      supabaseProfile,
+      { restrictToApplier: true },
+    );
+    expect(ctx.planOptions.capability).toBeDefined();
+    expect(ctx.proveOptions.capability).toBe(ctx.planOptions.capability);
+  });
+
+  test("restrictToApplier: false leaves the managed view unrestricted", async () => {
+    const ctx = await resolveProfile(mockPool({}), supabaseProfile, {
+      restrictToApplier: false,
+    });
     expect(ctx.planOptions.capability).toBeUndefined();
     expect(ctx.proveOptions.capability).toBeUndefined();
   });
