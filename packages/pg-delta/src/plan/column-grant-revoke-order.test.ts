@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { buildFactBase, type Fact } from "../core/fact.ts";
 import type { Payload } from "../core/hash.ts";
 import { encodeId, type StableId } from "../core/stable-id.ts";
+import type { Policy } from "../policy/policy.ts";
 import { plan } from "./plan.ts";
 
 const schemaApp: StableId = { kind: "schema", name: "app" };
@@ -345,5 +346,39 @@ describe("column grants survive a same-grantee object-level REVOKE", () => {
       OBJ_REVOKE_T,
       `GRANT INSERT, SELECT ON TABLE "app"."t" TO "r"`,
     ]);
+  });
+
+  test("a policy-kept column grant is re-granted after a same-grantee object-level REVOKE", () => {
+    // the policy keeps the source column grant (its removal is excluded), so it
+    // is part of the projected target and must survive the object-level wipe
+    const policy: Policy = {
+      id: "keep-column-grants",
+      filter: [
+        {
+          match: {
+            all: [
+              { verb: "remove" },
+              { kind: "acl" },
+              { parentKind: "column" },
+            ],
+          },
+          action: "exclude",
+        },
+      ],
+    };
+    const source = buildFactBase(
+      [
+        ...base,
+        grant(tableT, "r", ["SELECT"], tableT),
+        grant(tableT, "r", ["UPDATE"], colName, "name"),
+      ],
+      [],
+    );
+    const desired = buildFactBase(
+      [...base, grant(tableT, "r", ["INSERT", "SELECT"], tableT)],
+      [],
+    );
+    const list = sqls(plan(source, desired, { policy }));
+    expectAfter(list, OBJ_REVOKE_T, COL_GRANT_T);
   });
 });
