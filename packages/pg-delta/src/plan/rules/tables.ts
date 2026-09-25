@@ -1,7 +1,7 @@
 /** Rule definitions for tables and their column / default sub-objects. */
 import { encodeId, type StableId } from "../../core/stable-id.ts";
 import { qid, rel } from "../render.ts";
-import type { ActionSpec, KindRules } from "../rules.ts";
+import type { ActionSpec, FactView, KindRules } from "../rules.ts";
 import {
   columnClause,
   columnRef,
@@ -293,18 +293,20 @@ export const tableRules: Record<string, KindRules> = {
           // dropped in extract), so a plain widening leaves both sets empty.
           const consumes = dependencyConsumes(view, fact.id);
           const releases = dependencyConsumes(sourceView, fact.id);
-          // PostgreSQL has no enum-to-enum cast (42846), so a column leaving an
-          // enum hops through text — element-wise `text[]` for an array column
-          // (format_type renders arrays with a trailing `[]`). The released
-          // edge resolves an array column to its element enum.
-          const fromEnum = releases.some(
-            (id) => sourceView.get(id)?.payload["variant"] === "enum",
-          );
-          const hop = fromEnum
-            ? str(from).endsWith("[]")
-              ? "::text[]"
-              : "::text"
-            : "";
+          // PostgreSQL has no enum-to-enum cast (42846), so an enum-to-enum
+          // retype hops through text — element-wise `text[]` for an array
+          // column (format_type renders arrays with a trailing `[]`). Only
+          // enum-to-enum: any other target keeps the direct cast so a
+          // user-defined cast (e.g. enum AS integer) still applies. The type
+          // edges resolve an array column to its element enum.
+          const isEnum = (v: FactView, ids: StableId[]) =>
+            ids.some((id) => v.get(id)?.payload["variant"] === "enum");
+          const hop =
+            isEnum(sourceView, releases) && isEnum(view, consumes)
+              ? str(from).endsWith("[]")
+                ? "::text[]"
+                : "::text"
+              : "";
           // A generated column also rejects the USING clause ("cannot specify
           // USING when altering type of generated column") — PostgreSQL
           // recomputes the value from the generation expression. That still
