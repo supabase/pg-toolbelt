@@ -38,6 +38,8 @@ export interface ApplierCapability {
 export const CAPABILITY_FDW_ACL = "capability.fdw-acl";
 export const CAPABILITY_CREATEROLE_SELF_ADMIN =
   "capability.createrole-self-admin";
+/** Plan diagnostic: an `ALTER … OWNER TO` the applier cannot run. */
+export const CAPABILITY_OWNER = "capability.owner";
 
 /** Probe the applier's capability from a live connection. */
 export async function probeApplierCapability(
