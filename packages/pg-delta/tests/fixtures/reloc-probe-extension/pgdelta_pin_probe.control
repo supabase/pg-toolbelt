@@ -1,0 +1,4 @@
+comment = 'pg-delta test: control file pins the install schema'
+default_version = '1.0'
+relocatable = false
+schema = 'pgdelta_pin'

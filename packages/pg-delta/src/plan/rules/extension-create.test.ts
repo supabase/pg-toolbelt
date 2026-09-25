@@ -5,7 +5,9 @@
  * managed, non-reference-only desired schema). Otherwise the extension creates
  * its own schema from its control file (pgmq), so the clause would fail against
  * a not-yet-existing schema — emit the bare form. Built-in schemas (pg_catalog,
- * pg_cron's target) are never extracted, so they also fall to bare.
+ * pg_cron's target) are never extracted, so they also fall to bare. A schema
+ * the control file pins is always bare (Postgres finds or creates it), keeping
+ * the ordering edge when the schema is present or planned.
  *
  * This is a PLAN-TIME property. `relocatable` / `_schemaIsMember` cannot express
  * it: the `deptype='e'` schema→extension edge never exists (Postgres does not
@@ -109,5 +111,56 @@ describe("CREATE EXTENSION schema clause (presence-based)", () => {
         EMPTY,
       ),
     ).toBe(`CREATE EXTENSION "x"`);
+  });
+});
+
+describe("CREATE EXTENSION schema clause (control-file-pinned schema)", () => {
+  const pinned = (schema: string, controlSchema: string): Payload => ({
+    schema,
+    _relocatable: false,
+    _controlSchema: controlSchema,
+  });
+  const create = (payload: Payload, sourceView: FactView, desired: FactView) =>
+    schemaRules.extension!.create(
+      { id: { kind: "extension", name: "x" }, payload },
+      desired,
+      undefined,
+      sourceView,
+    )[0]!;
+
+  test("schema only assumed on the target (export seed) → bare", () => {
+    // Export seeds reference-only schemas into its pristine source, so `pgmq`
+    // looks present although a fresh Supabase database does not have it.
+    const action = create(
+      pinned("pgmq", "pgmq"),
+      view([sch("pgmq")], [sch("pgmq")]),
+      view([sch("pgmq")], [sch("pgmq")]),
+    );
+    expect(action.sql).toBe(`CREATE EXTENSION "x"`);
+    expect(action.consumes).toEqual([sch("pgmq")]);
+  });
+
+  test("target lacks the schema but the desired view shows it unmarked → bare", () => {
+    // The planner's projected desired view drops reference-only marks once any
+    // delta is policy-filtered, so a platform-assumed `pgmq` can look managed.
+    expect(create(pinned("pgmq", "pgmq"), EMPTY, view([sch("pgmq")])).sql).toBe(
+      `CREATE EXTENSION "x"`,
+    );
+  });
+
+  test("schema created by this plan → bare, still ordered after CREATE SCHEMA", () => {
+    const action = create(pinned("app", "app"), EMPTY, view([sch("app")]));
+    expect(action.sql).toBe(`CREATE EXTENSION "x"`);
+    expect(action.consumes).toEqual([sch("app")]);
+  });
+
+  test("control file pinning a different schema → presence logic", () => {
+    expect(
+      createSql(
+        pinned("extensions", "other"),
+        view([sch("extensions")], [sch("extensions")]),
+        view([sch("extensions")], [sch("extensions")]),
+      ),
+    ).toBe(`CREATE EXTENSION "x" SCHEMA "extensions"`);
   });
 });

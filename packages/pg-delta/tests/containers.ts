@@ -620,7 +620,9 @@ export async function seclabelCluster(): Promise<Cluster> {
  * IDENTICAL object, so two databases holding the two versions differ in
  * nothing but pg_extension.extversion/extrelocatable. The fixture directory
  * (tests/fixtures/reloc-probe-extension) is copied at container start into
- * the image's sharedir — no image build or compilation needed. Used by
+ * the image's sharedir — no image build or compilation needed. The same
+ * directory carries `pgdelta_pin_probe` (control file pins its schema) and
+ * `pgdelta_pin_skew_probe` (only the non-default version pins it). Used by
  * tests/extension-relocatable.test.ts.
  */
 let relocProbeShared: Promise<Cluster> | null = null;

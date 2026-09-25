@@ -93,6 +93,12 @@ describe("relocatable is version-derived metadata, never a diffable attribute", 
     );
   });
 
+  test("the control-file-pinned schema is metadata too: it never changes the hash", () => {
+    expect(contentHash(extensionPayload("pgmq", false, "pgmq"))).toBe(
+      contentHash(extensionPayload("pgmq", false)),
+    );
+  });
+
   test("a schema move of a NON-relocatable extension still routes to replace", () => {
     // guards the plan-time read the flag exists for: replaceWhen must keep
     // seeing it after it leaves the diffable surface.
