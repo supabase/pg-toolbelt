@@ -1798,3 +1798,11 @@ Deferred:
   `variant`), so a retype to another enum still emits the direct cast and
   fails with 42846. Resolving it needs the domain's base type or the
   member's variant at plan time.
+- **User-defined enum → enum cast (PR #490 Codex, round 2).** The text
+  hop applies to every enum → enum retype, so an explicit
+  `CREATE CAST (a_enum AS b_enum)` is bypassed. Casts are unmodeled
+  (`extract/unmodeled.ts` reports them; no fact reaches the planner), so
+  honouring one needs cast facts in the plan-time view. Deferred: before
+  #490 every enum → enum retype without such a cast failed outright, and
+  the case needs a hand-written cross-enum cast. Enum → non-enum already
+  keeps the direct cast.
