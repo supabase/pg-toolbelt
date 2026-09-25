@@ -1787,3 +1787,25 @@ Deferred from the same review (not blocking):
   Supabase auto-expose injectee. Keep the revoke for overlay matches only if
   we start modeling grant options on the tuples.
 
+
+## SUPABASE-API-8S4 — objects dropped mid-extraction
+
+Extraction now retries on a fresh snapshot when concurrent DDL drops an
+object after the snapshot was taken: on XX000 `cache lookup failed …` /
+`could not open relation with OID …`, and on a NULL result from the required
+`def` deparsers (constraint, index, view, trigger, rule, routine, domain
+constraint). After 3 attempts it throws `ConcurrentCatalogChangeError`.
+
+Deferred (not blocking):
+
+- **Optional expressions still NULL silently.** `pg_get_expr` returns NULL
+  (PG 17 probe) for a relation dropped after the snapshot, and the column
+  default (`relations.ts` `default_expr`), partition bound / key, policy
+  `USING` / `WITH CHECK`, and publication `WHERE` sites treat NULL as "absent".
+  The stale fact describes a relation that no longer exists, so the effect is
+  limited to a result that is already out of date. Closing it needs each query
+  to select whether the source expression exists (e.g. `ad.adbin IS NOT NULL`)
+  so a NULL deparse can be told apart from a real absence and retried.
+- **Non-transient `cache lookup failed`.** A corrupt catalog or a buggy
+  extension deparser raises the same XX000 text; it now costs 3 attempts and
+  ends in `ConcurrentCatalogChangeError` with the original error as `cause`.
