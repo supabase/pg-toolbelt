@@ -209,6 +209,16 @@ describe("ApplierCapability — owner residue (follow-up 1)", () => {
     );
   });
 
+  test("stripping the owner warning invalidates the planId", async () => {
+    const { diagnostics: _dropped, ...stripped } = plan(
+      source(r2),
+      desiredOwnedBy(r2),
+      { capability: memberOfR1 },
+    );
+    const err = await apply(stripped, untouchablePool).catch((e: unknown) => e);
+    expect(String(err)).toMatch(/apply: planId does not match contents/);
+  });
+
   test("no warning when the owner is a role the applier is a member of", () => {
     const thePlan = plan(source(r1), desiredOwnedBy(r1), {
       capability: memberOfR1,
